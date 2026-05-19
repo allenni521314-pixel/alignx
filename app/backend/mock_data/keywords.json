@@ -1,0 +1,98 @@
+[
+    {
+        "user_id": "demo-user",
+        "keyword": "stainless steel water bottle",
+        "match_type": "exact",
+        "search_volume": 135000,
+        "bid": 1.85,
+        "suggested_bid": 2.1,
+        "acos": 18.5,
+        "conversions": 342,
+        "relevance_score": 95.2,
+        "campaign_id": 1
+    },
+    {
+        "user_id": "demo-user",
+        "keyword": "insulated water bottle 32oz",
+        "match_type": "phrase",
+        "search_volume": 89000,
+        "bid": 1.45,
+        "suggested_bid": 1.75,
+        "acos": 22.1,
+        "conversions": 198,
+        "relevance_score": 88.7,
+        "campaign_id": 1
+    },
+    {
+        "user_id": "demo-user",
+        "keyword": "bamboo cutting board",
+        "match_type": "exact",
+        "search_volume": 74000,
+        "bid": 1.2,
+        "suggested_bid": 0.85,
+        "acos": 38.5,
+        "conversions": 87,
+        "relevance_score": 72.3,
+        "campaign_id": 2
+    },
+    {
+        "user_id": "demo-user",
+        "keyword": "led desk lamp wireless charger",
+        "match_type": "exact",
+        "search_volume": 52000,
+        "bid": 2.3,
+        "suggested_bid": 2.5,
+        "acos": 15.2,
+        "conversions": 456,
+        "relevance_score": 97.1,
+        "campaign_id": 3
+    },
+    {
+        "user_id": "demo-user",
+        "keyword": "desk lamp with usb charging",
+        "match_type": "broad",
+        "search_volume": 41000,
+        "bid": 1.9,
+        "suggested_bid": 2.15,
+        "acos": 19.8,
+        "conversions": 312,
+        "relevance_score": 91.5,
+        "campaign_id": 3
+    },
+    {
+        "user_id": "demo-user",
+        "keyword": "yoga mat thick non slip",
+        "match_type": "exact",
+        "search_volume": 98000,
+        "bid": 0.95,
+        "suggested_bid": 0.65,
+        "acos": 52.3,
+        "conversions": 45,
+        "relevance_score": 58.4,
+        "campaign_id": 4
+    },
+    {
+        "user_id": "demo-user",
+        "keyword": "noise cancelling headphones bluetooth",
+        "match_type": "exact",
+        "search_volume": 210000,
+        "bid": 2.8,
+        "suggested_bid": 3.1,
+        "acos": 17.8,
+        "conversions": 523,
+        "relevance_score": 94.8,
+        "campaign_id": 5
+    },
+    {
+        "user_id": "demo-user",
+        "keyword": "wireless headphones long battery",
+        "match_type": "phrase",
+        "search_volume": 67000,
+        "bid": 2.1,
+        "suggested_bid": 2.35,
+        "acos": 21.5,
+        "conversions": 267,
+        "relevance_score": 86.9,
+        "campaign_id": 5
+    }
+]

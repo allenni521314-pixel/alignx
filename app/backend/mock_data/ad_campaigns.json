@@ -1,0 +1,72 @@
+[
+    {
+        "user_id": "demo-user",
+        "campaign_name": "Water Bottle - Brand SP",
+        "campaign_type": "SP",
+        "daily_budget": 150.0,
+        "spend": 3240.5,
+        "sales": 15680.2,
+        "acos": 20.7,
+        "impressions": 245000,
+        "clicks": 4890,
+        "ctr": 2.0,
+        "status": "active",
+        "created_at": "2026-02-01 10:00:00"
+    },
+    {
+        "user_id": "demo-user",
+        "campaign_name": "Kitchen Essentials - Auto SP",
+        "campaign_type": "SP",
+        "daily_budget": 80.0,
+        "spend": 1890.3,
+        "sales": 5670.9,
+        "acos": 33.3,
+        "impressions": 156000,
+        "clicks": 2340,
+        "ctr": 1.5,
+        "status": "active",
+        "created_at": "2026-02-05 11:00:00"
+    },
+    {
+        "user_id": "demo-user",
+        "campaign_name": "LED Lamp - Sponsored Brand",
+        "campaign_type": "SB",
+        "daily_budget": 200.0,
+        "spend": 4560.8,
+        "sales": 22340.5,
+        "acos": 20.4,
+        "impressions": 380000,
+        "clicks": 7600,
+        "ctr": 2.0,
+        "status": "active",
+        "created_at": "2026-02-10 09:00:00"
+    },
+    {
+        "user_id": "demo-user",
+        "campaign_name": "Yoga Mat - Display",
+        "campaign_type": "SD",
+        "daily_budget": 50.0,
+        "spend": 980.2,
+        "sales": 1960.4,
+        "acos": 50.0,
+        "impressions": 89000,
+        "clicks": 890,
+        "ctr": 1.0,
+        "status": "paused",
+        "created_at": "2026-02-15 14:00:00"
+    },
+    {
+        "user_id": "demo-user",
+        "campaign_name": "Headphones - Exact Match SP",
+        "campaign_type": "SP",
+        "daily_budget": 120.0,
+        "spend": 2780.6,
+        "sales": 13450.8,
+        "acos": 20.7,
+        "impressions": 198000,
+        "clicks": 3960,
+        "ctr": 2.0,
+        "status": "active",
+        "created_at": "2026-02-20 08:00:00"
+    }
+]

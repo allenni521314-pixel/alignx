@@ -1,0 +1,57 @@
+[
+    {
+        "user_id": "demo-user",
+        "asin": "B0CK9Y7X2P",
+        "title": "Premium Stainless Steel Water Bottle 32oz - Vacuum Insulated",
+        "cosmo_score": 87.5,
+        "current_rank": 12,
+        "sessions_30d": 8450,
+        "conversion_rate": 5.2,
+        "status": "optimized",
+        "created_at": "2026-03-01 10:00:00"
+    },
+    {
+        "user_id": "demo-user",
+        "asin": "B0DL8M3N1Q",
+        "title": "Organic Bamboo Cutting Board Set - 3 Pack Kitchen Essentials",
+        "cosmo_score": 62.3,
+        "current_rank": 45,
+        "sessions_30d": 3210,
+        "conversion_rate": 3.1,
+        "status": "needs_review",
+        "created_at": "2026-03-02 11:00:00"
+    },
+    {
+        "user_id": "demo-user",
+        "asin": "B0EM7K4P9R",
+        "title": "LED Desk Lamp with Wireless Charger - Touch Control",
+        "cosmo_score": 91.2,
+        "current_rank": 8,
+        "sessions_30d": 12300,
+        "conversion_rate": 6.8,
+        "status": "optimized",
+        "created_at": "2026-03-03 09:00:00"
+    },
+    {
+        "user_id": "demo-user",
+        "asin": "B0FN6J5Q8S",
+        "title": "Yoga Mat Extra Thick Non-Slip Exercise Fitness Mat",
+        "cosmo_score": 45.8,
+        "current_rank": 89,
+        "sessions_30d": 1890,
+        "conversion_rate": 2.1,
+        "status": "critical",
+        "created_at": "2026-03-04 14:00:00"
+    },
+    {
+        "user_id": "demo-user",
+        "asin": "B0GP5H6R7T",
+        "title": "Bluetooth Noise Cancelling Headphones - 40H Battery Life",
+        "cosmo_score": 78.9,
+        "current_rank": 23,
+        "sessions_30d": 6780,
+        "conversion_rate": 4.5,
+        "status": "needs_review",
+        "created_at": "2026-03-05 08:00:00"
+    }
+]

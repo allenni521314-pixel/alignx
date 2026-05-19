@@ -1,0 +1,55 @@
+{
+    "title": "keywords",
+    "type": "object",
+    "properties": {
+        "id": {
+            "type": "integer",
+            "description": "Primary key, auto-increment"
+        },
+        "user_id": {
+            "type": "string",
+            "description": "User ID"
+        },
+        "keyword": {
+            "type": "string",
+            "description": "Keyword text"
+        },
+        "match_type": {
+            "type": "string",
+            "description": "exact, phrase, broad"
+        },
+        "search_volume": {
+            "type": "integer",
+            "description": "Monthly search volume"
+        },
+        "bid": {
+            "type": "number",
+            "description": "Current bid"
+        },
+        "suggested_bid": {
+            "type": "number",
+            "description": "AI suggested bid"
+        },
+        "acos": {
+            "type": "number",
+            "description": "Keyword ACOS"
+        },
+        "conversions": {
+            "type": "integer",
+            "description": "Number of conversions"
+        },
+        "relevance_score": {
+            "type": "number",
+            "description": "AI relevance score 0-100"
+        },
+        "campaign_id": {
+            "type": "integer",
+            "description": "Associated campaign ID"
+        }
+    },
+    "required": [
+        "id",
+        "user_id",
+        "keyword"
+    ]
+}

@@ -1,0 +1,44 @@
+{
+    "title": "consumer_intent_results",
+    "type": "object",
+    "properties": {
+        "id": {
+            "type": "integer",
+            "description": "Primary key, auto-increment"
+        },
+        "user_id": {
+            "type": "string",
+            "description": "User ID"
+        },
+        "keyword": {
+            "type": "string",
+            "description": "Search keyword analyzed"
+        },
+        "categories": {
+            "type": "string",
+            "description": "JSON string of category results"
+        },
+        "summary": {
+            "type": "string",
+            "description": "Analysis summary text"
+        },
+        "total_keywords": {
+            "type": "integer",
+            "description": "Total keywords found"
+        },
+        "high_freq_count": {
+            "type": "integer",
+            "description": "High frequency keyword count"
+        },
+        "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Creation timestamp"
+        }
+    },
+    "required": [
+        "id",
+        "user_id",
+        "keyword"
+    ]
+}

@@ -1,0 +1,72 @@
+[
+    {
+        "user_id": "demo-user",
+        "date": "2026-03-10",
+        "revenue": 12580.5,
+        "orders": 187,
+        "acos": 22.3,
+        "profit_margin": 28.5,
+        "sessions": 4520,
+        "conversion_rate": 4.14
+    },
+    {
+        "user_id": "demo-user",
+        "date": "2026-03-11",
+        "revenue": 13240.8,
+        "orders": 195,
+        "acos": 21.8,
+        "profit_margin": 29.1,
+        "sessions": 4680,
+        "conversion_rate": 4.17
+    },
+    {
+        "user_id": "demo-user",
+        "date": "2026-03-12",
+        "revenue": 11890.2,
+        "orders": 172,
+        "acos": 23.5,
+        "profit_margin": 27.2,
+        "sessions": 4310,
+        "conversion_rate": 3.99
+    },
+    {
+        "user_id": "demo-user",
+        "date": "2026-03-13",
+        "revenue": 14560.9,
+        "orders": 213,
+        "acos": 20.1,
+        "profit_margin": 31.4,
+        "sessions": 5120,
+        "conversion_rate": 4.16
+    },
+    {
+        "user_id": "demo-user",
+        "date": "2026-03-14",
+        "revenue": 15230.4,
+        "orders": 228,
+        "acos": 19.5,
+        "profit_margin": 32.8,
+        "sessions": 5340,
+        "conversion_rate": 4.27
+    },
+    {
+        "user_id": "demo-user",
+        "date": "2026-03-15",
+        "revenue": 13870.6,
+        "orders": 201,
+        "acos": 21.2,
+        "profit_margin": 30.3,
+        "sessions": 4890,
+        "conversion_rate": 4.11
+    },
+    {
+        "user_id": "demo-user",
+        "date": "2026-03-16",
+        "revenue": 14120.3,
+        "orders": 208,
+        "acos": 20.8,
+        "profit_margin": 30.9,
+        "sessions": 5010,
+        "conversion_rate": 4.15
+    }
+]

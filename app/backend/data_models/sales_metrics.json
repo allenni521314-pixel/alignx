@@ -1,0 +1,50 @@
+{
+    "title": "sales_metrics",
+    "type": "object",
+    "properties": {
+        "id": {
+            "type": "integer",
+            "description": "Primary key, auto-increment"
+        },
+        "user_id": {
+            "type": "string",
+            "description": "User ID"
+        },
+        "date": {
+            "type": "string",
+            "format": "date",
+            "description": "Metric date"
+        },
+        "revenue": {
+            "type": "number",
+            "description": "Daily revenue in USD"
+        },
+        "orders": {
+            "type": "integer",
+            "description": "Number of orders"
+        },
+        "acos": {
+            "type": "number",
+            "description": "ACOS percentage"
+        },
+        "profit_margin": {
+            "type": "number",
+            "description": "Profit margin percentage"
+        },
+        "sessions": {
+            "type": "integer",
+            "description": "Number of sessions"
+        },
+        "conversion_rate": {
+            "type": "number",
+            "description": "Conversion rate percentage"
+        }
+    },
+    "required": [
+        "id",
+        "user_id",
+        "date",
+        "revenue",
+        "orders"
+    ]
+}

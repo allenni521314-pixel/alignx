@@ -1,0 +1,71 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 150 20% 98%;
+    --foreground: 160 43% 11%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 160 43% 11%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 160 43% 11%;
+
+    --primary: 166 47% 11%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 150 18% 95%;
+    --secondary-foreground: 166 47% 11%;
+
+    --muted: 150 13% 95%;
+    --muted-foreground: 150 2% 55%;
+
+    --accent: 40 59% 91%;
+    --accent-foreground: 166 47% 11%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 150 15% 88%;
+    --input: 150 15% 88%;
+    --ring: 39 44% 60%;
+
+    --radius: 0.5rem;
+
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 166 47% 11%;
+    --sidebar-primary: 166 47% 11%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 150 18% 95%;
+    --sidebar-accent-foreground: 166 47% 11%;
+    --sidebar-border: 150 15% 88%;
+    --sidebar-ring: 39 44% 60%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei",
+      "Noto Sans CJK SC", "Noto Sans SC", "Helvetica Neue", Arial, sans-serif;
+    letter-spacing: 0;
+  }
+
+  button,
+  input,
+  textarea,
+  select {
+    font-family: inherit;
+  }
+
+  ::selection {
+    background: #c6a86e33;
+    color: #0f2a24;
+  }
+}

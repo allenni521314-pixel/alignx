@@ -1,0 +1,208 @@
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useCallback,
+  ReactNode,
+} from 'react';
+import { client } from '../lib/api';
+import axios from 'axios';
+
+interface User {
+  id: string;
+  email: string;
+  name?: string;
+  role: string;
+}
+
+interface AuthContextType {
+  user: User | null;
+  loading: boolean;
+  error: string | null;
+  login: () => Promise<void>;
+  logout: () => Promise<void>;
+  phoneLogin: (phone: string, password: string) => Promise<void>;
+  refetch: () => Promise<void>;
+  isAdmin: boolean;
+}
+
+const AUTH_TOKEN_KEY = 'alignx_token';
+const AUTH_USER_KEY = 'alignx_user';
+
+const AuthContext = createContext<AuthContextType | null>(null);
+
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (!context) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
+};
+
+interface AuthProviderProps {
+  children: ReactNode;
+}
+
+/**
+ * Get the backend API base URL.
+ * In production the backend is co-located at the same origin;
+ * during local development it may run on a different port.
+ */
+function getApiBaseUrl(): string {
+  if (typeof window !== 'undefined') {
+    return window.location.origin;
+  }
+  return '';
+}
+
+export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const checkAuthStatus = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      // First check if we have a phone-auth token in localStorage
+      const storedToken = localStorage.getItem(AUTH_TOKEN_KEY);
+      const storedUser = localStorage.getItem(AUTH_USER_KEY);
+
+      if (storedToken && storedUser) {
+        try {
+          const parsedUser = JSON.parse(storedUser);
+          // Verify token is still valid by calling /api/v1/auth/me
+          const res = await axios.get(`${getApiBaseUrl()}/api/v1/auth/me`, {
+            headers: { Authorization: `Bearer ${storedToken}` },
+          });
+          if (res.data) {
+            setUser({
+              id: res.data.id || parsedUser.id,
+              email: res.data.email || parsedUser.email,
+              name: res.data.name || parsedUser.name,
+              role: res.data.role || parsedUser.role || 'user',
+            });
+            return;
+          }
+        } catch {
+          // Token expired or invalid, clear storage
+          localStorage.removeItem(AUTH_TOKEN_KEY);
+          localStorage.removeItem(AUTH_USER_KEY);
+        }
+      }
+
+      // Fallback: check platform OIDC auth
+      try {
+        const res = await client.auth.me();
+        if (res?.data) {
+          setUser({
+            id: res.data.id || res.data.sub || '',
+            email: res.data.email || '',
+            name: res.data.name || res.data.nickname || '',
+            role: res.data.role || 'user',
+          });
+          return;
+        }
+      } catch {
+        // Not authenticated via OIDC either
+      }
+
+      // No auth found — create a guest user so the app works without login
+      setUser({
+        id: 'guest',
+        email: 'guest@alignx.local',
+        name: 'Guest',
+        role: 'user',
+      });
+    } catch {
+      // Even on error, provide guest access
+      setUser({
+        id: 'guest',
+        email: 'guest@alignx.local',
+        name: 'Guest',
+        role: 'user',
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const phoneLogin = useCallback(async (phone: string, password: string) => {
+    setError(null);
+    const res = await axios.post(`${getApiBaseUrl()}/api/v1/auth/phone/login`, {
+      phone,
+      password,
+    });
+
+    const { token, user: userData } = res.data;
+
+    // Store token and user in localStorage
+    localStorage.setItem(AUTH_TOKEN_KEY, token);
+    localStorage.setItem(AUTH_USER_KEY, JSON.stringify(userData));
+
+    // Also set the token for the SDK client (for entity operations)
+    try {
+      // Set authorization header for future SDK requests
+      (window as any).__alignx_token = token;
+    } catch {
+      // Ignore
+    }
+
+    setUser({
+      id: userData.id,
+      email: userData.email,
+      name: userData.name,
+      role: userData.role || 'user',
+    });
+  }, []);
+
+  const login = useCallback(async () => {
+    try {
+      setError(null);
+      // Redirect to login page instead of OIDC
+      window.location.href = '/login';
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Login failed');
+    }
+  }, []);
+
+  const logout = useCallback(async () => {
+    try {
+      setError(null);
+
+      // Clear phone auth data
+      localStorage.removeItem(AUTH_TOKEN_KEY);
+      localStorage.removeItem(AUTH_USER_KEY);
+
+      // Also try OIDC logout
+      try {
+        await client.auth.logout();
+      } catch {
+        // Ignore OIDC logout errors
+      }
+
+      setUser(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Logout failed');
+    }
+  }, []);
+
+  useEffect(() => {
+    checkAuthStatus();
+  }, [checkAuthStatus]);
+
+  const value: AuthContextType = {
+    user,
+    loading,
+    error,
+    login,
+    logout,
+    phoneLogin,
+    refetch: checkAuthStatus,
+    isAdmin: user?.role === 'admin',
+  };
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+};

@@ -1,0 +1,68 @@
+{
+    "title": "listing_diagnoses",
+    "type": "object",
+    "properties": {
+        "id": {
+            "type": "integer",
+            "description": "Primary key, auto-increment"
+        },
+        "user_id": {
+            "type": "string",
+            "description": "User ID"
+        },
+        "listing_title": {
+            "type": "string",
+            "description": "Product listing title"
+        },
+        "marketplace": {
+            "type": "string",
+            "description": "Amazon marketplace"
+        },
+        "input_data": {
+            "type": "string",
+            "description": "JSON string of full listing input data"
+        },
+        "score_function_expression": {
+            "type": "number",
+            "description": "Diagnosis score - function expression (0-100)"
+        },
+        "score_scenario_expression": {
+            "type": "number",
+            "description": "Diagnosis score - scenario expression (0-100)"
+        },
+        "score_identity_fit": {
+            "type": "number",
+            "description": "Diagnosis score - identity fit (0-100)"
+        },
+        "score_psychology_benefit": {
+            "type": "number",
+            "description": "Diagnosis score - psychology benefit (0-100)"
+        },
+        "score_risk_elimination": {
+            "type": "number",
+            "description": "Diagnosis score - risk elimination (0-100)"
+        },
+        "score_differentiation": {
+            "type": "number",
+            "description": "Diagnosis score - differentiation (0-100)"
+        },
+        "diagnosis_report": {
+            "type": "string",
+            "description": "JSON string of full diagnosis report"
+        },
+        "keyword_report": {
+            "type": "string",
+            "description": "JSON string of keyword coverage analysis"
+        },
+        "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Diagnosis creation time"
+        }
+    },
+    "required": [
+        "id",
+        "user_id",
+        "listing_title"
+    ]
+}

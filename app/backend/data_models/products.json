@@ -1,0 +1,74 @@
+{
+    "title": "products",
+    "type": "object",
+    "properties": {
+        "id": {
+            "type": "integer",
+            "description": "Primary key, auto-increment"
+        },
+        "user_id": {
+            "type": "string",
+            "description": "User ID"
+        },
+        "asin": {
+            "type": "string",
+            "description": "Amazon ASIN"
+        },
+        "title": {
+            "type": "string",
+            "description": "Product title"
+        },
+        "bullet_points": {
+            "type": "string",
+            "description": "Bullet points"
+        },
+        "a_plus_content": {
+            "type": "string",
+            "description": "A+ content"
+        },
+        "search_keywords": {
+            "type": "string",
+            "description": "Search keywords"
+        },
+        "price": {
+            "type": "number",
+            "description": "Product price"
+        },
+        "review_count": {
+            "type": "integer",
+            "description": "Review count"
+        },
+        "rating": {
+            "type": "number",
+            "description": "Product rating"
+        },
+        "category": {
+            "type": "string",
+            "description": "Product category"
+        },
+        "lifecycle_stage": {
+            "type": "string",
+            "description": "Current lifecycle stage: discovery, semantic, strategy, verification, optimization"
+        },
+        "optimization_round": {
+            "type": "integer",
+            "description": "Current optimization round number"
+        },
+        "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Creation timestamp"
+        },
+        "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Update timestamp"
+        }
+    },
+    "required": [
+        "id",
+        "user_id",
+        "asin",
+        "title"
+    ]
+}

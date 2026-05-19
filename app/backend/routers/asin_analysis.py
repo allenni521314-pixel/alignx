@@ -1,0 +1,2017 @@
+"""
+ASIN Product Analysis Router.
+Provides AI-powered product analysis and 8D+2 scoring.
+Uses web scraping to get real product data. No AI estimation fallback — precision is the core value.
+Optimized: single AI call for both product enrichment + scoring.
+"""
+
+import json
+import logging
+import re
+from datetime import datetime, timezone
+from typing import Any, List, Optional
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from core.database import get_db
+from dependencies.auth import get_current_user
+from schemas.auth import UserResponse
+from services.aihub import AIHubService
+from services.amazon_scraper import scrape_amazon_product
+from services.asin_analyses import Asin_analysesService
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/api/v1/asin-analysis", tags=["asin-analysis"])
+
+
+_US_SPELLING_REPLACEMENTS = {
+    "colour": "color",
+    "colours": "colors",
+    "flavour": "flavor",
+    "flavours": "flavors",
+    "favourite": "favorite",
+    "odour": "odor",
+    "odours": "odors",
+    "behaviour": "behavior",
+    "traveller": "traveler",
+    "travelling": "traveling",
+    "organiser": "organizer",
+    "organisers": "organizers",
+    "centre": "center",
+    "centres": "centers",
+}
+
+
+def _normalize_us_keyword(value) -> str:
+    """Keep only original English Amazon keywords, not Chinese or translated fallbacks."""
+    if value is None:
+        return ""
+    text = str(value).strip().lower()
+    if not text:
+        return ""
+    if re.search(r"[\u4e00-\u9fff]", text):
+        return ""
+    text = re.sub(r"[^a-z0-9\s+&/-]", " ", text)
+    text = re.sub(r"\s+", " ", text).strip(" -/&")
+    if not text:
+        return ""
+    words = []
+    for word in text.split():
+        words.append(_US_SPELLING_REPLACEMENTS.get(word, word))
+    normalized = " ".join(words)
+    if len(normalized.split()) > 8:
+        normalized = " ".join(normalized.split()[:8])
+    return normalized if re.search(r"[a-z]", normalized) else ""
+
+
+def _normalize_us_keyword_list(values, limit: int = 10) -> list[str]:
+    if isinstance(values, str):
+        values = re.split(r"[,;\n]+", values)
+    if not isinstance(values, list):
+        return []
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        keyword = _normalize_us_keyword(value)
+        if keyword and keyword not in seen:
+            result.append(keyword)
+            seen.add(keyword)
+        if len(result) >= limit:
+            break
+    return result
+
+
+def _is_english_text(value: Any) -> bool:
+    text = str(value or "")
+    return bool(text.strip()) and not re.search(r"[\u4e00-\u9fff]", text) and re.search(r"[A-Za-z]", text) is not None
+
+
+def _derive_us_keywords_from_real_text(product_data: dict, limit: int = 10) -> list[str]:
+    """Derive only original English Amazon-style keywords from scraped English text."""
+    chunks: list[str] = []
+    for key in ["title", "category", "bsr_category"]:
+        value = product_data.get(key)
+        if _is_english_text(value):
+            chunks.append(str(value))
+    for bp in product_data.get("bullet_points") or []:
+        if _is_english_text(bp):
+            chunks.append(str(bp))
+    text = " ".join(chunks).lower()
+    if not text:
+        return []
+
+    candidates: list[str] = []
+    def has(pattern: str) -> bool:
+        return re.search(pattern, text, flags=re.I) is not None
+
+    if has(r"\b(bluetooth|speaker|boombox|audio)\b"):
+        candidates += ["portable bluetooth speaker", "wireless speaker"]
+        if has(r"\b(waterproof|ipx|beach|pool|shower|outdoor|camping)\b"):
+            candidates += ["waterproof bluetooth speaker", "speaker for beach trips", "outdoor waterproof speaker"]
+        if has(r"\b(fm|radio)\b"):
+            candidates.append("bluetooth speaker with fm radio")
+        if has(r"\b(clip|strap|lanyard|carry)\b"):
+            candidates.append("portable speaker with carrying strap")
+    if has(r"\b(cat|litter|odor|ammonia)\b"):
+        candidates += ["cat litter box odor control", "litter box for apartment cats", "ammonia odor control"]
+    if has(r"\b(power bank|portable charger|battery pack|mah)\b"):
+        candidates += ["portable phone power bank", "power bank for travel", "compact charger for purse"]
+    if has(r"\b(bamboo|boxer|underwear|trunks)\b"):
+        candidates += ["men's bamboo boxer briefs", "breathable boxer briefs for men", "moisture wicking underwear for men"]
+    if has(r"\b(gift|mom|dad|women|men|teen|kids)\b"):
+        candidates += ["gift for mom", "gift for men", "gift for teens"]
+
+    # Add conservative title phrase only when it is English.
+    words = re.sub(r"[^a-z0-9\s]", " ", text).split()
+    stop = {"the", "and", "with", "for", "from", "this", "that", "your", "you", "are", "new", "pink", "white", "black"}
+    words = [w for w in words if len(w) > 2 and w not in stop]
+    if len(words) >= 3:
+        candidates.append(" ".join(words[:4]))
+
+    return _normalize_us_keyword_list(candidates, limit)
+
+
+def _clean_original_english_keywords(values: Any, product_data: dict, limit: int = 10) -> list[str]:
+    keywords = _normalize_us_keyword_list(values, limit)
+    keywords = [kw for kw in keywords if _is_english_text(kw)]
+    if keywords:
+        return keywords[:limit]
+    return _derive_us_keywords_from_real_text(product_data, limit)
+
+
+def _keywords_from_module_text(values: Any, category: str = "", limit: int = 8) -> list[str]:
+    """Extract module-specific English keyword candidates without translating Chinese text."""
+    if isinstance(values, str):
+        chunks = [values]
+    elif isinstance(values, list):
+        chunks = []
+        for item in values:
+            if isinstance(item, str):
+                chunks.append(item)
+            elif isinstance(item, dict):
+                chunks.extend(str(item.get(key) or "") for key in ("title", "body", "text"))
+    elif isinstance(values, dict):
+        chunks = [str(values.get(key) or "") for key in ("title", "body", "text", "summary")]
+    else:
+        chunks = []
+
+    clean_chunks = [chunk for chunk in chunks if _is_english_text(chunk)]
+    if not clean_chunks:
+        return []
+    data = {
+        "title": clean_chunks[0],
+        "category": category if _is_english_text(category) else "",
+        "bullet_points": clean_chunks[1:],
+    }
+    return _derive_us_keywords_from_real_text(data, limit)
+
+
+def _build_listing_breakdown(product_data: dict, scoring_data: dict) -> dict:
+    keywords = _clean_original_english_keywords(product_data.get("main_keywords"), product_data, 12)
+    title = product_data.get("title") or ""
+    bullets = product_data.get("bullet_points") or []
+    aplus = product_data.get("aplus_content") or ""
+    category = product_data.get("category") or product_data.get("bsr_category") or ""
+    image_urls = product_data.get("image_urls") or []
+    aplus_image_urls = product_data.get("aplus_image_urls") or []
+    low_reviews = product_data.get("low_star_reviews") or []
+    used_keywords: set[str] = set()
+
+    def take_module_keywords(candidates: list[str], limit: int = 5) -> list[str]:
+        result: list[str] = []
+        for keyword in _normalize_us_keyword_list(candidates, limit * 3):
+            if keyword in used_keywords:
+                continue
+            result.append(keyword)
+            used_keywords.add(keyword)
+            if len(result) >= limit:
+                break
+        return result
+
+    title_keywords = take_module_keywords(
+        _keywords_from_module_text(title, category, 10) + keywords,
+        5,
+    )
+    bullet_keywords = take_module_keywords(
+        _keywords_from_module_text(bullets, category, 10),
+        6,
+    )
+    aplus_keywords = take_module_keywords(
+        _keywords_from_module_text(aplus, category, 10),
+        5,
+    )
+    review_keywords = take_module_keywords(
+        _keywords_from_module_text(low_reviews, category, 10),
+        5,
+    )
+
+    def module(
+        key: str,
+        name: str,
+        raw: Any,
+        structure: list[str],
+        strengths: list[str],
+        weaknesses: list[str],
+        intents: list[str],
+        actions: list[str],
+        avoid: list[str],
+        module_keywords: list[str] | None = None,
+    ) -> dict:
+        return {
+            "key": key,
+            "name": name,
+            "summary": strengths[0] if strengths else "已按竞品Listing证据完成拆解。",
+            "raw_content": raw,
+            "structure_breakdown": structure,
+            "strengths": strengths,
+            "weaknesses": weaknesses,
+            "covered_user_intents": intents,
+            "keywords": (module_keywords or [])[:8],
+            "borrowable_actions": actions,
+            "do_not_copy": avoid,
+        }
+
+    title_words = len(re.findall(r"[A-Za-z0-9]+", title))
+    bullet_count = len(bullets)
+    image_count = int(float(str(product_data.get("image_count") or 0).replace(",", "") or 0))
+    has_aplus = bool(product_data.get("has_a_plus"))
+    has_video = bool(product_data.get("has_video"))
+    rating_histogram = product_data.get("rating_histogram") or {}
+    seller_type = str(product_data.get("seller_type") or "")
+    platform_bound = bool(product_data.get("platform_ecosystem") or "平台生态" in seller_type or "Amazon自营" in seller_type)
+    platform_avoid = ["该竞品可能依赖Amazon自有生态或官方流量，不建议按普通第三方产品直接模仿。"] if platform_bound else []
+
+    return {
+        "modules": [
+            module(
+                "title",
+                "标题结构分析",
+                title,
+                ["标题按“品牌/身份词 → 核心品类词 → 关键属性 → 规格数量 → 适用对象或场景”的顺序承接搜索识别。"],
+                ["标题能让平台识别产品身份。" if title_words >= 8 else "标题较短，核心身份可识别但承载信息有限。"],
+                (["若标题缺少关系词或状态触发词，广告验证词承接会偏弱。"] + (["平台自营标题可能有品牌流量加成，不能只看标题结构。"] if platform_bound else [])),
+                ["识别产品身份", "确认核心品类", "理解关键属性", "判断适用对象/场景"],
+                ["提炼竞品标题中的品类词、关系词和状态触发词，迁移为我方标题候选结构。"],
+                ["不要照抄竞品品牌词、夸张词或与我方产品无关的规格。"] + platform_avoid,
+                title_keywords,
+            ),
+            module(
+                "bullets",
+                "五点卖点分析",
+                bullets,
+                [f"已识别 {bullet_count} 条五点，需检查是否按功能、效果、场景、信任、售后/风险消除的顺序讲清购买理由。"],
+                ["五点覆盖了多个购买理由。" if bullet_count >= 4 else "五点数量不足，仍可观察其核心承诺。"],
+                ["需要验证每条五点是否只讲一个购买理由，避免堆参数。"],
+                ["确认功能效果", "降低购买犹豫", "理解使用场景", "建立信任", "消除售后/风险顾虑"],
+                ["借鉴竞品五点的购买理由顺序：功能、效果、场景、信任、售后。"],
+                ["不要复制没有证据支撑的最高级承诺。"] + platform_avoid,
+                bullet_keywords,
+            ),
+            module(
+                "main_image",
+                "主图点击力分析",
+                image_urls[:1],
+                ["主图只负责点击和快速识别：白底真实商品、主体清晰、无干扰文字，并让用户一眼知道卖什么。"],
+                ["抓取到主图，可进入视觉模型逐图判断。" if image_urls else "当前只抓到图片数量，需接视觉模型读取主图内容。"],
+                ["主图点击力最终要结合CTR验证。"],
+                ["快速识别产品类型", "降低点击前理解成本"],
+                ["借鉴竞品主图的主体角度、清晰度和差异点呈现方式。"],
+                ["不要模仿违规文字、水印、夸张道具或与实物不一致的场景。"],
+                [],
+            ),
+            module(
+                "secondary_images",
+                "副图信息结构分析",
+                image_urls[1:8],
+                [f"识别到 {image_count} 张图库图片，副图应按卖点、场景、尺寸结构、对比证据、信任证明和使用步骤依次承接转化。"],
+                ["图库数量较完整，具备承接转化的素材基础。" if image_count >= 6 else "图库数量偏少，转化信息可能不完整。"],
+                ["需要视觉模型判断每张副图是否承担唯一信息任务。"],
+                ["功能理解", "场景想象", "风险消除"],
+                ["按7张图逻辑拆竞品：主图点击，2图卖点，3图场景，4图尺寸，5图对比，6图信任，7图步骤。"],
+                ["不要把同一套图文重复堆到所有位置。"],
+                [],
+            ),
+            module(
+                "a_plus",
+                "A+内容结构分析",
+                {"text": aplus, "images": aplus_image_urls},
+                ["A+负责更深的信任闭环：品牌故事、技术/材质原理、场景教育、差异化证明和对比表不要与前台图片重复。"],
+                ["存在A+内容，可支撑品牌信任和深度说明。" if has_aplus else "未抓取到A+内容，信任闭环不足。"],
+                ["A+需要避免重复Listing图库，需要承担更深的信任与教育。"],
+                ["品牌信任", "购买风险消除", "差异化理解"],
+                ["借鉴竞品A+的信息层级，不直接复制图文。"],
+                ["不要把前台五点原样搬进A+，A+应讲原理、证据和信任。"],
+                aplus_keywords,
+            ),
+            module(
+                "video_brand",
+                "视频/品牌内容分析",
+                "有视频" if has_video else "未检测到视频",
+                ["视频按使用方法、动态效果、结果证明、品牌信任的顺序，让用户看到功能如何真实发生。"],
+                ["有视频素材，可提升使用理解。" if has_video else "未检测到视频，竞品动态证明较弱。"],
+                ["视频是否有效仍需看点击和转化数据验证。"],
+                ["使用方法", "效果证明", "品牌信任"],
+                ["若竞品没有视频，我方可用短视频补强动态使用证据。"],
+                ["不要做纯氛围视频，必须让用户看到功能和使用结果。"],
+                [],
+            ),
+            module(
+                "review_validation",
+                "评论反向验证",
+                low_reviews,
+                ["评论反向验证按评分分布、3星以下差评、未满足需求、可攻击弱点的顺序提炼机会。"],
+                ["已抓取评分分布，可用于判断差评比例。" if rating_histogram else "评分分布暂未抓取完整。"],
+                ["低分评论越完整，越能反推真实痛点。"],
+                ["质量风险", "使用阻碍", "售后疑虑"],
+                ["把3星以下评论转成我方必须规避的承诺、图片和五点检查项。"],
+                ["不要只看好评卖点，竞品真正的机会往往在低分评论。"],
+                review_keywords,
+            ),
+        ],
+        "rating_histogram": rating_histogram,
+        "low_star_reviews": low_reviews,
+        "image_urls": image_urls,
+        "aplus_image_urls": aplus_image_urls,
+    }
+
+
+class AnalyzeAsinRequest(BaseModel):
+    asin: str
+    marketplace: str = "US"
+
+
+class AnalyzeAsinResponse(BaseModel):
+    asin: str
+    marketplace: str
+    product_title: str
+    product_data: dict
+    scores: dict
+    analysis_report: dict
+    data_source: str = "unknown"
+    id: Optional[int] = None
+
+
+class ParseHtmlAnalyzeRequest(BaseModel):
+    """Request to parse raw HTML from browser proxy and run full analysis."""
+    asin: str
+    marketplace: str = "US"
+    html: str
+
+
+class ParseHtmlAnalyzeResponse(BaseModel):
+    success: bool
+    asin: str
+    product_title: str = ""
+    product_data: dict = {}
+    scores: dict = {}
+    analysis_report: dict = {}
+    data_source: str = "browser_proxy"
+    error: str = ""
+    id: Optional[int] = None
+
+
+class ProxyFetchRequest(BaseModel):
+    """Request to fetch Amazon HTML via our backend (no public CORS proxies)."""
+    asin: str
+    marketplace: str = "US"
+
+
+class ProxyFetchResponse(BaseModel):
+    success: bool
+    html: str = ""
+    error: str = ""
+
+
+class CompareAsinsRequest(BaseModel):
+    my_asin: str
+    competitor_asins: List[str]
+    marketplace: str = "US"
+
+
+class CompareAsinsResponse(BaseModel):
+    my_product: AnalyzeAsinResponse
+    competitors: List[AnalyzeAsinResponse]
+    comparison: dict
+
+
+# ---- Combined Prompt (single AI call for enrichment + scoring) ---- #
+
+COMBINED_ANALYSIS_WITH_CONTEXT_PROMPT = """你是AlignX的COSMO 8D+2评分系统专家，同时也是专业的亚马逊产品分析师。
+
+## 已抓取的真实产品数据
+ASIN: {asin}
+站点: Amazon {marketplace}
+{scraped_context}
+
+## 任务
+请完成以下两项任务，合并为一个JSON返回：
+
+### 任务1：产品数据补充
+基于以上真实数据，补充缺失的字段（如预估月销量、月收入等）。已有真实数据直接使用，不要修改。
+真实字段硬性约束：标题、品牌、类目、价格、评分、评论数、BSR、上架时间、五点、A+文本必须以抓取数据为准；不要翻译、不要改写、不要自行估算覆盖真实字段。
+
+### 任务2：COSMO 8D+2评分
+从以下10个维度进行评分（每个维度0-100分）并给出详细分析：
+
+**COSMO核心8D维度：**
+1. 功能性(functionality): 产品功能是否完善、是否满足核心需求
+2. 情感性(emotional): 品牌故事、情感连接、用户体验感受
+3. 场景性(scenario): 使用场景是否明确、场景覆盖是否全面
+4. 用户画像(user_profile): 目标用户是否清晰、是否精准定位
+5. 产品身份(product_identity): is_a/used_as定义是否清晰，品类归属是否准确
+6. 兼容搭配(compatibility): used_with关系是否明确，配件/搭配场景覆盖
+7. 感性属性(subjective_properties): 感性描述词是否丰富，能否触发感官联想
+8. 差异化(differentiation): 与竞品差异点、独特卖点(USP)
+
+**卖家扩展2D维度：**
+9. 市场趋势(market_trend): 市场增长趋势、品类热度、竞争程度
+10. 风险消除(risk_elimination): 是否有效消除购买顾虑
+
+### 关键词硬性规则
+- main_keywords 必须是自然美式英语 Amazon 搜索词，不允许中文、不允许直译腔。
+- main_keywords 只能来自真实抓取到的英文标题、五点、类目、A+或评论语义；如果原始字段是中文或不确定，返回空数组，不要翻译、不要补中文词。
+- 关键词必须符合 Rufus/COSMO 可理解结构：产品身份词 + 使用关系词 + 场景状态词。
+- 不要只输出 product attribute words（如 material、size、color），必须优先包含 relationship words 与 state-trigger words。
+- relationship words 示例：for apartment cats, with odor filter, under desk speaker, for mom gifts, compatible with xxx。
+- state-trigger words 示例：ammonia odor control, litter tracking mess, outdoor party sound, sleep noise relief。
+- 属性词只做基础覆盖；关系词和状态触发词用于广告验证与转化假设。
+
+请以JSON格式返回（确保返回有效的JSON）：
+{{
+  "product_data": {{
+    "title": "产品标题（使用真实标题）",
+    "brand": "品牌名",
+    "category": "产品类目",
+    "price": "价格",
+    "price_currency": "货币代码",
+    "rating": "评分（1-5）",
+    "review_count": "评论数量",
+    "date_first_available": "上架时间/Date First Available（直接使用真实抓取字段，不要改）",
+    "bsr_rank": "BSR排名",
+    "bsr_category": "BSR所在类目",
+    "bullet_points": ["卖点1", "卖点2", "卖点3", "卖点4", "卖点5"],
+    "description_summary": "产品描述摘要",
+    "main_keywords": ["amazon us keyword 1", "relationship keyword 2", "state trigger keyword 3", "long tail keyword 4", "product identity keyword 5"],
+    "seller_type": "FBA/FBM/Amazon自营",
+    "amazon_bought_count": "亚马逊前台显示的官方购买人数（如 '1K+ bought in past month'，直接使用抓取数据，不要修改）",
+    "estimated_monthly_sales": "BSR预估月销量（基于BSR排名算法估算的数字，仅作参考）",
+    "estimated_monthly_revenue": "预估月收入（美元，数字）",
+    "listing_quality_notes": "Listing质量简评",
+    "image_count": "主图数量",
+    "has_video": true/false,
+    "has_a_plus": true/false,
+    "rating_histogram": {{"5_star": "79%", "4_star": "10%", "3_star": "5%", "2_star": "2%", "1_star": "4%"}},
+    "low_star_reviews": [{{"rating": 2, "title": "review title", "body": "full review body", "date": "review date", "verified": true}}],
+    "variation_count": "变体数量",
+    "data_confidence": "high/medium/low",
+    "data_notes": "数据来源说明"
+  }},
+  "scores": {{
+    "functionality": 分数,
+    "emotional": 分数,
+    "scenario": 分数,
+    "user_profile": 分数,
+    "product_identity": 分数,
+    "compatibility": 分数,
+    "subjective_properties": 分数,
+    "differentiation": 分数,
+    "market_trend": 分数,
+    "risk_elimination": 分数
+  }},
+  "analysis": {{
+    "functionality": "功能性分析详情...",
+    "emotional": "情感性分析详情...",
+    "scenario": "场景性分析详情...",
+    "user_profile": "用户画像分析详情...",
+    "product_identity": "产品身份分析详情...",
+    "compatibility": "兼容搭配分析详情...",
+    "subjective_properties": "感性属性分析详情...",
+    "differentiation": "差异化分析详情...",
+    "market_trend": "市场趋势分析详情...",
+    "risk_elimination": "风险消除分析详情..."
+  }},
+  "overall_summary": "总体评价摘要...",
+  "improvement_suggestions": ["建议1", "建议2", "建议3"]
+}}
+
+只返回JSON，不要返回其他内容。"""
+
+
+AI_FALLBACK_ANALYSIS_PROMPT = """你是AlignX亚马逊ASIN分析专家。
+
+当前系统无法通过本地浏览器代理或服务器抓取获得该ASIN的完整页面数据。
+请基于用户提供的ASIN、站点和你可推断的公开常识，生成一个低置信度的结构化分析结果。
+
+重要规则：
+1. 不要伪装成真实抓取数据。
+2. 不确定字段必须留空或标记“待确认”。
+3. data_confidence 必须为 low。
+4. data_notes 必须说明“AI兜底估算，需以浏览器代理抓取结果或人工核实为准”。
+5. 仍需给出可用于初步测试的8D+2评分，但分数要保守。
+
+ASIN: {asin}
+站点: Amazon {marketplace}
+
+请只返回JSON：
+{{
+  "product_data": {{
+    "title": "待确认",
+    "brand": "待确认",
+    "category": "待确认",
+    "price": "",
+    "rating": "",
+    "review_count": "",
+    "bsr_rank": "",
+    "bsr_category": "",
+    "bullet_points": [],
+    "description_summary": "待确认",
+    "main_keywords": [],
+    "seller_type": "待确认",
+    "amazon_bought_count": "",
+    "estimated_monthly_sales": "",
+    "estimated_monthly_revenue": "",
+    "listing_quality_notes": "AI兜底估算，需核实",
+    "image_count": "",
+    "has_video": false,
+    "has_a_plus": false,
+    "variation_count": "",
+    "data_confidence": "low",
+    "data_notes": "AI兜底估算，需以浏览器代理抓取结果或人工核实为准"
+  }},
+  "scores": {{
+    "functionality": 50,
+    "emotional": 50,
+    "scenario": 50,
+    "user_profile": 50,
+    "product_identity": 50,
+    "compatibility": 50,
+    "subjective_properties": 50,
+    "differentiation": 50,
+    "market_trend": 50,
+    "risk_elimination": 50
+  }},
+  "analysis": {{
+    "functionality": "分析详情",
+    "emotional": "分析详情",
+    "scenario": "分析详情",
+    "user_profile": "分析详情",
+    "product_identity": "分析详情",
+    "compatibility": "分析详情",
+    "subjective_properties": "分析详情",
+    "differentiation": "分析详情",
+    "market_trend": "分析详情",
+    "risk_elimination": "分析详情"
+  }},
+  "overall_summary": "低置信度初步判断",
+  "improvement_suggestions": ["建议用户手动粘贴Amazon页面内容后重新分析"]
+}}"""
+
+
+COMPARISON_PROMPT = """你是AlignX的竞品对比分析专家。请对比以下产品的8D+2评分数据，生成对比分析报告。
+
+我的产品：
+ASIN: {my_asin}
+标题: {my_title}
+8D+2评分: {my_scores}
+
+竞品列表：
+{competitor_info}
+
+请以JSON格式返回对比分析（确保返回有效的JSON）：
+{{
+  "strengths": ["我的产品优势1", "优势2", "优势3"],
+  "weaknesses": ["我的产品劣势1", "劣势2", "劣势3"],
+  "opportunities": ["机会点1", "机会点2"],
+  "threats": ["威胁1", "威胁2"],
+  "dimension_comparison": {{
+    "functionality": "功能性维度对比分析...",
+    "emotional": "情感性维度对比分析...",
+    "scenario": "场景性维度对比分析...",
+    "user_profile": "用户画像维度对比分析...",
+    "product_identity": "产品身份维度对比分析...",
+    "compatibility": "兼容搭配维度对比分析...",
+    "subjective_properties": "感性属性维度对比分析...",
+    "differentiation": "差异化维度对比分析...",
+    "market_trend": "市场趋势维度对比分析...",
+    "risk_elimination": "风险消除维度对比分析..."
+  }},
+  "action_plan": ["优化行动1", "优化行动2", "优化行动3", "优化行动4"]
+}}
+
+只返回JSON，不要返回其他内容。"""
+
+
+def _extract_json(text: str) -> dict:
+    """Extract JSON from AI response text, handling markdown code blocks and truncated responses."""
+    if not text or not text.strip():
+        raise ValueError("Empty AI response")
+
+    text = text.strip()
+
+    # Remove markdown code blocks (```json ... ``` or ``` ... ```)
+    if text.startswith("```"):
+        lines = text.split("\n")
+        lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        text = "\n".join(lines).strip()
+
+    if text.endswith("```"):
+        text = text[:-3].strip()
+
+    # Attempt 1: Direct parse
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+
+    # Attempt 2: Find JSON object boundaries
+    start = text.find("{")
+    if start == -1:
+        raise ValueError(f"No JSON object found in AI response: {text[:200]}")
+
+    end = text.rfind("}") + 1
+    if end > start:
+        try:
+            return json.loads(text[start:end])
+        except json.JSONDecodeError:
+            pass
+
+    # Attempt 3: Handle truncated JSON - try to repair it
+    json_text = text[start:]
+    repaired = _repair_truncated_json(json_text)
+    if repaired is not None:
+        return repaired
+
+    raise ValueError(f"Failed to parse AI response as JSON (possibly truncated): {text[:300]}")
+
+
+def _repair_truncated_json(text: str) -> dict | None:
+    """Attempt to repair truncated JSON by closing unclosed brackets and strings."""
+    if not text.startswith("{"):
+        return None
+
+    # Strategy 1: Try closing unclosed structures by trimming from end
+    for trim_len in range(0, min(500, len(text)), 1):
+        candidate = text if trim_len == 0 else text[:-trim_len]
+
+        open_braces = candidate.count("{") - candidate.count("}")
+        open_brackets = candidate.count("[") - candidate.count("]")
+
+        in_string = False
+        i = len(candidate) - 1
+        while i >= 0:
+            if candidate[i] == '"' and (i == 0 or candidate[i-1] != '\\'):
+                in_string = not in_string
+                break
+            i -= 1
+
+        suffix = ""
+        if in_string:
+            suffix += '"'
+
+        trimmed = candidate + suffix
+        trimmed += "]" * max(0, open_brackets)
+        trimmed += "}" * max(0, open_braces)
+
+        try:
+            result = json.loads(trimmed)
+            if isinstance(result, dict):
+                logger.info(f"Successfully repaired truncated JSON (trimmed {trim_len} chars)")
+                return result
+        except json.JSONDecodeError:
+            continue
+
+    # Strategy 2: Line-by-line trimming
+    lines = text.split("\n")
+    for end_line in range(len(lines) - 1, 0, -1):
+        partial = "\n".join(lines[:end_line])
+        open_braces = partial.count("{") - partial.count("}")
+        open_brackets = partial.count("[") - partial.count("]")
+
+        if open_braces <= 0 and open_brackets <= 0:
+            continue
+
+        partial = partial.rstrip().rstrip(",")
+        suffix = "]" * max(0, open_brackets) + "}" * max(0, open_braces)
+        try:
+            result = json.loads(partial + suffix)
+            if isinstance(result, dict):
+                logger.info(f"Repaired truncated JSON by trimming to line {end_line}/{len(lines)}")
+                return result
+        except json.JSONDecodeError:
+            continue
+
+    return None
+
+
+def _format_scraped_context(scraped: dict) -> str:
+    """Format scraped data into a readable context string for the AI prompt."""
+    lines = []
+    if scraped.get("title"):
+        lines.append(f"标题: {scraped['title']}")
+    if scraped.get("brand"):
+        lines.append(f"品牌: {scraped['brand']}")
+    if scraped.get("category"):
+        lines.append(f"类目: {scraped['category']}")
+    if scraped.get("price"):
+        currency = scraped.get("price_currency") or "USD"
+        lines.append(f"价格: {currency} {scraped['price']}")
+    if scraped.get("date_first_available"):
+        lines.append(f"上架时间/Date First Available: {scraped['date_first_available']}")
+    if scraped.get("rating"):
+        lines.append(f"评分: {scraped['rating']}")
+    if scraped.get("review_count"):
+        lines.append(f"评论数: {scraped['review_count']}")
+    if scraped.get("rating_histogram"):
+        lines.append(f"评分分布: {json.dumps(scraped['rating_histogram'], ensure_ascii=False)}")
+    if scraped.get("bought_count"):
+        lines.append(f"亚马逊官方购买人数: {scraped['bought_count']}")
+    if scraped.get("bsr_rank"):
+        lines.append(f"BSR排名: #{scraped['bsr_rank']}")
+    if scraped.get("bsr_category"):
+        lines.append(f"BSR类目: {scraped['bsr_category']}")
+    if scraped.get("bullet_points"):
+        lines.append("五点描述:")
+        for i, bp in enumerate(scraped["bullet_points"], 1):
+            lines.append(f"  {i}. {bp}")
+    if scraped.get("image_count"):
+        lines.append(f"图片数量: {scraped['image_count']}")
+    if scraped.get("product_details"):
+        details = scraped["product_details"]
+        detail_lines = [f"{k}: {v}" for k, v in list(details.items())[:12]]
+        lines.append("产品详情:\n  " + "\n  ".join(detail_lines))
+    if scraped.get("low_star_reviews"):
+        lines.append(f"3星及以下评论样本: {len(scraped['low_star_reviews'])}条")
+    lines.append(f"有视频: {'是' if scraped.get('has_video') else '否'}")
+    lines.append(f"有A+内容: {'是' if scraped.get('has_a_plus') else '否'}")
+    return "\n".join(lines) if lines else "（未能抓取到数据）"
+
+
+async def _analyze_single_asin_with_scraped(
+    asin: str,
+    marketplace: str,
+    user_id: str,
+    db: AsyncSession,
+    scraped_data: dict,
+) -> AnalyzeAsinResponse:
+    """Analyze a single ASIN using pre-scraped data + ONE AI call (combined enrichment + scoring).
+
+    This is the core analysis pipeline shared by both the direct analyze endpoint
+    and the parse-html-analyze endpoint.
+    """
+    ai_service = AIHubService()
+
+    scrape_success = scraped_data.get("scrape_success", False)
+    data_source = scraped_data.get("data_source", "unknown")
+
+    logger.info(f"Analysis for {asin}: scrape_success={scrape_success}, source={data_source}")
+
+    from schemas.aihub import GenTxtRequest, ChatMessage
+
+    if not (scrape_success and scraped_data.get("title")):
+        data_source = "ai_estimated_low_confidence"
+    elif data_source == "unknown" and scrape_success:
+        data_source = "amazon_scrape"
+
+    if data_source == "ai_estimated_low_confidence":
+        combined_prompt = AI_FALLBACK_ANALYSIS_PROMPT.format(asin=asin, marketplace=marketplace)
+    else:
+        scraped_context = _format_scraped_context(scraped_data)
+        combined_prompt = COMBINED_ANALYSIS_WITH_CONTEXT_PROMPT.format(
+            asin=asin,
+            marketplace=marketplace,
+            scraped_context=scraped_context,
+        )
+
+    # Single AI call for both product data enrichment AND scoring
+    combined_request = GenTxtRequest(
+        messages=[ChatMessage(role="user", content=combined_prompt)],
+        model="AI_DEFAULT_MODEL",
+        temperature=0.3,
+        max_tokens=4096,
+    )
+
+    combined_data = None
+    for attempt in range(2):
+        try:
+            combined_response = await ai_service.gentxt(combined_request)
+            combined_data = _extract_json(combined_response.content)
+            break
+        except ValueError as e:
+            logger.warning(f"Combined analysis JSON parse failed (attempt {attempt + 1}/2): {e}")
+            if attempt == 0:
+                combined_request.model = "AI_DEFAULT_MODEL"
+        except Exception as e:
+            logger.warning(f"Combined analysis AI call failed for {asin} (attempt {attempt + 1}/2): {e}")
+            if attempt == 1:
+                break
+
+    # Extract product_data and scoring from combined response
+    if combined_data is not None:
+        product_data = combined_data.get("product_data", {})
+        scores = combined_data.get("scores", {})
+        scoring_data = {
+            "scores": scores,
+            "analysis": combined_data.get("analysis", {}),
+            "overall_summary": combined_data.get("overall_summary", ""),
+            "improvement_suggestions": combined_data.get("improvement_suggestions", []),
+        }
+    else:
+        logger.error(f"All combined analysis attempts failed for {asin}")
+        product_data = {
+            "title": scraped_data.get("title") or f"ASIN {asin} - 待确认",
+            "brand": scraped_data.get("brand") or "待确认",
+            "category": scraped_data.get("category") or "待确认",
+            "price": scraped_data.get("price") or "",
+            "price_currency": scraped_data.get("price_currency") or "",
+            "rating": scraped_data.get("rating") or "0",
+            "review_count": scraped_data.get("review_count") or "0",
+            "date_first_available": scraped_data.get("date_first_available") or "",
+            "bsr_rank": "0", "bsr_category": "",
+            "bullet_points": scraped_data.get("bullet_points") or [],
+            "rating_histogram": scraped_data.get("rating_histogram") or {},
+            "product_details": scraped_data.get("product_details") or {},
+            "low_star_reviews": scraped_data.get("low_star_reviews") or [],
+            "image_urls": scraped_data.get("image_urls") or [],
+            "data_confidence": "low",
+            "data_notes": "AI响应超时或解析失败，已保存可用抓取字段；建议稍后重新分析。",
+        }
+        _DEFAULT_ANALYSIS_MSG = "评分系统暂时无法完成详细分析，请重试。"
+        scores = {
+            "functionality": 50, "emotional": 50, "scenario": 50,
+            "user_profile": 50, "product_identity": 50, "compatibility": 50,
+            "subjective_properties": 50, "differentiation": 50,
+            "market_trend": 50, "risk_elimination": 50,
+        }
+        scoring_data = {
+            "scores": scores,
+            "analysis": {k: _DEFAULT_ANALYSIS_MSG for k in [
+                "functionality", "emotional", "scenario", "user_profile",
+                "product_identity", "compatibility", "subjective_properties",
+                "differentiation", "market_trend", "risk_elimination",
+            ]},
+            "overall_summary": "AI分析响应超时或异常，系统已用默认保守分保存本轮记录。",
+            "improvement_suggestions": ["稍后重新运行AI分析", "优先核实标题、价格、评分、评论数等关键字段"],
+        }
+
+    # Merge scraped data to ensure real data takes priority
+    if scrape_success and scraped_data.get("title"):
+        if scraped_data.get("title"):
+            product_data["title"] = scraped_data["title"]
+        if scraped_data.get("brand"):
+            product_data["brand"] = scraped_data["brand"]
+        if scraped_data.get("category"):
+            product_data["category"] = scraped_data["category"]
+        if scraped_data.get("price"):
+            product_data["price"] = scraped_data["price"]
+        if scraped_data.get("price_currency"):
+            product_data["price_currency"] = scraped_data["price_currency"]
+        if scraped_data.get("rating"):
+            product_data["rating"] = scraped_data["rating"]
+        if scraped_data.get("review_count"):
+            product_data["review_count"] = scraped_data["review_count"]
+        if scraped_data.get("date_first_available"):
+            product_data["date_first_available"] = scraped_data["date_first_available"]
+            product_data["launch_date"] = scraped_data["date_first_available"]
+        if scraped_data.get("bsr_rank"):
+            product_data["bsr_rank"] = scraped_data["bsr_rank"]
+        if scraped_data.get("bsr_category"):
+            product_data["bsr_category"] = scraped_data["bsr_category"]
+        if scraped_data.get("bullet_points"):
+            product_data["bullet_points"] = scraped_data["bullet_points"]
+        if scraped_data.get("product_details"):
+            product_data["product_details"] = scraped_data["product_details"]
+        if scraped_data.get("rating_histogram"):
+            product_data["rating_histogram"] = scraped_data["rating_histogram"]
+        if scraped_data.get("low_star_reviews"):
+            product_data["low_star_reviews"] = scraped_data["low_star_reviews"]
+        if scraped_data.get("image_urls"):
+            product_data["image_urls"] = scraped_data["image_urls"]
+        if scraped_data.get("aplus_content"):
+            product_data["aplus_content"] = scraped_data["aplus_content"]
+        if scraped_data.get("aplus_image_count"):
+            product_data["aplus_image_count"] = scraped_data["aplus_image_count"]
+        if scraped_data.get("aplus_image_urls"):
+            product_data["aplus_image_urls"] = scraped_data["aplus_image_urls"]
+        if scraped_data.get("image_count"):
+            product_data["image_count"] = scraped_data["image_count"]
+        if scraped_data.get("bought_count"):
+            product_data["bought_count"] = scraped_data["bought_count"]
+        for key in ["seller_type", "platform_ecosystem", "brand_monopoly_risk"]:
+            if key in scraped_data:
+                product_data[key] = scraped_data[key]
+        product_data["has_video"] = scraped_data.get("has_video", False)
+        product_data["has_a_plus"] = scraped_data.get("has_a_plus", False)
+
+    product_data["_data_source"] = data_source
+    product_data["_scrape_success"] = scrape_success
+    if data_source == "ai_estimated_low_confidence":
+        product_data["asin"] = asin
+        product_data["data_confidence"] = "low"
+        product_data["data_notes"] = "AI兜底估算，需以浏览器代理抓取结果或人工核实为准。"
+
+    product_data["main_keywords"] = _clean_original_english_keywords(product_data.get("main_keywords"), product_data, 10)
+    scoring_data["listing_breakdown"] = _build_listing_breakdown(product_data, scoring_data)
+
+    # Save to database
+    svc = Asin_analysesService(db)
+    record = await svc.create({
+        "asin": asin,
+        "marketplace": marketplace,
+        "product_title": product_data.get("title", ""),
+        "product_data": json.dumps(product_data, ensure_ascii=False),
+        "score_functionality": scores.get("functionality", 0),
+        "score_emotional": scores.get("emotional", 0),
+        "score_scenario": scores.get("scenario", 0),
+        "score_user_profile": scores.get("user_profile", 0),
+        "score_product_identity": scores.get("product_identity", 0),
+        "score_compatibility": scores.get("compatibility", 0),
+        "score_subjective_properties": scores.get("subjective_properties", 0),
+        "score_differentiation": scores.get("differentiation", 0),
+        "score_market_trend": scores.get("market_trend", 0),
+        "score_risk_elimination": scores.get("risk_elimination", 0),
+        "analysis_report": json.dumps(scoring_data, ensure_ascii=False),
+        "created_at": datetime.now(timezone.utc),
+    }, user_id=user_id)
+
+    return AnalyzeAsinResponse(
+        asin=asin,
+        marketplace=marketplace,
+        product_title=product_data.get("title", ""),
+        product_data=product_data,
+        scores=scores,
+        analysis_report=scoring_data,
+        data_source=data_source,
+        id=record.id if record else None,
+    )
+
+
+async def _analyze_single_asin(
+    asin: str,
+    marketplace: str,
+    user_id: str,
+    db: AsyncSession,
+) -> AnalyzeAsinResponse:
+    """Analyze a single ASIN through scrape-first, AI fallback-second pipeline."""
+
+    # Step 1: Try to scrape real product data from Amazon
+    scraped_data = await scrape_amazon_product(asin, marketplace)
+
+    if not scraped_data.get("scrape_success"):
+        logger.warning(f"Scraping failed for {asin}; using low-confidence AI fallback")
+
+    # Step 2: Delegate to the shared analysis pipeline.
+    return await _analyze_single_asin_with_scraped(
+        asin=asin,
+        marketplace=marketplace,
+        user_id=user_id,
+        db=db,
+        scraped_data=scraped_data,
+    )
+
+
+@router.post("/proxy-fetch", response_model=ProxyFetchResponse)
+async def proxy_fetch_amazon(
+    request: ProxyFetchRequest,
+    current_user: UserResponse = Depends(get_current_user),
+):
+    """Fetch Amazon product page HTML via our backend server.
+
+    This replaces public CORS proxies — the backend fetches the page
+    using the same scraping infrastructure (httpx / curl-cffi) and
+    returns raw HTML to the frontend for parse-html-analyze.
+    """
+    try:
+        asin = request.asin.strip().upper()
+        if not asin or len(asin) != 10:
+            return ProxyFetchResponse(success=False, error="无效的ASIN")
+
+        from services.amazon_scraper import (
+            MARKETPLACE_DOMAINS,
+            ACCEPT_LANG,
+            _DESKTOP_UAS,
+            _build_desktop_headers,
+            _is_captcha_page,
+        )
+        import random
+
+        domain = MARKETPLACE_DOMAINS.get(request.marketplace, "www.amazon.com")
+        url = f"https://{domain}/dp/{asin}"
+        lang = ACCEPT_LANG.get(request.marketplace, "en-US,en;q=0.9")
+
+        html = ""
+
+        # Strategy 1: curl-cffi
+        try:
+            from curl_cffi.requests import AsyncSession as CurlSession
+            impersonate = random.choice(["chrome131", "chrome124", "chrome120", "chrome"])
+            async with CurlSession(impersonate=impersonate) as session:
+                headers = _build_desktop_headers(lang)
+                try:
+                    await session.get(f"https://{domain}/", headers=headers, timeout=10)
+                except Exception:
+                    pass
+                import asyncio
+                await asyncio.sleep(random.uniform(0.3, 0.8))
+                resp = await session.get(url, headers=headers, timeout=20)
+                if resp.status_code == 200 and len(resp.text) > 5000:
+                    html = resp.text
+        except Exception as e:
+            logger.info(f"proxy-fetch curl-cffi failed for {asin}: {e}")
+
+        # Strategy 2: httpx fallback
+        if not html or len(html) < 5000:
+            try:
+                import httpx
+                ua = random.choice(_DESKTOP_UAS)
+                headers = {
+                    "User-Agent": ua,
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                    "Accept-Language": lang,
+                    "Accept-Encoding": "gzip, deflate, br",
+                    "Cache-Control": "max-age=0",
+                    "Upgrade-Insecure-Requests": "1",
+                }
+                async with httpx.AsyncClient(follow_redirects=True, timeout=httpx.Timeout(25.0, connect=10.0)) as client:
+                    try:
+                        await client.get(f"https://{domain}/", headers=headers)
+                    except Exception:
+                        pass
+                    resp = await client.get(url, headers=headers)
+                    if resp.status_code == 200 and len(resp.text) > 5000:
+                        html = resp.text
+            except Exception as e:
+                logger.info(f"proxy-fetch httpx failed for {asin}: {e}")
+
+        if not html or len(html) < 5000:
+            return ProxyFetchResponse(success=False, error="无法获取Amazon页面，请稍后重试")
+
+        if _is_captcha_page(html):
+            return ProxyFetchResponse(success=False, error="Amazon返回了验证码页面，请稍后重试")
+
+        return ProxyFetchResponse(success=True, html=html)
+
+    except Exception as e:
+        logger.error(f"proxy-fetch error for {request.asin}: {e}")
+        return ProxyFetchResponse(success=False, error=str(e))
+
+
+@router.post("/parse-html-analyze", response_model=ParseHtmlAnalyzeResponse)
+async def parse_html_and_analyze(
+    request: ParseHtmlAnalyzeRequest,
+    current_user: UserResponse = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Parse raw HTML from browser CORS proxy and run full 8D+2 analysis."""
+    try:
+        asin = request.asin.strip().upper()
+        if not asin or len(asin) != 10:
+            return ParseHtmlAnalyzeResponse(success=False, asin=asin, error="无效的ASIN")
+
+        html = request.html
+        if not html or len(html) < 500:
+            return ParseHtmlAnalyzeResponse(success=False, asin=asin, error="HTML内容过短")
+
+        from services.amazon_scraper import _parse_product_page, _is_captcha_page, fetch_low_star_reviews
+
+        if _is_captcha_page(html):
+            return ParseHtmlAnalyzeResponse(success=False, asin=asin, error="检测到CAPTCHA验证页面")
+
+        parsed = _parse_product_page(html, request.marketplace)
+        if not parsed or not parsed.get("title"):
+            return ParseHtmlAnalyzeResponse(success=False, asin=asin, error="无法从HTML中解析出产品信息")
+        if not parsed.get("low_star_reviews"):
+            parsed["low_star_reviews"] = await fetch_low_star_reviews(asin, request.marketplace)
+
+        logger.info(f"parse-html-analyze: parsed {asin}: {parsed['title'][:60]}")
+
+        domain_map = {
+            "US": "www.amazon.com", "UK": "www.amazon.co.uk", "DE": "www.amazon.de",
+            "JP": "www.amazon.co.jp", "CA": "www.amazon.ca", "FR": "www.amazon.fr",
+            "IT": "www.amazon.it", "ES": "www.amazon.es", "AU": "www.amazon.com.au",
+        }
+        domain = domain_map.get(request.marketplace, "www.amazon.com")
+        scraped_data = {
+            "asin": asin,
+            "url": f"https://{domain}/dp/{asin}",
+            "scrape_success": True,
+            "data_source": "browser_proxy",
+            **parsed,
+        }
+
+        result = await _analyze_single_asin_with_scraped(
+            asin=asin,
+            marketplace=request.marketplace,
+            user_id=str(current_user.id),
+            db=db,
+            scraped_data=scraped_data,
+        )
+
+        return ParseHtmlAnalyzeResponse(
+            success=True,
+            asin=result.asin,
+            product_title=result.product_title,
+            product_data=result.product_data,
+            scores=result.scores,
+            analysis_report=result.analysis_report,
+            data_source=result.data_source,
+            id=result.id,
+        )
+    except Exception as e:
+        logger.error(f"parse-html-analyze error for {request.asin}: {e}")
+        return ParseHtmlAnalyzeResponse(success=False, asin=request.asin, error=str(e))
+
+
+@router.post("/analyze", response_model=AnalyzeAsinResponse)
+async def analyze_asin(
+    request: AnalyzeAsinRequest,
+    current_user: UserResponse = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Analyze a single ASIN - get product data and 8D+2 scores."""
+    try:
+        asin = request.asin.strip().upper()
+        if not asin or len(asin) != 10:
+            raise HTTPException(status_code=400, detail="请输入有效的10位ASIN")
+
+        result = await _analyze_single_asin(
+            asin=asin,
+            marketplace=request.marketplace,
+            user_id=str(current_user.id),
+            db=db,
+        )
+        return result
+    except HTTPException:
+        raise
+    except ValueError as e:
+        logger.error(f"Analysis error for {request.asin}: {e}")
+        raise HTTPException(status_code=500, detail=f"AI分析失败: {str(e)}")
+    except Exception as e:
+        logger.error(f"Analysis error for {request.asin}: {e}")
+        raise HTTPException(status_code=500, detail=f"分析失败: {str(e)}")
+
+
+@router.post("/compare", response_model=CompareAsinsResponse)
+async def compare_asins(
+    request: CompareAsinsRequest,
+    current_user: UserResponse = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Compare my ASIN with competitor ASINs using 8D+2 scoring."""
+    try:
+        my_asin = request.my_asin.strip().upper()
+        competitor_asins = [a.strip().upper() for a in request.competitor_asins if a.strip()]
+
+        if not my_asin or len(my_asin) != 10:
+            raise HTTPException(status_code=400, detail="请输入有效的10位ASIN")
+        if not competitor_asins:
+            raise HTTPException(status_code=400, detail="请至少输入一个竞品ASIN")
+        if len(competitor_asins) > 5:
+            raise HTTPException(status_code=400, detail="最多支持5个竞品ASIN")
+
+        user_id = str(current_user.id)
+
+        # Analyze my product
+        my_result = await _analyze_single_asin(my_asin, request.marketplace, user_id, db)
+
+        # Analyze competitors
+        competitor_results = []
+        for comp_asin in competitor_asins:
+            if len(comp_asin) == 10:
+                comp_result = await _analyze_single_asin(comp_asin, request.marketplace, user_id, db)
+                competitor_results.append(comp_result)
+
+        # Generate comparison report
+        ai_service = AIHubService()
+        competitor_info = "\n".join([
+            f"ASIN: {c.asin}, 标题: {c.product_title}, 8D+2评分: {json.dumps(c.scores, ensure_ascii=False)}"
+            for c in competitor_results
+        ])
+
+        comparison_prompt = COMPARISON_PROMPT.format(
+            my_asin=my_result.asin,
+            my_title=my_result.product_title,
+            my_scores=json.dumps(my_result.scores, ensure_ascii=False),
+            competitor_info=competitor_info,
+        )
+
+        from schemas.aihub import GenTxtRequest, ChatMessage
+        comparison_request = GenTxtRequest(
+            messages=[ChatMessage(role="user", content=comparison_prompt)],
+            model="AI_DEFAULT_MODEL",
+            temperature=0.3,
+            max_tokens=8192,
+        )
+
+        comparison_data = None
+        for attempt in range(2):
+            try:
+                comparison_response = await ai_service.gentxt(comparison_request)
+                comparison_data = _extract_json(comparison_response.content)
+                break
+            except ValueError as e:
+                logger.warning(f"Comparison JSON parse failed (attempt {attempt + 1}/2): {e}")
+                if attempt == 0:
+                    comparison_request.model = "AI_DEFAULT_MODEL"
+
+        if comparison_data is None:
+            comparison_data = {
+                "strengths": ["对比分析暂时无法完成，请重试"],
+                "weaknesses": [], "opportunities": [], "threats": [],
+                "dimension_comparison": {},
+                "action_plan": ["请重新运行对比分析"],
+            }
+
+        return CompareAsinsResponse(
+            my_product=my_result,
+            competitors=competitor_results,
+            comparison=comparison_data,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Comparison error: {e}")
+        raise HTTPException(status_code=500, detail=f"对比分析失败: {str(e)}")
+
+
+@router.get("/history")
+async def get_analysis_history(
+    skip: int = 0,
+    limit: int = 20,
+    current_user: UserResponse = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get user's analysis history."""
+    svc = Asin_analysesService(db)
+    result = await svc.get_list(skip=skip, limit=limit, user_id=str(current_user.id), sort="-id")
+
+    items = []
+    for item in result["items"]:
+        items.append({
+            "id": item.id,
+            "asin": item.asin,
+            "marketplace": item.marketplace,
+            "product_title": item.product_title,
+            "scores": {
+                "functionality": item.score_functionality,
+                "emotional": item.score_emotional,
+                "scenario": item.score_scenario,
+                "user_profile": item.score_user_profile,
+                "product_identity": item.score_product_identity,
+                "compatibility": item.score_compatibility,
+                "subjective_properties": item.score_subjective_properties,
+                "differentiation": item.score_differentiation,
+                "market_trend": item.score_market_trend,
+                "risk_elimination": item.score_risk_elimination,
+            },
+            "created_at": item.created_at.isoformat() if item.created_at else None,
+        })
+
+    return {"items": items, "total": result["total"]}
+
+
+# ================================================================== #
+#  6-Dimension Product Scoring (6维产品判断打分标准)                      #
+# ================================================================== #
+
+class FiveDimensionScoreRequest(BaseModel):
+    """Request for 6-dimension product scoring."""
+    asin: str
+    marketplace: str = "US"
+    # Optional: pass existing product data to avoid re-scraping
+    product_title: str = ""
+    product_data: Optional[dict] = None
+
+
+class FiveDimensionScoreResponse(BaseModel):
+    success: bool
+    asin: str
+    product_title: str = ""
+    total_score: float = 0
+    raw_total: float = 0
+    qualified: bool = False  # True only when routed to opportunity_pool
+    dimension_scores: dict = {}  # {demand: 15, scenario: 12, ..., price_tier: 18}
+    price_tier_category: str = "medium"  # high / medium / low - 价格带分类
+    price_tier_analysis: dict = {}   # 价格带详细分析
+    detail_scores: dict = {}    # Full 24-item breakdown (原20+新增4)
+    analysis: dict = {}         # AI analysis per dimension
+    suggestions: list = []
+    data_completeness: float = 0
+    confidence_level: str = "low"
+    risk_level: str = "medium"
+    decision: str = "not_entered"
+    pool_status: str = "not_entered"
+    recommended_path: str = ""
+    one_sentence_reason: str = ""
+    dimensions: list = []
+    veto_rules: list = []
+    next_actions: list = []
+    id: Optional[int] = None
+
+
+FIVE_DIMENSION_PROMPT = """你是AlignX的「6维产品判断打分」专家。请根据以下产品数据，按照6维24项标准进行严格评分。
+
+## 产品数据
+ASIN: {asin}
+站点: Amazon {marketplace}
+{product_context}
+
+## 6维24项评分标准（每项0-5分，每维满分20分，总分120分 → 标准化到100分）
+
+### 一、需求维（demand）- 满分20分
+1. **痛点明确度**(pain_clarity): 目标用户的痛点是否清晰可见？是否有明确的"不满"或"未被满足"的需求？(0-5)
+2. **使用频率**(usage_frequency): 该产品被使用的频率如何？日用>周用>月用>偶尔用 (0-5)
+3. **需求刚性**(demand_rigidity): 是刚需还是可有可无？用户是否"必须"购买？(0-5)
+4. **付费理由清晰度**(payment_clarity): 用户为什么愿意付这个价格？价值感知是否清晰？(0-5)
+
+### 二、场景维（scenario）- 满分20分
+1. **场景明确度**(scene_clarity): 产品的核心使用场景是否清晰？用户能否立刻想到"在哪里用"？(0-5)
+2. **场景触发强度**(scene_trigger): 场景触发购买的力度有多强？是否容易联想到"我需要这个"？(0-5)
+3. **场景扩展性**(scene_expansion): 除核心场景外，是否有其他使用场景？场景越多，市场越大 (0-5)
+4. **场景可视化表达能力**(scene_visual): Listing图片/视频能否有效展示使用场景？(0-5)
+
+### 三、竞争维（competition）- 满分20分
+1. **同质化程度**(homogeneity): 市场上同类产品的相似度（反向计分：同质化越高分越低）(0-5)
+2. **差异化锚点**(differentiation_anchor): 产品是否有明确的差异化卖点？USP是否突出？(0-5)
+3. **替代难度**(substitution_difficulty): 用户转向竞品的成本/难度有多高？(0-5)
+4. **竞品弱点可攻击性**(competitor_weakness): 竞品是否有明显弱点可以被利用？(0-5)
+
+### 四、利润维（profit）- 满分20分
+1. **毛利空间**(gross_margin): 产品毛利率是否健康？（>50%=5分, 40-50%=4分, 30-40%=3分, 20-30%=2分, <20%=1分）(0-5)
+2. **广告承受力**(ad_tolerance): 在合理ACOS下是否还有利润？广告费用占比是否可控？(0-5)
+3. **定价合理性**(pricing_rationality): 定价是否在目标客群的心理价位区间？是否有溢价空间？(0-5)
+4. **放大利润空间**(profit_scalability): 是否可以通过捆绑、变体、订阅等方式放大利润？(0-5)
+
+### 五、趋势维（trend）- 满分20分
+1. **需求增长趋势**(demand_growth): 该品类/关键词搜索量是上升还是下降？(0-5)
+2. **品类生命周期**(category_lifecycle): 品类处于导入期/成长期/成熟期/衰退期？成长期最优 (0-5)
+3. **政策合规风险**(compliance_risk): 是否有政策/合规/专利风险？（反向计分：风险越高分越低）(0-5)
+4. **技术与供应链趋势**(tech_supply_trend): 技术迭代和供应链是否稳定？是否有利好趋势？(0-5)
+
+### 六、价格带维（price_tier）- 满分20分
+**价格带定位判断**: 根据品类价格分布，判断该产品是否匹配目标价格带，并评估价值感知、溢价和价格战风险。
+
+1. **价格带匹配度**(price_band_match): 产品价格是否落在目标用户愿意接受的价格带？(0-5)
+2. **价值感知支撑**(value_perception): 图片、A+、评论和卖点是否足以支撑该价格？(0-5)
+3. **溢价空间**(premium_potential): 是否能通过品牌、功能、场景或差异化形成溢价？(0-5)
+4. **价格风险承受力**(price_risk_resistance): 是否能避免陷入纯价格竞争，广告成本上涨时是否还能承受？(0-5)
+
+## 输出要求
+请以JSON格式返回（确保返回有效的JSON）：
+{{
+  "dimension_scores": {{
+    "demand": 需求维总分(0-20),
+    "scenario": 场景维总分(0-20),
+    "competition": 竞争维总分(0-20),
+    "profit": 利润维总分(0-20),
+    "trend": 趋势维总分(0-20),
+    "price_tier": 价格带维总分(0-20)
+  }},
+  "price_tier_analysis": {{
+    "category": "high | medium | low",  # 价格带分类: 高/中/低
+    "confidence": 0-100,  # 价格带判断置信度
+    "tier_percentile": 该价格在品类中的百分位（0-100）
+  }},
+  "detail_scores": {{
+    "pain_clarity": 分数(0-5),
+    "usage_frequency": 分数(0-5),
+    "demand_rigidity": 分数(0-5),
+    "payment_clarity": 分数(0-5),
+    "scene_clarity": 分数(0-5),
+    "scene_trigger": 分数(0-5),
+    "scene_expansion": 分数(0-5),
+    "scene_visual": 分数(0-5),
+    "homogeneity": 分数(0-5),
+    "differentiation_anchor": 分数(0-5),
+    "substitution_difficulty": 分数(0-5),
+    "competitor_weakness": 分数(0-5),
+    "gross_margin": 分数(0-5),
+    "ad_tolerance": 分数(0-5),
+    "pricing_rationality": 分数(0-5),
+    "profit_scalability": 分数(0-5),
+    "demand_growth": 分数(0-5),
+    "category_lifecycle": 分数(0-5),
+    "compliance_risk": 分数(0-5),
+    "tech_supply_trend": 分数(0-5),
+    "price_band_match": 分数(0-5),
+    "value_perception": 分数(0-5),
+    "premium_potential": 分数(0-5),
+    "price_risk_resistance": 分数(0-5)
+  }},
+  "analysis": {{
+    "demand": "需求维分析详情（含每个子项的判断依据）...",
+    "scenario": "场景维分析详情...",
+    "competition": "竞争维分析详情...",
+    "profit": "利润维分析详情...",
+    "trend": "趋势维分析详情...",
+    "price_tier": "价格带维分析详情（价格带分类依据、该价格带优劣势）..."
+  }},
+  "overall_summary": "总体评价摘要（含是否建议进入机会池的结论）...",
+  "suggestions": ["优化建议1", "优化建议2", "优化建议3"]
+}}
+
+只返回JSON，不要返回其他内容。"""
+
+
+def _build_product_context(product_data: dict, product_title: str = "") -> str:
+    """Build product context string for the 6D scoring prompt."""
+    lines = []
+    if product_title:
+        lines.append(f"标题: {product_title}")
+    if product_data:
+        if product_data.get("title") and not product_title:
+            lines.append(f"标题: {product_data['title']}")
+        if product_data.get("brand"):
+            lines.append(f"品牌: {product_data['brand']}")
+        if product_data.get("category"):
+            lines.append(f"类目: {product_data['category']}")
+        if product_data.get("price"):
+            lines.append(f"价格: ${product_data['price']}")
+        if product_data.get("rating"):
+            lines.append(f"评分: {product_data['rating']}")
+        if product_data.get("review_count"):
+            lines.append(f"评论数: {product_data['review_count']}")
+        if product_data.get("bsr_rank"):
+            lines.append(f"BSR排名: #{product_data['bsr_rank']}")
+        if product_data.get("bullet_points"):
+            bps = product_data["bullet_points"]
+            if isinstance(bps, list):
+                lines.append("五点描述:")
+                for i, bp in enumerate(bps, 1):
+                    lines.append(f"  {i}. {bp}")
+            elif isinstance(bps, str) and bps.strip():
+                lines.append(f"五点描述: {bps[:500]}")
+        if product_data.get("description_summary"):
+            lines.append(f"描述摘要: {product_data['description_summary'][:300]}")
+        if product_data.get("main_keywords"):
+            kws = product_data["main_keywords"]
+            if isinstance(kws, list):
+                lines.append(f"关键词: {', '.join(kws[:10])}")
+            elif isinstance(kws, str):
+                lines.append(f"关键词: {kws[:200]}")
+    return "\n".join(lines) if lines else "（无产品数据，请基于ASIN公开信息分析）"
+
+
+SIX_DIMENSION_SCHEMA = [
+    ("demand", "需求维", [
+        ("pain_clarity", "痛点明确度"),
+        ("usage_frequency", "使用频率"),
+        ("demand_rigidity", "需求刚性"),
+        ("payment_clarity", "付费理由清晰度"),
+    ]),
+    ("scenario", "场景维", [
+        ("scene_clarity", "场景明确度"),
+        ("scene_trigger", "场景触发强度"),
+        ("scene_expansion", "场景扩展性"),
+        ("scene_visual", "场景可视化表达"),
+    ]),
+    ("competition", "竞争维", [
+        ("homogeneity", "同质化程度"),
+        ("differentiation_anchor", "差异化锚点"),
+        ("substitution_difficulty", "替代难度"),
+        ("competitor_weakness", "竞品弱点可攻击性"),
+    ]),
+    ("profit", "利润维", [
+        ("gross_margin", "毛利空间"),
+        ("ad_tolerance", "广告承受力"),
+        ("pricing_rationality", "定价合理性"),
+        ("profit_scalability", "放大利润空间"),
+    ]),
+    ("trend", "趋势维", [
+        ("demand_growth", "需求增长趋势"),
+        ("category_lifecycle", "品类生命周期"),
+        ("compliance_risk", "政策合规风险"),
+        ("tech_supply_trend", "技术与供应链趋势"),
+    ]),
+    ("price_tier", "价格带维", [
+        ("price_band_match", "价格带匹配度"),
+        ("value_perception", "价值感知支撑"),
+        ("premium_potential", "溢价空间"),
+        ("price_risk_resistance", "价格风险承受力"),
+    ]),
+]
+
+
+def _num_value(value, default: float = 0) -> float:
+    if value is None:
+        return default
+    try:
+        text = str(value).replace(",", "")
+        found = re.findall(r"\d+(?:\.\d+)?", text)
+        return float(found[0]) if found else default
+    except Exception:
+        return default
+
+
+def _text_blob(product_data: dict, product_title: str) -> str:
+    parts = [product_title or "", str(product_data.get("title") or ""), str(product_data.get("category") or "")]
+    bullets = product_data.get("bullet_points")
+    if isinstance(bullets, list):
+        parts.extend(str(item) for item in bullets)
+    else:
+        parts.append(str(bullets or ""))
+    parts.append(str(product_data.get("description_summary") or ""))
+    parts.append(str(product_data.get("search_keywords") or ""))
+    parts.append(str(product_data.get("main_keywords") or ""))
+    return " ".join(parts).lower()
+
+
+def _score_item(rule_score: float, evidence: list[str], deductions: list[str], suggestion: str, ai_adjustment: float = 0) -> dict:
+    ai_adjustment = max(-1, min(1, round(ai_adjustment, 1)))
+    final_score = max(0, min(5, round(rule_score + ai_adjustment, 1)))
+    return {
+        "rule_score": round(rule_score, 1),
+        "ai_adjustment": ai_adjustment,
+        "final_score": final_score,
+        "evidence": evidence[:4],
+        "deduction_reasons": deductions[:4],
+        "suggestion": suggestion,
+    }
+
+
+def _data_completeness(product_data: dict) -> tuple[float, str, dict]:
+    checks = {
+        "title": bool(product_data.get("title")),
+        "brand": bool(product_data.get("brand")),
+        "category": bool(product_data.get("category")),
+        "price": _num_value(product_data.get("price")) > 0,
+        "rating": _num_value(product_data.get("rating")) > 0,
+        "review_count": _num_value(product_data.get("review_count")) > 0,
+        "bsr": _num_value(product_data.get("bsr_rank")) > 0,
+        "bullet_points": bool(product_data.get("bullet_points")),
+        "images_count": _num_value(product_data.get("image_count")) > 0,
+        "a_plus": bool(product_data.get("has_a_plus") or product_data.get("a_plus_content")),
+        "video": bool(product_data.get("has_video")),
+        "top10_competitors": bool(product_data.get("top10_competitors")),
+        "top20_competitors": bool(product_data.get("top20_competitors")),
+        "review_pain_points": bool(product_data.get("review_pain_points")),
+        "qa_data": bool(product_data.get("qa_data")),
+        "keyword_data": bool(product_data.get("keyword_data") or product_data.get("main_keywords") or product_data.get("search_keywords")),
+        "cpc_data": bool(product_data.get("cpc_data")),
+        "bsr_history": bool(product_data.get("bsr_history")),
+        "review_growth_history": bool(product_data.get("review_growth_history")),
+    }
+    completeness = round(sum(1 for ok in checks.values() if ok) / len(checks), 2)
+    confidence = "high" if completeness >= 0.8 else "medium" if completeness >= 0.5 else "low"
+    return completeness, confidence, checks
+
+
+def _build_six_dimension_rule_engine(asin: str, marketplace: str, product_title: str, product_data: dict, ai_result: dict | None = None) -> dict:
+    title = product_title or str(product_data.get("title") or "")
+    text = _text_blob(product_data, title)
+    price = _num_value(product_data.get("price"))
+    rating = _num_value(product_data.get("rating"))
+    reviews = _num_value(product_data.get("review_count"))
+    bsr = _num_value(product_data.get("bsr_rank"))
+    image_count = _num_value(product_data.get("image_count"))
+    bullets = product_data.get("bullet_points") or []
+    bullet_count = len(bullets) if isinstance(bullets, list) else len([x for x in re.split(r"[\n;]+", str(bullets)) if x.strip()])
+    has_a_plus = bool(product_data.get("has_a_plus") or product_data.get("a_plus_content") or product_data.get("description_summary"))
+    has_video = bool(product_data.get("has_video"))
+    completeness, confidence_level, completeness_checks = _data_completeness(product_data)
+
+    pain_terms = ["odor", "smell", "pain", "mess", "tracking", "noise", "leak", "safe", "waterproof", "easy", "portable", "backup", "without"]
+    scenario_terms = ["for ", "with ", "travel", "outdoor", "camping", "pool", "beach", "home", "office", "apartment", "gift", "kids", "mom", "cats", "dogs"]
+    diff_terms = ["unique", "patented", "exclusive", "new", "upgraded", "compare", "different", "only", "advanced", "sealed", "replaceable"]
+    compliance_terms = ["fda", "fcc", "ul", "ce", "prop 65", "battery", "medical", "food", "child", "baby", "chemical", "laser"]
+    risk_terms = ["patent", "infringe", "restricted", "certification", "hazard", "recall", "counterfeit"]
+
+    pain_hits = sum(1 for term in pain_terms if term in text)
+    scenario_hits = sum(1 for term in scenario_terms if term in text)
+    diff_hits = sum(1 for term in diff_terms if term in text)
+    compliance_hits = sum(1 for term in compliance_terms if term in text)
+    risk_hits = sum(1 for term in risk_terms if term in text)
+
+    item_map = {
+        "pain_clarity": _score_item(min(5, 1.5 + pain_hits * 0.7), [f"痛点词命中 {pain_hits} 个"], [] if pain_hits >= 2 else ["标题/五点未充分暴露用户痛点"], "补充评论痛点和差评问题，确认是否是真需求。"),
+        "usage_frequency": _score_item(4.5 if any(x in text for x in ["daily", "everyday", "home", "office", "cat", "charger"]) else 3, ["存在日常/高频使用信号"] if any(x in text for x in ["daily", "everyday", "home", "office", "cat", "charger"]) else [], ["缺少使用频率证据"] if not any(x in text for x in ["daily", "everyday", "home", "office", "cat", "charger"]) else [], "用评论、QA或场景词确认使用频率。"),
+        "demand_rigidity": _score_item(4.2 if pain_hits >= 3 else 3 if pain_hits >= 1 else 2, [f"痛点强度 {pain_hits}"], [] if pain_hits else ["刚需证据不足"], "判断用户是否必须解决该问题，而不是可买可不买。"),
+        "payment_clarity": _score_item(4.3 if rating >= 4.3 and reviews >= 100 else 3.5 if price > 0 and rating >= 4 else 2.5, [f"价格 {price}", f"评分 {rating}", f"评论 {int(reviews)}"], ["价值支撑不足"] if rating < 4.1 or reviews < 50 else [], "用功能、效果、信任证据支撑付费理由。"),
+        "scene_clarity": _score_item(min(5, 1.5 + scenario_hits * 0.6), [f"场景词命中 {scenario_hits} 个"], [] if scenario_hits >= 2 else ["场景表达不足"], "明确核心使用场景和目标人群。"),
+        "scene_trigger": _score_item(4.2 if scenario_hits >= 3 and pain_hits >= 1 else 3 if scenario_hits else 2, [f"场景 {scenario_hits} / 痛点 {pain_hits}"], ["场景不能强触发购买"] if scenario_hits < 2 else [], "用状态触发词表达什么时候会需要它。"),
+        "scene_expansion": _score_item(4.2 if scenario_hits >= 4 else 3 if scenario_hits >= 2 else 2, [f"可扩展场景 {scenario_hits}"], ["场景过窄"] if scenario_hits < 2 else [], "补充相邻场景但不要泛化到无关人群。"),
+        "scene_visual": _score_item(4.5 if image_count >= 7 or has_video else 3.5 if image_count >= 4 else 2, [f"图片数 {int(image_count)}", f"视频 {has_video}"], ["图片/视频场景证据不足"] if image_count < 7 and not has_video else [], "用图片/视频验证场景是否可视化。"),
+        "homogeneity": _score_item(2.2 if diff_hits == 0 else 3.2 if diff_hits < 2 else 4, [f"差异化信号 {diff_hits}"], ["同质化风险高"] if diff_hits == 0 else [], "对Top竞品做同尺子比较，确认同质化程度。"),
+        "differentiation_anchor": _score_item(min(5, 1.8 + diff_hits * 0.8), [f"差异化词命中 {diff_hits} 个"], ["差异化锚点不清晰"] if diff_hits < 2 else [], "找到可以被Listing和广告表达的核心差异。"),
+        "substitution_difficulty": _score_item(4 if diff_hits >= 3 and reviews >= 100 else 3 if diff_hits else 2, [f"差异化 {diff_hits}", f"评论门槛 {int(reviews)}"], ["用户转向竞品成本低"] if diff_hits < 2 else [], "确认是否有结构、配件、体验或服务门槛。"),
+        "competitor_weakness": _score_item(3.5 if product_data.get("review_pain_points") else 2.2, ["已有评论痛点数据"] if product_data.get("review_pain_points") else [], ["缺少竞品差评机会数据"], "抓取竞品差评，找可攻击弱点。"),
+        "gross_margin": _score_item(4 if price >= 35 else 3 if price >= 20 else 2, [f"价格 {price}"], ["低价品毛利空间偏窄"] if price and price < 20 else [], "补充采购成本、FBA费和退货率后复算毛利。"),
+        "ad_tolerance": _score_item(4 if price >= 40 else 3 if price >= 25 else 2, [f"价格可承受CPC区间 {price}"], ["客单价低，广告承受力弱"] if price and price < 25 else [], "补充CPC数据和目标ACOS测算广告承受力。"),
+        "pricing_rationality": _score_item(4.2 if 15 <= price <= 80 else 3 if price > 0 else 1.5, [f"价格 {price}"], ["缺少价格或价格带异常"] if price <= 0 or price > 120 else [], "和Top10价格带对比，确认是否匹配承诺强度。"),
+        "profit_scalability": _score_item(4 if any(x in text for x in ["set", "pack", "refill", "replace", "accessory"]) else 2.8, ["存在套装/耗材/配件信号"] if any(x in text for x in ["set", "pack", "refill", "replace", "accessory"]) else [], ["放大利润空间不明确"], "寻找捆绑、变体、配件或复购方案。"),
+        "demand_growth": _score_item(3.6 if bsr and bsr < 50000 else 3, [f"BSR {int(bsr)}"] if bsr else [], ["缺少BSR历史/关键词趋势"], "补充BSR历史和关键词搜索趋势。"),
+        "category_lifecycle": _score_item(3.5 if reviews < 5000 else 2.8, [f"评论门槛 {int(reviews)}"], ["品类可能成熟，需验证新品进入案例"] if reviews >= 5000 else [], "检查新品是否仍能进入前排。"),
+        "compliance_risk": _score_item(2.5 if compliance_hits or risk_hits else 4, [f"合规/风险词 {compliance_hits + risk_hits}"], ["可能涉及认证、侵权或合规风险"] if compliance_hits or risk_hits else [], "确认认证、专利、类目限制和平台政策。"),
+        "tech_supply_trend": _score_item(3.6 if any(x in text for x in ["usb", "bluetooth", "wireless", "battery", "led"]) else 3, ["存在技术/供应链关键词"] if any(x in text for x in ["usb", "bluetooth", "wireless", "battery", "led"]) else [], ["缺少供应链稳定性证据"], "确认技术迭代速度和供应链稳定性。"),
+        "price_band_match": _score_item(4 if 20 <= price <= 70 else 3 if price > 0 else 1, [f"价格 {price}"], ["价格带可能错配"] if price <= 0 or price > 120 else [], "对比Top20价格分布确认所在价格带。"),
+        "value_perception": _score_item(4 if rating >= 4.3 and (has_a_plus or image_count >= 7) else 3, [f"评分 {rating}", f"A+ {has_a_plus}", f"图片 {int(image_count)}"], ["价值感知支撑不足"] if rating < 4.2 else [], "用A+、图片和评论支撑价格价值感。"),
+        "premium_potential": _score_item(4 if diff_hits >= 2 and has_a_plus else 2.8, [f"差异化 {diff_hits}", f"A+ {has_a_plus}"], ["溢价证据不足"] if diff_hits < 2 else [], "用品牌信任和差异化证明支撑溢价。"),
+        "price_risk_resistance": _score_item(4 if price >= 35 and diff_hits >= 2 else 2.8, [f"价格 {price}", f"差异化 {diff_hits}"], ["容易陷入价格战"] if diff_hits < 2 else [], "验证是否能避开纯价格竞争。"),
+    }
+
+    dimensions = []
+    dimension_scores = {}
+    detail_scores = {}
+    analysis = {}
+    ai_adjustments = (ai_result or {}).get("ai_adjustments", {}) if isinstance(ai_result, dict) else {}
+    for dim_key, dim_name, items in SIX_DIMENSION_SCHEMA:
+        item_rows = []
+        base_score = 0.0
+        final_score = 0.0
+        for item_key, item_name in items:
+            row = dict(item_map[item_key])
+            requested_adj = 0
+            if isinstance(ai_adjustments, dict):
+                requested_adj = _num_value(ai_adjustments.get(item_key), 0)
+            requested_adj = max(-1, min(1, requested_adj))
+            row["ai_adjustment"] = round(requested_adj, 1)
+            row["final_score"] = max(0, min(5, round(row["rule_score"] + requested_adj, 1)))
+            row["item_name"] = item_name
+            base_score += row["rule_score"]
+            final_score += row["final_score"]
+            detail_scores[item_key] = row["final_score"]
+            item_rows.append(row)
+        dim_ai_adjustment = round(final_score - base_score, 1)
+        dimension_scores[dim_key] = round(final_score, 1)
+        analysis[dim_key] = "；".join([item["suggestion"] for item in item_rows[:2]])
+        dimensions.append({
+            "dimension_name": dim_name,
+            "dimension_key": dim_key,
+            "base_score": round(base_score, 1),
+            "ai_adjustment": dim_ai_adjustment,
+            "final_score": round(final_score, 1),
+            "confidence": completeness,
+            "items": item_rows,
+        })
+
+    raw_total = round(sum(dimension_scores.values()), 1)
+    total_score = round(raw_total * 100 / 120, 1)
+
+    seller_type = str(product_data.get("seller_type") or "")
+    platform_ecosystem = bool(product_data.get("platform_ecosystem"))
+    platform_terms = ["echo show", "echo dot", "echo spot", "echo studio", "alexa", "fire tv", "kindle", "ring video", "blink outdoor"]
+    accessory_context = any(x in text for x in ["compatible", "case for", "cover for", "stand for", "mount for", "charger for", "replacement"])
+    amazon_owned_or_bound = platform_ecosystem or "平台生态" in seller_type or "Amazon自营" in seller_type
+
+    veto_rules = [
+        {"rule_name": "品牌垄断明显", "triggered": bool(product_data.get("brand_monopoly_risk") or (reviews >= 20000 and bsr and bsr < 5000)), "reason": "头部评论、销量或平台品牌门槛过高，新品切入难度大。", "evidence": [f"评论数 {int(reviews)}", f"BSR {int(bsr)}", seller_type]},
+        {"rule_name": "平台生态强绑定", "triggered": bool((amazon_owned_or_bound or any(x in text for x in platform_terms)) and not accessory_context), "reason": "该商品依赖Amazon自有生态、系统入口或品牌流量，不应按普通第三方产品直接进入。", "evidence": [title, seller_type]},
+        {"rule_name": "侵权风险高", "triggered": risk_hits >= 1 or "patent" in text, "reason": "存在侵权或受限关键词信号。", "evidence": [f"风险词命中 {risk_hits}"]},
+        {"rule_name": "认证/合规风险高", "triggered": compliance_hits >= 2, "reason": "可能需要认证或合规准入。", "evidence": [f"合规词命中 {compliance_hits}"]},
+        {"rule_name": "利润无法覆盖广告成本", "triggered": bool(price and price < 15), "reason": "低客单价产品广告承受力弱。", "evidence": [f"价格 {price}"]},
+        {"rule_name": "价格带严重错配", "triggered": bool(price and price > 150 and rating < 4.3), "reason": "高价但评分/信任支撑不足。", "evidence": [f"价格 {price}", f"评分 {rating}"]},
+        {"rule_name": "履约不可控", "triggered": any(x in text for x in ["fragile", "oversize", "glass", "liquid", "heavy"]), "reason": "可能存在破损、超大件、液体或重货履约风险。", "evidence": [title]},
+        {"rule_name": "Review门槛过高且新品无进入案例", "triggered": reviews >= 10000 and not product_data.get("new_seller_case"), "reason": "评论门槛偏高，缺少新品进入证据。", "evidence": [f"评论数 {int(reviews)}"]},
+        {"rule_name": "产品差异化无法通过Listing表达", "triggered": diff_hits == 0 and total_score < 70, "reason": "缺少可表达差异点，容易进入价格竞争。", "evidence": ["差异化信号为0"]},
+        {"rule_name": "不是第三方卖家的合理切入品", "triggered": bool(amazon_owned_or_bound and reviews > 1000 and not accessory_context), "reason": "平台自营/生态强绑定且评论门槛较高，普通第三方卖家直接切入风险大。", "evidence": [seller_type, f"评论数 {int(reviews)}"]},
+    ]
+    triggered_vetoes = [rule for rule in veto_rules if rule["triggered"]]
+    risk_level = "high" if triggered_vetoes or total_score < 55 else "medium" if total_score < 75 or confidence_level == "low" else "low"
+
+    derivative_signal = total_score >= 55 and (triggered_vetoes or dimension_scores.get("competition", 0) < 12) and (scenario_hits >= 2 or pain_hits >= 2)
+    if triggered_vetoes and risk_level == "high":
+        pool_status = "rejected_pool"
+    elif total_score >= 75 and risk_level != "high":
+        pool_status = "opportunity_pool"
+    elif 65 <= total_score < 75 and risk_level in {"low", "medium"}:
+        pool_status = "validation_pool"
+    elif derivative_signal:
+        pool_status = "derivative_pool"
+    elif total_score < 65 or risk_level == "high":
+        pool_status = "rejected_pool"
+    else:
+        pool_status = "not_entered"
+
+    if triggered_vetoes:
+        decision = "高风险禁止进入"
+    elif pool_status == "opportunity_pool":
+        decision = "可进入"
+    elif pool_status == "validation_pool":
+        decision = "可小预算测试"
+    elif pool_status == "derivative_pool":
+        decision = "不建议直接进入"
+    elif total_score >= 60:
+        decision = "需改良后进入"
+    else:
+        decision = "不建议直接进入"
+
+    action_map = {
+        "可进入": ["生成 Listing 方向", "生成首轮广告验证词", "创建执行跟踪任务"],
+        "可小预算测试": ["生成最小验证方案", "生成测试关键词", "生成验证指标"],
+        "需改良后进入": ["生成产品改良方向", "提取竞品差评机会", "重新评估改良款"],
+        "不建议直接进入": ["查找替代机会", "分析配件/周边市场", "重新选择相邻类目"],
+        "高风险禁止进入": ["查看风险证据", "生成避坑报告", "重新选品"],
+    }
+    recommended_path = {
+        "opportunity_pool": "/listing-launch-check",
+        "validation_pool": "/ab-test-comparison",
+        "derivative_pool": "/asin-manager",
+        "rejected_pool": "/asin-manager",
+        "not_entered": "/asin-manager",
+    }.get(pool_status, "/asin-manager")
+    one_sentence_reason = (
+        f"{decision}：总分{total_score}，数据置信度{confidence_level}，风险{risk_level}，"
+        f"{'触发一票否决：' + triggered_vetoes[0]['rule_name'] if triggered_vetoes else '未触发重大否决规则'}。"
+    )
+
+    return {
+        "raw_total": raw_total,
+        "total_score": total_score,
+        "qualified": pool_status == "opportunity_pool",
+        "dimension_scores": dimension_scores,
+        "detail_scores": detail_scores,
+        "analysis": analysis,
+        "suggestions": action_map.get(decision, []),
+        "data_completeness": completeness,
+        "confidence_level": confidence_level,
+        "data_completeness_checks": completeness_checks,
+        "risk_level": risk_level,
+        "decision": decision,
+        "pool_status": pool_status,
+        "recommended_path": recommended_path,
+        "one_sentence_reason": one_sentence_reason,
+        "dimensions": dimensions,
+        "veto_rules": veto_rules,
+        "next_actions": action_map.get(decision, []),
+        "price_tier_category": "high" if price >= 70 else "medium" if price >= 20 else "low",
+        "price_tier_analysis": {
+            "category": "high" if price >= 70 else "medium" if price >= 20 else "low",
+            "confidence": round(completeness * 100),
+            "tier_percentile": 80 if price >= 70 else 50 if price >= 20 else 20,
+        },
+    }
+
+
+@router.post("/five-dimension-score", response_model=FiveDimensionScoreResponse)
+async def five_dimension_score(
+    request: FiveDimensionScoreRequest,
+    current_user: UserResponse = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Run 6-Dimension Product Scoring (6维产品级决策引擎).
+
+    The canonical scoring path is now:
+    real input data -> deterministic rule engine -> optional AI semantic adjustment
+    -> risk veto -> pool routing. The score is no longer decided directly by an
+    AI prompt, so missing data lowers confidence instead of producing fake precision.
+    """
+    try:
+        asin = request.asin.strip().upper()
+        if not asin:
+            raise HTTPException(status_code=400, detail="请输入ASIN")
+
+        # Build product context from provided data or try to get from DB
+        product_data = request.product_data or {}
+        product_title = request.product_title or ""
+
+        # If no product data provided, try to find from existing analyses or products table
+        if not product_data and not product_title:
+            svc = Asin_analysesService(db)
+            existing = await svc.list_by_field("asin", asin, limit=1)
+            if existing:
+                latest = existing[0]
+                product_title = latest.product_title or ""
+                try:
+                    product_data = json.loads(latest.product_data) if latest.product_data else {}
+                except (json.JSONDecodeError, TypeError):
+                    product_data = {}
+
+        engine = _build_six_dimension_rule_engine(
+            asin=asin,
+            marketplace=request.marketplace,
+            product_title=product_title or product_data.get("title", ""),
+            product_data=product_data,
+            ai_result=None,
+        )
+
+        dimension_scores = engine["dimension_scores"]
+        detail_scores = engine["detail_scores"]
+        analysis = engine["analysis"]
+        suggestions = engine["suggestions"]
+        raw_total = engine["raw_total"]
+        total_score = engine["total_score"]
+        qualified = engine["qualified"]
+        price_tier_analysis = engine["price_tier_analysis"]
+        price_tier_category = engine["price_tier_category"]
+        overall_summary = engine["one_sentence_reason"]
+
+        detail_payload = {
+            "detail_scores": detail_scores,
+            "analysis": analysis,
+            "overall_summary": overall_summary,
+            "suggestions": suggestions,
+            "price_tier_analysis": price_tier_analysis,
+            "raw_total": raw_total,
+            "data_completeness": engine["data_completeness"],
+            "confidence_level": engine["confidence_level"],
+            "data_completeness_checks": engine["data_completeness_checks"],
+            "risk_level": engine["risk_level"],
+            "decision": engine["decision"],
+            "pool_status": engine["pool_status"],
+            "recommended_path": engine["recommended_path"],
+            "one_sentence_reason": engine["one_sentence_reason"],
+            "dimensions": engine["dimensions"],
+            "veto_rules": engine["veto_rules"],
+            "next_actions": engine["next_actions"],
+        }
+
+        # Save to database
+        svc = Asin_analysesService(db)
+        record = await svc.create({
+            "asin": asin,
+            "marketplace": request.marketplace,
+            "product_title": product_title or product_data.get("title", ""),
+            "product_data": json.dumps(product_data, ensure_ascii=False) if product_data else "",
+            "score_5d_total": total_score,
+            "score_5d_demand": float(dimension_scores.get("demand", 0)),
+            "score_5d_scenario": float(dimension_scores.get("scenario", 0)),
+            "score_5d_competition": float(dimension_scores.get("competition", 0)),
+            "score_5d_profit": float(dimension_scores.get("profit", 0)),
+            "score_5d_trend": float(dimension_scores.get("trend", 0)),
+            # ==== 新增：第6维 价格带维度 ====
+            "score_5d_price_tier": float(dimension_scores.get("price_tier", 0)),
+            "price_tier_category": price_tier_category,
+            "price_tier_analysis": json.dumps(price_tier_analysis, ensure_ascii=False),
+            "score_5d_detail": json.dumps(detail_payload, ensure_ascii=False),
+            "qualified": 1 if qualified else 0,
+            "analysis_report": json.dumps({
+                "type": "6d_decision_engine",
+                "overall_summary": overall_summary,
+                "suggestions": suggestions,
+                "price_tier": price_tier_category,
+                "decision": engine["decision"],
+                "pool_status": engine["pool_status"],
+                "risk_level": engine["risk_level"],
+                "confidence_level": engine["confidence_level"],
+            }, ensure_ascii=False),
+            "created_at": datetime.now(timezone.utc),
+        }, user_id=str(current_user.id))
+
+        return FiveDimensionScoreResponse(
+            success=True,
+            asin=asin,
+            product_title=product_title or product_data.get("title", ""),
+            total_score=total_score,
+            raw_total=raw_total,
+            qualified=qualified,
+            dimension_scores=dimension_scores,
+            price_tier_category=price_tier_category,
+            price_tier_analysis=price_tier_analysis,
+            detail_scores=detail_scores,
+            analysis=analysis,
+            suggestions=suggestions,
+            data_completeness=engine["data_completeness"],
+            confidence_level=engine["confidence_level"],
+            risk_level=engine["risk_level"],
+            decision=engine["decision"],
+            pool_status=engine["pool_status"],
+            recommended_path=engine["recommended_path"],
+            one_sentence_reason=engine["one_sentence_reason"],
+            dimensions=engine["dimensions"],
+            veto_rules=engine["veto_rules"],
+            next_actions=engine["next_actions"],
+            id=record.id if record else None,
+        )
+
+    except HTTPException:
+        raise
+    except ValueError as e:
+        logger.error(f"6D score error for {request.asin}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        logger.error(f"6D score error for {request.asin}: {e}")
+        raise HTTPException(status_code=500, detail=f"6维评分失败: {str(e)}")
+
+
+@router.post("/six-dimension-score", response_model=FiveDimensionScoreResponse)
+async def six_dimension_score(
+    request: FiveDimensionScoreRequest,
+    current_user: UserResponse = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Canonical 6D scoring endpoint. The old five-dimension endpoint is kept for compatibility."""
+    return await five_dimension_score(request=request, current_user=current_user, db=db)
+
+
+@router.get("/five-dimension-history")
+async def get_five_dimension_history(
+    asin: Optional[str] = None,
+    skip: int = 0,
+    limit: int = 50,
+    current_user: UserResponse = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get 6-dimension scoring history, optionally filtered by ASIN."""
+    from sqlalchemy import select, func, and_
+    from models.asin_analyses import Asin_analyses
+
+    try:
+        base_filter = and_(
+            Asin_analyses.user_id == str(current_user.id),
+            Asin_analyses.score_5d_total.isnot(None),
+        )
+        if asin:
+            base_filter = and_(base_filter, Asin_analyses.asin == asin.strip().upper())
+
+        count_q = select(func.count(Asin_analyses.id)).where(base_filter)
+        count_result = await db.execute(count_q)
+        total = count_result.scalar() or 0
+
+        query = (
+            select(Asin_analyses)
+            .where(base_filter)
+            .order_by(Asin_analyses.id.desc())
+            .offset(skip)
+            .limit(limit)
+        )
+        result = await db.execute(query)
+        rows = result.scalars().all()
+
+        items = []
+        for row in rows:
+            detail = {}
+            if row.score_5d_detail:
+                try:
+                    detail = json.loads(row.score_5d_detail)
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            stored_product_data = {}
+            if row.product_data:
+                try:
+                    stored_product_data = json.loads(row.product_data)
+                except (json.JSONDecodeError, TypeError):
+                    stored_product_data = {}
+            if row.product_title and not stored_product_data.get("title"):
+                stored_product_data["title"] = row.product_title
+            fallback_completeness, fallback_confidence, _fallback_checks = _data_completeness(stored_product_data)
+            data_completeness = detail.get("data_completeness") or fallback_completeness
+            confidence_level = detail.get("confidence_level") or fallback_confidence
+            detail_dimensions = detail.get("dimensions", [])
+            is_legacy_score = not bool(detail_dimensions) or not bool(detail.get("data_completeness"))
+            if isinstance(detail_dimensions, list):
+                for dim in detail_dimensions:
+                    for item in dim.get("items", []) if isinstance(dim, dict) else []:
+                        if item.get("item_name") in {"价值支撑", "促销空间", "价格竞争力", "价格带供需结构", "价格带进入门槛", "价格带抗风险能力"}:
+                            is_legacy_score = True
+
+            items.append({
+                "id": row.id,
+                "asin": row.asin,
+                "marketplace": row.marketplace,
+                "product_title": row.product_title,
+                "total_score": row.score_5d_total,
+                "raw_total": detail.get("raw_total", 0),
+                "qualified": bool(row.qualified),
+                "dimension_scores": {
+                    "demand": row.score_5d_demand,
+                    "scenario": row.score_5d_scenario,
+                    "competition": row.score_5d_competition,
+                    "profit": row.score_5d_profit,
+                    "trend": row.score_5d_trend,
+                    "price_tier": getattr(row, "score_5d_price_tier", 0),
+                },
+                "price_tier_category": getattr(row, "price_tier_category", None),
+                "price_tier_analysis": json.loads(row.price_tier_analysis) if getattr(row, "price_tier_analysis", None) else {},
+                "detail_scores": detail.get("detail_scores", {}),
+                "analysis": detail.get("analysis", {}),
+                "suggestions": detail.get("suggestions", []),
+                "data_completeness": data_completeness,
+                "confidence_level": confidence_level,
+                "risk_level": detail.get("risk_level", "medium"),
+                "decision": detail.get("decision", "not_entered"),
+                "pool_status": detail.get("pool_status", "not_entered"),
+                "recommended_path": detail.get("recommended_path", ""),
+                "one_sentence_reason": detail.get("one_sentence_reason", detail.get("overall_summary", "")),
+                "dimensions": detail.get("dimensions", []),
+                "veto_rules": detail.get("veto_rules", []),
+                "next_actions": detail.get("next_actions", []),
+                "is_legacy_score": is_legacy_score,
+                "created_at": row.created_at.isoformat() if row.created_at else None,
+            })
+
+        return {"items": items, "total": total}
+    except Exception as e:
+        logger.error(f"6D history error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/six-dimension-history")
+async def get_six_dimension_history(
+    asin: Optional[str] = None,
+    skip: int = 0,
+    limit: int = 50,
+    current_user: UserResponse = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Canonical 6D scoring history endpoint. The old endpoint remains compatible."""
+    return await get_five_dimension_history(
+        asin=asin,
+        skip=skip,
+        limit=limit,
+        current_user=current_user,
+        db=db,
+    )

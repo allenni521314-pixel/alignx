@@ -1,0 +1,37 @@
+{
+    "title": "ad_recommendations",
+    "type": "object",
+    "properties": {
+        "id": {
+            "type": "integer",
+            "description": "Primary key, auto-increment"
+        },
+        "user_id": {
+            "type": "string",
+            "description": "User ID"
+        },
+        "product_id": {
+            "type": "integer",
+            "description": "Reference to products table"
+        },
+        "recommendation_type": {
+            "type": "string",
+            "description": "Type: bid_adjustment/negative_keyword/budget_allocation/keyword_bullet_match"
+        },
+        "content": {
+            "type": "string",
+            "description": "Recommendation content JSON string"
+        },
+        "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Created timestamp"
+        }
+    },
+    "required": [
+        "id",
+        "user_id",
+        "product_id",
+        "recommendation_type"
+    ]
+}

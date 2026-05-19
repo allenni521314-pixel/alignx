@@ -1,0 +1,60 @@
+{
+    "title": "health_reports",
+    "type": "object",
+    "properties": {
+        "id": {
+            "type": "integer",
+            "description": "Primary key, auto-increment"
+        },
+        "user_id": {
+            "type": "string",
+            "description": "User ID"
+        },
+        "product_id": {
+            "type": "integer",
+            "description": "Reference to products table"
+        },
+        "title_score": {
+            "type": "integer",
+            "description": "Title quality score 0-20"
+        },
+        "keyword_score": {
+            "type": "integer",
+            "description": "Keyword coverage score 0-20"
+        },
+        "bullet_score": {
+            "type": "integer",
+            "description": "Bullet points completeness score 0-20"
+        },
+        "aplus_score": {
+            "type": "integer",
+            "description": "A+ content quality score 0-20"
+        },
+        "review_score": {
+            "type": "integer",
+            "description": "Review situation score 0-20"
+        },
+        "total_score": {
+            "type": "integer",
+            "description": "Total score 0-100"
+        },
+        "grade": {
+            "type": "string",
+            "description": "Grade A/B/C/D"
+        },
+        "suggestions": {
+            "type": "string",
+            "description": "Optimization suggestions JSON string"
+        },
+        "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Created timestamp"
+        }
+    },
+    "required": [
+        "id",
+        "user_id",
+        "product_id"
+    ]
+}

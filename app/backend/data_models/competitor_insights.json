@@ -1,0 +1,53 @@
+{
+    "title": "competitor_insights",
+    "type": "object",
+    "properties": {
+        "id": {
+            "type": "integer",
+            "description": "Primary key, auto-increment"
+        },
+        "user_id": {
+            "type": "string",
+            "description": "User ID"
+        },
+        "product_id": {
+            "type": "integer",
+            "description": "Associated product ID"
+        },
+        "competitor_asin": {
+            "type": "string",
+            "description": "Competitor ASIN analyzed"
+        },
+        "strengths": {
+            "type": "string",
+            "description": "JSON string of competitor strengths"
+        },
+        "weaknesses": {
+            "type": "string",
+            "description": "JSON string of competitor weaknesses"
+        },
+        "gaps": {
+            "type": "string",
+            "description": "JSON string of gaps identified"
+        },
+        "suggestions": {
+            "type": "string",
+            "description": "JSON string of optimization suggestions"
+        },
+        "radar_scores": {
+            "type": "string",
+            "description": "JSON string of radar chart scores"
+        },
+        "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Creation timestamp"
+        }
+    },
+    "required": [
+        "id",
+        "user_id",
+        "product_id",
+        "competitor_asin"
+    ]
+}

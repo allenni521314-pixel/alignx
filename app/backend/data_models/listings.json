@@ -1,0 +1,53 @@
+{
+    "title": "listings",
+    "type": "object",
+    "properties": {
+        "id": {
+            "type": "integer",
+            "description": "Primary key, auto-increment"
+        },
+        "user_id": {
+            "type": "string",
+            "description": "User ID"
+        },
+        "asin": {
+            "type": "string",
+            "description": "Amazon ASIN"
+        },
+        "title": {
+            "type": "string",
+            "description": "Product title"
+        },
+        "cosmo_score": {
+            "type": "number",
+            "description": "Cosmo algorithm match score 0-100"
+        },
+        "current_rank": {
+            "type": "integer",
+            "description": "Current search rank"
+        },
+        "sessions_30d": {
+            "type": "integer",
+            "description": "Sessions in last 30 days"
+        },
+        "conversion_rate": {
+            "type": "number",
+            "description": "Conversion rate percentage"
+        },
+        "status": {
+            "type": "string",
+            "description": "Optimization status: optimized, needs_review, critical"
+        },
+        "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Created timestamp"
+        }
+    },
+    "required": [
+        "id",
+        "user_id",
+        "asin",
+        "title"
+    ]
+}

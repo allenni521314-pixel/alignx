@@ -1,0 +1,50 @@
+{
+    "title": "scrape_logs",
+    "type": "object",
+    "properties": {
+        "id": {
+            "type": "integer",
+            "description": "Primary key, auto-increment"
+        },
+        "user_id": {
+            "type": "string",
+            "description": "User ID"
+        },
+        "asin": {
+            "type": "string",
+            "description": "ASIN of the product"
+        },
+        "marketplace": {
+            "type": "string",
+            "description": "Marketplace code like US, JP, DE"
+        },
+        "scrape_method": {
+            "type": "string",
+            "description": "Method used: cors_proxy, server_scrape, manual_paste, ai_search"
+        },
+        "success": {
+            "type": "boolean",
+            "description": "Whether the scrape was successful"
+        },
+        "data_source": {
+            "type": "string",
+            "description": "Actual data source: scraped, browser_proxy, ai_search, ai_estimated, manual, failed"
+        },
+        "error_message": {
+            "type": "string",
+            "description": "Error message if failed"
+        },
+        "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Timestamp of the scrape attempt"
+        }
+    },
+    "required": [
+        "id",
+        "user_id",
+        "asin",
+        "scrape_method",
+        "success"
+    ]
+}

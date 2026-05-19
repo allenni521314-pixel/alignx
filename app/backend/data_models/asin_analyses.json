@@ -1,0 +1,68 @@
+{
+    "title": "asin_analyses",
+    "type": "object",
+    "properties": {
+        "id": {
+            "type": "integer",
+            "description": "Primary key, auto-increment"
+        },
+        "user_id": {
+            "type": "string",
+            "description": "User ID"
+        },
+        "asin": {
+            "type": "string",
+            "description": "Amazon ASIN"
+        },
+        "marketplace": {
+            "type": "string",
+            "description": "Amazon marketplace, e.g. US, JP, DE"
+        },
+        "product_title": {
+            "type": "string",
+            "description": "Product title"
+        },
+        "product_data": {
+            "type": "string",
+            "description": "JSON string of full product data"
+        },
+        "score_functionality": {
+            "type": "number",
+            "description": "6D score - functionality (0-100)"
+        },
+        "score_emotional": {
+            "type": "number",
+            "description": "6D score - emotional (0-100)"
+        },
+        "score_scenario": {
+            "type": "number",
+            "description": "6D score - scenario (0-100)"
+        },
+        "score_user_profile": {
+            "type": "number",
+            "description": "6D score - user profile (0-100)"
+        },
+        "score_differentiation": {
+            "type": "number",
+            "description": "6D score - differentiation (0-100)"
+        },
+        "score_market_trend": {
+            "type": "number",
+            "description": "6D score - market trend (0-100)"
+        },
+        "analysis_report": {
+            "type": "string",
+            "description": "JSON string of detailed analysis report"
+        },
+        "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Analysis creation time"
+        }
+    },
+    "required": [
+        "id",
+        "user_id",
+        "asin"
+    ]
+}

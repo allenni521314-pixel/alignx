@@ -1,0 +1,49 @@
+{
+    "title": "cosmo_results",
+    "type": "object",
+    "properties": {
+        "id": {
+            "type": "integer",
+            "description": "Primary key, auto-increment"
+        },
+        "user_id": {
+            "type": "string",
+            "description": "User ID"
+        },
+        "product_id": {
+            "type": "integer",
+            "description": "Reference to products table"
+        },
+        "model_name": {
+            "type": "string",
+            "description": "AI model name used (gpt-5-chat or gemini-2.5-pro)"
+        },
+        "optimized_title": {
+            "type": "string",
+            "description": "Optimized product title"
+        },
+        "optimized_bullets": {
+            "type": "string",
+            "description": "Optimized bullet points, JSON string"
+        },
+        "optimized_keywords": {
+            "type": "string",
+            "description": "Optimized search keywords"
+        },
+        "analysis_reason": {
+            "type": "string",
+            "description": "Analysis reasoning and keyword coverage"
+        },
+        "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Created timestamp"
+        }
+    },
+    "required": [
+        "id",
+        "user_id",
+        "product_id",
+        "model_name"
+    ]
+}
