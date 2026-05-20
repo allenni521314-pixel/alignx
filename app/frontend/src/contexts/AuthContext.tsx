@@ -50,10 +50,7 @@ interface AuthProviderProps {
  * during local development it may run on a different port.
  */
 function getApiBaseUrl(): string {
-  if (typeof window !== 'undefined') {
-    return window.location.origin;
-  }
-  return '';
+  return import.meta.env.VITE_API_BASE_URL || '';
 }
 
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
