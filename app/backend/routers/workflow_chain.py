@@ -367,7 +367,16 @@ async def get_current_workflow_chain(
         .order_by(desc(Products.updated_at), desc(Products.created_at), desc(Products.id)),
     )
     if not product:
-        raise HTTPException(status_code=404, detail="No product found for workflow chain")
+        return {
+            "product": None,
+            "chain_status": "empty",
+            "completed_stages": 0,
+            "total_stages": 6,
+            "integrity_score": 0,
+            "stages": [],
+            "agent_decision": None,
+            "agent_nodes": [],
+        }
     chain = await _build_chain(product, str(current_user.id), db)
     chain["agent_nodes"] = get_agent_node_status(chain)
     return chain
