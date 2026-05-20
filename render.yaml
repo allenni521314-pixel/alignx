@@ -1,0 +1,50 @@
+services:
+  - type: web
+    name: alignxagent-api
+    env: docker
+    rootDir: app/backend
+    plan: starter
+    healthCheckPath: /health
+    disk:
+      name: alignxagent-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: ENVIRONMENT
+        value: prod
+      - key: HOST
+        value: 0.0.0.0
+      - key: DATABASE_URL
+        value: sqlite+aiosqlite:////data/sql_app.db
+      - key: JWT_SECRET_KEY
+        sync: false
+      - key: JWT_ALGORITHM
+        value: HS256
+      - key: JWT_EXPIRE_MINUTES
+        value: 10080
+      - key: AI_PROVIDER
+        sync: false
+      - key: AI_API_MODE
+        sync: false
+      - key: OPENAI_BASE_URL
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: AI_DEFAULT_MODEL
+        sync: false
+      - key: AI_LIGHT_MODEL
+        sync: false
+      - key: AI_REASONING_MODEL
+        sync: false
+      - key: AI_DEEP_MODEL
+        sync: false
+      - key: VISION_PROVIDER
+        sync: false
+      - key: VISION_BASE_URL
+        sync: false
+      - key: VISION_API_KEY
+        sync: false
+      - key: AI_VISION_MODEL
+        sync: false
+      - key: VISION_REQUEST_TIMEOUT
+        sync: false
