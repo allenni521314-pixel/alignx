@@ -23,28 +23,28 @@ services:
       - key: JWT_EXPIRE_MINUTES
         value: 10080
       - key: AI_PROVIDER
-        sync: false
+        value: deepseek
       - key: AI_API_MODE
-        sync: false
+        value: chat
       - key: OPENAI_BASE_URL
-        sync: false
+        value: https://api.deepseek.com
       - key: OPENAI_API_KEY
         sync: false
       - key: AI_DEFAULT_MODEL
-        sync: false
+        value: deepseek-v4-pro
       - key: AI_LIGHT_MODEL
-        sync: false
+        value: deepseek-v4-flash
       - key: AI_REASONING_MODEL
-        sync: false
+        value: deepseek-v4-pro
       - key: AI_DEEP_MODEL
-        sync: false
+        value: deepseek-v4-pro
       - key: VISION_PROVIDER
-        sync: false
+        value: qwen
       - key: VISION_BASE_URL
-        sync: false
+        value: https://dashscope.aliyuncs.com/compatible-mode/v1
       - key: VISION_API_KEY
         sync: false
       - key: AI_VISION_MODEL
-        sync: false
+        value: qwen3-vl-plus
       - key: VISION_REQUEST_TIMEOUT
-        sync: false
+        value: "180"
