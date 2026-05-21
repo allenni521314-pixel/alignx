@@ -9,6 +9,7 @@ import logging
 import os
 from typing import AsyncGenerator
 
+import httpx
 from core.config import settings
 from openai import AsyncOpenAI
 from schemas.aihub import GenImgRequest, GenImgResponse, GenTxtRequest, GenTxtResponse
@@ -28,7 +29,7 @@ class AIHubService:
             os.getenv("OPENAI_API_KEY")
             or os.getenv("APP_AI_KEY")
             or getattr(settings, "app_ai_key", "")
-        )
+        ).strip()
         self.base_url = (
             os.getenv("OPENAI_BASE_URL")
             or os.getenv("APP_AI_BASE_URL")
@@ -40,7 +41,7 @@ class AIHubService:
             or os.getenv("OPENAI_MODEL")
             or "deepseek-chat"
         )
-        self.vision_api_key = os.getenv("VISION_API_KEY") or os.getenv("QWEN_API_KEY") or ""
+        self.vision_api_key = (os.getenv("VISION_API_KEY") or os.getenv("QWEN_API_KEY") or "").strip()
         self.vision_base_url = (
             os.getenv("VISION_BASE_URL")
             or os.getenv("QWEN_BASE_URL")
@@ -55,6 +56,7 @@ class AIHubService:
             api_key=self.api_key,
             base_url=self.base_url.rstrip("/"),
             timeout=float(os.getenv("AI_REQUEST_TIMEOUT", "180")),
+            http_client=httpx.AsyncClient(trust_env=False),
         )
         self.vision_client = None
         if self.vision_api_key and self.vision_base_url:
@@ -62,6 +64,7 @@ class AIHubService:
                 api_key=self.vision_api_key,
                 base_url=self.vision_base_url.rstrip("/"),
                 timeout=float(os.getenv("VISION_REQUEST_TIMEOUT", os.getenv("AI_REQUEST_TIMEOUT", "180"))),
+                http_client=httpx.AsyncClient(trust_env=False),
             )
 
     def _resolve_model(self, requested_model: str | None) -> str:
