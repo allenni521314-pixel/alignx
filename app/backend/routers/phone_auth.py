@@ -32,6 +32,7 @@ SUPER_ADMIN_PHONES = {"13924666118"}
 class PhoneLoginRequest(BaseModel):
     phone: str
     password: str
+    display_name: str = ""
 
 
 class PhoneLoginResponse(BaseModel):
@@ -49,6 +50,7 @@ async def phone_login(payload: PhoneLoginRequest, db: AsyncSession = Depends(get
     """
     phone = payload.phone.strip()
     password = payload.password.strip()
+    display_name = payload.display_name.strip()
 
     if not phone:
         raise HTTPException(
@@ -56,11 +58,11 @@ async def phone_login(payload: PhoneLoginRequest, db: AsyncSession = Depends(get
             detail="手机号不能为空",
         )
 
-    # Validate phone format (basic check for Chinese phone numbers)
-    if not (phone.isdigit() and len(phone) >= 10):
+    # Validate phone format for the current closed beta.
+    if not (phone.isdigit() and len(phone) == 11 and phone.startswith("1")):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="请输入有效的手机号",
+            detail="请输入正确的11位手机号",
         )
 
     # Validate fixed password
@@ -83,6 +85,8 @@ async def phone_login(payload: PhoneLoginRequest, db: AsyncSession = Depends(get
     if user:
         # Update last login
         user.last_login = datetime.now(timezone.utc)
+        if display_name:
+            user.name = display_name
         # Auto-upgrade role if phone is in super admin list
         if phone in SUPER_ADMIN_PHONES and user.role != "super_admin":
             user.role = "super_admin"
@@ -94,7 +98,7 @@ async def phone_login(payload: PhoneLoginRequest, db: AsyncSession = Depends(get
         user = User(
             id=user_id,
             email=email,
-            name=phone,
+            name=display_name or phone,
             role=desired_role,
             last_login=datetime.now(timezone.utc),
         )
