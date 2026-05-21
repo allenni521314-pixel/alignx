@@ -105,7 +105,7 @@ class AIGatewayService:
 
     def __init__(self):
         self.provider = os.getenv("AI_PROVIDER", "openai-compatible")
-        self.api_key = os.getenv("OPENAI_API_KEY") or os.getenv("APP_AI_KEY") or ""
+        self.api_key = (os.getenv("OPENAI_API_KEY") or os.getenv("APP_AI_KEY") or "").strip()
         self.base_url = (os.getenv("OPENAI_BASE_URL") or os.getenv("APP_AI_BASE_URL") or "https://api.openai.com/v1").rstrip("/")
         self.default_model = os.getenv("AI_DEFAULT_MODEL") or os.getenv("APP_AI_MODEL") or os.getenv("OPENAI_MODEL") or "gpt-4.1-mini"
         self.light_model = os.getenv("AI_LIGHT_MODEL") or self.default_model
