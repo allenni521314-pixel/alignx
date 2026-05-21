@@ -103,6 +103,23 @@ interface FetchMeta {
   has_a_plus?: boolean;
 }
 
+const getLongRunningApiBase = () => {
+  if (import.meta.env.VITE_API_BASE_URL) return import.meta.env.VITE_API_BASE_URL;
+  if (
+    typeof window !== "undefined" &&
+    window.location.hostname !== "localhost" &&
+    window.location.hostname !== "127.0.0.1"
+  ) {
+    return "https://alignxagent-api.onrender.com";
+  }
+  return "";
+};
+
+const isPublicDeployment = () =>
+  typeof window !== "undefined" &&
+  window.location.hostname !== "localhost" &&
+  window.location.hostname !== "127.0.0.1";
+
 interface Scores {
   function_expression: number;
   scenario_expression: number;
@@ -1584,10 +1601,49 @@ export default function ListingDiagnosis() {
     }
 
     try {
-      // ---- Phase 1: Backend proxy-fetch → get HTML → send to /parse-html ----
       const domain = MARKETPLACE_DOMAINS_MAP[detectedMp] || "www.amazon.com";
       const amazonUrl = `https://${domain}/dp/${asin}`;
 
+      if (isPublicDeployment()) {
+        setFetchProgress("公网服务器正在抓取Amazon页面并生成Listing诊断，通常需要 10-40 秒");
+        setFetchProgressValue(48);
+        try {
+          const apiBase = getLongRunningApiBase();
+          const res = await axios.post(
+            `${apiBase}/api/v1/listing-diagnosis/fetch-url`,
+            { url: amazonUrl, marketplace: detectedMp },
+            { headers: getAuthHeaders(), timeout: 240000 }
+          );
+          const data = res.data;
+          if (data?.listing?.title && data.listing.title.length >= 3) {
+            setFetchProgress("已抓取 Listing，正在生成诊断报告");
+            setFetchProgressValue(88);
+            const applied = applyFetchResult(data);
+            logScrapeAttempt(asin, detectedMp, "server_scrape", true, data.source || "server_scrape");
+            if (applied?.listing.title) {
+              await handleDiagnose(applied.listing, applied.meta);
+            }
+            return;
+          }
+
+          setDiagnosisPhase("fetch_failed");
+          setShowAdvancedEditor(true);
+          logScrapeAttempt(asin, detectedMp, "server_scrape", false, data?.source || "failed", "No valid title returned");
+          toast.error("服务器没有返回有效标题，请检查ASIN或稍后重试");
+          return;
+        } catch (publicErr) {
+          const errMsg = axios.isAxiosError(publicErr)
+            ? publicErr.response?.data?.detail || publicErr.message || "unknown"
+            : "unknown";
+          logScrapeAttempt(asin, detectedMp, "server_scrape", false, "failed", errMsg);
+          setDiagnosisPhase("fetch_failed");
+          setShowAdvancedEditor(true);
+          toast.error("公网服务器抓取失败，请稍后重试");
+          return;
+        }
+      }
+
+      // ---- Phase 1: Backend proxy-fetch → get HTML → send to /parse-html ----
       setFetchProgress("Phase 1/3：正在尝试真实 Amazon 页面抓取，若受限会自动切换兜底链路");
       setFetchProgressValue(12);
       let phase1Success = false;
@@ -1819,9 +1875,9 @@ export default function ListingDiagnosis() {
       }
 
       const res = await axios.post(
-        "/api/v1/listing-diagnosis/diagnose",
+        `${getLongRunningApiBase()}/api/v1/listing-diagnosis/diagnose`,
         diagPayload,
-        { headers: getAuthHeaders(), timeout: 180000 }
+        { headers: getAuthHeaders(), timeout: 240000 }
       );
       const result: DiagnosisResult = res.data;
       setDiagResult(result);
