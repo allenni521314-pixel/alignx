@@ -147,6 +147,30 @@ interface AnalysisReport {
   overall_summary: string;
   improvement_suggestions: string[];
   listing_breakdown?: ListingBreakdown;
+  amazon_compliance?: ComplianceResult;
+}
+
+interface ComplianceViolation {
+  rule_id: string;
+  module: string;
+  rule_type: string;
+  category?: string;
+  risk_score: number;
+  matched_text?: string;
+  message_cn: string;
+  suggestion_cn: string;
+  source_policy: string;
+  source_url?: string;
+}
+
+interface ComplianceResult {
+  overall_risk_level: string;
+  overall_score: number;
+  blocked: boolean;
+  review_required: boolean;
+  violations: ComplianceViolation[];
+  rewrite_suggestions?: string[];
+  disclaimer_cn?: string;
 }
 
 interface ListingBreakdownModule {
@@ -178,6 +202,7 @@ interface AnalysisResult {
   product_data: ProductData;
   scores: Scores;
   analysis_report: AnalysisReport;
+  amazon_compliance?: ComplianceResult;
   data_source?: string;
   id?: number;
 }
@@ -454,9 +479,11 @@ function sanitizeAnalysisKeywords(result: AnalysisResult): AnalysisResult {
   return {
     ...result,
     product_data: pd,
+    amazon_compliance: result.amazon_compliance || result.analysis_report?.amazon_compliance,
     analysis_report: {
       ...result.analysis_report,
       listing_breakdown: breakdown ? { ...breakdown, modules } : breakdown,
+      amazon_compliance: result.analysis_report?.amazon_compliance || result.amazon_compliance,
     },
   };
 }
@@ -1096,6 +1123,48 @@ const SIX_DIMENSIONS = [
   { key: "differentiation", label: "差异化" },
 ];
 
+function AmazonCompliancePanel({ compliance }: { compliance?: ComplianceResult }) {
+  const violations = compliance?.violations || [];
+  if (!compliance || violations.length === 0) return null;
+
+  const isBlocked = compliance.blocked;
+  return (
+    <Card className={isBlocked ? "bg-red-50 border-red-200" : "bg-amber-50 border-amber-200"}>
+      <CardContent className="pt-6">
+        <div className="flex items-start justify-between gap-3 mb-4">
+          <div className="flex items-start gap-3">
+            <AlertCircle className={`w-5 h-5 ${isBlocked ? "text-red-600" : "text-amber-600"} mt-0.5`} />
+            <div>
+              <h3 className="text-lg font-bold text-gray-900">上架前合规检查</h3>
+              <p className="text-xs text-gray-600 mt-1">
+                {compliance.disclaimer_cn || "系统检测到该内容可能存在亚马逊合规风险，建议修改后再发布。"}
+              </p>
+            </div>
+          </div>
+          <Badge variant="outline" className={isBlocked ? "border-red-200 text-red-700 bg-white" : "border-amber-200 text-amber-700 bg-white"}>
+            {compliance.overall_risk_level} · {compliance.overall_score}
+          </Badge>
+        </div>
+        <div className="space-y-3">
+          {violations.slice(0, 5).map((item) => (
+            <div key={`${item.rule_id}-${item.module}`} className="rounded-lg border border-white bg-white p-3">
+              <div className="flex flex-wrap items-center gap-2 mb-2">
+                <Badge variant="outline" className="text-xs">{item.module}</Badge>
+                <Badge variant="outline" className="text-xs">{item.rule_type}</Badge>
+                <span className="text-xs font-semibold text-gray-500">{item.risk_score}/100</span>
+                <span className="text-xs text-gray-400">{item.rule_id}</span>
+              </div>
+              <p className="text-sm font-semibold text-gray-800">{item.message_cn}</p>
+              <p className="text-xs text-gray-600 mt-1">{item.suggestion_cn}</p>
+              {item.source_policy && <p className="text-[11px] text-gray-400 mt-2">依据：{item.source_policy}</p>}
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function SingleResultView({
   result,
   expanded,
@@ -1171,6 +1240,8 @@ function SingleResultView({
           </div>
         </div>
       )}
+
+      <AmazonCompliancePanel compliance={result.amazon_compliance || report?.amazon_compliance} />
 
       {/* ===== Sub-Tab Navigation Bar ===== */}
       <div className="flex items-center gap-1 p-1 bg-gray-50 border border-gray-200 rounded-xl overflow-x-auto">
