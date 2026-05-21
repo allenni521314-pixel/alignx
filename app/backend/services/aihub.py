@@ -48,6 +48,12 @@ class AIHubService:
             or "https://dashscope.aliyuncs.com/compatible-mode/v1"
         )
         self.vision_model = os.getenv("AI_VISION_MODEL") or os.getenv("VISION_MODEL") or "qwen3-vl-plus"
+        if not self.vision_base_url.startswith(("http://", "https://")):
+            logger.warning("Invalid VISION_BASE_URL %s, falling back to DashScope compatible endpoint", self.vision_base_url)
+            self.vision_base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+        if not self.vision_model.startswith("qwen"):
+            logger.warning("Invalid AI_VISION_MODEL %s, falling back to qwen3-vl-plus", self.vision_model)
+            self.vision_model = "qwen3-vl-plus"
 
         if not self.base_url or not self.api_key:
             raise ValueError("AI service not configured. Set OPENAI_BASE_URL/OPENAI_API_KEY or APP_AI_BASE_URL/APP_AI_KEY.")
