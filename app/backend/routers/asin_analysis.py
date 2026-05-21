@@ -354,6 +354,54 @@ class AnalyzeAsinResponse(BaseModel):
     id: Optional[int] = None
 
 
+async def _get_cached_asin_analysis(asin: str, marketplace: str, db: AsyncSession) -> AnalyzeAsinResponse | None:
+    """Return the latest saved ASIN analysis so the same ASIN does not receive drifting scores."""
+    from sqlalchemy import select
+    from models.asin_analyses import Asin_analyses
+
+    result = await db.execute(
+        select(Asin_analyses)
+        .where(Asin_analyses.asin == asin, Asin_analyses.marketplace == marketplace)
+        .where(Asin_analyses.product_title.isnot(None), Asin_analyses.analysis_report.isnot(None))
+        .order_by(Asin_analyses.id.desc())
+        .limit(1)
+    )
+    record = result.scalar_one_or_none()
+    if not record:
+        return None
+    try:
+        product_data = json.loads(record.product_data or "{}")
+    except Exception:
+        product_data = {}
+    try:
+        analysis_report = json.loads(record.analysis_report or "{}")
+    except Exception:
+        analysis_report = {}
+    scores = {
+        "functionality": record.score_functionality or 0,
+        "emotional": record.score_emotional or 0,
+        "scenario": record.score_scenario or 0,
+        "user_profile": record.score_user_profile or 0,
+        "product_identity": record.score_product_identity or 0,
+        "compatibility": record.score_compatibility or 0,
+        "subjective_properties": record.score_subjective_properties or 0,
+        "differentiation": record.score_differentiation or 0,
+        "market_trend": record.score_market_trend or 0,
+        "risk_elimination": record.score_risk_elimination or 0,
+    }
+    data_source = str(product_data.get("_data_source") or analysis_report.get("data_source") or "cached_analysis")
+    return AnalyzeAsinResponse(
+        asin=record.asin,
+        marketplace=record.marketplace or marketplace,
+        product_title=record.product_title or product_data.get("title", ""),
+        product_data=product_data,
+        scores=scores,
+        analysis_report=analysis_report,
+        data_source=data_source,
+        id=record.id,
+    )
+
+
 class ParseHtmlAnalyzeRequest(BaseModel):
     """Request to parse raw HTML from browser proxy and run full analysis."""
     asin: str
@@ -1137,6 +1185,10 @@ async def analyze_asin(
         asin = request.asin.strip().upper()
         if not asin or len(asin) != 10:
             raise HTTPException(status_code=400, detail="请输入有效的10位ASIN")
+
+        cached = await _get_cached_asin_analysis(asin, request.marketplace, db)
+        if cached:
+            return cached
 
         result = await _analyze_single_asin(
             asin=asin,
