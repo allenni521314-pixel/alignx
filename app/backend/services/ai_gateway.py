@@ -137,6 +137,8 @@ class AIGatewayService:
 
     def select_model(self, depth: DecisionDepth) -> str:
         if depth == "light":
+            if self.provider.lower() == "deepseek":
+                return "deepseek-v4-flash"
             return self._normalize_text_model(self.light_model)
         if depth == "deep":
             return self._normalize_text_model(self.deep_model)
