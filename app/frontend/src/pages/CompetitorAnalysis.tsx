@@ -514,12 +514,8 @@ export default function CompetitorAnalysis() {
   /* ---- Analysis helpers (no public CORS proxies) ---- */
 
   /**
-   * Core analysis function with two-phase approach:
-   *
-   * Phase 1 (preferred): Backend proxy-fetch → get Amazon HTML → send to /parse-html-analyze
-   * Phase 2 (fallback):  Server-side /analyze endpoint (full scraping + AI)
-   *
-   * Returns the result if successful, or null on error.
+   * Core analysis function. Use the backend's full ASIN analysis endpoint directly,
+   * because public Netlify function proxying can timeout on long Amazon/AI requests.
    */
   const analyzeAsinWithProxy = useCallback(async (
     asin: string,
@@ -527,8 +523,8 @@ export default function CompetitorAnalysis() {
   ): Promise<AnalysisResult | null> => {
     const apiBase = getLongRunningApiBase();
 
-    if (isPublicDeployment()) {
-      setAnalyzeProgress("公网服务器正在抓取Amazon页面并生成竞品诊断，通常需要 10-40 秒...");
+    {
+      setAnalyzeProgress("服务器正在抓取Amazon页面并生成竞品诊断，通常需要 10-40 秒...");
       try {
         const res = await axios.post(
           `${apiBase}/api/v1/asin-analysis/analyze`,
