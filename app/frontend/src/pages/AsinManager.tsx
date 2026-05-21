@@ -67,6 +67,17 @@ const getAmazonProductUrl = (asin: string, marketplace = "US") => {
   return `https://${site.domain}/dp/${asin}`;
 };
 
+const getLongRunningApiBase = () => {
+  if (import.meta.env.VITE_API_BASE_URL) return import.meta.env.VITE_API_BASE_URL;
+  if (typeof window !== "undefined" && window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1") {
+    return "https://alignxagent-api.onrender.com";
+  }
+  return "";
+};
+
+const isPublicDeployment = () =>
+  typeof window !== "undefined" && window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1";
+
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
@@ -499,7 +510,7 @@ export default function AsinManager() {
     setForm(emptyProduct);
   };
 
-  /* ---- AI-based ASIN fetch (no credentials needed) ---- */
+  /* ---- Server-side ASIN fetch and analysis ---- */
   const fetchAsinViaAI = async (
     asin: string,
     marketplace: string
@@ -517,16 +528,20 @@ export default function AsinManager() {
       category: string;
     };
     error?: string;
+    source?: string;
   }> => {
+    const apiBase = getLongRunningApiBase();
     const res = await axios.post(
-      "/api/v1/asin-analysis/analyze",
+      `${apiBase}/api/v1/asin-analysis/analyze`,
       { asin, marketplace },
-      { headers: getAuthHeaders(), timeout: 180000 }
+      { headers: getAuthHeaders(), timeout: 240000 }
     );
     const d = res.data;
     const pd = d.product_data || {};
+    const source = d.data_source || pd._data_source || "server_analysis";
     return {
       status: "success",
+      source,
       data: {
         asin: d.asin || asin,
         title: pd.title || d.product_title || "",
@@ -566,6 +581,28 @@ export default function AsinManager() {
     error?: string;
     source?: string;
   }> => {
+    if (isPublicDeployment()) {
+      setAutoImportMessage("公网服务器正在抓取Amazon页面并生成分析结果，通常需要 10-40 秒");
+      setAutoImportProgress(35);
+      try {
+        const serverResult = await fetchAsinViaAI(asin, marketplace);
+        setAutoImportProgress(100);
+        return {
+          ...serverResult,
+          source: serverResult.source === "ai_estimated_low_confidence" ? "AI低置信度兜底" : "服务器真实抓取",
+        };
+      } catch (e: unknown) {
+        const msg = axios.isAxiosError(e)
+          ? e.code === "ECONNABORTED"
+            ? "公网服务器分析超时，请稍后重试。"
+            : e.response?.data?.detail || "服务器抓取分析失败"
+          : e instanceof Error
+            ? e.message
+            : "请求失败";
+        return { status: "failed", error: msg };
+      }
+    }
+
     // Phase 1: Browser proxy fetch. This is the primary path for AlignX:
     // the user only enters an ASIN/link, and the local browser environment assists extraction.
     setAutoImportMessage("Phase 1/3：本地浏览器代理抓取Amazon页面，通常需要 20-30 秒");
@@ -626,7 +663,7 @@ export default function AsinManager() {
     try {
       const aiResult = await fetchAsinViaAI(asin, marketplace);
       setAutoImportProgress(100);
-      return { ...aiResult, source: "AI" };
+      return { ...aiResult, source: aiResult.source === "ai_estimated_low_confidence" ? "AI低置信度兜底" : "服务器真实抓取" };
     } catch (e: unknown) {
       const msg = axios.isAxiosError(e)
         ? e.code === "ECONNABORTED"
