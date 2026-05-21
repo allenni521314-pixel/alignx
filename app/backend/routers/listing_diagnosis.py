@@ -224,6 +224,48 @@ class DiagnoseResponse(BaseModel):
     # =========================================
 
 
+async def _get_cached_listing_diagnosis(listing: ListingInput, db: AsyncSession) -> dict | None:
+    """Return the latest saved diagnosis for the same Listing title/marketplace to keep scores stable."""
+    if not listing.title:
+        return None
+    from sqlalchemy import select
+    from models.listing_diagnoses import Listing_diagnoses as LD
+
+    result = await db.execute(
+        select(LD)
+        .where(LD.listing_title == listing.title[:500], LD.marketplace == listing.marketplace)
+        .where(LD.diagnosis_report.isnot(None), LD.score_function_expression > 0)
+        .order_by(LD.id.desc())
+        .limit(1)
+    )
+    record = result.scalar_one_or_none()
+    if not record:
+        return None
+    try:
+        data = json.loads(record.diagnosis_report or "{}")
+    except Exception:
+        return None
+    scores = dict(data.get("scores") or {})
+    scores.update({
+        "function_expression": record.score_function_expression or scores.get("function_expression", 0),
+        "scenario_expression": record.score_scenario_expression or scores.get("scenario_expression", 0),
+        "identity_fit": record.score_identity_fit or scores.get("identity_fit", 0),
+        "psychology_benefit": record.score_psychology_benefit or scores.get("psychology_benefit", 0),
+        "risk_elimination": record.score_risk_elimination or scores.get("risk_elimination", 0),
+        "product_identity": record.score_product_identity or scores.get("product_identity", 0),
+        "compatibility": record.score_compatibility or scores.get("compatibility", 0),
+        "subjective_properties": record.score_subjective_properties or scores.get("subjective_properties", 0),
+        "differentiation": record.score_differentiation or scores.get("differentiation", 0),
+        "market_trend": record.score_market_trend or scores.get("market_trend", 0),
+        "causal_state_gap_coverage": record.score_causal_state_gap_coverage or scores.get("causal_state_gap_coverage", 0),
+        "causal_mechanism_clarity": record.score_causal_mechanism_clarity or scores.get("causal_mechanism_clarity", 0),
+        "causal_side_effect_transparency": record.score_causal_side_effect_transparency or scores.get("causal_side_effect_transparency", 0),
+    })
+    data["scores"] = scores
+    data["id"] = record.id
+    return data
+
+
 class CompareRequest(BaseModel):
     my_listing: ListingInput
     competitor_listings: List[ListingInput]
@@ -1612,12 +1654,14 @@ async def diagnose_listing(
         if not listing.title and not listing.bullet_points:
             raise HTTPException(status_code=400, detail="请至少输入标题或五点描述")
 
-        result = await _diagnose_single(
-            listing=listing,
-            user_id=str(current_user.id),
-            db=db,
-            precision_context=request.precision_context,
-        )
+        result = await _get_cached_listing_diagnosis(listing, db)
+        if not result:
+            result = await _diagnose_single(
+                listing=listing,
+                user_id=str(current_user.id),
+                db=db,
+                precision_context=request.precision_context,
+            )
         return DiagnoseResponse(
             scores=result["scores"],
             analysis=result["analysis"],
