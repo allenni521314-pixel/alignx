@@ -72,6 +72,23 @@ function parseAsinInput(input: string): { asin: string; marketplace: string } {
   return { asin: trimmed.toUpperCase(), marketplace: "" };
 }
 
+const getLongRunningApiBase = () => {
+  if (import.meta.env.VITE_API_BASE_URL) return import.meta.env.VITE_API_BASE_URL;
+  if (
+    typeof window !== "undefined" &&
+    window.location.hostname !== "localhost" &&
+    window.location.hostname !== "127.0.0.1"
+  ) {
+    return "https://alignxagent-api.onrender.com";
+  }
+  return "";
+};
+
+const isPublicDeployment = () =>
+  typeof window !== "undefined" &&
+  window.location.hostname !== "localhost" &&
+  window.location.hostname !== "127.0.0.1";
+
 
 
 
@@ -508,6 +525,51 @@ export default function CompetitorAnalysis() {
     asin: string,
     mp: string,
   ): Promise<AnalysisResult | null> => {
+    const apiBase = getLongRunningApiBase();
+
+    if (isPublicDeployment()) {
+      setAnalyzeProgress("公网服务器正在抓取Amazon页面并生成竞品诊断，通常需要 10-40 秒...");
+      try {
+        const res = await axios.post(
+          `${apiBase}/api/v1/asin-analysis/analyze`,
+          { asin, marketplace: mp },
+          { headers: getAuthHeaders(), timeout: 240000 }
+        );
+
+        if (res.data && ("product_title" in res.data || "scores" in res.data)) {
+          const serverDataSource = res.data.data_source || res.data.product_data?._data_source;
+          if (serverDataSource === "ai_estimated" || serverDataSource === "ai_estimated_low_confidence") {
+            toast.warning("未获取到真实页面数据，已返回AI低置信度兜底分析，建议后续复核。");
+          }
+          return sanitizeAnalysisKeywords(res.data as AnalysisResult);
+        }
+
+        toast.error("服务器返回了意外的数据格式，请重试");
+        return null;
+      } catch (err) {
+        if (axios.isAxiosError(err)) {
+          if (err.response?.status === 422) {
+            const detail = err.response?.data?.detail || "";
+            toast.error(typeof detail === "string" ? detail : "请求参数错误");
+            return null;
+          }
+          if (err.code === "ECONNABORTED" || err.message?.includes("timeout")) {
+            toast.error("分析超过240秒，请稍后重试。Amazon页面抓取或模型响应可能较慢。");
+            return null;
+          }
+          if (!err.response) {
+            toast.error("网络连接失败，请检查网络后重试");
+            return null;
+          }
+          const serverMsg = err.response?.data?.detail || err.response?.data?.error || `服务器错误 (${err.response?.status})`;
+          toast.error(typeof serverMsg === "string" ? serverMsg : "服务器内部错误，请稍后重试");
+          return null;
+        }
+
+        toast.error("分析过程中发生未知错误，请重试");
+        return null;
+      }
+    }
 
     /* ---- Phase 1: Backend proxy-fetch → parse-html-analyze ---- */
     try {
@@ -554,7 +616,7 @@ export default function CompetitorAnalysis() {
     setAnalyzeProgress("🔍 Phase 2: 服务器补充抓取与AI低置信度兜底，最长约180秒...");
     try {
       const res = await axios.post(
-        "/api/v1/asin-analysis/analyze",
+        `${apiBase}/api/v1/asin-analysis/analyze`,
         { asin, marketplace: mp },
         { headers: getAuthHeaders(), timeout: 180000 }
       );
