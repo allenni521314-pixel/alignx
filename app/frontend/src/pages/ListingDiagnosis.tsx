@@ -182,6 +182,29 @@ interface MarketValidation {
   analysis: string;
 }
 
+interface ComplianceViolation {
+  rule_id: string;
+  module: string;
+  rule_type: string;
+  category?: string;
+  risk_score: number;
+  matched_text?: string;
+  message_cn: string;
+  suggestion_cn: string;
+  source_policy: string;
+  source_url?: string;
+}
+
+interface ComplianceResult {
+  overall_risk_level: string;
+  overall_score: number;
+  blocked: boolean;
+  review_required: boolean;
+  violations: ComplianceViolation[];
+  rewrite_suggestions?: string[];
+  disclaimer_cn?: string;
+}
+
 interface DiagnosisResult {
   scores: Scores;
   analysis: Record<string, string>;
@@ -221,6 +244,7 @@ interface DiagnosisResult {
   causal_scores?: Record<string, number>;
   judgment_system?: Record<string, any>;
   ad_validation_plan?: Record<string, any>;
+  amazon_compliance?: ComplianceResult;
 }
 
 interface ConfidenceItem {
@@ -1081,6 +1105,61 @@ function PrecisionConfidencePanel({ integrity }: { integrity?: DataIntegrity }) 
             </div>
           </div>
         )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function AmazonCompliancePanel({ compliance }: { compliance?: ComplianceResult }) {
+  const violations = compliance?.violations || [];
+  if (!compliance || violations.length === 0) return null;
+
+  const tone = compliance.blocked
+    ? {
+        card: "bg-red-50 border-red-200",
+        icon: "text-red-600",
+        badge: "border-red-200 text-red-700 bg-white",
+      }
+    : {
+        card: "bg-amber-50 border-amber-200",
+        icon: "text-amber-600",
+        badge: "border-amber-200 text-amber-700 bg-white",
+      };
+
+  return (
+    <Card className={tone.card}>
+      <CardContent className="pt-6">
+        <div className="flex items-start justify-between gap-3 mb-4">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className={`w-5 h-5 ${tone.icon} mt-0.5`} />
+            <div>
+              <h3 className="text-lg font-bold text-gray-900">上架前合规检查</h3>
+              <p className="text-xs text-gray-600 mt-1">
+                {compliance.disclaimer_cn || "系统检测到该内容可能存在亚马逊合规风险，建议修改后再发布。"}
+              </p>
+            </div>
+          </div>
+          <Badge variant="outline" className={tone.badge}>
+            {compliance.overall_risk_level} · {compliance.overall_score}
+          </Badge>
+        </div>
+        <div className="space-y-3">
+          {violations.slice(0, 5).map((item) => (
+            <div key={`${item.rule_id}-${item.module}`} className="rounded-lg border border-white bg-white p-3">
+              <div className="flex flex-wrap items-center gap-2 mb-2">
+                <Badge variant="outline" className="text-xs">{item.module}</Badge>
+                <Badge variant="outline" className="text-xs">{item.rule_type}</Badge>
+                <span className="text-xs font-semibold text-gray-500">{item.risk_score}/100</span>
+                <span className="text-xs text-gray-400">{item.rule_id}</span>
+              </div>
+              <p className="text-sm font-semibold text-gray-800">{item.message_cn}</p>
+              <p className="text-xs text-gray-600 mt-1">{item.suggestion_cn}</p>
+              {item.source_policy && (
+                <p className="text-[11px] text-gray-400 mt-2">依据：{item.source_policy}</p>
+              )}
+            </div>
+          ))}
+        </div>
       </CardContent>
     </Card>
   );
@@ -2494,6 +2573,8 @@ export default function ListingDiagnosis() {
                   <PriorityIssueTable rows={buildPriorityIssues(diagResult)} />
 
                   <ModuleDiagnosisCards result={diagResult} listing={listing} />
+
+                  <AmazonCompliancePanel compliance={diagResult.amazon_compliance} />
 
                   {/* Analyzed Product Info Card */}
                   {listing.title && (
