@@ -19,6 +19,7 @@ from core.database import get_db
 from dependencies.auth import get_current_user
 from schemas.auth import UserResponse
 from services.aihub import AIHubService
+from services.amazon_rules_engine import evaluate_amazon_compliance, load_active_rules
 from services.amazon_scraper import scrape_amazon_product
 from services.asin_analyses import Asin_analysesService
 
@@ -350,8 +351,52 @@ class AnalyzeAsinResponse(BaseModel):
     product_data: dict
     scores: dict
     analysis_report: dict
+    amazon_compliance: dict = {}
     data_source: str = "unknown"
     id: Optional[int] = None
+
+
+def _image_signals_from_product_data(product_data: dict) -> dict:
+    return {
+        "main_image": {
+            "text_detected": bool(product_data.get("main_image_text_detected")),
+            "badge_detected": bool(product_data.get("main_image_badge_detected")),
+            "watermark_detected": bool(product_data.get("main_image_watermark_detected")),
+            "logo_overlay_detected": bool(product_data.get("main_image_logo_overlay_detected")),
+            "non_white_background": bool(product_data.get("main_image_non_white_background")),
+        },
+        "secondary_images": product_data.get("secondary_image_analysis") or {},
+        "image_count": product_data.get("image_count") or len(product_data.get("image_urls") or []),
+    }
+
+
+async def _evaluate_asin_compliance(product_data: dict, marketplace: str, db: AsyncSession) -> dict:
+    rules = await load_active_rules(db)
+    bullets = product_data.get("bullet_points") or []
+    description = product_data.get("description") or product_data.get("description_summary") or ""
+    a_plus_text = product_data.get("aplus_content") or product_data.get("a_plus_content") or ""
+    claims = "\n".join(
+        str(part)
+        for part in [
+            product_data.get("title") or "",
+            "\n".join(str(bp) for bp in bullets) if isinstance(bullets, list) else bullets,
+            description,
+            a_plus_text,
+        ]
+        if part
+    )
+    payload = {
+        "marketplace": marketplace or "US",
+        "product_type": product_data.get("category") or product_data.get("product_type") or "",
+        "title": product_data.get("title") or "",
+        "bullets": bullets,
+        "description": description,
+        "a_plus_text": a_plus_text,
+        "image_analysis": _image_signals_from_product_data(product_data),
+        "claims": claims,
+        "attributes": product_data.get("product_details") or {},
+    }
+    return evaluate_amazon_compliance(payload, rules)
 
 
 async def _get_cached_asin_analysis(asin: str, marketplace: str, db: AsyncSession) -> AnalyzeAsinResponse | None:
@@ -390,6 +435,7 @@ async def _get_cached_asin_analysis(asin: str, marketplace: str, db: AsyncSessio
         "risk_elimination": record.score_risk_elimination or 0,
     }
     data_source = str(product_data.get("_data_source") or analysis_report.get("data_source") or "cached_analysis")
+    amazon_compliance = analysis_report.get("amazon_compliance") or {}
     return AnalyzeAsinResponse(
         asin=record.asin,
         marketplace=record.marketplace or marketplace,
@@ -397,6 +443,7 @@ async def _get_cached_asin_analysis(asin: str, marketplace: str, db: AsyncSessio
         product_data=product_data,
         scores=scores,
         analysis_report=analysis_report,
+        amazon_compliance=amazon_compliance,
         data_source=data_source,
         id=record.id,
     )
@@ -416,6 +463,7 @@ class ParseHtmlAnalyzeResponse(BaseModel):
     product_data: dict = {}
     scores: dict = {}
     analysis_report: dict = {}
+    amazon_compliance: dict = {}
     data_source: str = "browser_proxy"
     error: str = ""
     id: Optional[int] = None
@@ -964,6 +1012,8 @@ async def _analyze_single_asin_with_scraped(
 
     product_data["main_keywords"] = _clean_original_english_keywords(product_data.get("main_keywords"), product_data, 10)
     scoring_data["listing_breakdown"] = _build_listing_breakdown(product_data, scoring_data)
+    amazon_compliance = await _evaluate_asin_compliance(product_data, marketplace, db)
+    scoring_data["amazon_compliance"] = amazon_compliance
 
     # Save to database
     svc = Asin_analysesService(db)
@@ -993,6 +1043,7 @@ async def _analyze_single_asin_with_scraped(
         product_data=product_data,
         scores=scores,
         analysis_report=scoring_data,
+        amazon_compliance=amazon_compliance,
         data_source=data_source,
         id=record.id if record else None,
     )
@@ -1166,6 +1217,7 @@ async def parse_html_and_analyze(
             product_data=result.product_data,
             scores=result.scores,
             analysis_report=result.analysis_report,
+            amazon_compliance=result.amazon_compliance,
             data_source=result.data_source,
             id=result.id,
         )
@@ -1188,6 +1240,9 @@ async def analyze_asin(
 
         cached = await _get_cached_asin_analysis(asin, request.marketplace, db)
         if cached:
+            if not cached.amazon_compliance:
+                cached.amazon_compliance = await _evaluate_asin_compliance(cached.product_data, cached.marketplace, db)
+                cached.analysis_report["amazon_compliance"] = cached.amazon_compliance
             return cached
 
         result = await _analyze_single_asin(
