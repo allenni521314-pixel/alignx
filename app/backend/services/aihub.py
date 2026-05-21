@@ -87,6 +87,10 @@ class AIHubService:
             return self.vision_client
         return self.client
 
+    def _is_vision_request(self, requested_model: str | None) -> bool:
+        resolved = self._resolve_model(requested_model)
+        return bool(self.vision_api_key and self.vision_base_url and (requested_model == "AI_VISION_MODEL" or resolved == self.vision_model))
+
     def _convert_message(self, msg) -> dict:
         """Convert message format and support multimodal content."""
         content = msg.content
@@ -109,22 +113,43 @@ class AIHubService:
             messages = [self._convert_message(msg) for msg in request.messages]
 
             model = self._resolve_model(request.model)
-            response = await self._client_for_model(request.model).chat.completions.create(
-                model=model,
-                messages=messages,
-                temperature=request.temperature,
-                max_tokens=request.max_tokens,
-                stream=False,
-            )
+            if self._is_vision_request(request.model):
+                async with httpx.AsyncClient(timeout=float(os.getenv("VISION_REQUEST_TIMEOUT", os.getenv("AI_REQUEST_TIMEOUT", "180"))), trust_env=False) as client:
+                    response = await client.post(
+                        f"{self.vision_base_url.rstrip('/')}/chat/completions",
+                        headers={
+                            "Authorization": f"Bearer {self.vision_api_key}",
+                            "Content-Type": "application/json",
+                        },
+                        json={
+                            "model": model,
+                            "messages": messages,
+                            "temperature": request.temperature,
+                            "max_tokens": request.max_tokens,
+                            "stream": False,
+                        },
+                    )
+                    response.raise_for_status()
+                    data = response.json()
+                content = data["choices"][0]["message"].get("content") or ""
+                usage = data.get("usage")
+            else:
+                response = await self.client.chat.completions.create(
+                    model=model,
+                    messages=messages,
+                    temperature=request.temperature,
+                    max_tokens=request.max_tokens,
+                    stream=False,
+                )
 
-            content = response.choices[0].message.content or ""
-            usage = None
-            if response.usage:
-                usage = {
-                    "prompt_tokens": response.usage.prompt_tokens,
-                    "completion_tokens": response.usage.completion_tokens,
-                    "total_tokens": response.usage.total_tokens,
-                }
+                content = response.choices[0].message.content or ""
+                usage = None
+                if response.usage:
+                    usage = {
+                        "prompt_tokens": response.usage.prompt_tokens,
+                        "completion_tokens": response.usage.completion_tokens,
+                        "total_tokens": response.usage.total_tokens,
+                    }
 
             return GenTxtResponse(
                 content=content,
