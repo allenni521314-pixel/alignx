@@ -44,6 +44,12 @@ AI_DIAGNOSIS_TIMEOUT_SECONDS = int(os.getenv("AI_DIAGNOSIS_TIMEOUT_SECONDS", "18
 router = APIRouter(prefix="/api/v1/listing-diagnosis", tags=["listing-diagnosis"])
 
 
+def _stable_score_offset(*parts: str) -> int:
+    """Return a deterministic small offset so fallback element scores never drift between runs."""
+    key = "|".join(str(part) for part in parts)
+    return (sum(ord(ch) for ch in key) % 16) - 5
+
+
 _US_SPELLING_REPLACEMENTS = {
     "odour": "odor",
     "colour": "color",
@@ -1132,7 +1138,7 @@ async def _diagnose_single(
             ChatMessage(role="user", content=prompt),
         ],
         model="AI_DEFAULT_MODEL",
-        temperature=0.3,
+        temperature=0,
         max_tokens=4096,
     )
 
@@ -1211,10 +1217,8 @@ async def _diagnose_single(
                         baseline = 30
                     else:
                         baseline = 20
-
-                    import random as _rnd
                     for dk in dim_keys:
-                        el_data[dk] = max(el_data.get(dk, 0), baseline + _rnd.randint(-5, 10))
+                        el_data[dk] = max(el_data.get(dk, 0), baseline + _stable_score_offset(el_key, dk))
                     if not el_data.get("summary"):
                         el_data["summary"] = "评分基于产品特征推断（详细内容未完整获取）"
         data["elements"] = elements
@@ -1697,7 +1701,7 @@ async def compare_listings(
         compare_request = GenTxtRequest(
             messages=[ChatMessage(role="user", content=compare_prompt)],
             model="AI_DEFAULT_MODEL",
-            temperature=0.3,
+            temperature=0,
             max_tokens=8192,
         )
 
