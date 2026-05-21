@@ -22,7 +22,7 @@ interface AuthContextType {
   error: string | null;
   login: () => Promise<void>;
   logout: () => Promise<void>;
-  phoneLogin: (phone: string, password: string) => Promise<void>;
+  phoneLogin: (phone: string, password: string, displayName?: string) => Promise<void>;
   refetch: () => Promise<void>;
   isAdmin: boolean;
 }
@@ -126,11 +126,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   }, []);
 
-  const phoneLogin = useCallback(async (phone: string, password: string) => {
+  const phoneLogin = useCallback(async (phone: string, password: string, displayName = '') => {
     setError(null);
     const res = await axios.post(`${getApiBaseUrl()}/api/v1/auth/phone/login`, {
       phone,
       password,
+      display_name: displayName,
     });
 
     const { token, user: userData } = res.data;
