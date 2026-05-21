@@ -34,6 +34,7 @@ from core.database import get_db
 from dependencies.auth import get_current_user
 from schemas.auth import UserResponse
 from services.aihub import AIHubService
+from services.amazon_rules_engine import evaluate_amazon_compliance, load_active_rules
 from services.judgment_feedback_rounds import JudgmentFeedbackRoundService
 from services.listing_diagnoses import Listing_diagnosesService
 from services.judgment_system import JudgmentSystemService
@@ -221,7 +222,49 @@ class DiagnoseResponse(BaseModel):
     data_integrity: dict = {}
     diagnosis_confidence: dict = {}
     ad_validation_plan: dict = {}
+    amazon_compliance: dict = {}
     # =========================================
+
+
+def _image_signals_from_listing(listing: ListingInput) -> dict:
+    description = (listing.main_image_description or "").lower()
+    return {
+        "main_image": {
+            "text_detected": any(token in description for token in ["文字", "text", "copy", "文案"]),
+            "badge_detected": any(token in description for token in ["徽章", "badge", "认证标", "icon"]),
+            "watermark_detected": any(token in description for token in ["水印", "watermark"]),
+            "logo_overlay_detected": any(token in description for token in ["logo overlay", "额外logo", "贴标"]),
+            "non_white_background": any(token in description for token in ["非白底", "场景图", "lifestyle", "background"]),
+        },
+        "raw_description": listing.main_image_description or "",
+    }
+
+
+async def _evaluate_listing_compliance(listing: ListingInput, db: AsyncSession) -> dict:
+    rules = await load_active_rules(db)
+    claims = "\n".join(
+        part
+        for part in [
+            listing.title,
+            listing.bullet_points,
+            listing.description,
+            listing.a_plus_content,
+            listing.backend_keywords,
+        ]
+        if part
+    )
+    payload = {
+        "marketplace": listing.marketplace or "US",
+        "product_type": listing.category or "",
+        "title": listing.title or "",
+        "bullets": listing.bullet_points or "",
+        "description": listing.description or "",
+        "a_plus_text": listing.a_plus_content or "",
+        "image_analysis": _image_signals_from_listing(listing),
+        "claims": claims,
+        "attributes": {},
+    }
+    return evaluate_amazon_compliance(payload, rules)
 
 
 async def _get_cached_listing_diagnosis(listing: ListingInput, db: AsyncSession) -> dict | None:
@@ -1294,6 +1337,8 @@ async def _diagnose_single(
     causal_diagnosis = legacy_bridge.get("causal_diagnosis", data.get("causal_diagnosis", {}))
     ad_validation_plan = legacy_bridge.get("ad_validation_plan", data.get("ad_validation_plan", {}))
     # ========== 统一判断系统结束 ==========
+    amazon_compliance = await _evaluate_listing_compliance(listing, db)
+    data["amazon_compliance"] = amazon_compliance
 
     if save:
         svc = Listing_diagnosesService(db)
@@ -1383,6 +1428,7 @@ async def _diagnose_single(
         "ad_validation_plan": ad_validation_plan,
         "data_integrity": data_integrity,
         "diagnosis_confidence": diagnosis_confidence,
+        "amazon_compliance": amazon_compliance,
     }
 
 
@@ -1662,6 +1708,8 @@ async def diagnose_listing(
                 db=db,
                 precision_context=request.precision_context,
             )
+        if not result.get("amazon_compliance"):
+            result["amazon_compliance"] = await _evaluate_listing_compliance(listing, db)
         return DiagnoseResponse(
             scores=result["scores"],
             analysis=result["analysis"],
@@ -1689,6 +1737,7 @@ async def diagnose_listing(
             data_integrity=result.get("data_integrity", {}),
             diagnosis_confidence=result.get("diagnosis_confidence", {}),
             ad_validation_plan=result.get("ad_validation_plan", {}),
+            amazon_compliance=result.get("amazon_compliance", {}),
             # =========================================
         )
     except HTTPException:
