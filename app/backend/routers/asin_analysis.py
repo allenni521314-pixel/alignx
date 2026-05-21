@@ -791,7 +791,7 @@ async def _analyze_single_asin_with_scraped(
     combined_request = GenTxtRequest(
         messages=[ChatMessage(role="user", content=combined_prompt)],
         model="AI_DEFAULT_MODEL",
-        temperature=0.3,
+        temperature=0,
         max_tokens=4096,
     )
 
@@ -1203,7 +1203,7 @@ async def compare_asins(
         comparison_request = GenTxtRequest(
             messages=[ChatMessage(role="user", content=comparison_prompt)],
             model="AI_DEFAULT_MODEL",
-            temperature=0.3,
+            temperature=0,
             max_tokens=8192,
         )
 
