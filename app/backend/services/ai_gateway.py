@@ -13,6 +13,7 @@ import logging
 import os
 from typing import Any, Literal, Optional
 
+import httpx
 from openai import AsyncOpenAI
 from pydantic import BaseModel, Field
 
@@ -111,13 +112,14 @@ class AIGatewayService:
         self.reasoning_model = os.getenv("AI_REASONING_MODEL") or os.getenv("AI_STANDARD_MODEL") or self.default_model
         self.deep_model = os.getenv("AI_DEEP_MODEL") or self.reasoning_model
         self.api_mode = os.getenv("AI_API_MODE", "auto").lower()
+        self.request_timeout = float(os.getenv("AI_REQUEST_TIMEOUT", "180"))
         self.client: AsyncOpenAI | None = None
 
         if self.api_key:
             self.client = AsyncOpenAI(
                 api_key=self.api_key,
                 base_url=self.base_url,
-                timeout=float(os.getenv("AI_REQUEST_TIMEOUT", "180")),
+                timeout=self.request_timeout,
             )
 
     def status(self) -> AIGatewayStatus:
@@ -135,10 +137,37 @@ class AIGatewayService:
 
     def select_model(self, depth: DecisionDepth) -> str:
         if depth == "light":
-            return self.light_model
+            return self._normalize_text_model(self.light_model)
         if depth == "deep":
-            return self.deep_model
-        return self.reasoning_model
+            return self._normalize_text_model(self.deep_model)
+        return self._normalize_text_model(self.reasoning_model)
+
+    def _normalize_text_model(self, model: str) -> str:
+        """Keep text agents on a text-capable model when env vars were edited manually."""
+        if self.provider.lower() == "deepseek" and not model.startswith("deepseek-"):
+            fallback = self.default_model if self.default_model.startswith("deepseek-") else "deepseek-v4-flash"
+            logger.warning("Invalid DeepSeek text model %s, falling back to %s", model, fallback)
+            return fallback
+        return model
+
+    async def _create_chat_completion(self, model: str, messages: list[dict[str, str]]) -> tuple[str, dict[str, Any] | None]:
+        """Call an OpenAI-compatible chat endpoint directly for public deploy stability."""
+        url = f"{self.base_url}/chat/completions"
+        payload = {
+            "model": model,
+            "messages": messages,
+            "response_format": {"type": "json_object"},
+            "temperature": 0.2,
+        }
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+        async with httpx.AsyncClient(timeout=self.request_timeout, trust_env=False) as client:
+            response = await client.post(url, headers=headers, json=payload)
+            response.raise_for_status()
+            data = response.json()
+        return data["choices"][0]["message"].get("content") or "{}", data.get("usage")
 
     def _agent_role_prompt(self, agent: AgentKey) -> str:
         roles = {
@@ -353,17 +382,21 @@ class AIGatewayService:
                 content = getattr(response, "output_text", "") or ""
                 usage = response.usage.model_dump() if getattr(response, "usage", None) else None
             else:
-                response = await self.client.chat.completions.create(
-                    model=model,
-                    messages=[
-                        {"role": "system", "content": self._system_prompt(request.agent)},
-                        {"role": "user", "content": json.dumps(user_input, ensure_ascii=False)},
-                    ],
-                    response_format={"type": "json_object"},
-                    temperature=0.2,
-                )
-                content = response.choices[0].message.content or "{}"
-                usage = response.usage.model_dump() if response.usage else None
+                messages = [
+                    {"role": "system", "content": self._system_prompt(request.agent)},
+                    {"role": "user", "content": json.dumps(user_input, ensure_ascii=False)},
+                ]
+                if self.provider.lower() in {"deepseek", "openai-compatible"}:
+                    content, usage = await self._create_chat_completion(model, messages)
+                else:
+                    response = await self.client.chat.completions.create(
+                        model=model,
+                        messages=messages,
+                        response_format={"type": "json_object"},
+                        temperature=0.2,
+                    )
+                    content = response.choices[0].message.content or "{}"
+                    usage = response.usage.model_dump() if response.usage else None
 
             raw_result = json.loads(content or "{}")
             if not isinstance(raw_result, dict):
