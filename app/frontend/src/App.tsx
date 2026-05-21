@@ -11,7 +11,6 @@ import AdAnalytics from './pages/AdAnalytics';
 import Settings from './pages/Settings';
 import AuthCallback from './pages/AuthCallback';
 import Login from './pages/Login';
-import Register from './pages/Register';
 import Pricing from './pages/Pricing';
 import AuthError from './pages/AuthError';
 import CompetitorAnalysis from './pages/CompetitorAnalysis';
@@ -88,7 +87,7 @@ const AppRoutes = () => {
         <Route path="/settings" element={<Settings />} />
         <Route path="/pricing" element={<Pricing />} />
         <Route path="/login" element={<Login />} />
-        <Route path="/register" element={<Register />} />
+        <Route path="/register" element={<Login />} />
         <Route path="/auth/callback" element={<AuthCallback />} />
         <Route path="/auth/error" element={<AuthError />} />
         {/* MODULE_ROUTES_START */}
