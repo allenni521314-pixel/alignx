@@ -332,6 +332,15 @@ export default function AsinManager() {
     }
   }, []);
 
+  useEffect(() => {
+    if (!expandedKeywordAsin) return;
+    window.setTimeout(() => {
+      document
+        .getElementById(`keyword-validation-report-${expandedKeywordAsin}`)
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 80);
+  }, [expandedKeywordAsin, keywordValidationResults]);
+
   const loadMarketplaceSnapshots = useCallback(async () => {
     try {
       const items = await getActionSnapshots({ module_key: "asin_selection", limit: 300 });
@@ -1291,6 +1300,11 @@ export default function AsinManager() {
                     <p className="text-xs text-gray-600 mt-1">
                       抓取成功后自动保存到 ASIN 库，并交叉验证 BSR、评论、自然排名、广告位与促销信号。
                     </p>
+                    {!autoImportAsin.trim() && (
+                      <p className="text-xs text-emerald-700 mt-1">
+                        已保存的 ASIN 请点下方产品卡右侧的“查看验证报告”。
+                      </p>
+                    )}
                   </div>
                   <Button
                     onClick={handleSingleAutoImportAndValidate}
@@ -1780,7 +1794,7 @@ export default function AsinManager() {
                             }}
                           />
                           <Button
-                            variant="ghost"
+                            variant={keywordReport ? "outline" : "ghost"}
                             size="sm"
                             onClick={() => {
                               if (keywordReport) {
@@ -1790,8 +1804,12 @@ export default function AsinManager() {
                               }
                             }}
                             disabled={isKeywordValidating}
-                            className="text-gray-500 hover:text-emerald-700 h-8 px-2"
-                            title="关键词销量验证"
+                            className={
+                              keywordReport
+                                ? "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 h-8 px-3"
+                                : "text-gray-500 hover:text-emerald-700 h-8 px-2"
+                            }
+                            title={keywordReport ? "查看关键词销量验证报告" : "开始关键词销量验证"}
                           >
                             {isKeywordValidating ? (
                               <Loader2 className="w-4 h-4 animate-spin" />
@@ -1799,7 +1817,12 @@ export default function AsinManager() {
                               <ShieldCheck className="w-4 h-4" />
                             )}
                             {keywordReport && (
-                              <span className="ml-1 text-xs font-semibold">{Math.round(keywordReport.keyword_sales_score)}</span>
+                              <span className="ml-1.5 text-xs font-semibold">
+                                {isKeywordExpanded ? "收起报告" : `查看验证报告 · ${Math.round(keywordReport.keyword_sales_score)}分`}
+                              </span>
+                            )}
+                            {!keywordReport && !isKeywordValidating && (
+                              <span className="hidden sm:inline ml-1.5 text-xs font-semibold">关键词验证</span>
                             )}
                           </Button>
                           <Button
@@ -1863,7 +1886,7 @@ export default function AsinManager() {
                     )}
 
                     {isKeywordExpanded && keywordReport && (
-                      <div className="ml-12 mt-1 mb-2">
+                      <div id={`keyword-validation-report-${product.asin}`} className="ml-12 mt-1 mb-2 scroll-mt-24">
                         <Card className="bg-white border-emerald-100 p-4">
                           <div className="flex items-start justify-between gap-3 mb-4">
                             <div>
