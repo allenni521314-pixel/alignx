@@ -110,15 +110,19 @@ async def _embed_texts_with_provider(texts: list[str]) -> tuple[list[list[float]
     is configured, and falls back to deterministic embeddings otherwise.
     """
 
-    embedding_model = (os.getenv("AI_EMBEDDING_MODEL") or "").strip()
+    embedding_model = (os.getenv("AI_EMBEDDING_MODEL") or os.getenv("EMBEDDING_MODEL") or "").strip()
     api_key = (
-        os.getenv("OPENAI_API_KEY")
+        os.getenv("EMBEDDING_API_KEY")
+        or os.getenv("SILICONFLOW_API_KEY")
+        or os.getenv("OPENAI_API_KEY")
         or os.getenv("APP_AI_KEY")
         or getattr(settings, "app_ai_key", "")
         or ""
     ).strip()
     base_url = (
-        os.getenv("OPENAI_BASE_URL")
+        os.getenv("EMBEDDING_BASE_URL")
+        or os.getenv("SILICONFLOW_BASE_URL")
+        or os.getenv("OPENAI_BASE_URL")
         or os.getenv("APP_AI_BASE_URL")
         or getattr(settings, "app_ai_base_url", "")
         or ""
@@ -138,6 +142,77 @@ async def _embed_texts_with_provider(texts: list[str]) -> tuple[list[list[float]
         return vectors, embedding_model
     except Exception:
         return None
+
+
+async def _rerank_cosmo_anchors(query: str) -> tuple[dict[str, float], str] | None:
+    """Optionally rerank COSMO anchors with a configured reranker.
+
+    Vector similarity remains the primary signal; rerank is a calibration layer
+    used only when RERANK_MODEL and an API key are configured.
+    """
+
+    rerank_model = (os.getenv("RERANK_MODEL") or os.getenv("AI_RERANK_MODEL") or "").strip()
+    api_key = (
+        os.getenv("RERANK_API_KEY")
+        or os.getenv("SILICONFLOW_API_KEY")
+        or os.getenv("OPENAI_API_KEY")
+        or os.getenv("APP_AI_KEY")
+        or ""
+    ).strip()
+    base_url = (
+        os.getenv("RERANK_BASE_URL")
+        or os.getenv("SILICONFLOW_BASE_URL")
+        or "https://api.siliconflow.cn/v1"
+    ).strip().rstrip("/")
+    if not rerank_model or not api_key:
+        return None
+
+    documents = [f"{anchor.key} {anchor.label_cn} {anchor.description}" for anchor in COSMO_ANCHORS]
+    try:
+        async with httpx.AsyncClient(timeout=float(os.getenv("AI_RERANK_TIMEOUT", "45")), trust_env=False) as client:
+            response = await client.post(
+                f"{base_url}/rerank",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": rerank_model,
+                    "query": query[:8000],
+                    "documents": documents,
+                    "top_n": len(documents),
+                    "return_documents": False,
+                },
+            )
+            response.raise_for_status()
+            data = response.json()
+        scores: dict[str, float] = {}
+        for item in data.get("results", []) or []:
+            index = item.get("index")
+            if isinstance(index, int) and 0 <= index < len(COSMO_ANCHORS):
+                raw_score = float(item.get("relevance_score") or 0)
+                scores[COSMO_ANCHORS[index].key] = max(0.0, min(1.0, raw_score))
+        return (scores, rerank_model) if scores else None
+    except Exception:
+        return None
+
+
+async def _apply_rerank_calibration(text: str, anchors: list[dict[str, Any]]) -> str | None:
+    rerank_result = await _rerank_cosmo_anchors(text)
+    if not rerank_result:
+        return None
+    rerank_scores, rerank_model = rerank_result
+    for item in anchors:
+        rerank_score = rerank_scores.get(str(item.get("relation")))
+        if rerank_score is None:
+            continue
+        vector_probability = float(item.get("probability") or 0)
+        combined = vector_probability * 0.7 + rerank_score * 0.3
+        item["vector_probability"] = round(vector_probability, 4)
+        item["rerank_score"] = round(rerank_score, 4)
+        item["probability"] = round(combined, 4)
+        item["activated"] = combined > COSMO_CONFIDENCE_THRESHOLD
+    return rerank_model
 
 
 def _project(vector: list[float]) -> list[float]:
@@ -300,6 +375,7 @@ async def evaluate_cosmo_vector_mapping_async(
             "activated": probability > COSMO_CONFIDENCE_THRESHOLD,
         })
 
+    rerank_model = await _apply_rerank_calibration(text, anchors)
     anchors.sort(key=lambda item: item["probability"], reverse=True)
     top = anchors[0] if anchors else {}
     activated = [item for item in anchors if item["activated"]]
@@ -309,6 +385,7 @@ async def evaluate_cosmo_vector_mapping_async(
     return {
         "engine": "reverse_vector_mapping_v1",
         "embedding_model": embedding_model,
+        "rerank_model": rerank_model or "",
         "mapping_layer": "fixed_lightweight_mlp_projection",
         "confidence_threshold": COSMO_CONFIDENCE_THRESHOLD,
         "top_relation": top.get("relation", ""),
