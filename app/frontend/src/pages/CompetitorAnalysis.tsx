@@ -1241,8 +1241,6 @@ function SingleResultView({
         </div>
       )}
 
-      <AmazonCompliancePanel compliance={result.amazon_compliance || report?.amazon_compliance} />
-
       {/* ===== Sub-Tab Navigation Bar ===== */}
       <div className="flex items-center gap-1 p-1 bg-gray-50 border border-gray-200 rounded-xl overflow-x-auto">
         {RESULT_TABS.map((tab) => {
