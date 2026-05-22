@@ -629,10 +629,13 @@ export default function CompetitorAnalysis() {
             } as AnalysisResult);
           }
         } catch (parseErr) {
+          void parseErr;
         }
       } else {
+        void asins[0];
       }
     } catch (phase1Err) {
+      void phase1Err;
     }
 
     /* ---- Phase 2: Server-side /analyze (full scraping + AI) ---- */
