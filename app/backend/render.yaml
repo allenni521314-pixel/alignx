@@ -21,14 +21,36 @@ services:
       - key: JWT_SECRET_KEY
         sync: false
       - key: OPENAI_BASE_URL
-        sync: false
+        value: https://dashscope.aliyuncs.com/compatible-mode/v1
       - key: OPENAI_API_KEY
         sync: false
       - key: AI_DEFAULT_MODEL
+        value: qwen3-32b
+      - key: AI_LIGHT_MODEL
+        value: qwen3-32b
+      - key: AI_REASONING_MODEL
+        value: qwen3-32b
+      - key: AI_DEEP_MODEL
+        value: qwen3-32b
+      - key: SILICONFLOW_BASE_URL
+        value: https://api.siliconflow.cn/v1
+      - key: SILICONFLOW_API_KEY
+        sync: false
+      - key: AI_EMBEDDING_MODEL
+        value: BAAI/bge-m3
+      - key: EMBEDDING_BASE_URL
+        value: https://api.siliconflow.cn/v1
+      - key: EMBEDDING_API_KEY
+        sync: false
+      - key: RERANK_MODEL
+        value: BAAI/bge-reranker-v2-m3
+      - key: RERANK_BASE_URL
+        value: https://api.siliconflow.cn/v1
+      - key: RERANK_API_KEY
         sync: false
       - key: VISION_BASE_URL
-        sync: false
+        value: https://dashscope.aliyuncs.com/compatible-mode/v1
       - key: VISION_API_KEY
         sync: false
       - key: AI_VISION_MODEL
-        sync: false
+        value: qwen2.5-vl-72b-instruct
