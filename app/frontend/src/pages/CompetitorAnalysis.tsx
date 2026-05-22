@@ -291,8 +291,25 @@ function normalizeAmazonKeyword(keyword: string): string {
   return /[a-z]/.test(normalized) ? normalized : "";
 }
 
+function normalizeStringList(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => (typeof item === "string" ? item : JSON.stringify(item)))
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+  if (typeof value === "string") {
+    return value
+      .split(/\n+|[•·]/)
+      .map((item) => item.replace(/^[-*\d.)\s]+/, "").trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
 function deriveAmazonKeywords(pd: ProductData, title: string): string[] {
-  const text = `${title || ""} ${(pd.bullet_points || []).join(" ")} ${pd.category || ""}`.toLowerCase();
+  const bullets = normalizeStringList(pd.bullet_points);
+  const text = `${title || ""} ${bullets.join(" ")} ${pd.category || ""}`.toLowerCase();
   if (/[\u4e00-\u9fff]/.test(text)) return [];
   const candidates: string[] = [];
   const has = (pattern: RegExp) => pattern.test(text);
@@ -468,7 +485,8 @@ function cleanEnglishKeywordList(values?: string[], fallback: string[] = [], mod
 
 function sanitizeAnalysisKeywords(result: AnalysisResult): AnalysisResult {
   const pd = result.product_data || {};
-  const cleanMainKeywords = cleanEnglishKeywordList(Array.isArray(pd.main_keywords) ? pd.main_keywords : [], [], "title");
+  pd.bullet_points = normalizeStringList(pd.bullet_points);
+  const cleanMainKeywords = cleanEnglishKeywordList(normalizeStringList(pd.main_keywords), [], "title");
   pd.main_keywords = cleanMainKeywords;
 
   const breakdown = result.analysis_report?.listing_breakdown;
