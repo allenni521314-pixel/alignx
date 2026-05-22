@@ -1491,8 +1491,9 @@ export default function ListingDiagnosis() {
   const cleanField = (val: string): string => {
     if (!val) return "";
     return val
-      .replace(/\x00/g, " ")
-      .replace(/[\uFFFC\uFE0F]/g, " ")
+      .split("\u0000").join(" ")
+      .replace(/\uFFFC/g, " ")
+      .replace(/\uFE0F/g, " ")
       .replace(/\[?\s*(?:🖼️\s*)?(?:图片|image|img)\s*[:：][^\]\n]{0,120}\]?/gi, " ")
       .replace(/\[未确认\]\s*/g, "")
       .replace(/\[unknown\]\s*/gi, "")
