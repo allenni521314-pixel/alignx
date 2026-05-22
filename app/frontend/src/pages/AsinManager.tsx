@@ -41,6 +41,8 @@ import {
   ExternalLink,
   Award,
   Sparkles,
+  ShieldCheck,
+  AlertTriangle,
 } from "lucide-react";
 import {
   FiveDimensionScoreCard,
@@ -95,6 +97,35 @@ interface Product {
   rating: number;
   category: string;
   created_at?: string;
+}
+
+interface KeywordSalesValidationReport {
+  keyword_sales_score: number;
+  traffic_quality_level: string;
+  sales_source_judgment: string;
+  keyword_rank_summary: {
+    core_keywords_checked?: number;
+    organic_top20_count?: number;
+    organic_top50_count?: number;
+    sponsored_keyword_count?: number;
+    avg_organic_position?: number | null;
+    rank_data_note?: string;
+  };
+  organic_rank_strength: number;
+  ad_dependency_risk: number;
+  suspicious_signals: string[];
+  opportunity_keywords: string[];
+  risk_keywords: string[];
+  final_recommendation: string;
+  rank_snapshots: Array<{
+    keyword: string;
+    search_page?: number;
+    organic_position?: number | null;
+    sponsored_position?: number | null;
+    overall_position?: number | null;
+    is_organic?: boolean;
+    is_sponsored?: boolean;
+  }>;
 }
 
 const emptyProduct = {
@@ -195,6 +226,9 @@ export default function AsinManager() {
   const [scoreResults, setScoreResults] = useState<Record<string, FiveDScoreResult>>({});
   const [expandedScoreAsin, setExpandedScoreAsin] = useState<string | null>(null);
   const [asinMarketplaceMap, setAsinMarketplaceMap] = useState<Record<string, string>>({});
+  const [keywordValidationResults, setKeywordValidationResults] = useState<Record<string, KeywordSalesValidationReport>>({});
+  const [validatingKeywordAsin, setValidatingKeywordAsin] = useState<string | null>(null);
+  const [expandedKeywordAsin, setExpandedKeywordAsin] = useState<string | null>(null);
 
   const { loading: authLoading } = useRequireAuth();
 
@@ -394,6 +428,41 @@ export default function AsinManager() {
       toast.error(msg);
     } finally {
       setScoringAsin(null);
+    }
+  };
+
+  const handleKeywordSalesValidation = async (product: Product) => {
+    const marketplace = getProductMarketplace(product);
+    setValidatingKeywordAsin(product.asin);
+    try {
+      const targetKeywords = (product.search_keywords || "")
+        .split(/[,，;\n]+/)
+        .map((kw) => kw.trim())
+        .filter(Boolean)
+        .slice(0, 10);
+      const res = await axios.post(
+        `${getLongRunningApiBase()}/api/v1/asin-selection/keyword-sales-validation`,
+        {
+          asin: product.asin,
+          marketplace,
+          category: product.category || "",
+          target_keywords: targetKeywords,
+          days_range: 30,
+        },
+        { headers: getAuthHeaders(), timeout: 180000 }
+      );
+      setKeywordValidationResults((prev) => ({ ...prev, [product.asin]: res.data }));
+      setExpandedKeywordAsin(product.asin);
+      toast.success(`${product.asin} 关键词销量验证完成：${Math.round(res.data.keyword_sales_score || 0)}分`);
+    } catch (e: unknown) {
+      const msg = axios.isAxiosError(e)
+        ? e.response?.data?.detail || "关键词销量验证失败"
+        : e instanceof Error
+          ? e.message
+          : "关键词销量验证失败";
+      toast.error(msg);
+    } finally {
+      setValidatingKeywordAsin(null);
     }
   };
 
@@ -1472,6 +1541,9 @@ export default function AsinManager() {
                 const scoreResult = scoreResults[product.asin];
                 const isScoring = scoringAsin === product.asin;
                 const isExpanded = expandedScoreAsin === product.asin;
+                const keywordReport = keywordValidationResults[product.asin];
+                const isKeywordValidating = validatingKeywordAsin === product.asin;
+                const isKeywordExpanded = expandedKeywordAsin === product.asin;
                 const marketplace = getProductMarketplace(product);
                 const marketplaceMeta = MARKETPLACE_BY_VALUE[marketplace] || MARKETPLACE_BY_VALUE.US;
 
@@ -1553,6 +1625,29 @@ export default function AsinManager() {
                           <Button
                             variant="ghost"
                             size="sm"
+                            onClick={() => {
+                              if (keywordReport) {
+                                setExpandedKeywordAsin(isKeywordExpanded ? null : product.asin);
+                              } else {
+                                handleKeywordSalesValidation(product);
+                              }
+                            }}
+                            disabled={isKeywordValidating}
+                            className="text-gray-500 hover:text-emerald-700 h-8 px-2"
+                            title="关键词销量验证"
+                          >
+                            {isKeywordValidating ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <ShieldCheck className="w-4 h-4" />
+                            )}
+                            {keywordReport && (
+                              <span className="ml-1 text-xs font-semibold">{Math.round(keywordReport.keyword_sales_score)}</span>
+                            )}
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
                             onClick={() => handleRefreshProduct(product)}
                             disabled={refreshingId === product.id}
                             className="text-gray-500 hover:text-amber-600 h-8 w-8 p-0"
@@ -1607,6 +1702,86 @@ export default function AsinManager() {
                             重新评分
                           </Button>
                         </div>
+                      </div>
+                    )}
+
+                    {isKeywordExpanded && keywordReport && (
+                      <div className="ml-12 mt-1 mb-2">
+                        <Card className="bg-white border-emerald-100 p-4">
+                          <div className="flex items-start justify-between gap-3 mb-4">
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <ShieldCheck className="w-4 h-4 text-emerald-700" />
+                                <h3 className="font-bold text-gray-900">关键词销量验证</h3>
+                              </div>
+                              <p className="text-xs text-gray-500 mt-1">销量来源风险雷达：交叉查看 BSR、评论、自然排名、广告位与促销信号。</p>
+                            </div>
+                            <div className="text-right">
+                              <div className="text-2xl font-bold text-emerald-700">{Math.round(keywordReport.keyword_sales_score)}</div>
+                              <div className="text-xs text-gray-500">健康分</div>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+                            <div className="rounded-lg bg-emerald-50 border border-emerald-100 p-3">
+                              <p className="text-xs text-gray-500">自然流量强度</p>
+                              <p className="text-lg font-bold text-emerald-700">{keywordReport.organic_rank_strength}</p>
+                            </div>
+                            <div className="rounded-lg bg-amber-50 border border-amber-100 p-3">
+                              <p className="text-xs text-gray-500">广告依赖风险</p>
+                              <p className="text-lg font-bold text-amber-700">{keywordReport.ad_dependency_risk}</p>
+                            </div>
+                            <div className="rounded-lg bg-gray-50 border border-gray-100 p-3">
+                              <p className="text-xs text-gray-500">系统判断</p>
+                              <p className="text-sm font-semibold text-gray-800">{keywordReport.sales_source_judgment}</p>
+                            </div>
+                          </div>
+
+                          <div className="rounded-lg border border-gray-100 overflow-hidden mb-4">
+                            <div className="grid grid-cols-5 bg-gray-50 text-xs font-semibold text-gray-500 px-3 py-2">
+                              <span className="col-span-2">关键词</span>
+                              <span>自然位</span>
+                              <span>广告位</span>
+                              <span>页码</span>
+                            </div>
+                            {keywordReport.rank_snapshots.slice(0, 8).map((row) => (
+                              <div key={row.keyword} className="grid grid-cols-5 px-3 py-2 text-xs border-t border-gray-100">
+                                <span className="col-span-2 font-medium text-gray-700">{row.keyword}</span>
+                                <span className={row.organic_position ? "text-emerald-700" : "text-gray-400"}>{row.organic_position || "未进前48"}</span>
+                                <span className={row.sponsored_position ? "text-amber-700" : "text-gray-400"}>{row.sponsored_position || "-"}</span>
+                                <span className="text-gray-500">{row.search_page || "-"}</span>
+                              </div>
+                            ))}
+                          </div>
+
+                          {keywordReport.suspicious_signals.length > 0 && (
+                            <div className="rounded-lg bg-red-50 border border-red-100 p-3 mb-3">
+                              <div className="flex items-center gap-2 text-sm font-semibold text-red-700 mb-2">
+                                <AlertTriangle className="w-4 h-4" />
+                                异常信号
+                              </div>
+                              <ul className="space-y-1 text-xs text-red-700">
+                                {keywordReport.suspicious_signals.map((signal) => <li key={signal}>• {signal}</li>)}
+                              </ul>
+                            </div>
+                          )}
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                            <div>
+                              <p className="font-semibold text-gray-700 mb-2">机会关键词</p>
+                              <div className="flex flex-wrap gap-1.5">
+                                {keywordReport.opportunity_keywords.map((kw) => <span key={kw} className="rounded bg-emerald-50 px-2 py-1 text-emerald-700">{kw}</span>)}
+                              </div>
+                            </div>
+                            <div>
+                              <p className="font-semibold text-gray-700 mb-2">风险关键词</p>
+                              <div className="flex flex-wrap gap-1.5">
+                                {keywordReport.risk_keywords.map((kw) => <span key={kw} className="rounded bg-amber-50 px-2 py-1 text-amber-700">{kw}</span>)}
+                              </div>
+                            </div>
+                          </div>
+                          <p className="text-xs text-gray-500 mt-3">{keywordReport.final_recommendation}</p>
+                        </Card>
                       </div>
                     )}
                   </div>
