@@ -20,7 +20,7 @@ import re
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import get_db
@@ -28,6 +28,11 @@ from dependencies.auth import get_current_user
 from schemas.auth import UserResponse
 from services.aihub import AIHubService
 from schemas.aihub import GenTxtRequest, ChatMessage
+from services.cosmo_vector_mapping import (
+    build_cosmo_mapping_text,
+    evaluate_cosmo_vector_mapping_async,
+    merge_dual_track,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +45,8 @@ class AnalyzeRequest(BaseModel):
     asin_or_name: str = ""
     category: str = ""
     marketplace: str = "US"
+    listing_text: str = ""
+    category_anchor_texts: list[str] = Field(default_factory=list)
 
 
 class ListingPlacement(BaseModel):
@@ -71,9 +78,9 @@ class AnalyzeResponse(BaseModel):
     listing_summary: str = ""
     ad_keywords: list[AdKeyword] = []
     ad_summary: str = ""
-    cosmo_layers: dict = {}
-    cross_layer_insights: list[dict] = []
-    rufus_intents: list[dict] = []
+    cosmo_layers: dict = Field(default_factory=dict)
+    cross_layer_insights: list[dict] = Field(default_factory=list)
+    rufus_intents: list[dict] = Field(default_factory=list)
     overall_strategy: str = ""
 
 
@@ -446,6 +453,13 @@ async def analyze_intent_matrix(
     if data is None:
         raise HTTPException(status_code=500, detail=f"AI分析失败: {str(last_error)}")
 
+    vector_text = request.listing_text.strip() or build_cosmo_mapping_text(data, product_name, category)
+    vector_mapping_track = await evaluate_cosmo_vector_mapping_async(
+        vector_text,
+        category_anchor_texts=request.category_anchor_texts,
+    )
+    dual_track = merge_dual_track(data, vector_mapping_track)
+
     listing_placements = []
     for item in data.get("listing_placements", []):
         enriched = _enrich_layer_info(item)
@@ -488,6 +502,8 @@ async def analyze_intent_matrix(
         kw_str = ", ".join(kw_summary)[:2000]
 
         raw_json = json.dumps(data, ensure_ascii=False)
+        data_with_dual_track = {**data, "dual_track": dual_track}
+        raw_json = json.dumps(data_with_dual_track, ensure_ascii=False)
         truncated = raw_json[:10000] if len(raw_json) > 10000 else raw_json
 
         await svc.create({
