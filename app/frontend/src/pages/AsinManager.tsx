@@ -456,6 +456,33 @@ export default function AsinManager() {
     }
   };
 
+  const saveProductToLibrary = async (productData: Omit<Product, "id" | "created_at" | "marketplace">) => {
+    const query = encodeURIComponent(JSON.stringify({ asin: productData.asin }));
+    const existingRes = await fetch(`/api/v1/entities/products?query=${query}&limit=1`, {
+      headers: getAuthHeaders(),
+    });
+    const existingData = await existingRes.json().catch(() => ({}));
+    const existing = existingData?.items?.[0];
+    if (existing?.id) {
+      const updateRes = await fetch(`/api/v1/entities/products/${existing.id}`, {
+        method: "PUT",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify(productData),
+      });
+      const updated = await updateRes.json().catch(() => ({}));
+      if (!updateRes.ok) throw new Error(updated?.detail || "更新ASIN库失败");
+      return { product: updated as Product, mode: "updated" as const };
+    }
+    const createRes = await fetch("/api/v1/entities/products", {
+      method: "POST",
+      headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify(productData),
+    });
+    const created = await createRes.json().catch(() => ({}));
+    if (!createRes.ok) throw new Error(created?.detail || "保存ASIN库失败");
+    return { product: created as Product, mode: "created" as const };
+  };
+
   const handleKeywordSalesValidation = async (product: Product) => {
     const marketplace = getProductMarketplace(product);
     setValidatingKeywordAsin(product.asin);
@@ -489,6 +516,28 @@ export default function AsinManager() {
     } finally {
       setValidatingKeywordAsin(null);
     }
+  };
+
+  const validateImportedProduct = async (productData: Omit<Product, "id" | "created_at" | "marketplace">, marketplace: string) => {
+    const targetKeywords = (productData.search_keywords || "")
+      .split(/[,，;\n]+/)
+      .map((kw) => kw.trim())
+      .filter(Boolean)
+      .slice(0, 10);
+    const res = await axios.post(
+      `${getLongRunningApiBase()}/api/v1/asin-selection/keyword-sales-validation`,
+      {
+        asin: productData.asin,
+        marketplace,
+        category: productData.category || "",
+        target_keywords: targetKeywords,
+        days_range: 30,
+      },
+      { headers: getAuthHeaders(), timeout: 180000 }
+    );
+    setKeywordValidationResults((prev) => ({ ...prev, [productData.asin]: res.data }));
+    setExpandedKeywordAsin(productData.asin);
+    return res.data as KeywordSalesValidationReport;
   };
 
   /* ---- CRUD ---- */
@@ -802,7 +851,7 @@ export default function AsinManager() {
 
         if (autoFetch) {
           try {
-            await client.entities.products.create({ data: productData });
+            const saved = await saveProductToLibrary(productData);
             setAsinMarketplaceMap((prev) => ({
               ...prev,
               [productData.asin || asin]: autoImportMarketplace,
@@ -821,7 +870,7 @@ export default function AsinManager() {
               ai_called: result.source !== "浏览器代理",
               source_record_table: "products",
             }).catch(() => {});
-            toast.success(`已通过${sourceLabel}抓取并保存 ${asin} 到ASIN库`);
+            toast.success(`已通过${sourceLabel}${saved.mode === "updated" ? "更新" : "保存"} ${asin} 到ASIN库`);
             setAutoImportAsin("");
             await loadProducts();
           } catch {
@@ -843,6 +892,66 @@ export default function AsinManager() {
       }
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : "请求失败");
+    } finally {
+      setAutoImportLoading(false);
+      setAutoImportProgress(0);
+      setAutoImportElapsed(0);
+      setAutoImportMessage("");
+    }
+  };
+
+  const handleSingleAutoImportAndValidate = async () => {
+    const asin = autoImportAsin.trim().toUpperCase();
+    if (!asin) {
+      toast.error("请输入ASIN");
+      return;
+    }
+    setAutoImportLoading(true);
+    setAutoImportProgress(3);
+    setAutoImportElapsed(0);
+    setAutoImportMessage("准备抓取、保存并验证关键词销量");
+    try {
+      const result = await smartFetchAsin(asin, autoImportMarketplace);
+      if (result.status !== "success" || !result.data) {
+        toast.error(result.error || "抓取失败，请检查ASIN是否正确");
+        return;
+      }
+      const productData = {
+        asin: result.data.asin || asin,
+        title: result.data.title || "",
+        bullet_points: result.data.bullet_points || "",
+        a_plus_content: result.data.a_plus_content || "",
+        search_keywords: result.data.search_keywords || "",
+        price: result.data.price || 0,
+        review_count: result.data.review_count || 0,
+        rating: result.data.rating || 0,
+        category: result.data.category || "",
+      };
+      setAutoImportMessage("产品数据已保存，正在验证关键词销量结构");
+      setAutoImportProgress(86);
+      const saved = await saveProductToLibrary(productData);
+      setAsinMarketplaceMap((prev) => ({ ...prev, [productData.asin]: autoImportMarketplace }));
+      const report = await validateImportedProduct(productData, autoImportMarketplace);
+      saveActionSnapshot({
+        module_key: "asin_selection",
+        module_name: "关键词销量验证",
+        action_key: "fetch_save_keyword_sales_validation",
+        action_name: "ASIN抓取保存并验证关键词销量",
+        product_id: saved.product.id,
+        asin: productData.asin,
+        title: productData.title,
+        input_snapshot: { asin, marketplace: autoImportMarketplace },
+        output_snapshot: { product: productData, keyword_sales_validation: report },
+        data_source: result.source || "server_analysis",
+        confidence: report.keyword_sales_score >= 65 ? "medium" : "low",
+        ai_called: false,
+        source_record_table: "asin_keyword_sales_validation_reports",
+      }).catch(() => {});
+      setAutoImportAsin("");
+      await loadProducts();
+      toast.success(`${productData.asin} 已${saved.mode === "updated" ? "更新" : "保存"}，关键词销量验证 ${Math.round(report.keyword_sales_score)} 分`);
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "抓取保存并验证失败");
     } finally {
       setAutoImportLoading(false);
       setAutoImportProgress(0);
@@ -893,9 +1002,7 @@ export default function AsinManager() {
               category: result.data.category || "",
             };
             try {
-              await client.entities.products.create({
-                data: productData,
-              });
+              await saveProductToLibrary(productData);
               setAsinMarketplaceMap((prev) => ({
                 ...prev,
                 [importedAsin]: autoImportMarketplace,
@@ -1145,6 +1252,7 @@ export default function AsinManager() {
               </div>
 
               {importMode === "single" ? (
+                <div className="space-y-3">
                 <div className="flex gap-3 items-end">
                   <div className="flex-1">
                     <Label className="text-gray-500 text-sm">ASIN</Label>
@@ -1173,6 +1281,30 @@ export default function AsinManager() {
                       ? "正在抓取真实数据..."
                       : "开始抓取真实数据"}
                   </Button>
+                </div>
+                <div className="rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-emerald-800 flex items-center gap-2">
+                      <ShieldCheck className="w-4 h-4" />
+                      关键词销量验证
+                    </p>
+                    <p className="text-xs text-gray-600 mt-1">
+                      抓取成功后自动保存到 ASIN 库，并交叉验证 BSR、评论、自然排名、广告位与促销信号。
+                    </p>
+                  </div>
+                  <Button
+                    onClick={handleSingleAutoImportAndValidate}
+                    disabled={autoImportLoading || !autoImportAsin.trim()}
+                    className="bg-emerald-700 hover:bg-emerald-600 text-white shrink-0"
+                  >
+                    {autoImportLoading ? (
+                      <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                    ) : (
+                      <ShieldCheck className="w-4 h-4 mr-1" />
+                    )}
+                    抓取保存并验证
+                  </Button>
+                </div>
                 </div>
               ) : (
                 <div className="space-y-3">
