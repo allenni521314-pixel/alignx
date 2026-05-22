@@ -214,6 +214,48 @@ def _extract_review_count(soup: BeautifulSoup) -> str:
     return ""
 
 
+def _extract_coupon(soup: BeautifulSoup) -> str:
+    selectors = [
+        "#couponText",
+        "#couponBadgeRegularVpc_feature_div",
+        "#promoPriceBlockMessage_feature_div",
+        ".couponBadge",
+        ".couponLabel",
+        "label[id*='coupon']",
+    ]
+    for sel in selectors:
+        el = soup.select_one(sel)
+        if not el:
+            continue
+        text = _clean_text(el.get_text(" ", strip=True))
+        if text and re.search(r"coupon|save|savings|apply|clip|off|优惠|折扣", text, flags=re.I):
+            return text[:180]
+    page_text = _clean_text(soup.get_text(" ", strip=True))
+    match = re.search(r"((?:save|savings|coupon|clip coupon|apply coupon)[^.。]{0,80})", page_text, flags=re.I)
+    return _clean_text(match.group(1))[:180] if match else ""
+
+
+def _extract_deal_status(soup: BeautifulSoup) -> str:
+    selectors = [
+        "#dealBadge_feature_div",
+        "#dealBadgeSupportingText",
+        "#gb_deals_feature_div",
+        ".dealBadge",
+        ".badge-link",
+        "span[id*='deal']",
+    ]
+    for sel in selectors:
+        el = soup.select_one(sel)
+        if not el:
+            continue
+        text = _clean_text(el.get_text(" ", strip=True))
+        if text and re.search(r"deal|limited time|prime|lightning|today|限时|促销", text, flags=re.I):
+            return text[:180]
+    page_text = _clean_text(soup.get_text(" ", strip=True))
+    match = re.search(r"((?:limited time deal|lightning deal|prime exclusive deal|deal)[^.。]{0,80})", page_text, flags=re.I)
+    return _clean_text(match.group(1))[:180] if match else ""
+
+
 def _extract_product_details(soup: BeautifulSoup) -> dict:
     details: dict[str, str] = {}
 
@@ -675,6 +717,8 @@ def _parse_product_page(html: str, marketplace: str = "US") -> Optional[dict]:
         "price_currency": code,
         "rating": _extract_rating(soup),
         "review_count": _extract_review_count(soup),
+        "coupon": _extract_coupon(soup),
+        "deal_status": _extract_deal_status(soup),
         "rating_histogram": _extract_rating_histogram(soup),
         "product_details": details,
         "date_first_available": _extract_date_first_available(details),
