@@ -328,6 +328,37 @@ function normalizeStringList(value: unknown): string[] {
   return [];
 }
 
+function parseRatingPercent(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return Math.max(0, Math.min(100, Math.round(value)));
+  }
+  const match = String(value || "").match(/(\d{1,3})(?:\.\d+)?\s*%?/);
+  if (!match) return null;
+  const parsed = Number(match[1]);
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > 100) return null;
+  return Math.round(parsed);
+}
+
+function normalizeRatingHistogram(value: unknown): Record<string, string> {
+  if (!value || typeof value !== "object") return {};
+  const raw = value as Record<string, unknown>;
+  const normalized: Record<string, string> = {};
+  const nums: number[] = [];
+
+  for (const star of [5, 4, 3, 2, 1]) {
+    const percent = parseRatingPercent(raw[`${star}_star`] ?? raw[`${star} star`] ?? raw[String(star)]);
+    if (percent === null) continue;
+    normalized[`${star}_star`] = `${percent}%`;
+    nums.push(percent);
+  }
+
+  if (nums.length < 5) return {};
+  const total = nums.reduce((sum, item) => sum + item, 0);
+  const uniqueNonZero = new Set(nums.filter((item) => item > 0));
+  if (total < 95 || total > 105 || uniqueNonZero.size <= 1) return {};
+  return normalized;
+}
+
 function deriveAmazonKeywords(pd: ProductData, title: string): string[] {
   const bullets = normalizeStringList(pd.bullet_points);
   const text = `${title || ""} ${bullets.join(" ")} ${pd.category || ""}`.toLowerCase();
@@ -509,6 +540,7 @@ function sanitizeAnalysisKeywords(result: AnalysisResult): AnalysisResult {
   pd.bullet_points = normalizeStringList(pd.bullet_points);
   const cleanMainKeywords = cleanEnglishKeywordList(normalizeStringList(pd.main_keywords), [], "title");
   pd.main_keywords = cleanMainKeywords;
+  pd.rating_histogram = normalizeRatingHistogram(pd.rating_histogram);
   const scores = normalizeScores(result.scores || result.analysis_report?.scores);
 
   const breakdown = result.analysis_report?.listing_breakdown;
@@ -1314,6 +1346,7 @@ function SingleResultView({
   const displayKeywords = getDisplayKeywords(pd, pd.title || result.product_title || "");
   const listingBreakdown = report?.listing_breakdown || fallbackListingBreakdown(pd, displayKeywords);
   const platformEcoRisk = hasPlatformEcoRisk(pd);
+  const ratingHistogram = normalizeRatingHistogram(pd.rating_histogram);
 
   return (
     <div className="space-y-6">
@@ -1748,16 +1781,16 @@ function SingleResultView({
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            {(pd.rating_histogram && Object.keys(pd.rating_histogram).length > 0) || (pd.low_star_reviews && pd.low_star_reviews.length > 0) ? (
+            {Object.keys(ratingHistogram).length > 0 || (pd.low_star_reviews && pd.low_star_reviews.length > 0) ? (
               <>
-                {pd.rating_histogram && Object.keys(pd.rating_histogram).length > 0 && (
+                {Object.keys(ratingHistogram).length > 0 && (
                   <div>
                     <h4 className="text-sm font-medium text-gray-600 mb-2">评分分布</h4>
                     <div className="grid grid-cols-1 sm:grid-cols-5 gap-2">
                       {[5, 4, 3, 2, 1].map((star) => (
                         <div key={star} className="rounded-lg border border-gray-100 bg-white p-3">
                           <div className="text-xs text-gray-500">{star} star</div>
-                          <div className="text-lg font-bold text-gray-900">{pd.rating_histogram?.[`${star}_star`] || "—"}</div>
+                          <div className="text-lg font-bold text-gray-900">{ratingHistogram[`${star}_star`] || "—"}</div>
                         </div>
                       ))}
                     </div>
