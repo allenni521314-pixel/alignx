@@ -30,8 +30,7 @@ import {
 import { toast } from "sonner";
 import axios from "axios";
 import { getAuthHeaders } from "@/lib/auth-headers";
-import { AsinPicker, type AsinProduct } from "@/components/AsinPicker";
-import { saveCompetitorInsight, updateProductLifecycle, saveTimelineEvent, saveActionSnapshot, type ActionSnapshot } from "@/lib/workflow-api";
+import { saveCompetitorInsight, updateProductLifecycle, saveTimelineEvent, saveActionSnapshot, getActionSnapshots, type ActionSnapshot } from "@/lib/workflow-api";
 
 /* ------------------------------------------------------------------ */
 /*  URL / ASIN Extraction Helpers (same as ListingDiagnosis)           */
@@ -234,6 +233,8 @@ interface HistoryItem {
   product_title: string;
   scores: Scores;
   created_at: string;
+  source?: "analysis" | "snapshot";
+  snapshot?: ActionSnapshot;
 }
 
 const COLORS = [
@@ -854,10 +855,48 @@ export default function CompetitorAnalysis() {
   const loadHistory = async () => {
     setHistoryLoading(true);
     try {
-      const res = await axios.get("/api/v1/asin-analysis/history?limit=50", {
-        headers: getAuthHeaders(),
-      });
-      setHistory(res.data.items || []);
+      const [analysisRes, snapshots] = await Promise.all([
+        axios
+          .get("/api/v1/asin-analysis/history?limit=50", {
+            headers: getAuthHeaders(),
+          })
+          .then((res) => (res.data.items || []) as HistoryItem[])
+          .catch(() => [] as HistoryItem[]),
+        getActionSnapshots({ module_key: "competitor_analysis", limit: 120 }),
+      ]);
+
+      const snapshotRows: HistoryItem[] = snapshots
+        .map((snapshot) => {
+          const output = snapshot.output_snapshot as Partial<AnalysisResult> | undefined;
+          const input = snapshot.input_snapshot as { marketplace?: string } | undefined;
+          if (!output?.asin || !output?.scores) return null;
+          return {
+            id: snapshot.id,
+            asin: output.asin || snapshot.asin || "",
+            marketplace: output.marketplace || input?.marketplace || "",
+            product_title: output.product_title || output.product_data?.title || snapshot.title || output.asin || "",
+            scores: normalizeScores(output.scores),
+            created_at: snapshot.created_at || "",
+            source: "snapshot" as const,
+            snapshot,
+          };
+        })
+        .filter((item): item is HistoryItem => Boolean(item));
+
+      const snapshotRecordIds = new Set(
+        snapshots
+          .map((snapshot) => snapshot.source_record_id)
+          .filter((id): id is number => typeof id === "number")
+      );
+      const analysisRows = analysisRes
+        .filter((item) => !snapshotRecordIds.has(item.id))
+        .map((item) => ({ ...item, scores: normalizeScores(item.scores), source: "analysis" as const }));
+
+      setHistory([...snapshotRows, ...analysisRows].sort((a, b) => {
+        const aTime = a.created_at ? new Date(a.created_at).getTime() : 0;
+        const bTime = b.created_at ? new Date(b.created_at).getTime() : 0;
+        return bTime - aTime;
+      }));
     } catch {
       toast.error("加载历史记录失败");
     } finally {
@@ -888,6 +927,10 @@ export default function CompetitorAnalysis() {
   };
 
   const viewHistorySnapshot = (item: HistoryItem) => {
+    if (item.snapshot) {
+      loadSnapshotAsAnalysis(item.snapshot);
+      return;
+    }
     const snapshot: AnalysisResult = {
       asin: item.asin,
       marketplace: item.marketplace,
@@ -984,7 +1027,13 @@ export default function CompetitorAnalysis() {
             </div>
           </div>
 
-          <Tabs value={activeTab} onValueChange={setActiveTab}>
+          <Tabs
+            value={activeTab}
+            onValueChange={(value) => {
+              setActiveTab(value);
+              if (value === "history") void loadHistory();
+            }}
+          >
             <TabsList className="bg-gray-50 border border-gray-200 mb-6">
               <TabsTrigger value="single" className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600">
                 <Search className="w-4 h-4 mr-2" />
@@ -993,7 +1042,6 @@ export default function CompetitorAnalysis() {
               <TabsTrigger
                 value="history"
                 className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600"
-                onClick={loadHistory}
               >
                 <History className="w-4 h-4 mr-2" />
                 分析历史
@@ -1010,15 +1058,6 @@ export default function CompetitorAnalysis() {
                       value={singleAsin}
                       onChange={(e) => setSingleAsin(e.target.value)}
                       className="bg-gray-50 border-gray-200 text-gray-900 placeholder:text-gray-400 font-mono"
-                    />
-                    <AsinPicker
-                      onSelect={(product: AsinProduct) => {
-                        setSingleAsin(product.asin);
-                        toast.success(`已选择 ${product.asin}`);
-                      }}
-                      buttonLabel="自动保存快照"
-                      snapshotModuleKeys={["competitor_analysis"]}
-                      onSnapshotLoad={(snapshot) => loadSnapshotAsAnalysis(snapshot)}
                     />
                     <Button
                       onClick={() => handleAnalyze()}
@@ -1098,7 +1137,7 @@ export default function CompetitorAnalysis() {
             {/* History */}
             <TabsContent value="history" className="space-y-4">
               <div className="rounded-lg border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
-                分析历史为已保存快照，点击查看只读取本地数据库，不会重新抓取页面或再次调用 AI。
+                分析历史已合并自动保存快照，点击查看只读取本地数据库，不会重新抓取页面或再次调用 AI。
               </div>
               {historyLoading ? (
                 <div className="flex items-center justify-center py-12">
@@ -1108,7 +1147,7 @@ export default function CompetitorAnalysis() {
                 <Card className="bg-gray-50 border-gray-200">
                   <CardContent className="py-12 text-center text-gray-500">
                     <History className="w-10 h-10 mx-auto mb-3 opacity-40" />
-                    <p>暂无分析历史</p>
+                    <p>暂无分析历史或自动保存快照</p>
                   </CardContent>
                 </Card>
               ) : (
@@ -1125,6 +1164,9 @@ export default function CompetitorAnalysis() {
                           </span>
                           <Badge variant="secondary" className="text-xs">
                             {item.marketplace}
+                          </Badge>
+                          <Badge variant="outline" className="text-xs border-emerald-200 text-emerald-700">
+                            {item.source === "snapshot" ? "完整快照" : "简略历史"}
                           </Badge>
                         </div>
                         <div className="flex items-center gap-4">
