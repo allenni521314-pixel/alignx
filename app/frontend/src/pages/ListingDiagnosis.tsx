@@ -2575,8 +2575,6 @@ export default function ListingDiagnosis() {
 
                   <ModuleDiagnosisCards result={diagResult} listing={listing} />
 
-                  <AmazonCompliancePanel compliance={diagResult.amazon_compliance} />
-
                   {/* Analyzed Product Info Card */}
                   {listing.title && (
                     <div className="flex items-center gap-3 p-3 rounded-lg bg-brand-50 border border-brand-500/20">
