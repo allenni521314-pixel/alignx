@@ -1207,16 +1207,6 @@ const RESULT_TABS = [
 
 type ResultTabKey = (typeof RESULT_TABS)[number]["key"];
 
-/* 6D radar dimensions (subset for the 6D view) */
-const SIX_DIMENSIONS = [
-  { key: "functionality", label: "功能表达" },
-  { key: "scenario", label: "场景表达" },
-  { key: "user_profile", label: "身份适配" },
-  { key: "emotional", label: "心理利益" },
-  { key: "risk_elimination", label: "风险消除" },
-  { key: "differentiation", label: "差异化" },
-];
-
 function AmazonCompliancePanel({ compliance }: { compliance?: ComplianceResult }) {
   const violations = compliance?.violations || [];
   if (!compliance || violations.length === 0) return null;
@@ -1283,22 +1273,6 @@ function SingleResultView({
   const listingBreakdown = report?.listing_breakdown || fallbackListingBreakdown(pd, displayKeywords);
   const platformEcoRisk = hasPlatformEcoRisk(pd);
 
-  /* Build 6D radar data */
-  const sixDRadarData: RadarDataSet = {
-    label: result.asin,
-    scores: SIX_DIMENSIONS.map((d) => ({
-      label: d.label,
-      key: d.key,
-      value: (scores as Record<string, number>)[d.key] || 0,
-    })),
-    color: COLORS[0].color,
-    fillColor: COLORS[0].fill,
-  };
-
-  const sixDAvg = Math.round(
-    SIX_DIMENSIONS.reduce((sum, d) => sum + ((scores as Record<string, number>)[d.key] || 0), 0) / SIX_DIMENSIONS.length
-  );
-
   return (
     <div className="space-y-6">
       {/* Data Source Info */}
@@ -1364,7 +1338,7 @@ function SingleResultView({
       {resultTab === "overview" && (
         <>
           {/* Product Info + Radar */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 gap-6">
             <Card className="bg-gray-50 border-gray-200">
               <CardHeader>
                 <CardTitle className="text-lg flex items-center gap-2">
@@ -1438,17 +1412,6 @@ function SingleResultView({
               </CardContent>
             </Card>
 
-            <Card className="bg-gray-50 border-gray-200">
-              <CardHeader>
-                <CardTitle className="text-lg flex items-center justify-between">
-                  <span>8D+2评分雷达图</span>
-                  <span className="text-2xl font-bold text-brand-600">{avgScore}分</span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="flex justify-center">
-                <RadarChartMulti datasets={[radarData]} size={320} />
-              </CardContent>
-            </Card>
           </div>
 
           {/* Report Summary (collapsible) */}
@@ -1497,29 +1460,27 @@ function SingleResultView({
       {resultTab === "score" && (
         <>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* 6D Radar Chart */}
             <Card className="bg-gray-50 border-gray-200">
               <CardHeader>
                 <CardTitle className="text-lg flex items-center justify-between">
-                  <span>6D核心维度雷达图</span>
-                  <span className="text-2xl font-bold text-brand-600">{sixDAvg}分</span>
+                  <span>8D+2评分雷达图</span>
+                  <span className="text-2xl font-bold text-brand-600">{avgScore}分</span>
                 </CardTitle>
               </CardHeader>
               <CardContent className="flex justify-center">
-                <RadarChartMulti datasets={[sixDRadarData]} size={320} />
+                <RadarChartMulti datasets={[radarData]} size={320} />
               </CardContent>
             </Card>
 
-            {/* 6D Score Cards */}
             <Card className="bg-gray-50 border-gray-200">
               <CardHeader>
                 <CardTitle className="text-lg flex items-center gap-2">
                   <Target className="w-5 h-5 text-brand-600" />
-                  6D维度详情
+                  8D+2维度详情
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
-                {SIX_DIMENSIONS.map((dim) => {
+                {DIMENSIONS.map((dim) => {
                   const score = (scores as Record<string, number>)[dim.key] || 0;
                   const analysis = report?.analysis?.[dim.key] || "";
                   return (
@@ -1787,48 +1748,6 @@ function SingleResultView({
         </Card>
       )}
 
-      {/* Full 8D+2 Score Details (always visible at bottom for all tabs except overview which has it inline) */}
-      {resultTab !== "overview" && resultTab !== "score" && (
-        <Card className="bg-gray-50 border-gray-200">
-          <CardHeader>
-            <CardTitle className="text-lg flex items-center gap-2">
-              <TrendingUp className="w-5 h-5 text-brand-600" />
-              8D+2维度评分详情
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {DIMENSIONS.map((dim) => {
-                const score = (scores as Record<string, number>)[dim.key] || 0;
-                const analysis = report?.analysis?.[dim.key] || "";
-                return (
-                  <div key={dim.key} className="bg-gray-50 rounded-xl p-4 border border-gray-100">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm font-medium text-gray-600">{dim.label}</span>
-                      <span
-                        className={`text-lg font-bold ${
-                          score >= 80 ? "text-green-600" : score >= 60 ? "text-yellow-600" : "text-red-600"
-                        }`}
-                      >
-                        {score}
-                      </span>
-                    </div>
-                    <div className="w-full h-2 bg-gray-50 rounded-full overflow-hidden mb-2">
-                      <div
-                        className={`h-full rounded-full transition-all ${
-                          score >= 80 ? "bg-green-500" : score >= 60 ? "bg-yellow-500" : "bg-red-500"
-                        }`}
-                        style={{ width: `${score}%` }}
-                      />
-                    </div>
-                    {analysis && <p className="text-xs text-gray-500 leading-relaxed">{analysis}</p>}
-                  </div>
-                );
-              })}
-            </div>
-          </CardContent>
-        </Card>
-      )}
     </div>
   );
 }
