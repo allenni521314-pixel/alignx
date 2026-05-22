@@ -255,7 +255,9 @@ export default function AsinManager() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.detail || "加载ASIN失败");
-      setProducts(data?.items || []);
+      const items = data?.items || [];
+      setProducts(items);
+      loadKeywordValidationHistory(items).catch(() => {});
     } catch (e) {
       console.error(e);
       toast.error(getApiErrorMessage(e));
@@ -304,6 +306,29 @@ export default function AsinManager() {
       setScoreResults(map);
     } catch {
       // Silently fail - scores are optional
+    }
+  }, []);
+
+  const loadKeywordValidationHistory = useCallback(async (productList: Product[]) => {
+    if (!productList.length) return;
+    const results = await Promise.allSettled(
+      productList.slice(0, 60).map(async (product) => {
+        const res = await axios.get(`${getLongRunningApiBase()}/api/v1/asin-selection/${product.asin}/keyword-sales-history`, {
+          headers: getAuthHeaders(),
+          timeout: 30000,
+        });
+        const latest = res.data?.items?.[0]?.report;
+        return latest ? [product.asin, latest] as const : null;
+      })
+    );
+    const map: Record<string, KeywordSalesValidationReport> = {};
+    for (const item of results) {
+      if (item.status === "fulfilled" && item.value) {
+        map[item.value[0]] = item.value[1] as KeywordSalesValidationReport;
+      }
+    }
+    if (Object.keys(map).length) {
+      setKeywordValidationResults((prev) => ({ ...prev, ...map }));
     }
   }, []);
 
