@@ -62,12 +62,19 @@ function detectMarketplaceFromUrl(url: string): string {
 }
 
 /** Parse user input: could be a plain ASIN or a full Amazon URL */
-function parseAsinInput(input: string): { asin: string; marketplace: string } {
+function parseAsinInput(input: string): { asin: string; marketplace: string; searchKeyword?: string; isSearchUrl?: boolean } {
   const trimmed = input.trim();
   if (trimmed.includes("http") || trimmed.includes("amazon")) {
     const asin = extractAsinFromUrl(trimmed);
     const mp = detectMarketplaceFromUrl(trimmed);
-    return { asin, marketplace: mp };
+    try {
+      const url = new URL(trimmed);
+      const keyword = (url.searchParams.get("k") || "").replace(/\+/g, " ").trim();
+      const isSearchUrl = /\/s\b/i.test(url.pathname) || Boolean(keyword);
+      return { asin, marketplace: mp, searchKeyword: keyword, isSearchUrl };
+    } catch {
+      return { asin, marketplace: mp };
+    }
   }
   return { asin: trimmed.toUpperCase(), marketplace: "" };
 }
@@ -140,6 +147,19 @@ interface Scores {
   subjective_properties: number;
   risk_elimination: number;
 }
+
+const SCORE_KEYS: Array<keyof Scores> = [
+  "functionality",
+  "emotional",
+  "scenario",
+  "user_profile",
+  "differentiation",
+  "market_trend",
+  "product_identity",
+  "compatibility",
+  "subjective_properties",
+  "risk_elimination",
+];
 
 interface AnalysisReport {
   scores: Scores;
@@ -488,6 +508,7 @@ function sanitizeAnalysisKeywords(result: AnalysisResult): AnalysisResult {
   pd.bullet_points = normalizeStringList(pd.bullet_points);
   const cleanMainKeywords = cleanEnglishKeywordList(normalizeStringList(pd.main_keywords), [], "title");
   pd.main_keywords = cleanMainKeywords;
+  const scores = normalizeScores(result.scores || result.analysis_report?.scores);
 
   const breakdown = result.analysis_report?.listing_breakdown;
   const modules = breakdown?.modules || [];
@@ -497,9 +518,11 @@ function sanitizeAnalysisKeywords(result: AnalysisResult): AnalysisResult {
   return {
     ...result,
     product_data: pd,
+    scores,
     amazon_compliance: result.amazon_compliance || result.analysis_report?.amazon_compliance,
     analysis_report: {
       ...result.analysis_report,
+      scores,
       listing_breakdown: breakdown ? { ...breakdown, modules } : breakdown,
       amazon_compliance: result.analysis_report?.amazon_compliance || result.amazon_compliance,
     },
@@ -519,20 +542,46 @@ function moduleStructureNarrative(key: string, items?: string[]): string[] {
   return map[key] || (items?.length ? [items.join(" → ")] : []);
 }
 
+function toScoreNumber(value: unknown): number {
+  const num = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(num)) return 0;
+  return Math.max(0, Math.min(100, Math.round(num)));
+}
+
+function normalizeScores(value: unknown): Scores {
+  const raw = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+  const nested = raw.scores && typeof raw.scores === "object" ? (raw.scores as Record<string, unknown>) : {};
+  const source = { ...nested, ...raw };
+  return {
+    functionality: toScoreNumber(source.functionality ?? source.score_functionality),
+    emotional: toScoreNumber(source.emotional ?? source.score_emotional),
+    scenario: toScoreNumber(source.scenario ?? source.score_scenario),
+    user_profile: toScoreNumber(source.user_profile ?? source.score_user_profile),
+    differentiation: toScoreNumber(source.differentiation ?? source.score_differentiation),
+    market_trend: toScoreNumber(source.market_trend ?? source.score_market_trend),
+    product_identity: toScoreNumber(source.product_identity ?? source.score_product_identity),
+    compatibility: toScoreNumber(source.compatibility ?? source.score_compatibility),
+    subjective_properties: toScoreNumber(source.subjective_properties ?? source.score_subjective_properties),
+    risk_elimination: toScoreNumber(source.risk_elimination ?? source.score_risk_elimination),
+  };
+}
+
 function getAvgScore(scores: Scores): number {
-  const vals = Object.values(scores).filter((v) => typeof v === "number");
+  const normalized = normalizeScores(scores);
+  const vals = SCORE_KEYS.map((key) => normalized[key]).filter((v) => typeof v === "number");
   if (vals.length === 0) return 0;
   return Math.round(vals.reduce((a, b) => a + b, 0) / vals.length);
 }
 
 function scoresToRadarData(label: string, scores: Scores, colorIdx: number): RadarDataSet {
   const c = COLORS[colorIdx % COLORS.length];
+  const normalized = normalizeScores(scores);
   return {
     label,
     scores: DIMENSIONS.map((d) => ({
       label: d.label,
       key: d.key,
-      value: (scores as Record<string, number>)[d.key] || 0,
+      value: (normalized as Record<string, number>)[d.key] || 0,
     })),
     color: c.color,
     fillColor: c.fill,
@@ -650,7 +699,7 @@ export default function CompetitorAnalysis() {
           void parseErr;
         }
       } else {
-        void asins[0];
+        void proxyRes;
       }
     } catch (phase1Err) {
       void phase1Err;
@@ -712,7 +761,15 @@ export default function CompetitorAnalysis() {
     const mp = parsed.marketplace || marketplace;
 
     if (!asin || asin.length !== 10) {
-      toast.error("无法识别有效的ASIN，请输入10位ASIN或完整的Amazon产品链接");
+      if (parsed.isSearchUrl) {
+        toast.error(
+          parsed.searchKeyword
+            ? `这是Amazon搜索结果页（${parsed.searchKeyword}），请点进具体商品后粘贴商品详情页链接或10位ASIN。`
+            : "这是Amazon搜索结果页，请点进具体商品后粘贴商品详情页链接或10位ASIN。"
+        );
+      } else {
+        toast.error("无法识别有效ASIN，请输入10位ASIN或完整Amazon商品详情页链接（/dp/ASIN）。");
+      }
       return;
     }
 
@@ -859,8 +916,24 @@ export default function CompetitorAnalysis() {
 
   if (authLoading) {
     return (
-      <div className="flex h-screen items-center justify-center bg-gray-50">
-        <Loader2 className="w-8 h-8 animate-spin text-brand-600" />
+      <div className="flex h-screen bg-gray-50 text-gray-900">
+        <AppSidebar />
+        <main className="flex-1 overflow-y-auto">
+          <div className="max-w-6xl mx-auto px-6 py-8">
+            <div className="mb-8 space-y-3">
+              <div className="h-8 w-80 max-w-full rounded-lg bg-gray-100 animate-pulse" />
+              <div className="h-4 w-[520px] max-w-full rounded-lg bg-gray-100 animate-pulse" />
+            </div>
+            <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+              <div className="mb-5 h-12 rounded-lg bg-gray-100 animate-pulse" />
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <div key={i} className="h-24 rounded-lg bg-gray-100 animate-pulse" />
+                ))}
+              </div>
+            </div>
+          </div>
+        </main>
       </div>
     );
   }
@@ -933,7 +1006,7 @@ export default function CompetitorAnalysis() {
                 <CardContent className="pt-6">
                   <div className="flex gap-3">
                     <Input
-                      placeholder="输入ASIN 或 粘贴Amazon产品链接（例如：B0XXXXXXXXX 或 https://www.amazon.com/dp/...）"
+                      placeholder="输入10位ASIN或Amazon商品详情页链接（/dp/ASIN）；搜索页请先点进具体商品"
                       value={singleAsin}
                       onChange={(e) => setSingleAsin(e.target.value)}
                       className="bg-gray-50 border-gray-200 text-gray-900 placeholder:text-gray-400 font-mono"
@@ -950,7 +1023,7 @@ export default function CompetitorAnalysis() {
                     <Button
                       onClick={() => handleAnalyze()}
                       disabled={analyzing}
-                      className="bg-brand-600 hover:bg-brand-700 text-gray-900 min-w-[120px]"
+                      className="bg-brand-700 hover:bg-brand-600 text-white min-w-[120px] disabled:bg-brand-200 disabled:text-brand-700"
                     >
                       {analyzing ? (
                         <>
@@ -1196,8 +1269,9 @@ function SingleResultView({
   setExpanded: (v: boolean) => void;
 }) {
   const [resultTab, setResultTab] = useState<ResultTabKey>("overview");
-  const radarData = scoresToRadarData(result.asin, result.scores, 0);
-  const avgScore = getAvgScore(result.scores);
+  const scores = normalizeScores(result.scores);
+  const radarData = scoresToRadarData(result.asin, scores, 0);
+  const avgScore = getAvgScore(scores);
   const report = result.analysis_report;
   const pd = result.product_data;
   const dataSource = result.data_source || (pd as Record<string, unknown>)._data_source as string || "unknown";
@@ -1215,14 +1289,14 @@ function SingleResultView({
     scores: SIX_DIMENSIONS.map((d) => ({
       label: d.label,
       key: d.key,
-      value: (result.scores as Record<string, number>)[d.key] || 0,
+      value: (scores as Record<string, number>)[d.key] || 0,
     })),
     color: COLORS[0].color,
     fillColor: COLORS[0].fill,
   };
 
   const sixDAvg = Math.round(
-    SIX_DIMENSIONS.reduce((sum, d) => sum + ((result.scores as Record<string, number>)[d.key] || 0), 0) / SIX_DIMENSIONS.length
+    SIX_DIMENSIONS.reduce((sum, d) => sum + ((scores as Record<string, number>)[d.key] || 0), 0) / SIX_DIMENSIONS.length
   );
 
   return (
@@ -1446,7 +1520,7 @@ function SingleResultView({
               </CardHeader>
               <CardContent className="space-y-3">
                 {SIX_DIMENSIONS.map((dim) => {
-                  const score = (result.scores as Record<string, number>)[dim.key] || 0;
+                  const score = (scores as Record<string, number>)[dim.key] || 0;
                   const analysis = report?.analysis?.[dim.key] || "";
                   return (
                     <div key={dim.key} className="bg-gray-50 rounded-lg p-3 border border-gray-100">
@@ -1485,7 +1559,7 @@ function SingleResultView({
             <CardContent>
               <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
                 {DIMENSIONS.map((dim, idx) => {
-                  const score = (result.scores as Record<string, number>)[dim.key] || 0;
+                  const score = (scores as Record<string, number>)[dim.key] || 0;
                   const hue = score >= 80 ? 142 : score >= 60 ? 48 : 0;
                   const light = 25 + (score / 100) * 25;
                   const textColor = score >= 50 ? "text-gray-900" : "text-gray-600";
@@ -1633,7 +1707,7 @@ function SingleResultView({
             {/* Per-dimension weak areas */}
             {(() => {
               const weakDims = DIMENSIONS.filter(
-                (d) => ((result.scores as Record<string, number>)[d.key] || 0) < 70
+                (d) => ((scores as Record<string, number>)[d.key] || 0) < 70
               );
               if (weakDims.length === 0) return null;
               return (
@@ -1641,7 +1715,7 @@ function SingleResultView({
                   <h4 className="text-sm font-medium text-gray-600 mb-2">需重点关注的维度</h4>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     {weakDims.map((dim) => {
-                      const score = (result.scores as Record<string, number>)[dim.key] || 0;
+                      const score = (scores as Record<string, number>)[dim.key] || 0;
                       const analysis = report?.analysis?.[dim.key] || "";
                       return (
                         <div key={dim.key} className="bg-red-500/5 border border-red-500/15 rounded-lg p-3">
@@ -1725,7 +1799,7 @@ function SingleResultView({
           <CardContent>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {DIMENSIONS.map((dim) => {
-                const score = (result.scores as Record<string, number>)[dim.key] || 0;
+                const score = (scores as Record<string, number>)[dim.key] || 0;
                 const analysis = report?.analysis?.[dim.key] || "";
                 return (
                   <div key={dim.key} className="bg-gray-50 rounded-xl p-4 border border-gray-100">
