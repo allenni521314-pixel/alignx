@@ -655,7 +655,7 @@ export default function CompetitorAnalysis() {
       try {
         const res = await axios.post(
           `${apiBase}/api/v1/asin-analysis/analyze`,
-          { asin, marketplace: mp },
+          { asin, marketplace: mp, force_refresh: true },
           { headers: getAuthHeaders(), timeout: 240000 }
         );
 

@@ -352,6 +352,7 @@ def _build_listing_breakdown(product_data: dict, scoring_data: dict) -> dict:
 class AnalyzeAsinRequest(BaseModel):
     asin: str
     marketplace: str = "US"
+    force_refresh: bool = False
 
 
 class AnalyzeAsinResponse(BaseModel):
@@ -1252,12 +1253,13 @@ async def analyze_asin(
         if not asin or len(asin) != 10:
             raise HTTPException(status_code=400, detail="请输入有效的10位ASIN")
 
-        cached = await _get_cached_asin_analysis(asin, request.marketplace, db)
-        if cached:
-            if not cached.amazon_compliance:
-                cached.amazon_compliance = await _evaluate_asin_compliance(cached.product_data, cached.marketplace, db)
-                cached.analysis_report["amazon_compliance"] = cached.amazon_compliance
-            return cached
+        if not request.force_refresh:
+            cached = await _get_cached_asin_analysis(asin, request.marketplace, db)
+            if cached:
+                if not cached.amazon_compliance:
+                    cached.amazon_compliance = await _evaluate_asin_compliance(cached.product_data, cached.marketplace, db)
+                    cached.analysis_report["amazon_compliance"] = cached.amazon_compliance
+                return cached
 
         result = await _analyze_single_asin(
             asin=asin,
