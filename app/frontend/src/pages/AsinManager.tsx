@@ -43,6 +43,7 @@ import {
   Sparkles,
   ShieldCheck,
   AlertTriangle,
+  Microscope,
 } from "lucide-react";
 import {
   FiveDimensionScoreCard,
@@ -128,6 +129,104 @@ interface KeywordSalesValidationReport {
   }>;
 }
 
+interface ScraplingTop40Item {
+  searchRank: number;
+  asin: string;
+  title?: string;
+  price?: number | null;
+  url?: string;
+  priceText?: string;
+  searchPrice?: number | null;
+  searchPriceText?: string;
+  detailPrice?: number | null;
+  detailPriceText?: string;
+  priceSource?: string;
+  priceStatus?: string;
+  rating?: number | null;
+  reviewCount?: number | null;
+  isSponsored?: boolean;
+  status?: string;
+  error?: string;
+}
+
+interface Top40AnalysisRow extends ScraplingTop40Item {
+  segment?: "top20" | "mid20";
+  priceBand?: string;
+  priceBandLabel?: string;
+  opportunityScore?: number;
+  opportunityTag?: string;
+  analysisReason?: string;
+  aiTag?: string;
+  aiReason?: string;
+}
+
+interface Top40MarketAnalysis {
+  keyword: string;
+  marketplace: string;
+  status: string;
+  analysisSource: "ai" | "rules";
+  headline: string;
+  executiveSummary: string[];
+  marketOpportunity: string;
+  entryStrategy: string[];
+  riskWarnings: string[];
+  summary: {
+    totalListings: number;
+    top20Count: number;
+    mid20Count: number;
+    medianPrice?: number | null;
+    medianReviews?: number | null;
+    sponsoredCount: number;
+    sponsoredRatio: number;
+    top20MedianReviews?: number | null;
+    mid20LowReviewCount?: number;
+  };
+  priceBands: Array<{
+    band: string;
+    label: string;
+    count: number;
+    minPrice?: number | null;
+    maxPrice?: number | null;
+    medianReviews?: number | null;
+    sponsoredCount: number;
+    avgOpportunityScore: number;
+    opportunityLevel: string;
+  }>;
+  recommendedPriceBand?: {
+    label?: string;
+    minPrice?: number | null;
+    maxPrice?: number | null;
+    avgOpportunityScore?: number;
+  };
+  tableRows: Top40AnalysisRow[];
+  opportunityAsins: Top40AnalysisRow[];
+}
+
+interface ScraplingTop40BatchResult {
+  marketplace: string;
+  keyword: string;
+  batchIndex: number;
+  rankRange: string;
+  capturedAt: string;
+  status: "ok" | "partial" | "blocked" | "error";
+  rules: string[];
+  items: ScraplingTop40Item[];
+  errors: string[];
+  dataSource: string;
+  analysisNote: string;
+  usage?: Top40Usage;
+}
+
+interface Top40Usage {
+  usedRuns: number;
+  remainingRuns: number;
+  dailyRunLimit: number;
+  minIntervalHours: number;
+  latestRunStartedAt?: string | null;
+  nextAllowedAt?: string | null;
+  windowHours: number;
+}
+
 const emptyProduct = {
   asin: "",
   title: "",
@@ -199,8 +298,17 @@ export default function AsinManager() {
   const [batchImportText, setBatchImportText] = useState("");
   const [batchImportLoading, setBatchImportLoading] = useState(false);
   const [batchImportCurrent, setBatchImportCurrent] = useState("");
-  const [importMode, setImportMode] = useState<"single" | "batch">("single");
+  const [importMode, setImportMode] = useState<"single" | "batch" | "top40">("top40");
   const [autoFetch, setAutoFetch] = useState(true);
+  const [scraplingKeyword, setScraplingKeyword] = useState("");
+  const [scraplingBatchIndex, setScraplingBatchIndex] = useState(1);
+  const [scraplingLoading, setScraplingLoading] = useState(false);
+  const [scraplingResult, setScraplingResult] = useState<ScraplingTop40BatchResult | null>(null);
+  const [scraplingResults, setScraplingResults] = useState<ScraplingTop40BatchResult[]>([]);
+  const [top40Analyzing, setTop40Analyzing] = useState(false);
+  const [top40Analysis, setTop40Analysis] = useState<Top40MarketAnalysis | null>(null);
+  const [top40Usage, setTop40Usage] = useState<Top40Usage | null>(null);
+  const [top40DeepDiveAsin, setTop40DeepDiveAsin] = useState<string | null>(null);
 
   // Fetch history state
   const [showHistory, setShowHistory] = useState(false);
@@ -208,7 +316,7 @@ export default function AsinManager() {
   const [historyLoading, setHistoryLoading] = useState(false);
 
   useEffect(() => {
-    if (!autoImportLoading && !batchImportLoading) return;
+    if (!autoImportLoading && !batchImportLoading && !scraplingLoading && !top40Analyzing) return;
     const startedAt = Date.now();
     const timer = window.setInterval(() => {
       const elapsed = Math.floor((Date.now() - startedAt) / 1000);
@@ -216,7 +324,7 @@ export default function AsinManager() {
       setAutoImportProgress((current) => Math.max(current, Math.min(92, Math.round((elapsed / 60) * 92))));
     }, 1000);
     return () => window.clearInterval(timer);
-  }, [autoImportLoading, batchImportLoading]);
+  }, [autoImportLoading, batchImportLoading, scraplingLoading, top40Analyzing]);
 
   // Refresh single product
   const [refreshingId, setRefreshingId] = useState<number | null>(null);
@@ -239,6 +347,14 @@ export default function AsinManager() {
       "US",
     [asinMarketplaceMap]
   );
+
+  const top40AnalysisByAsin = useMemo(() => {
+    const map: Record<string, Top40AnalysisRow> = {};
+    for (const row of top40Analysis?.tableRows || []) {
+      if (row.asin) map[row.asin] = row;
+    }
+    return map;
+  }, [top40Analysis]);
 
   useEffect(() => {
     if (!authLoading) {
@@ -366,6 +482,22 @@ export default function AsinManager() {
     }
   }, [authLoading, loadMarketplaceSnapshots]);
 
+  const loadTop40Usage = useCallback(async () => {
+    try {
+      const res = await axios.get(`${getLongRunningApiBase()}/api/v1/asin-selection/scrapling/top40-rules`, {
+        headers: getAuthHeaders(),
+        timeout: 15000,
+      });
+      if (res.data?.usage) setTop40Usage(res.data.usage as Top40Usage);
+    } catch {
+      // Usage only guides the UI; backend still enforces the limit.
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!authLoading) loadTop40Usage();
+  }, [authLoading, loadTop40Usage]);
+
   // Filter products by search and tab
   const filteredProducts = products
     .filter((p) => {
@@ -490,6 +622,79 @@ export default function AsinManager() {
     const created = await createRes.json().catch(() => ({}));
     if (!createRes.ok) throw new Error(created?.detail || "保存ASIN库失败");
     return { product: created as Product, mode: "created" as const };
+  };
+
+  const handleTop40DeepDive = async (item: ScraplingTop40Item) => {
+    if (!item.asin) {
+      toast.error("这条样本缺少ASIN，无法进入单品分析");
+      return;
+    }
+
+    const marketplace = scraplingResult?.marketplace || autoImportMarketplace || "US";
+    const productData: Omit<Product, "id" | "created_at" | "marketplace"> = {
+      asin: item.asin,
+      title: item.title || item.asin,
+      bullet_points: "",
+      a_plus_content: "",
+      search_keywords: scraplingKeyword.trim(),
+      price: Number(item.detailPrice || item.searchPrice || item.price || 0),
+      review_count: Number(item.reviewCount || 0),
+      rating: Number(item.rating || 0),
+      category: `${scraplingKeyword.trim() || "Top40样本"} · Rank ${item.searchRank}`,
+    };
+
+    setTop40DeepDiveAsin(item.asin);
+    setAutoImportMessage(`正在对 ${item.asin} 做单品深挖`);
+    try {
+      const saved = await saveProductToLibrary(productData);
+      const savedProduct = { ...saved.product, marketplace };
+      setAsinMarketplaceMap((prev) => ({ ...prev, [item.asin]: marketplace }));
+      setProducts((prev) => {
+        const existingIndex = prev.findIndex((product) => product.asin === item.asin);
+        if (existingIndex >= 0) {
+          const next = [...prev];
+          next[existingIndex] = savedProduct;
+          return next;
+        }
+        return [savedProduct, ...prev];
+      });
+      saveActionSnapshot({
+        module_key: "asin_selection",
+        module_name: "ASIN选品",
+        action_key: "top40_asin_deep_dive",
+        action_name: "Top40样本单品深挖",
+        product_id: savedProduct.id,
+        asin: item.asin,
+        title: savedProduct.title,
+        input_snapshot: {
+          keyword: scraplingKeyword.trim(),
+          marketplace,
+          searchRank: item.searchRank,
+          asin: item.asin,
+        },
+        output_snapshot: {
+          product: savedProduct,
+          top40Item: item,
+          libraryMode: saved.mode,
+        },
+        data_source: "top40_market_sample",
+        confidence: "medium",
+        ai_called: false,
+        source_record_table: "products",
+        source_record_id: savedProduct.id,
+      }).catch(() => {});
+
+      setShowForm(false);
+      setActiveTab("library");
+      setSearchQuery(item.asin);
+      toast.success(`${item.asin} 已进入ASIN库，开始单品评分`);
+      await handleFiveDScore(savedProduct);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "单品深挖失败";
+      toast.error(msg);
+    } finally {
+      setTop40DeepDiveAsin(null);
+    }
   };
 
   const handleKeywordSalesValidation = async (product: Product) => {
@@ -734,20 +939,20 @@ export default function AsinManager() {
     source?: string;
   }> => {
     if (isPublicDeployment()) {
-      setAutoImportMessage("公网服务器正在抓取Amazon页面并生成分析结果，通常需要 10-40 秒");
+      setAutoImportMessage("正在提取商品信息并生成分析结果，通常需要 10-40 秒");
       setAutoImportProgress(35);
       try {
         const serverResult = await fetchAsinViaAI(asin, marketplace);
         setAutoImportProgress(100);
         return {
           ...serverResult,
-          source: serverResult.source === "ai_estimated_low_confidence" ? "AI低置信度兜底" : "服务器真实抓取",
+          source: serverResult.source === "ai_estimated_low_confidence" ? "低置信度补充分析" : "商品信息提取",
         };
       } catch (e: unknown) {
         const msg = axios.isAxiosError(e)
           ? e.code === "ECONNABORTED"
             ? "公网服务器分析超时，请稍后重试。"
-            : e.response?.data?.detail || "服务器抓取分析失败"
+            : e.response?.data?.detail || "商品分析失败"
           : e instanceof Error
             ? e.message
             : "请求失败";
@@ -757,7 +962,7 @@ export default function AsinManager() {
 
     // Phase 1: Browser proxy fetch. This is the primary path for AlignX:
     // the user only enters an ASIN/link, and the local browser environment assists extraction.
-    setAutoImportMessage("Phase 1/3：本地浏览器代理抓取Amazon页面，通常需要 20-30 秒");
+    setAutoImportMessage("正在提取Amazon商品页面信息，通常需要 20-30 秒");
     setAutoImportProgress(22);
     try {
       const proxyRes = await axios.post(
@@ -795,7 +1000,7 @@ export default function AsinManager() {
                 rating: parseFloat(String(pd.rating)) || 0,
                 category: pd.category || "",
               },
-              source: "浏览器代理",
+              source: "商品页面提取",
             };
           }
         } catch {
@@ -804,18 +1009,18 @@ export default function AsinManager() {
       }
     } catch (e: unknown) {
       if (axios.isAxiosError(e) && e.code === "ECONNABORTED") {
-        toast.warning("浏览器代理抓取超过75秒，已切换到服务器补充抓取和AI兜底。");
+        toast.warning("当前ASIN分析耗时较长，系统已切换到补充分析模式。");
       }
       // fall through
     }
 
     // Phase 2 + 3: Backend server scrape first, then AI fallback when real data is unavailable.
-    setAutoImportMessage("Phase 2/3：服务器补充抓取；失败后进入AI低置信度兜底");
+    setAutoImportMessage("正在补充商品信息并生成低置信度标记");
     setAutoImportProgress(62);
     try {
       const aiResult = await fetchAsinViaAI(asin, marketplace);
       setAutoImportProgress(100);
-      return { ...aiResult, source: aiResult.source === "ai_estimated_low_confidence" ? "AI低置信度兜底" : "服务器真实抓取" };
+      return { ...aiResult, source: aiResult.source === "ai_estimated_low_confidence" ? "低置信度补充分析" : "商品信息提取" };
     } catch (e: unknown) {
       const msg = axios.isAxiosError(e)
         ? e.code === "ECONNABORTED"
@@ -854,8 +1059,8 @@ export default function AsinManager() {
           category: result.data.category || "",
         };
 
-        const sourceLabel =
-          result.source === "浏览器代理" ? "浏览器代理抓取" : "AI智能分析";
+        const isLowConfidence = result.source === "低置信度补充分析";
+        const sourceLabel = isLowConfidence ? "低置信度补充分析" : "商品信息提取";
         const snapshotProductData = { ...productData, marketplace: autoImportMarketplace };
 
         if (autoFetch) {
@@ -875,8 +1080,8 @@ export default function AsinManager() {
               input_snapshot: { asin, marketplace: autoImportMarketplace },
               output_snapshot: snapshotProductData,
               data_source: sourceLabel,
-              confidence: result.source === "浏览器代理" ? "high" : "low",
-              ai_called: result.source !== "浏览器代理",
+              confidence: isLowConfidence ? "low" : "high",
+              ai_called: isLowConfidence,
               source_record_table: "products",
             }).catch(() => {});
             toast.success(`已通过${sourceLabel}${saved.mode === "updated" ? "更新" : "保存"} ${asin} 到ASIN库`);
@@ -1026,8 +1231,8 @@ export default function AsinManager() {
                 input_snapshot: { asin, marketplace: autoImportMarketplace },
                 output_snapshot: { ...productData, marketplace: autoImportMarketplace },
                 data_source: result.source || "",
-                confidence: result.source === "浏览器代理" ? "high" : "low",
-                ai_called: result.source !== "浏览器代理",
+                confidence: result.source === "低置信度补充分析" ? "low" : "high",
+                ai_called: result.source === "低置信度补充分析",
                 source_record_table: "products",
               }).catch(() => {});
               savedCount++;
@@ -1058,6 +1263,198 @@ export default function AsinManager() {
     }
   };
 
+  const handleScraplingTop40Batch = async () => {
+    const keyword = scraplingKeyword.trim();
+    if (!keyword) {
+      toast.error("请输入关键词");
+      return;
+    }
+    setScraplingLoading(true);
+    setScraplingResult(null);
+    setTop40Analysis(null);
+    setAutoImportProgress(5);
+    setAutoImportElapsed(0);
+    setAutoImportMessage(`正在生成Top40竞品快照：第 ${scraplingBatchIndex} 批`);
+    try {
+      const res = await axios.post(
+        `${getLongRunningApiBase()}/api/v1/asin-selection/scrapling/top40-batch`,
+        {
+          keyword,
+          marketplace: autoImportMarketplace,
+          batch_index: scraplingBatchIndex,
+        },
+        { headers: getAuthHeaders(), timeout: 240000 }
+      );
+      const result = res.data as ScraplingTop40BatchResult;
+      if (result.usage) setTop40Usage(result.usage);
+      setScraplingResult(result);
+      setScraplingResults((prev) => {
+        const next = prev.filter((item) => item.batchIndex !== result.batchIndex);
+        return [...next, result].sort((a, b) => a.batchIndex - b.batchIndex);
+      });
+      setAutoImportProgress(100);
+      saveActionSnapshot({
+        module_key: "asin_selection",
+        module_name: "ASIN选品",
+        action_key: "scrapling_top40_batch",
+        action_name: "Top40竞品快照",
+        input_snapshot: {
+          keyword,
+          marketplace: autoImportMarketplace,
+          batch_index: scraplingBatchIndex,
+        },
+        output_snapshot: result,
+        data_source: "scrapling_top40_batch",
+        confidence: result.status === "ok" ? "medium" : "low",
+        ai_called: false,
+        source_record_table: "scrapling_raw_snapshot",
+      }).catch(() => {});
+      loadTop40Usage().catch(() => {});
+      const okCount = result.items.filter((item) => item.status === "ok").length;
+      toast.success(`已抓取 Rank ${result.rankRange}: ${okCount}/${result.items.length} 条详情可用`);
+    } catch (e: unknown) {
+      const msg = axios.isAxiosError(e)
+        ? e.response?.data?.detail || "Top40竞品快照生成失败"
+        : e instanceof Error
+          ? e.message
+          : "Top40竞品快照生成失败";
+      toast.error(msg);
+    } finally {
+      setScraplingLoading(false);
+      setAutoImportProgress(0);
+      setAutoImportElapsed(0);
+      setAutoImportMessage("");
+    }
+  };
+
+  const handleScraplingTop40All = async () => {
+    const keyword = scraplingKeyword.trim();
+    if (!keyword) {
+      toast.error("请输入关键词");
+      return;
+    }
+    setScraplingLoading(true);
+    setScraplingResult(null);
+    setScraplingResults([]);
+    setTop40Analysis(null);
+    setAutoImportProgress(3);
+    setAutoImportElapsed(0);
+    const collected: ScraplingTop40BatchResult[] = [];
+    try {
+      for (let batchIndex = 1; batchIndex <= 4; batchIndex += 1) {
+        setScraplingBatchIndex(batchIndex);
+        setAutoImportMessage(`正在生成Top40竞品快照：第 ${batchIndex}/4 批`);
+        setAutoImportProgress(Math.round(((batchIndex - 1) / 4) * 100) + 5);
+        const res = await axios.post(
+          `${getLongRunningApiBase()}/api/v1/asin-selection/scrapling/top40-batch`,
+          {
+            keyword,
+            marketplace: autoImportMarketplace,
+            batch_index: batchIndex,
+          },
+          { headers: getAuthHeaders(), timeout: 240000 }
+        );
+        const result = res.data as ScraplingTop40BatchResult;
+        if (result.usage) setTop40Usage(result.usage);
+        collected.push(result);
+        setScraplingResult(result);
+        setScraplingResults([...collected]);
+        saveActionSnapshot({
+          module_key: "asin_selection",
+          module_name: "ASIN选品",
+          action_key: "scrapling_top40_batch",
+          action_name: "Top40竞品快照",
+          input_snapshot: {
+            keyword,
+            marketplace: autoImportMarketplace,
+            batch_index: batchIndex,
+          },
+          output_snapshot: result,
+          data_source: "scrapling_top40_batch",
+          confidence: result.status === "ok" ? "medium" : "low",
+          ai_called: false,
+          source_record_table: "scrapling_raw_snapshot",
+        }).catch(() => {});
+        if (result.status === "blocked") {
+          toast.warning(`第 ${batchIndex} 批遇到访问限制，已停止后续批次`);
+          break;
+        }
+      }
+      const itemCount = collected.reduce((sum, item) => sum + item.items.length, 0);
+      const okCount = collected.reduce(
+        (sum, item) => sum + item.items.filter((row) => row.status === "ok").length,
+        0
+      );
+      setAutoImportProgress(100);
+      loadTop40Usage().catch(() => {});
+      toast.success(`Top40抓取完成：${okCount}/${itemCount} 条详情可用`);
+    } catch (e: unknown) {
+      const msg = axios.isAxiosError(e)
+        ? e.response?.data?.detail || "Top40竞品快照生成失败"
+        : e instanceof Error
+          ? e.message
+          : "Top40竞品快照生成失败";
+      toast.error(msg);
+    } finally {
+      setScraplingLoading(false);
+      setAutoImportProgress(0);
+      setAutoImportElapsed(0);
+      setAutoImportMessage("");
+    }
+  };
+
+  const handleTop40MarketAnalysis = async () => {
+    const items = scraplingResults.flatMap((batch) => batch.items);
+    const keyword = scraplingKeyword.trim();
+    if (!keyword || items.length === 0) {
+      toast.error("请先完成Top40抓取");
+      return;
+    }
+    setTop40Analyzing(true);
+    setAutoImportProgress(8);
+    setAutoImportElapsed(0);
+    setAutoImportMessage("正在分析Top40竞品，寻找价格带和市场机会");
+    try {
+      const res = await axios.post(
+        `${getLongRunningApiBase()}/api/v1/asin-selection/top40-market-analysis`,
+        {
+          keyword,
+          marketplace: autoImportMarketplace,
+          items,
+        },
+        { headers: getAuthHeaders(), timeout: 240000 }
+      );
+      const analysis = res.data as Top40MarketAnalysis;
+      setTop40Analysis(analysis);
+      setAutoImportProgress(100);
+      saveActionSnapshot({
+        module_key: "asin_selection",
+        module_name: "ASIN选品",
+        action_key: "top40_market_analysis",
+        action_name: "Top40竞品价格带机会分析",
+        input_snapshot: { keyword, marketplace: autoImportMarketplace, item_count: items.length },
+        output_snapshot: analysis,
+        data_source: analysis.analysisSource || "rules",
+        confidence: analysis.analysisSource === "ai" ? "medium" : "low",
+        ai_called: analysis.analysisSource === "ai",
+        source_record_table: "top40_market_analysis",
+      }).catch(() => {});
+      toast.success(`Top40市场机会分析完成：${analysis.headline}`);
+    } catch (e: unknown) {
+      const msg = axios.isAxiosError(e)
+        ? e.response?.data?.detail || "Top40市场机会分析失败"
+        : e instanceof Error
+          ? e.message
+          : "Top40市场机会分析失败";
+      toast.error(msg);
+    } finally {
+      setTop40Analyzing(false);
+      setAutoImportProgress(0);
+      setAutoImportElapsed(0);
+      setAutoImportMessage("");
+    }
+  };
+
   /* ---- Refresh single product data ---- */
   const handleRefreshProduct = async (product: Product) => {
     const marketplace = getProductMarketplace(product);
@@ -1078,8 +1475,8 @@ export default function AsinManager() {
             category: result.data.category || product.category,
           },
         });
-        const sourceLabel =
-          result.source === "浏览器代理" ? "浏览器代理" : "AI分析";
+        const isLowConfidence = result.source === "低置信度补充分析";
+        const sourceLabel = isLowConfidence ? "低置信度补充分析" : "商品信息提取";
         saveActionSnapshot({
           module_key: "asin_selection",
           module_name: "6维选品",
@@ -1091,8 +1488,8 @@ export default function AsinManager() {
           input_snapshot: { ...product, marketplace },
           output_snapshot: { ...result.data, marketplace },
           data_source: sourceLabel,
-          confidence: result.source === "浏览器代理" ? "high" : "low",
-          ai_called: result.source !== "浏览器代理",
+          confidence: isLowConfidence ? "low" : "high",
+          ai_called: isLowConfidence,
           source_record_table: "products",
           source_record_id: product.id,
         }).catch(() => {});
@@ -1127,6 +1524,86 @@ export default function AsinManager() {
     setShowHistory(!showHistory);
   };
 
+  const snapshotInput = (item: ActionSnapshot) =>
+    (item.input_snapshot || {}) as Record<string, unknown>;
+
+  const snapshotOutput = (item: ActionSnapshot) =>
+    (item.output_snapshot || {}) as Record<string, unknown>;
+
+  const loadTop40SnapshotGroup = async (snapshot: ActionSnapshot) => {
+    const input = snapshotInput(snapshot);
+    const keyword = String(input.keyword || "").trim();
+    const marketplace = String(input.marketplace || autoImportMarketplace || "US").toUpperCase();
+    if (!keyword) {
+      toast.error("这条历史记录缺少关键词，无法恢复Top40");
+      return;
+    }
+    setHistoryLoading(true);
+    try {
+      const [batchSnapshots, analysisSnapshots] = await Promise.all([
+        getActionSnapshots({ module_key: "asin_selection", action_key: "scrapling_top40_batch", limit: 120 }),
+        getActionSnapshots({ module_key: "asin_selection", action_key: "top40_market_analysis", limit: 40 }),
+      ]);
+      const latestByBatch = new Map<number, ScraplingTop40BatchResult>();
+      for (const item of batchSnapshots) {
+        const itemInput = snapshotInput(item);
+        if (String(itemInput.keyword || "").trim() !== keyword) continue;
+        if (String(itemInput.marketplace || "US").toUpperCase() !== marketplace) continue;
+        const batchIndex = Number(itemInput.batch_index || snapshotOutput(item).batchIndex || 0);
+        if (batchIndex < 1 || batchIndex > 4 || latestByBatch.has(batchIndex)) continue;
+        latestByBatch.set(batchIndex, snapshotOutput(item) as unknown as ScraplingTop40BatchResult);
+      }
+      const restored = Array.from(latestByBatch.values()).sort((a, b) => a.batchIndex - b.batchIndex);
+      if (!restored.length) {
+        toast.error("没有找到可恢复的Top40批次");
+        return;
+      }
+
+      const latestAnalysis = analysisSnapshots.find((item) => {
+        const itemInput = snapshotInput(item);
+        return (
+          String(itemInput.keyword || "").trim() === keyword &&
+          String(itemInput.marketplace || "US").toUpperCase() === marketplace
+        );
+      });
+
+      setImportMode("top40");
+      setShowAutoImport(true);
+      setShowForm(false);
+      setScraplingKeyword(keyword);
+      setAutoImportMarketplace(marketplace);
+      setScraplingResults(restored);
+      setScraplingResult(restored[restored.length - 1]);
+      setTop40Analysis(latestAnalysis ? (snapshotOutput(latestAnalysis) as unknown as Top40MarketAnalysis) : null);
+      toast.success(`已恢复 ${keyword} 的Top40快照：${restored.length}/4 批`);
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "恢复Top40快照失败");
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  const getPriceStatusLabel = (item: ScraplingTop40Item) => {
+    switch (item.priceStatus) {
+      case "detail_price":
+        return "详情页价格";
+      case "search_price":
+        return "搜索页价格";
+      case "search_price_fallback":
+        return "搜索页价格";
+      case "detail_error":
+        return item.searchPriceText ? "搜索页价格" : "详情页失败";
+      case "detail_parse_failed":
+        return item.searchPriceText ? "搜索页价格" : "价格待确认";
+      case "blocked":
+        return "访问受限";
+      case "missing":
+        return "价格缺失";
+      default:
+        return item.priceText || item.searchPriceText ? "已获取" : "价格缺失";
+    }
+  };
+
   return (
     <div className="flex h-screen bg-white text-gray-900">
       <AppSidebar />
@@ -1147,7 +1624,7 @@ export default function AsinManager() {
 
           <PageHeader
             objective="集中管理你的Amazon产品ASIN，用6维规则引擎判断能不能做、风险在哪里、下一步去哪"
-            inputSource="单个ASIN抓取 / 批量ASIN抓取"
+            inputSource="关键词Top40竞品快照 / 单个ASIN补充抓取"
             process="真实数据先打底，规则引擎评分，AI只做语义修正，风险规则优先否决"
             outputTarget="决策结论 · 机会池状态 · 一票否决 · 动态下一步动作"
             action="按可进入、小预算测试、改良后进入、淘汰避坑等路径分流"
@@ -1193,7 +1670,7 @@ export default function AsinManager() {
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-base font-semibold flex items-center gap-2">
                   <CloudDownload className="w-5 h-5 text-amber-600" />
-                  自动抓取Amazon产品数据
+                  ASIN选品抓取
                 </h2>
               </div>
 
@@ -1218,6 +1695,16 @@ export default function AsinManager() {
                   }`}
                 >
                   批量ASIN抓取
+                </button>
+                <button
+                  onClick={() => setImportMode("top40")}
+                  className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all ${
+                    importMode === "top40"
+                      ? "bg-amber-600/80 text-gray-900"
+                      : "text-gray-500 hover:text-gray-900 hover:bg-gray-100"
+                  }`}
+                >
+                  Top40机会分析
                 </button>
               </div>
 
@@ -1320,7 +1807,7 @@ export default function AsinManager() {
                   </Button>
                 </div>
                 </div>
-              ) : (
+              ) : importMode === "batch" ? (
                 <div className="space-y-3">
                   <div>
                     <Label className="text-gray-500 text-sm">
@@ -1349,9 +1836,251 @@ export default function AsinManager() {
                       : `开始批量抓取真实数据 (${batchImportText.split(/[\n,;]+/).filter((a) => a.trim()).length} 个)`}
                   </Button>
                 </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-[1fr_180px_auto] gap-3 items-end">
+                    <div>
+                      <Label className="text-gray-500 text-sm">关键词</Label>
+                      <Input
+                        value={scraplingKeyword}
+                        onChange={(e) => setScraplingKeyword(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && !scraplingLoading)
+                            handleScraplingTop40Batch();
+                        }}
+                        placeholder="iPhone 16 case"
+                        className="mt-1 bg-gray-50 border-gray-200 text-gray-900"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-gray-500 text-sm">排名批次</Label>
+                      <Select
+                        value={String(scraplingBatchIndex)}
+                        onValueChange={(value) => setScraplingBatchIndex(Number(value))}
+                      >
+                        <SelectTrigger className="mt-1 bg-gray-50 border-gray-200 text-gray-900">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="bg-white border-gray-200">
+                          <SelectItem value="1">Rank 1-10</SelectItem>
+                          <SelectItem value="2">Rank 11-20</SelectItem>
+                          <SelectItem value="3">Rank 21-30</SelectItem>
+                          <SelectItem value="4">Rank 31-40</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        onClick={handleScraplingTop40All}
+                        disabled={scraplingLoading || !scraplingKeyword.trim() || Boolean(top40Usage && top40Usage.remainingRuns < 1)}
+                        className="bg-amber-600 hover:bg-amber-500 text-white"
+                      >
+                        {scraplingLoading ? (
+                          <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                        ) : (
+                          <Search className="w-4 h-4 mr-1" />
+                        )}
+                        分析Top40机会
+                      </Button>
+                      <Button
+                        onClick={handleScraplingTop40Batch}
+                        disabled={scraplingLoading || !scraplingKeyword.trim() || Boolean(top40Usage && top40Usage.remainingRuns < 1)}
+                        variant="outline"
+                        className="border-gray-200 text-gray-700"
+                      >
+                        只分析当前10家
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-3">
+                    <p className="text-xs font-semibold text-gray-800 mb-2">Top40市场机会分析</p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5 text-[11px] text-gray-600">
+                      <span>基于关键词查看前40个竞品样本</span>
+                      <span>拆分Top20与中段20判断进入门槛</span>
+                      <span>识别广告位样本，避免误判自然机会</span>
+                      <span>按价格带、评分、评论数聚合对比</span>
+                      <span>找出低评论高排名的潜在机会ASIN</span>
+                      <span>生成推荐切入价带和后续验证动作</span>
+                    </div>
+                    {top40Usage && (
+                      <div className="mt-3 rounded-md border border-amber-100 bg-white px-3 py-2 text-[11px] text-gray-600">
+                        24小时额度：已用 {top40Usage.usedRuns}/{top40Usage.dailyRunLimit} 次，
+                        剩余 {top40Usage.remainingRuns} 次；两次Top40分析至少间隔 {top40Usage.minIntervalHours} 小时。
+                        {top40Usage.nextAllowedAt ? ` 下次可用时间：${new Date(top40Usage.nextAllowedAt).toLocaleString("zh-CN")}` : ""}
+                      </div>
+                    )}
+                  </div>
+
+                  {scraplingResults.length > 0 && (
+                    <div className="rounded-lg border border-gray-200 bg-white overflow-hidden">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-3 py-2 border-b border-gray-100">
+                        <div>
+                          <p className="text-sm font-semibold text-gray-900">
+                            {scraplingKeyword.trim()} · Top40市场机会样本
+                          </p>
+                          <p className="text-xs text-gray-500">
+                            {scraplingResults.length}/4 批 · {scraplingResults.reduce((sum, item) => sum + item.items.length, 0)} 个竞品样本
+                          </p>
+                        </div>
+                        <span className="text-xs text-gray-500">
+                          {scraplingResult ? new Date(scraplingResult.capturedAt).toLocaleString() : ""}
+                        </span>
+                      </div>
+                      <div className="flex flex-col gap-3 border-b border-gray-100 bg-gray-50 px-3 py-3">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                          <div>
+                            <p className="text-sm font-semibold text-gray-900">
+                              第二步：分析价格带、头部门槛和中段机会
+                            </p>
+                            <p className="text-xs text-gray-500 mt-1">
+                              结果会回填到下方表格：价格带、机会分、机会标签、Top20/中段20判断。
+                            </p>
+                          </div>
+                          <Button
+                            onClick={handleTop40MarketAnalysis}
+                            disabled={top40Analyzing || scraplingResults.flatMap((batch) => batch.items).length === 0}
+                            className="bg-emerald-700 hover:bg-emerald-600 text-white shrink-0"
+                          >
+                            {top40Analyzing ? (
+                              <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                            ) : (
+                              <Sparkles className="w-4 h-4 mr-1" />
+                            )}
+                            生成市场机会分析
+                          </Button>
+                        </div>
+
+                        {top40Analysis && (
+                          <div className="grid grid-cols-1 lg:grid-cols-4 gap-3">
+                            <div className="rounded-md border border-emerald-100 bg-white px-3 py-3">
+                              <p className="text-xs text-gray-500">结论</p>
+                              <p className="text-sm font-semibold text-emerald-800 mt-1">{top40Analysis.headline}</p>
+                              <p className="text-[11px] text-gray-500 mt-1">{top40Analysis.analysisSource === "ai" ? "AI分析" : "规则兜底"}</p>
+                            </div>
+                            <div className="rounded-md border border-gray-200 bg-white px-3 py-3">
+                              <p className="text-xs text-gray-500">中位价格</p>
+                              <p className="text-lg font-semibold text-gray-900 mt-1">
+                                {top40Analysis.summary.medianPrice ? `$${Number(top40Analysis.summary.medianPrice).toFixed(2)}` : "-"}
+                              </p>
+                              <p className="text-[11px] text-gray-500 mt-1">Top40样本</p>
+                            </div>
+                            <div className="rounded-md border border-gray-200 bg-white px-3 py-3">
+                              <p className="text-xs text-gray-500">Top20评论门槛</p>
+                              <p className="text-lg font-semibold text-gray-900 mt-1">{Math.round(top40Analysis.summary.top20MedianReviews || 0)}</p>
+                              <p className="text-[11px] text-gray-500 mt-1">中位评论数</p>
+                            </div>
+                            <div className="rounded-md border border-gray-200 bg-white px-3 py-3">
+                              <p className="text-xs text-gray-500">推荐价格带</p>
+                              <p className="text-sm font-semibold text-gray-900 mt-1">
+                                {top40Analysis.recommendedPriceBand?.label || "-"}
+                              </p>
+                              <p className="text-[11px] text-gray-500 mt-1">
+                                机会分 {top40Analysis.recommendedPriceBand?.avgOpportunityScore || "-"}
+                              </p>
+                            </div>
+                          </div>
+                        )}
+
+                        {top40Analysis?.priceBands?.length ? (
+                          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-2">
+                            {top40Analysis.priceBands.slice(0, 4).map((band) => (
+                              <div key={band.band} className="rounded-md border border-gray-200 bg-white px-3 py-2">
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="text-xs font-semibold text-gray-800">{band.label}</span>
+                                  <span className="text-xs text-emerald-700">{band.avgOpportunityScore}分</span>
+                                </div>
+                                <p className="text-[11px] text-gray-500 mt-1">
+                                  {band.count}家 · {band.minPrice ? `$${Number(band.minPrice).toFixed(0)}` : "-"}-
+                                  {band.maxPrice ? `$${Number(band.maxPrice).toFixed(0)}` : "-"} · 评论中位 {Math.round(band.medianReviews || 0)}
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
+                      <div className="max-h-72 overflow-auto">
+                        <table className="w-full text-xs">
+                          <thead className="sticky top-0 bg-gray-50 text-gray-500">
+                            <tr>
+                              <th className="text-left px-3 py-2 font-medium">Rank</th>
+                              <th className="text-left px-3 py-2 font-medium">ASIN</th>
+                              <th className="text-left px-3 py-2 font-medium">标题</th>
+                              <th className="text-left px-3 py-2 font-medium">价格</th>
+                              <th className="text-left px-3 py-2 font-medium">价格状态</th>
+                              <th className="text-left px-3 py-2 font-medium">评分</th>
+                              <th className="text-left px-3 py-2 font-medium">机会</th>
+                              <th className="text-left px-3 py-2 font-medium">价格带</th>
+                              <th className="text-left px-3 py-2 font-medium">状态</th>
+                              <th className="text-left px-3 py-2 font-medium">下一步</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {scraplingResults.flatMap((batch) => batch.items).map((item) => {
+                              const analysisRow = top40AnalysisByAsin[item.asin] || {};
+                              return (
+                                <tr key={`${item.searchRank}-${item.asin}`} className="border-t border-gray-100">
+                                  <td className="px-3 py-2 text-gray-700">{item.searchRank}</td>
+                                  <td className="px-3 py-2 font-mono text-gray-700">{item.asin}</td>
+                                  <td className="px-3 py-2 text-gray-800 min-w-[260px]">
+                                    <div className="line-clamp-2">
+                                      {item.isSponsored ? "广告位 · " : ""}
+                                      {item.title || "-"}
+                                    </div>
+                                    {(analysisRow.aiReason || analysisRow.analysisReason) && (
+                                      <div className="mt-1 text-[11px] text-gray-500 line-clamp-1">
+                                        {analysisRow.aiReason || analysisRow.analysisReason}
+                                      </div>
+                                    )}
+                                  </td>
+                                  <td className="px-3 py-2 text-gray-700">{item.priceText || item.searchPriceText || "-"}</td>
+                                  <td className="px-3 py-2 text-gray-700">
+                                    <span className="rounded bg-gray-50 px-2 py-1">
+                                      {getPriceStatusLabel(item)}
+                                    </span>
+                                  </td>
+                                  <td className="px-3 py-2 text-gray-700">
+                                    {item.rating || "-"} / {item.reviewCount || "-"}
+                                  </td>
+                                  <td className="px-3 py-2">
+                                    {analysisRow.opportunityScore ? (
+                                      <span className="rounded bg-emerald-50 px-2 py-1 text-emerald-700 font-semibold">
+                                        {analysisRow.opportunityScore} · {analysisRow.aiTag || analysisRow.opportunityTag}
+                                      </span>
+                                    ) : (
+                                      <span className="text-gray-400">待分析</span>
+                                    )}
+                                  </td>
+                                  <td className="px-3 py-2 text-gray-700">{analysisRow.priceBandLabel || "-"}</td>
+                                  <td className="px-3 py-2 text-gray-700">{item.status || "-"}</td>
+                                  <td className="px-3 py-2">
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="h-8 whitespace-nowrap"
+                                      onClick={() => handleTop40DeepDive(item)}
+                                      disabled={top40DeepDiveAsin === item.asin || scoringAsin === item.asin}
+                                    >
+                                      {top40DeepDiveAsin === item.asin || scoringAsin === item.asin ? (
+                                        <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />
+                                      ) : (
+                                        <Microscope className="w-3.5 h-3.5 mr-1" />
+                                      )}
+                                      单品分析
+                                    </Button>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </div>
               )}
 
-              {(autoImportLoading || batchImportLoading) && (
+              {(autoImportLoading || batchImportLoading || scraplingLoading || top40Analyzing) && (
                 <div className="mt-4 rounded-lg border border-amber-100 bg-amber-50 px-3 py-3">
                   <div className="flex items-center justify-between gap-3 text-xs text-amber-700">
                     <span className="flex items-center gap-1.5">
@@ -1368,13 +2097,13 @@ export default function AsinManager() {
                     />
                   </div>
                   <p className="mt-2 text-[11px] text-gray-600">
-                    抓取链路按本地浏览器代理、服务器补充抓取、AI 低置信度兜底依次尝试；低置信度结果会保留来源标记，建议核实关键字段。
+                    系统会优先提取可核实字段，信息不足时保留低置信度标记，建议核实价格、评论和标题等关键字段。
                   </p>
                 </div>
               )}
 
               <p className="text-[10px] text-gray-600 mt-3">
-                三阶段智能抓取：① 本地浏览器代理抓取Amazon页面 → ② 服务器补充抓取 → ③ AI低置信度兜底。
+                ASIN分析会自动保存商品字段、评分和来源标记，低置信度结果建议人工复核后再决策。
               </p>
             </Card>
           )}
@@ -1601,15 +2330,26 @@ export default function AsinManager() {
                       <div className="flex items-center gap-3">
                         <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
                         <span className="font-mono text-brand-600">
-                          {item.asin}
+                          {item.action_key === "scrapling_top40_batch"
+                            ? `Top40 · ${String(snapshotInput(item).keyword || "-")}`
+                            : item.asin}
                         </span>
                         <span className="text-gray-600">
                           {item.action_name}
                         </span>
+                        {item.action_key === "scrapling_top40_batch" && (
+                          <span className="rounded bg-amber-50 px-2 py-0.5 text-amber-700">
+                            Batch {String(snapshotInput(item).batch_index || snapshotOutput(item).batchIndex || "-")}
+                          </span>
+                        )}
                       </div>
                       <div className="flex items-center gap-3">
                         <span className="text-gray-600 max-w-[200px] truncate">
-                          {item.data_source || item.module_name}
+                          {item.action_key === "scrapling_top40_batch"
+                            ? "Top40竞品快照"
+                            : item.action_key === "top40_market_analysis"
+                              ? "市场机会分析"
+                              : item.data_source || item.module_name}
                         </span>
                         <span className="text-gray-600">
                           {new Date(item.created_at).toLocaleString("zh-CN", {
@@ -1619,6 +2359,16 @@ export default function AsinManager() {
                             minute: "2-digit",
                           })}
                         </span>
+                        {item.action_key === "scrapling_top40_batch" && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => loadTop40SnapshotGroup(item)}
+                            className="h-7 border-gray-200 bg-white text-gray-700"
+                          >
+                            载入Top40
+                          </Button>
+                        )}
                       </div>
                     </div>
                   ))}

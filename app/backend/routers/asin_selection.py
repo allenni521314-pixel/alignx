@@ -1,12 +1,12 @@
 import json
 import math
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import get_db
@@ -16,8 +16,11 @@ from models.asin_keyword_sales_validation import (
     AsinKeywordRankSnapshot,
     AsinKeywordSalesValidationReport,
 )
+from models.action_snapshots import ActionSnapshot
 from schemas.auth import UserResponse
 from services.amazon_scraper import scrape_amazon_product
+from services.scrapling_amazon_capture import SCRAPLING_TOP40_RULES, capture_top40_batch
+from services.top40_market_analysis import analyze_top40_market
 
 router = APIRouter(prefix="/api/v1/asin-selection", tags=["asin-selection"])
 
@@ -35,6 +38,22 @@ class KeywordRankCrawlRequest(KeywordSalesValidationRequest):
     pass
 
 
+class ScraplingTop40BatchRequest(BaseModel):
+    keyword: str = Field(..., min_length=2, max_length=120)
+    marketplace: str = "US"
+    batch_index: int = Field(1, ge=1, le=4)
+
+
+class Top40MarketAnalysisRequest(BaseModel):
+    keyword: str = Field(..., min_length=2, max_length=120)
+    marketplace: str = "US"
+    items: list[dict[str, Any]] = Field(default_factory=list)
+
+
+TOP40_DAILY_RUN_LIMIT = 5
+TOP40_MIN_RUN_INTERVAL_HOURS = 1
+
+
 def _num(value: Any) -> float:
     if value is None:
         return 0
@@ -50,6 +69,67 @@ def _num(value: Any) -> float:
 def _clean_keyword(value: str) -> str:
     text = re.sub(r"[^a-zA-Z0-9\u4e00-\u9fff\\s+-]", " ", value or "").strip().lower()
     return re.sub(r"\s+", " ", text)
+
+
+async def _top40_usage(db: AsyncSession, user_id: str) -> dict[str, Any]:
+    since = datetime.now(timezone.utc) - timedelta(hours=24)
+    run_filter = ActionSnapshot.input_snapshot.like('%"batch_index": 1%')
+    query = select(func.count()).select_from(ActionSnapshot).where(
+        ActionSnapshot.user_id == user_id,
+        ActionSnapshot.module_key == "asin_selection",
+        ActionSnapshot.action_key == "scrapling_top40_batch",
+        run_filter,
+        ActionSnapshot.created_at >= since,
+    )
+    result = await db.execute(query)
+    used = int(result.scalar() or 0)
+    latest_query = (
+        select(ActionSnapshot.created_at)
+        .where(
+            ActionSnapshot.user_id == user_id,
+            ActionSnapshot.module_key == "asin_selection",
+            ActionSnapshot.action_key == "scrapling_top40_batch",
+            run_filter,
+        )
+        .order_by(ActionSnapshot.created_at.desc())
+        .limit(1)
+    )
+    latest_result = await db.execute(latest_query)
+    latest_started_at = latest_result.scalar()
+    next_allowed_at = None
+    if latest_started_at:
+        if latest_started_at.tzinfo is None:
+            latest_started_at = latest_started_at.replace(tzinfo=timezone.utc)
+        next_allowed_at = latest_started_at + timedelta(hours=TOP40_MIN_RUN_INTERVAL_HOURS)
+    return {
+        "usedRuns": used,
+        "remainingRuns": max(0, TOP40_DAILY_RUN_LIMIT - used),
+        "dailyRunLimit": TOP40_DAILY_RUN_LIMIT,
+        "minIntervalHours": TOP40_MIN_RUN_INTERVAL_HOURS,
+        "latestRunStartedAt": latest_started_at.isoformat() if latest_started_at else None,
+        "nextAllowedAt": next_allowed_at.isoformat() if next_allowed_at else None,
+        "windowHours": 24,
+    }
+
+
+async def _has_keyword_history(db: AsyncSession, user_id: str, keyword: str, marketplace: str) -> bool:
+    since = datetime.now(timezone.utc) - timedelta(hours=24)
+    normalized_keyword = keyword.strip()
+    normalized_marketplace = (marketplace or "US").upper()
+    query = (
+        select(ActionSnapshot.id)
+        .where(
+            ActionSnapshot.user_id == user_id,
+            ActionSnapshot.module_key == "asin_selection",
+            ActionSnapshot.action_key == "scrapling_top40_batch",
+            ActionSnapshot.created_at >= since,
+            ActionSnapshot.input_snapshot.like(f'%"keyword": "{normalized_keyword}"%'),
+            ActionSnapshot.input_snapshot.like(f'%"marketplace": "{normalized_marketplace}"%'),
+        )
+        .limit(1)
+    )
+    result = await db.execute(query)
+    return result.scalar() is not None
 
 
 def _derive_keywords(title: str, category: str = "", limit: int = 10) -> list[str]:
@@ -298,6 +378,73 @@ async def keyword_rank_crawl(
 ):
     report = await _generate_validation(request, str(current_user.id), db, save_report=False)
     return {"asin": report["asin"], "marketplace": report["marketplace"], "rank_snapshots": report["rank_snapshots"], "keyword_intent_scores": report["keyword_intent_scores"]}
+
+
+@router.get("/scrapling/top40-rules")
+async def scrapling_top40_rules(
+    current_user: UserResponse = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    usage = await _top40_usage(db, str(current_user.id))
+    return {
+        "captureMode": "scrapling_top40_batch",
+        "batchRanges": ["1-10", "11-20", "21-30", "31-40"],
+        "rules": SCRAPLING_TOP40_RULES,
+        "usage": usage,
+    }
+
+
+@router.post("/scrapling/top40-batch")
+async def scrapling_top40_batch(
+    request: ScraplingTop40BatchRequest,
+    current_user: UserResponse = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        usage = await _top40_usage(db, str(current_user.id))
+        if request.batch_index == 1:
+            now = datetime.now(timezone.utc)
+            next_allowed_at = usage.get("nextAllowedAt")
+            if usage["remainingRuns"] <= 0:
+                raise HTTPException(
+                    status_code=429,
+                    detail=f"24小时内Top40分析额度已用完。当前限制为{TOP40_DAILY_RUN_LIMIT}次，建议使用历史快照。",
+                )
+            if next_allowed_at and datetime.fromisoformat(next_allowed_at) > now:
+                raise HTTPException(
+                    status_code=429,
+                    detail=f"两次Top40分析间隔不得低于{TOP40_MIN_RUN_INTERVAL_HOURS}小时，请稍后再试或使用历史快照。",
+                )
+            if await _has_keyword_history(db, str(current_user.id), request.keyword, request.marketplace):
+                raise HTTPException(
+                    status_code=409,
+                    detail="该关键词24小时内已有Top40历史快照，请直接从抓取历史载入，不重复抓取。",
+                )
+        result = await capture_top40_batch(
+            keyword=request.keyword,
+            marketplace=request.marketplace,
+            batch_index=request.batch_index,
+        )
+        result["usage"] = usage
+        return result
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.post("/top40-market-analysis")
+async def top40_market_analysis(
+    request: Top40MarketAnalysisRequest,
+    current_user: UserResponse = Depends(get_current_user),
+):
+    if not request.items:
+        raise HTTPException(status_code=400, detail="请先完成Top40抓取，再进行AI分析")
+    return await analyze_top40_market(
+        keyword=request.keyword,
+        marketplace=request.marketplace,
+        items=request.items,
+    )
 
 
 @router.get("/{asin}/keyword-sales-history")
