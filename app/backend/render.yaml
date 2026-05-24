@@ -20,6 +20,8 @@ services:
         value: sqlite+aiosqlite:////data/sql_app.db
       - key: JWT_SECRET_KEY
         sync: false
+      - key: MGX_IGNORE_INIT_DATA
+        value: "true"
       - key: OPENAI_BASE_URL
         value: https://api.deepseek.com
       - key: OPENAI_API_KEY

@@ -21,6 +21,11 @@ async def initialize_mock_data():
     if "MGX_IGNORE_INIT_DATA" in os.environ:
         logger.info("Ignore initialize data")
         return
+    environment = (os.getenv("ENVIRONMENT") or os.getenv("APP_ENV") or "").strip().lower()
+    explicit_enable = (os.getenv("ENABLE_MOCK_DATA") or "").strip().lower() in {"1", "true", "yes", "on"}
+    if environment in {"production", "prod", "staging"} and not explicit_enable:
+        logger.info("Skipping mock initialization in %s environment", environment)
+        return
     if not db_manager.engine:
         logger.warning("Database engine is not ready; skipping mock data initialization")
         return
