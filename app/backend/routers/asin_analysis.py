@@ -862,6 +862,142 @@ def _format_scraped_context(scraped: dict) -> str:
     return "\n".join(lines) if lines else "（未能抓取到数据）"
 
 
+def _as_number(value: Any, default: float = 0) -> float:
+    match = re.search(r"(\d+(?:\.\d+)?)", str(value or "").replace(",", ""))
+    if not match:
+        return default
+    try:
+        return float(match.group(1))
+    except ValueError:
+        return default
+
+
+def _clamp_score(value: float, low: int = 35, high: int = 88) -> int:
+    return max(low, min(high, round(value)))
+
+
+def _rule_based_competitor_scoring(asin: str, marketplace: str, scraped_data: dict) -> tuple[dict, dict]:
+    """Build a non-AI diagnostic result from real scraped fields when the model fails.
+
+    This prevents the UI from presenting all-50 default scores as if they were an AI judgment.
+    The result is intentionally conservative and marked as rule_fallback.
+    """
+    title = scraped_data.get("title") or f"ASIN {asin} - 待确认"
+    bullets = scraped_data.get("bullet_points") or []
+    details = scraped_data.get("product_details") or {}
+    image_urls = scraped_data.get("image_urls") or []
+    aplus_text = scraped_data.get("aplus_content") or ""
+    text_blob = " ".join([title, scraped_data.get("category") or "", " ".join(bullets), aplus_text]).lower()
+
+    rating = _as_number(scraped_data.get("rating"))
+    review_count = _as_number(scraped_data.get("review_count"))
+    image_count = _as_number(scraped_data.get("image_count"), len(image_urls))
+    has_video = bool(scraped_data.get("has_video"))
+    has_a_plus = bool(scraped_data.get("has_a_plus") or aplus_text)
+    has_price = bool(scraped_data.get("price"))
+    has_bsr = bool(scraped_data.get("bsr_rank"))
+    has_bought = bool(scraped_data.get("bought_count"))
+    bullet_count = len(bullets)
+
+    def has(pattern: str) -> bool:
+        return re.search(pattern, text_blob, flags=re.I) is not None
+
+    product_identity_signal = 0
+    if has(r"(iphone|phone case|手机壳|保护壳|case|power bank|speaker|litter|boxer)"):
+        product_identity_signal += 12
+    if scraped_data.get("category"):
+        product_identity_signal += 8
+
+    compatibility_signal = 0
+    if has(r"(compatible|适用于|兼容|magsafe|iphone\s?\d+|iphone|磁吸|magnetic)"):
+        compatibility_signal += 20
+    if details:
+        compatibility_signal += 5
+
+    scenario_signal = 0
+    if has(r"(for |with |outdoor|travel|apartment|office|kids|women|men|兼容|适用于|防摔|防震|透明|磁吸)"):
+        scenario_signal += 16
+    if bullet_count >= 3:
+        scenario_signal += 6
+
+    sensory_signal = 0
+    if has(r"(clear|translucent|anti-fingerprint|fingerprint|matte|silicone|leather|soft|thin|轻薄|透明|磨砂|防指纹|防震)"):
+        sensory_signal += 18
+
+    risk_signal = 0
+    if rating >= 4.3:
+        risk_signal += 10
+    if review_count >= 500:
+        risk_signal += 8
+    if has(r"(warranty|return|military|drop|shock|protection|防摔|军规|保护)"):
+        risk_signal += 10
+
+    scores = {
+        "functionality": _clamp_score(50 + bullet_count * 4 + (8 if has_price else 0) + (5 if rating >= 4 else 0)),
+        "emotional": _clamp_score(42 + (8 if has_a_plus else 0) + (5 if has_video else 0) + (6 if image_count >= 5 else 0)),
+        "scenario": _clamp_score(45 + scenario_signal + (5 if has_bought else 0)),
+        "user_profile": _clamp_score(45 + (12 if has(r"(iphone|kids|women|men|cats|travel|office|apartment|适用于)") else 0) + (5 if bullet_count else 0)),
+        "product_identity": _clamp_score(45 + product_identity_signal + (4 if has_price else 0)),
+        "compatibility": _clamp_score(42 + compatibility_signal),
+        "subjective_properties": _clamp_score(42 + sensory_signal + (5 if image_count >= 4 else 0)),
+        "differentiation": _clamp_score(42 + (10 if has_a_plus else 0) + (8 if has_video else 0) + (8 if has(r"(magsafe|magnetic|anti-fingerprint|military|军规|防指纹)") else 0)),
+        "market_trend": _clamp_score(48 + (10 if has_bought else 0) + (8 if has_bsr else 0) + (8 if review_count >= 1000 else 0)),
+        "risk_elimination": _clamp_score(45 + risk_signal + (5 if scraped_data.get("rating_histogram") else 0)),
+    }
+
+    product_data = {
+        "title": title,
+        "brand": scraped_data.get("brand") or "待确认",
+        "category": scraped_data.get("category") or "待确认",
+        "price": scraped_data.get("price") or "",
+        "price_currency": scraped_data.get("price_currency") or "",
+        "rating": scraped_data.get("rating") or "",
+        "review_count": scraped_data.get("review_count") or "",
+        "date_first_available": scraped_data.get("date_first_available") or "",
+        "bsr_rank": scraped_data.get("bsr_rank") or "",
+        "bsr_category": scraped_data.get("bsr_category") or "",
+        "bullet_points": bullets,
+        "description_summary": "AI深度分析失败，当前为基于真实抓取字段生成的规则兜底诊断。",
+        "main_keywords": _clean_original_english_keywords([], scraped_data, 10),
+        "seller_type": scraped_data.get("seller_type") or "待确认",
+        "amazon_bought_count": scraped_data.get("bought_count") or "",
+        "estimated_monthly_sales": "",
+        "estimated_monthly_revenue": "",
+        "listing_quality_notes": "规则兜底：已使用标题、价格、评分、评论、图片、五点和A+等字段做保守评分。",
+        "image_count": scraped_data.get("image_count") or str(len(image_urls) or ""),
+        "has_video": has_video,
+        "has_a_plus": has_a_plus,
+        "rating_histogram": scraped_data.get("rating_histogram") or {},
+        "low_star_reviews": scraped_data.get("low_star_reviews") or [],
+        "image_urls": image_urls,
+        "product_details": details,
+        "data_confidence": "medium" if scraped_data.get("scrape_success") and title else "low",
+        "data_notes": "AI模型调用或JSON解析失败；本次结果为真实抓取字段驱动的规则兜底评分，建议后续重新运行AI深度诊断。",
+    }
+
+    analysis = {
+        "functionality": f"基于五点数量({bullet_count})、价格字段、评分等可核实字段保守判断。",
+        "emotional": "基于A+、视频、图片数量等品牌表达资产判断，非AI语义深度分析。",
+        "scenario": "基于标题/五点中的使用关系词、适配词和场景词判断。",
+        "user_profile": "基于标题中的适用对象、设备型号和场景词判断。",
+        "product_identity": "基于标题、类目和核心品类词判断产品身份清晰度。",
+        "compatibility": "基于compatible/适用于/MagSafe/iPhone等适配关系信号判断。",
+        "subjective_properties": "基于材质、触感、外观、保护属性等感性词判断。",
+        "differentiation": "基于A+、视频、MagSafe、防指纹、军规防摔等差异化信号判断。",
+        "market_trend": "基于购买人数、BSR、评论规模等市场热度信号判断。",
+        "risk_elimination": "基于评分、评论规模、评分分布和防护/售后信号判断。",
+    }
+    scoring_data = {
+        "scores": scores,
+        "analysis": analysis,
+        "overall_summary": "AI深度分析未完成，当前为规则兜底诊断。分数可用于快速排查，但不应作为最终决策。",
+        "improvement_suggestions": ["稍后重新运行AI深度诊断", "优先核实价格、评论数、购买人数和五点/A+内容", "进入单品分析前先确认该ASIN是否为真实目标竞品"],
+        "analysis_mode": "rule_fallback",
+        "fallback_reason": "AI模型调用或JSON解析失败，系统使用真实抓取字段做保守规则评分。",
+    }
+    return product_data, scoring_data
+
+
 async def _analyze_single_asin_with_scraped(
     asin: str,
     marketplace: str,
@@ -933,41 +1069,8 @@ async def _analyze_single_asin_with_scraped(
         }
     else:
         logger.error(f"All combined analysis attempts failed for {asin}")
-        product_data = {
-            "title": scraped_data.get("title") or f"ASIN {asin} - 待确认",
-            "brand": scraped_data.get("brand") or "待确认",
-            "category": scraped_data.get("category") or "待确认",
-            "price": scraped_data.get("price") or "",
-            "price_currency": scraped_data.get("price_currency") or "",
-            "rating": scraped_data.get("rating") or "0",
-            "review_count": scraped_data.get("review_count") or "0",
-            "date_first_available": scraped_data.get("date_first_available") or "",
-            "bsr_rank": "0", "bsr_category": "",
-            "bullet_points": scraped_data.get("bullet_points") or [],
-            "rating_histogram": scraped_data.get("rating_histogram") or {},
-            "product_details": scraped_data.get("product_details") or {},
-            "low_star_reviews": scraped_data.get("low_star_reviews") or [],
-            "image_urls": scraped_data.get("image_urls") or [],
-            "data_confidence": "low",
-            "data_notes": "AI响应超时或解析失败，已保存可用抓取字段；建议稍后重新分析。",
-        }
-        _DEFAULT_ANALYSIS_MSG = "评分系统暂时无法完成详细分析，请重试。"
-        scores = {
-            "functionality": 50, "emotional": 50, "scenario": 50,
-            "user_profile": 50, "product_identity": 50, "compatibility": 50,
-            "subjective_properties": 50, "differentiation": 50,
-            "market_trend": 50, "risk_elimination": 50,
-        }
-        scoring_data = {
-            "scores": scores,
-            "analysis": {k: _DEFAULT_ANALYSIS_MSG for k in [
-                "functionality", "emotional", "scenario", "user_profile",
-                "product_identity", "compatibility", "subjective_properties",
-                "differentiation", "market_trend", "risk_elimination",
-            ]},
-            "overall_summary": "AI分析响应超时或异常，系统已用默认保守分保存本轮记录。",
-            "improvement_suggestions": ["稍后重新运行AI分析", "优先核实标题、价格、评分、评论数等关键字段"],
-        }
+        product_data, scoring_data = _rule_based_competitor_scoring(asin, marketplace, scraped_data)
+        scores = scoring_data["scores"]
 
     # Merge scraped data to ensure real data takes priority
     if scrape_success and scraped_data.get("title"):

@@ -1334,6 +1334,9 @@ function SingleResultView({
   const effectiveDataSource = incompleteSnapshot ? "incomplete_saved_snapshot" : dataSource;
   const isScraped = !incompleteSnapshot && (dataSource === "amazon_scrape" || dataSource === "amazon_scrape_httpx" || dataSource === "amazon_scrape_browser" || dataSource === "browser_proxy");
   const dataConfidence = (pd as Record<string, unknown>).data_confidence as string || (isScraped ? "high" : "medium");
+  const analysisMode = String((report as Record<string, unknown> | undefined)?.analysis_mode || "");
+  const fallbackReason = String((report as Record<string, unknown> | undefined)?.fallback_reason || "");
+  const isRuleFallback = analysisMode === "rule_fallback" || Boolean(fallbackReason);
   const displayKeywords = getDisplayKeywords(pd, pd.title || result.product_title || "");
   const listingBreakdown = report?.listing_breakdown || fallbackListingBreakdown(pd, displayKeywords);
   const platformEcoRisk = hasPlatformEcoRisk(pd);
@@ -1361,6 +1364,17 @@ function SingleResultView({
             <p className="text-sm font-medium text-amber-700">这是旧残缺快照，不是完整抓取结果</p>
             <p className="text-xs text-amber-700/80 mt-0.5">
               当前快照缺少标题、价格、评分、评论、五点或图片等核心原始数据。系统没有重新调用AI，请回填ASIN后点击“开始分析”重新抓取完整页面。
+            </p>
+          </div>
+        </div>
+      )}
+      {isRuleFallback && !incompleteSnapshot && (
+        <div className="flex items-start gap-3 p-3 rounded-lg bg-amber-50 border border-amber-500/25">
+          <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-medium text-amber-700">当前为规则兜底诊断，不是完整AI深度评分</p>
+            <p className="text-xs text-amber-700/80 mt-0.5">
+              {fallbackReason || "AI模型调用或JSON解析失败，系统基于已抓取字段生成保守评分。建议稍后重新运行AI深度诊断。"}
             </p>
           </div>
         </div>
