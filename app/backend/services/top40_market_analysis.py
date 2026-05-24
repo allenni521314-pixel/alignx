@@ -35,7 +35,14 @@ def _clean_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if not asin or asin in seen:
             continue
         seen.add(asin)
-        price = _num(item.get("price") if item.get("price") is not None else item.get("priceText"))
+        price = _num(
+            item.get("price")
+            if item.get("price") is not None
+            else item.get("searchPrice")
+            if item.get("searchPrice") is not None
+            else item.get("priceText")
+            or item.get("searchPriceText")
+        )
         rating = _num(item.get("rating"))
         review_count = _int(item.get("reviewCount"))
         rank = int(item.get("searchRank") or len(cleaned) + 1)
@@ -44,7 +51,7 @@ def _clean_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "asin": asin,
             "title": str(item.get("title") or "")[:300],
             "price": price,
-            "priceText": str(item.get("priceText") or item.get("price") or ""),
+            "priceText": str(item.get("priceText") or item.get("searchPriceText") or item.get("price") or ""),
             "rating": rating,
             "reviewCount": review_count,
             "isSponsored": bool(item.get("isSponsored")),
@@ -105,7 +112,7 @@ def _score_item(item: dict[str, Any], prices: list[float], median_reviews: float
         score += 8
     if item.get("isSponsored"):
         score -= 6
-    if item.get("status") not in {"ok", "partial"}:
+    if item.get("status") not in {"ok", "partial", "search_snapshot"}:
         score -= 8
     return max(0, min(100, round(score)))
 

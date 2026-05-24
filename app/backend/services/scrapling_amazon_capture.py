@@ -248,7 +248,7 @@ async def _enrich_detail(item: dict[str, Any], marketplace: str) -> dict[str, An
         return {**item, "status": "error", "error": str(exc)[:180], "priceStatus": item.get("priceStatus") or "detail_error"}
 
 
-async def capture_top40_batch(keyword: str, marketplace: str = "US", batch_index: int = 1) -> dict[str, Any]:
+async def capture_top40_batch(keyword: str, marketplace: str = "US", batch_index: int = 1, include_details: bool = False) -> dict[str, Any]:
     keyword = _clean_text(keyword)
     if not keyword:
         raise ValueError("keyword is required")
@@ -261,19 +261,30 @@ async def capture_top40_batch(keyword: str, marketplace: str = "US", batch_index
     snapshot_status, snapshot_items, errors = await _fetch_search_snapshot(keyword, marketplace, rank_end)
     batch_items = [item for item in snapshot_items if rank_start <= item["searchRank"] <= rank_end][:10]
 
-    captured: list[dict[str, Any]] = []
     blocked = snapshot_status == "blocked"
-    for index, item in enumerate(batch_items, start=1):
-        enriched = await _enrich_detail(item, marketplace)
-        captured.append(enriched)
-        if enriched.get("status") == "blocked":
-            blocked = True
-            errors.append(f"detail_{item['asin']}: captcha_or_robot_check")
-            break
-        if index < len(batch_items):
-            await asyncio.sleep(random.uniform(1.5, 3.5))
+    if include_details:
+        captured: list[dict[str, Any]] = []
+        for index, item in enumerate(batch_items, start=1):
+            enriched = await _enrich_detail(item, marketplace)
+            captured.append(enriched)
+            if enriched.get("status") == "blocked":
+                blocked = True
+                errors.append(f"detail_{item['asin']}: captcha_or_robot_check")
+                break
+            if index < len(batch_items):
+                await asyncio.sleep(random.uniform(1.5, 3.5))
+    else:
+        captured = [
+            {
+                **item,
+                "status": "search_snapshot",
+                "error": "",
+                "captureDepth": "search_result",
+            }
+            for item in batch_items
+        ]
 
-    ok_count = sum(1 for item in captured if item.get("status") == "ok")
+    ok_count = sum(1 for item in captured if item.get("status") in {"ok", "search_snapshot"})
     if blocked and ok_count == 0:
         status = "blocked"
     elif blocked or ok_count < len(batch_items):
@@ -292,5 +303,10 @@ async def capture_top40_batch(keyword: str, marketplace: str = "US", batch_index
         "items": captured,
         "errors": errors,
         "dataSource": "scrapling_top40_batch",
-        "analysisNote": "Raw capture only. Cleaning, normalization, and market opportunity analysis must run in the backend AI layer.",
+        "captureDepth": "detail_page" if include_details else "search_result",
+        "analysisNote": (
+            "Search snapshot saved first for public stability; detail-page enrichment can run later."
+            if not include_details
+            else "Raw capture only. Cleaning, normalization, and market opportunity analysis must run in the backend AI layer."
+        ),
     }

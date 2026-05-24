@@ -314,14 +314,16 @@ export default function AsinManager() {
   const [showHistory, setShowHistory] = useState(false);
   const [fetchHistoryItems, setFetchHistoryItems] = useState<ActionSnapshot[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const isTop40Busy = scraplingLoading || top40Analyzing;
 
   useEffect(() => {
     if (!autoImportLoading && !batchImportLoading && !scraplingLoading && !top40Analyzing) return;
     const startedAt = Date.now();
+    const targetSeconds = scraplingLoading || top40Analyzing ? 300 : 60;
     const timer = window.setInterval(() => {
       const elapsed = Math.floor((Date.now() - startedAt) / 1000);
       setAutoImportElapsed(elapsed);
-      setAutoImportProgress((current) => Math.max(current, Math.min(92, Math.round((elapsed / 60) * 92))));
+      setAutoImportProgress((current) => Math.max(current, Math.min(92, Math.round((elapsed / targetSeconds) * 92))));
     }, 1000);
     return () => window.clearInterval(timer);
   }, [autoImportLoading, batchImportLoading, scraplingLoading, top40Analyzing]);
@@ -1282,8 +1284,9 @@ export default function AsinManager() {
           keyword,
           marketplace: autoImportMarketplace,
           batch_index: scraplingBatchIndex,
+          include_details: false,
         },
-        { headers: getAuthHeaders(), timeout: 240000 }
+        { headers: getAuthHeaders(), timeout: 420000 }
       );
       const result = res.data as ScraplingTop40BatchResult;
       if (result.usage) setTop40Usage(result.usage);
@@ -1293,7 +1296,8 @@ export default function AsinManager() {
         return [...next, result].sort((a, b) => a.batchIndex - b.batchIndex);
       });
       setAutoImportProgress(100);
-      saveActionSnapshot({
+      setAutoImportMessage(`正在保存 Rank ${result.rankRange} 快照`);
+      await saveActionSnapshot({
         module_key: "asin_selection",
         module_name: "ASIN选品",
         action_key: "scrapling_top40_batch",
@@ -1308,10 +1312,10 @@ export default function AsinManager() {
         confidence: result.status === "ok" ? "medium" : "low",
         ai_called: false,
         source_record_table: "scrapling_raw_snapshot",
-      }).catch(() => {});
+      });
       loadTop40Usage().catch(() => {});
-      const okCount = result.items.filter((item) => item.status === "ok").length;
-      toast.success(`已抓取 Rank ${result.rankRange}: ${okCount}/${result.items.length} 条详情可用`);
+      const okCount = result.items.filter((item) => ["ok", "search_snapshot"].includes(String(item.status))).length;
+      toast.success(`已抓取 Rank ${result.rankRange}: ${okCount}/${result.items.length} 条样本可用`);
     } catch (e: unknown) {
       const msg = axios.isAxiosError(e)
         ? e.response?.data?.detail || "Top40竞品快照生成失败"
@@ -1343,7 +1347,7 @@ export default function AsinManager() {
     try {
       for (let batchIndex = 1; batchIndex <= 4; batchIndex += 1) {
         setScraplingBatchIndex(batchIndex);
-        setAutoImportMessage(`正在生成Top40竞品快照：第 ${batchIndex}/4 批`);
+        setAutoImportMessage(`正在生成Top40竞品快照：第 ${batchIndex}/4 批，预计3-5分钟`);
         setAutoImportProgress(Math.round(((batchIndex - 1) / 4) * 100) + 5);
         const res = await axios.post(
           `${getLongRunningApiBase()}/api/v1/asin-selection/scrapling/top40-batch`,
@@ -1351,15 +1355,17 @@ export default function AsinManager() {
             keyword,
             marketplace: autoImportMarketplace,
             batch_index: batchIndex,
+            include_details: false,
           },
-          { headers: getAuthHeaders(), timeout: 240000 }
+          { headers: getAuthHeaders(), timeout: 420000 }
         );
         const result = res.data as ScraplingTop40BatchResult;
         if (result.usage) setTop40Usage(result.usage);
         collected.push(result);
         setScraplingResult(result);
         setScraplingResults([...collected]);
-        saveActionSnapshot({
+        setAutoImportMessage(`正在保存Top40竞品快照：第 ${batchIndex}/4 批`);
+        await saveActionSnapshot({
           module_key: "asin_selection",
           module_name: "ASIN选品",
           action_key: "scrapling_top40_batch",
@@ -1374,7 +1380,7 @@ export default function AsinManager() {
           confidence: result.status === "ok" ? "medium" : "low",
           ai_called: false,
           source_record_table: "scrapling_raw_snapshot",
-        }).catch(() => {});
+        });
         if (result.status === "blocked") {
           toast.warning(`第 ${batchIndex} 批遇到访问限制，已停止后续批次`);
           break;
@@ -1382,12 +1388,18 @@ export default function AsinManager() {
       }
       const itemCount = collected.reduce((sum, item) => sum + item.items.length, 0);
       const okCount = collected.reduce(
-        (sum, item) => sum + item.items.filter((row) => row.status === "ok").length,
+        (sum, item) => sum + item.items.filter((row) => ["ok", "search_snapshot"].includes(String(row.status))).length,
         0
       );
       setAutoImportProgress(100);
       loadTop40Usage().catch(() => {});
-      toast.success(`Top40抓取完成：${okCount}/${itemCount} 条详情可用`);
+      toast.success(`Top40抓取完成：${okCount}/${itemCount} 条样本可用`);
+      const capturedItems = collected.flatMap((batch) => batch.items);
+      if (capturedItems.length > 0) {
+        await runTop40MarketAnalysis(capturedItems, keyword, autoImportMarketplace, {
+          resetProgressOnFinish: false,
+        });
+      }
     } catch (e: unknown) {
       const msg = axios.isAxiosError(e)
         ? e.response?.data?.detail || "Top40竞品快照生成失败"
@@ -1403,9 +1415,12 @@ export default function AsinManager() {
     }
   };
 
-  const handleTop40MarketAnalysis = async () => {
-    const items = scraplingResults.flatMap((batch) => batch.items);
-    const keyword = scraplingKeyword.trim();
+  const runTop40MarketAnalysis = async (
+    items: ScraplingTop40Item[],
+    keyword: string,
+    marketplace: string,
+    options: { resetProgressOnFinish?: boolean } = {}
+  ) => {
     if (!keyword || items.length === 0) {
       toast.error("请先完成Top40抓取");
       return;
@@ -1413,16 +1428,16 @@ export default function AsinManager() {
     setTop40Analyzing(true);
     setAutoImportProgress(8);
     setAutoImportElapsed(0);
-    setAutoImportMessage("正在分析Top40竞品，寻找价格带和市场机会");
+    setAutoImportMessage("正在生成Top40市场机会报告");
     try {
       const res = await axios.post(
         `${getLongRunningApiBase()}/api/v1/asin-selection/top40-market-analysis`,
         {
           keyword,
-          marketplace: autoImportMarketplace,
+          marketplace,
           items,
         },
-        { headers: getAuthHeaders(), timeout: 240000 }
+        { headers: getAuthHeaders(), timeout: 420000 }
       );
       const analysis = res.data as Top40MarketAnalysis;
       setTop40Analysis(analysis);
@@ -1432,7 +1447,7 @@ export default function AsinManager() {
         module_name: "ASIN选品",
         action_key: "top40_market_analysis",
         action_name: "Top40竞品价格带机会分析",
-        input_snapshot: { keyword, marketplace: autoImportMarketplace, item_count: items.length },
+        input_snapshot: { keyword, marketplace, item_count: items.length },
         output_snapshot: analysis,
         data_source: analysis.analysisSource || "rules",
         confidence: analysis.analysisSource === "ai" ? "medium" : "low",
@@ -1449,10 +1464,17 @@ export default function AsinManager() {
       toast.error(msg);
     } finally {
       setTop40Analyzing(false);
-      setAutoImportProgress(0);
-      setAutoImportElapsed(0);
-      setAutoImportMessage("");
+      if (options.resetProgressOnFinish !== false) {
+        setAutoImportProgress(0);
+        setAutoImportElapsed(0);
+        setAutoImportMessage("");
+      }
     }
+  };
+
+  const handleTop40MarketAnalysis = async () => {
+    const items = scraplingResults.flatMap((batch) => batch.items);
+    await runTop40MarketAnalysis(items, scraplingKeyword.trim(), autoImportMarketplace);
   };
 
   /* ---- Refresh single product data ---- */
@@ -1872,10 +1894,10 @@ export default function AsinManager() {
                     <div className="flex gap-2">
                       <Button
                         onClick={handleScraplingTop40All}
-                        disabled={scraplingLoading || !scraplingKeyword.trim() || Boolean(top40Usage && top40Usage.remainingRuns < 1)}
+                        disabled={isTop40Busy || !scraplingKeyword.trim() || Boolean(top40Usage && top40Usage.remainingRuns < 1)}
                         className="bg-amber-600 hover:bg-amber-500 text-white"
                       >
-                        {scraplingLoading ? (
+                        {isTop40Busy ? (
                           <Loader2 className="w-4 h-4 mr-1 animate-spin" />
                         ) : (
                           <Search className="w-4 h-4 mr-1" />
@@ -1884,7 +1906,7 @@ export default function AsinManager() {
                       </Button>
                       <Button
                         onClick={handleScraplingTop40Batch}
-                        disabled={scraplingLoading || !scraplingKeyword.trim() || Boolean(top40Usage && top40Usage.remainingRuns < 1)}
+                        disabled={isTop40Busy || !scraplingKeyword.trim() || Boolean(top40Usage && top40Usage.remainingRuns < 1)}
                         variant="outline"
                         className="border-gray-200 text-gray-700"
                       >
@@ -2088,7 +2110,7 @@ export default function AsinManager() {
                       {autoImportMessage || "正在抓取并分析 ASIN 数据"}
                       {batchImportCurrent ? ` · 当前 ${batchImportCurrent}` : ""}
                     </span>
-                    <span className="shrink-0">{autoImportElapsed}s / 60s</span>
+                    <span className="shrink-0">{autoImportElapsed}s / {isTop40Busy ? "300s" : "60s"}</span>
                   </div>
                   <div className="mt-2 h-2 overflow-hidden rounded-full bg-white">
                     <div

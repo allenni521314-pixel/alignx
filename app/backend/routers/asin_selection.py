@@ -42,6 +42,7 @@ class ScraplingTop40BatchRequest(BaseModel):
     keyword: str = Field(..., min_length=2, max_length=120)
     marketplace: str = "US"
     batch_index: int = Field(1, ge=1, le=4)
+    include_details: bool = False
 
 
 class Top40MarketAnalysisRequest(BaseModel):
@@ -424,6 +425,7 @@ async def scrapling_top40_batch(
             keyword=request.keyword,
             marketplace=request.marketplace,
             batch_index=request.batch_index,
+            include_details=request.include_details,
         )
         result["usage"] = usage
         return result
