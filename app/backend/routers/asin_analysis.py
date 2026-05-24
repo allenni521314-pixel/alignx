@@ -91,14 +91,14 @@ def _is_english_text(value: Any) -> bool:
 
 
 def _derive_us_keywords_from_real_text(product_data: dict, limit: int = 10) -> list[str]:
-    """Derive only original English Amazon-style keywords from scraped English text."""
+    """Derive Amazon-style keywords from scraped text without exposing Chinese UI text."""
     chunks: list[str] = []
     for key in ["title", "category", "bsr_category"]:
         value = product_data.get(key)
-        if _is_english_text(value):
+        if value:
             chunks.append(str(value))
     for bp in product_data.get("bullet_points") or []:
-        if _is_english_text(bp):
+        if bp:
             chunks.append(str(bp))
     text = " ".join(chunks).lower()
     if not text:
@@ -120,6 +120,16 @@ def _derive_us_keywords_from_real_text(product_data: dict, limit: int = 10) -> l
         candidates += ["cat litter box odor control", "litter box for apartment cats", "ammonia odor control"]
     if has(r"\b(power bank|portable charger|battery pack|mah)\b"):
         candidates += ["portable phone power bank", "power bank for travel", "compact charger for purse"]
+    if has(r"(手机壳|保护壳|iphone|magsafe|phone case|\bcase\b)"):
+        candidates += ["iphone case", "magsafe iphone case", "protective iphone case"]
+        if has(r"(透明|clear|translucent)"):
+            candidates.append("clear iphone case")
+        if has(r"(防摔|shock|drop|military|protection|protective)"):
+            candidates.append("shockproof iphone case")
+        if has(r"(磁吸|magnetic|magsafe)"):
+            candidates.append("magnetic phone case")
+        if has(r"(防指纹|fingerprint)"):
+            candidates.append("anti fingerprint phone case")
     if has(r"\b(bamboo|boxer|underwear|trunks)\b"):
         candidates += ["men's bamboo boxer briefs", "breathable boxer briefs for men", "moisture wicking underwear for men"]
     if has(r"\b(gift|mom|dad|women|men|teen|kids)\b"):
@@ -144,7 +154,7 @@ def _clean_original_english_keywords(values: Any, product_data: dict, limit: int
 
 
 def _keywords_from_module_text(values: Any, category: str = "", limit: int = 8) -> list[str]:
-    """Extract module-specific English keyword candidates without translating Chinese text."""
+    """Extract module-specific keyword candidates from localized or English Amazon text."""
     if isinstance(values, str):
         chunks = [values]
     elif isinstance(values, list):
@@ -159,13 +169,13 @@ def _keywords_from_module_text(values: Any, category: str = "", limit: int = 8) 
     else:
         chunks = []
 
-    clean_chunks = [chunk for chunk in chunks if _is_english_text(chunk)]
-    if not clean_chunks:
+    usable_chunks = [chunk for chunk in chunks if str(chunk or "").strip()]
+    if not usable_chunks:
         return []
     data = {
-        "title": clean_chunks[0],
-        "category": category if _is_english_text(category) else "",
-        "bullet_points": clean_chunks[1:],
+        "title": usable_chunks[0],
+        "category": category or "",
+        "bullet_points": usable_chunks[1:],
     }
     return _derive_us_keywords_from_real_text(data, limit)
 
@@ -434,6 +444,10 @@ async def _get_cached_asin_analysis(asin: str, marketplace: str, db: AsyncSessio
         "market_trend": record.score_market_trend or 0,
         "risk_elimination": record.score_risk_elimination or 0,
     }
+    product_data["main_keywords"] = _clean_original_english_keywords(product_data.get("main_keywords"), product_data, 10)
+    analysis_report["scores"] = analysis_report.get("scores") or scores
+    if not analysis_report.get("listing_breakdown"):
+        analysis_report["listing_breakdown"] = _build_listing_breakdown(product_data, analysis_report)
     data_source = str(product_data.get("_data_source") or analysis_report.get("data_source") or "cached_analysis")
     amazon_compliance = analysis_report.get("amazon_compliance") or {}
     return AnalyzeAsinResponse(
