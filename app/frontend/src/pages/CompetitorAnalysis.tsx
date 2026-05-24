@@ -361,10 +361,18 @@ function normalizeRatingHistogram(value: unknown): Record<string, string> {
 
 function deriveAmazonKeywords(pd: ProductData, title: string): string[] {
   const bullets = normalizeStringList(pd.bullet_points);
-  const text = `${title || ""} ${bullets.join(" ")} ${pd.category || ""}`.toLowerCase();
-  if (/[\u4e00-\u9fff]/.test(text)) return [];
+  const rawText = `${title || ""} ${bullets.join(" ")} ${pd.category || ""}`;
+  const text = rawText.toLowerCase();
   const candidates: string[] = [];
   const has = (pattern: RegExp) => pattern.test(text);
+
+  if (has(/手机壳|保护壳|iphone|magsafe|phone case|case/)) {
+    candidates.push("iphone case", "magsafe iphone case", "protective iphone case");
+    if (has(/透明|clear|translucent/)) candidates.push("clear iphone case");
+    if (has(/防摔|shock|drop|military|protection|protective/)) candidates.push("shockproof iphone case");
+    if (has(/磁吸|magsafe|magnetic/)) candidates.push("magnetic phone case");
+    if (has(/防指纹|fingerprint/)) candidates.push("anti fingerprint phone case");
+  }
 
   if (has(/bluetooth|speaker|boombox/)) {
     candidates.push("bluetooth speaker", "portable bluetooth speaker");
@@ -383,11 +391,11 @@ function deriveAmazonKeywords(pd: ProductData, title: string): string[] {
     candidates.push("gift for mom", "gift for women", "gift for dad");
   }
 
-  const fromTitle = text
+  const englishText = text
     .replace(/[^a-z0-9\s]/g, " ")
     .split(/\s+/)
     .filter((word) => word.length > 2 && !["the", "and", "with", "for", "from", "this", "that", "pink", "white", "black"].includes(word));
-  if (fromTitle.length >= 2) candidates.push(fromTitle.slice(0, 3).join(" "));
+  if (englishText.length >= 2) candidates.push(englishText.slice(0, 3).join(" "));
 
   const seen = new Set<string>();
   return candidates
@@ -541,7 +549,7 @@ function sanitizeAnalysisKeywords(result: AnalysisResult): AnalysisResult {
   const cleanMainKeywords = cleanEnglishKeywordList(normalizeStringList(pd.main_keywords), [], "title");
   pd.main_keywords = cleanMainKeywords;
   pd.rating_histogram = normalizeRatingHistogram(pd.rating_histogram);
-  const scores = normalizeScores(result.scores || result.analysis_report?.scores);
+  const scores = getEffectiveScores(result);
 
   const breakdown = result.analysis_report?.listing_breakdown;
   const modules = breakdown?.modules || [];
@@ -597,6 +605,28 @@ function normalizeScores(value: unknown): Scores {
     subjective_properties: toScoreNumber(source.subjective_properties ?? source.score_subjective_properties),
     risk_elimination: toScoreNumber(source.risk_elimination ?? source.score_risk_elimination),
   };
+}
+
+function hasAnyScore(scores: Scores): boolean {
+  return SCORE_KEYS.some((key) => Number(scores[key]) > 0);
+}
+
+function getEffectiveScores(result: Partial<AnalysisResult> & { output_snapshot?: unknown }): Scores {
+  const report = result.analysis_report as (Partial<AnalysisReport> & Record<string, unknown>) | undefined;
+  const candidates = [
+    result.scores,
+    report?.scores,
+    result.output_snapshot,
+    (result.output_snapshot as Record<string, unknown> | undefined)?.scores,
+    (result.output_snapshot as Record<string, unknown> | undefined)?.analysis_report,
+    ((result.output_snapshot as Record<string, unknown> | undefined)?.analysis_report as Record<string, unknown> | undefined)?.scores,
+    result,
+  ];
+  for (const candidate of candidates) {
+    const normalized = normalizeScores(candidate);
+    if (hasAnyScore(normalized)) return normalized;
+  }
+  return normalizeScores(result.scores || report?.scores);
 }
 
 function getAvgScore(scores: Scores): number {
@@ -901,13 +931,14 @@ export default function CompetitorAnalysis() {
         .map((snapshot) => {
           const output = snapshot.output_snapshot as Partial<AnalysisResult> | undefined;
           const input = snapshot.input_snapshot as { marketplace?: string } | undefined;
-          if (!output?.asin || !output?.scores) return null;
+          const scores = getEffectiveScores(output || {});
+          if (!output?.asin || !hasAnyScore(scores)) return null;
           return {
             id: snapshot.id,
             asin: output.asin || snapshot.asin || "",
             marketplace: output.marketplace || input?.marketplace || "",
             product_title: output.product_title || output.product_data?.title || snapshot.title || output.asin || "",
-            scores: normalizeScores(output.scores),
+            scores,
             created_at: snapshot.created_at || "",
             source: "snapshot" as const,
             snapshot,
@@ -942,7 +973,8 @@ export default function CompetitorAnalysis() {
       toast.warning("旧版竞品对比快照已归档，本页仅保留单个竞品拆解快照。");
       return;
     }
-    if (output?.asin && output?.scores) {
+    const scores = getEffectiveScores(output || {});
+    if (output?.asin && hasAnyScore(scores)) {
       const loaded = sanitizeAnalysisKeywords(output as AnalysisResult);
       setSingleResult(loaded);
       setSingleAsin(loaded.asin || "");
@@ -1281,48 +1313,6 @@ const RESULT_TABS = [
 
 type ResultTabKey = (typeof RESULT_TABS)[number]["key"];
 
-function AmazonCompliancePanel({ compliance }: { compliance?: ComplianceResult }) {
-  const violations = compliance?.violations || [];
-  if (!compliance || violations.length === 0) return null;
-
-  const isBlocked = compliance.blocked;
-  return (
-    <Card className={isBlocked ? "bg-red-50 border-red-200" : "bg-amber-50 border-amber-200"}>
-      <CardContent className="pt-6">
-        <div className="flex items-start justify-between gap-3 mb-4">
-          <div className="flex items-start gap-3">
-            <AlertCircle className={`w-5 h-5 ${isBlocked ? "text-red-600" : "text-amber-600"} mt-0.5`} />
-            <div>
-              <h3 className="text-lg font-bold text-gray-900">上架前合规检查</h3>
-              <p className="text-xs text-gray-600 mt-1">
-                {compliance.disclaimer_cn || "系统检测到该内容可能存在亚马逊合规风险，建议修改后再发布。"}
-              </p>
-            </div>
-          </div>
-          <Badge variant="outline" className={isBlocked ? "border-red-200 text-red-700 bg-white" : "border-amber-200 text-amber-700 bg-white"}>
-            {compliance.overall_risk_level} · {compliance.overall_score}
-          </Badge>
-        </div>
-        <div className="space-y-3">
-          {violations.slice(0, 5).map((item) => (
-            <div key={`${item.rule_id}-${item.module}`} className="rounded-lg border border-white bg-white p-3">
-              <div className="flex flex-wrap items-center gap-2 mb-2">
-                <Badge variant="outline" className="text-xs">{item.module}</Badge>
-                <Badge variant="outline" className="text-xs">{item.rule_type}</Badge>
-                <span className="text-xs font-semibold text-gray-500">{item.risk_score}/100</span>
-                <span className="text-xs text-gray-400">{item.rule_id}</span>
-              </div>
-              <p className="text-sm font-semibold text-gray-800">{item.message_cn}</p>
-              <p className="text-xs text-gray-600 mt-1">{item.suggestion_cn}</p>
-              {item.source_policy && <p className="text-[11px] text-gray-400 mt-2">依据：{item.source_policy}</p>}
-            </div>
-          ))}
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
 function SingleResultView({
   result,
   expanded,
@@ -1333,7 +1323,8 @@ function SingleResultView({
   setExpanded: (v: boolean) => void;
 }) {
   const [resultTab, setResultTab] = useState<ResultTabKey>("overview");
-  const scores = normalizeScores(result.scores);
+  const scores = getEffectiveScores(result);
+  const scorePayloadMissing = !hasAnyScore(scores);
   const radarData = scoresToRadarData(result.asin, scores, 0);
   const avgScore = getAvgScore(scores);
   const report = result.analysis_report;
@@ -1347,6 +1338,7 @@ function SingleResultView({
   const listingBreakdown = report?.listing_breakdown || fallbackListingBreakdown(pd, displayKeywords);
   const platformEcoRisk = hasPlatformEcoRisk(pd);
   const ratingHistogram = normalizeRatingHistogram(pd.rating_histogram);
+  const compliance = result.amazon_compliance || report?.amazon_compliance;
 
   return (
     <div className="space-y-6">
@@ -1533,91 +1525,51 @@ function SingleResultView({
 
       {/* --- 竞品评分 Tab --- */}
       {resultTab === "score" && (
-        <>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <Card className="bg-gray-50 border-gray-200">
-              <CardHeader>
-                <CardTitle className="text-lg flex items-center justify-between">
-                  <span>8D+2评分雷达图</span>
-                  <span className="text-2xl font-bold text-brand-600">{avgScore}分</span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="flex justify-center">
-                <RadarChartMulti datasets={[radarData]} size={320} />
-              </CardContent>
-            </Card>
-
-            <Card className="bg-gray-50 border-gray-200">
-              <CardHeader>
-                <CardTitle className="text-lg flex items-center gap-2">
-                  <Target className="w-5 h-5 text-brand-600" />
-                  8D+2维度详情
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {DIMENSIONS.map((dim) => {
-                  const score = (scores as Record<string, number>)[dim.key] || 0;
-                  const analysis = report?.analysis?.[dim.key] || "";
-                  return (
-                    <div key={dim.key} className="bg-gray-50 rounded-lg p-3 border border-gray-100">
-                      <div className="flex items-center justify-between mb-1.5">
-                        <span className="text-sm font-medium text-gray-600">{dim.label}</span>
-                        <span
-                          className={`text-lg font-bold ${
-                            score >= 80 ? "text-green-600" : score >= 60 ? "text-yellow-600" : "text-red-600"
-                          }`}
-                        >
-                          {score}
-                        </span>
-                      </div>
-                      <div className="w-full h-2 bg-gray-50 rounded-full overflow-hidden mb-2">
-                        <div
-                          className={`h-full rounded-full transition-all ${
-                            score >= 80 ? "bg-green-500" : score >= 60 ? "bg-yellow-500" : "bg-red-500"
-                          }`}
-                          style={{ width: `${score}%` }}
-                        />
-                      </div>
-                      {analysis && <p className="text-xs text-gray-500 leading-relaxed">{analysis}</p>}
-                    </div>
-                  );
-                })}
-              </CardContent>
-            </Card>
-          </div>
-          <Card className="bg-gray-50 border-gray-200">
+        <Card className="bg-gray-50 border-gray-200">
             <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2">
-                <TrendingUp className="w-5 h-5 text-brand-600" />
-                8D+2维度热力图
+              <CardTitle className="text-lg flex items-center justify-between">
+                <span>8D+2评分雷达图</span>
+                <span className="text-2xl font-bold text-brand-600">{avgScore}分</span>
               </CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-                {DIMENSIONS.map((dim, idx) => {
+            <CardContent className="space-y-5">
+              {scorePayloadMissing && (
+                <div className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                  <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                  <div>
+                    <p className="font-medium">当前快照缺少8D+2评分数据</p>
+                    <p className="mt-1 text-amber-700">这不是Top40搜索快照造成的，请重新运行本竞品诊断或从完整历史记录打开。</p>
+                  </div>
+                </div>
+              )}
+              <div className="flex justify-center">
+                <RadarChartMulti datasets={[radarData]} size={340} />
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {DIMENSIONS.map((dim) => {
                   const score = (scores as Record<string, number>)[dim.key] || 0;
-                  const hue = score >= 80 ? 142 : score >= 60 ? 48 : 0;
-                  const light = 25 + (score / 100) * 25;
-                  const textColor = score >= 50 ? "text-gray-900" : "text-gray-600";
                   return (
-                    <div
+                    <Badge
                       key={dim.key}
-                      className={`rounded-xl p-4 text-center border border-gray-200 ${textColor}`}
-                      style={{ backgroundColor: `hsl(${hue}, 70%, ${light}%)` }}
+                      variant="outline"
+                      className={`px-3 py-1 ${
+                        score >= 80
+                          ? "border-emerald-200 text-emerald-700 bg-emerald-50"
+                          : score >= 60
+                            ? "border-amber-200 text-amber-700 bg-amber-50"
+                            : "border-red-200 text-red-700 bg-red-50"
+                      }`}
                     >
-                      <div className="text-[10px] font-semibold opacity-70 mb-1">D{idx < 8 ? idx + 1 : `+${idx - 7}`}</div>
-                      <div className="text-2xl font-bold mb-1">{score}</div>
-                      <div className="text-xs font-medium">{dim.label}</div>
-                    </div>
+                      {dim.label} {score}
+                    </Badge>
                   );
                 })}
               </div>
             </CardContent>
           </Card>
-        </>
       )}
 
-      {resultTab === "listing-breakdown" && <ListingBreakdownView breakdown={listingBreakdown} />}
+      {resultTab === "listing-breakdown" && <ListingBreakdownView breakdown={listingBreakdown} compliance={compliance} />}
 
       {/* --- 关键词 Tab --- */}
       {resultTab === "keywords" && (
@@ -1827,7 +1779,50 @@ function SingleResultView({
   );
 }
 
-function ListingBreakdownView({ breakdown }: { breakdown: ListingBreakdown }) {
+const BREAKDOWN_COMPLIANCE_MODULES: Record<string, string[]> = {
+  title: ["TITLE", "PRODUCT_CLAIM"],
+  bullets: ["BULLET", "PRODUCT_CLAIM"],
+  main_image: ["MAIN_IMAGE"],
+  secondary_images: ["SECONDARY_IMAGE", "MAIN_IMAGE"],
+  a_plus: ["A_PLUS", "DESCRIPTION", "PRODUCT_CLAIM"],
+  review_validation: ["REVIEW_REQUEST"],
+};
+
+function getModuleComplianceViolations(moduleKey: string, compliance?: ComplianceResult) {
+  const modules = BREAKDOWN_COMPLIANCE_MODULES[moduleKey] || [];
+  return (compliance?.violations || [])
+    .filter((item) => modules.includes(item.module))
+    .sort((a, b) => b.risk_score - a.risk_score)
+    .slice(0, 2);
+}
+
+function ComplianceInlineNotice({ violations }: { violations: ComplianceViolation[] }) {
+  if (violations.length === 0) return null;
+
+  const highest = violations[0];
+  const isHard = highest.rule_type === "HARD_BLOCK";
+  return (
+    <div className={`rounded-lg border p-3 ${isHard ? "bg-red-50 border-red-100" : "bg-amber-50 border-amber-100"}`}>
+      <div className="flex items-center gap-2 mb-2">
+        <AlertCircle className={`w-4 h-4 ${isHard ? "text-red-600" : "text-amber-600"}`} />
+        <span className={`text-xs font-semibold ${isHard ? "text-red-700" : "text-amber-700"}`}>
+          检测到可能的亚马逊合规风险
+        </span>
+      </div>
+      <div className="space-y-2">
+        {violations.map((item) => (
+          <div key={`${item.rule_id}-${item.module}`} className="text-xs text-gray-600 leading-relaxed">
+            <span className="font-semibold text-gray-800">{item.category || item.rule_id}：</span>
+            {item.suggestion_cn || item.message_cn}
+            {item.source_policy && <span className="text-gray-400"> 依据：{item.source_policy}</span>}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ListingBreakdownView({ breakdown, compliance }: { breakdown: ListingBreakdown; compliance?: ComplianceResult }) {
   const modules = breakdown.modules || [];
   const iconMap: Record<string, typeof FileText> = {
     title: FileText,
@@ -1858,6 +1853,7 @@ function ListingBreakdownView({ breakdown }: { breakdown: ListingBreakdown }) {
           const imageUrls = imageUrlsFromObject.length > 0 ? imageUrlsFromObject : Array.isArray(module.raw_content)
             ? module.raw_content.filter((item): item is string => typeof item === "string" && item.startsWith("http"))
             : [];
+          const complianceViolations = getModuleComplianceViolations(module.key, compliance);
           return (
             <Card key={module.key} className="bg-gray-50 border-gray-200">
               <CardHeader className="pb-3">
@@ -1868,6 +1864,7 @@ function ListingBreakdownView({ breakdown }: { breakdown: ListingBreakdown }) {
                 {module.summary && <p className="text-sm text-gray-600 leading-relaxed">{module.summary}</p>}
               </CardHeader>
               <CardContent className="space-y-4">
+                <ComplianceInlineNotice violations={complianceViolations} />
                 {imageUrls.length > 0 && (
                   <div className="flex gap-2 overflow-x-auto pb-1">
                     {imageUrls.slice(0, 8).map((url, idx) => (
