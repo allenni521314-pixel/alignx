@@ -436,41 +436,41 @@ function fallbackListingBreakdown(pd: ProductData, keywords: string[]): ListingB
     modules: [
       {
         key: "title",
-        name: "标题结构分析",
-        summary: "拆解标题如何承接品类识别、属性和场景。",
+        name: "标题 × 广告匹配",
+        summary: "标题决定广告能否拿到准流量，并影响搜索词相关性与首轮CTR。",
         raw_content: pd.title,
         structure_breakdown: ["品牌/身份词", "核心品类词", "关键属性", "规格/数量", "适用对象或场景"],
-        strengths: ["标题可作为平台识别入口。"],
-        weaknesses: ["需要结合标题中是否出现关系词、状态触发词进一步判断。"],
+        strengths: ["标题能帮助平台识别产品身份，利于广告匹配到基础流量。"],
+        weaknesses: ["若缺少关系词或状态触发词，广告可能拿到泛流量，CTR和CVR都会被稀释。"],
         covered_user_intents: ["识别产品身份", "确认核心品类", "理解关键属性", "判断适用对象/场景"],
         keywords: titleKeywords,
-        borrowable_actions: ["借鉴其标题结构，而不是复制具体品牌词。"],
+        borrowable_actions: ["借鉴其标题里的高意图词序，把我方标题改成更利于广告搜索词匹配的结构。"],
         do_not_copy: ["不复制竞品品牌名、夸张词和不属于我方产品的规格。"],
       },
       {
         key: "bullets",
-        name: "五点卖点分析",
-        summary: "拆解五点是否按购买理由承接用户犹豫。",
+        name: "五点 × 转化承接",
+        summary: "五点决定点击后的购买理由是否成立，主要影响CVR、ACOS和订单转化。",
         raw_content: pd.bullet_points || [],
         structure_breakdown: ["功能", "效果", "场景", "信任", "售后/风险消除"],
-        strengths: [`已识别 ${pd.bullet_points?.length || 0} 条五点。`],
-        weaknesses: ["需要检查每条五点是否只讲一个购买理由。"],
+        strengths: [`已识别 ${pd.bullet_points?.length || 0} 条五点，可用于判断其广告点击后的承接能力。`],
+        weaknesses: ["如果五点只是堆参数，没有回答顾虑，竞品广告可能有点击但CVR不足。"],
         covered_user_intents: ["确认功能效果", "降低购买犹豫", "理解使用场景", "建立信任", "消除售后/风险顾虑"],
         keywords: bulletKeywords,
-        borrowable_actions: ["把竞品五点反推为我方的购买理由顺序。"],
+        borrowable_actions: ["把竞品五点反推为广告点击后的成交话术，补强我方CVR承接。"],
         do_not_copy: ["不复制无证据支撑的绝对化承诺。"],
       },
       {
         key: "review_validation",
-        name: "评论反向验证",
-        summary: "用评分分布和低分评论反推竞品未满足需求。",
+        name: "评论 × 广告承诺可信度",
+        summary: "评论验证竞品广告承诺是否可信，直接影响CVR、ACOS和差评风险。",
         raw_content: pd.low_star_reviews || [],
         structure_breakdown: ["评分分布", "3星以下差评", "痛点归纳", "可攻击弱点"],
-        strengths: ["评论可验证竞品承诺是否成立。"],
-        weaknesses: ["若低分评论样本不足，需继续抓取评论页。"],
+        strengths: ["评论能支撑竞品广告承诺时，转化阻力更小。"],
+        weaknesses: ["低分评论暴露的痛点，是我方广告避开或攻击的机会。"],
         covered_user_intents: ["risk removal", "quality concern", "usage friction"],
         keywords: reviewKeywords,
-        borrowable_actions: ["把差评原因转成我方图片、五点、A+必须解释的内容。"],
+        borrowable_actions: ["把差评原因转成我方广告落地页必须解释的内容。"],
         do_not_copy: ["不要只照抄好评卖点。"],
       },
     ],
@@ -572,15 +572,82 @@ function sanitizeAnalysisKeywords(result: AnalysisResult): AnalysisResult {
 
 function moduleStructureNarrative(key: string, items?: string[]): string[] {
   const map: Record<string, string[]> = {
-    title: ["标题按“品牌/身份词 → 核心品类词 → 关键属性 → 规格数量 → 适用对象或场景”的顺序承接搜索识别。"],
-    bullets: ["五点应按“功能说明 → 效果证明 → 场景承接 → 信任背书 → 售后或风险消除”的顺序讲清购买理由。"],
-    main_image: ["主图只负责点击和快速识别：白底真实商品、主体清晰、无干扰文字，并让用户一眼知道卖什么。"],
-    secondary_images: ["副图按7张图逻辑承接转化：卖点、场景、尺寸结构、对比证据、信任证明和使用步骤依次展开。"],
-    a_plus: ["A+负责更深的信任闭环：品牌故事、技术/材质原理、场景教育、差异化证明和对比表不要与前台图片重复。"],
-    video_brand: ["视频按“使用方法 → 动态效果 → 结果证明 → 品牌信任”的顺序，让用户看到功能如何真实发生。"],
-    review_validation: ["评论反向验证按“评分分布 → 3星以下差评 → 未满足需求 → 可攻击弱点”的顺序提炼机会。"],
+    title: ["标题按“品类词/属性词/场景词/状态词”的顺序影响广告匹配质量、曝光相关性和首轮CTR。"],
+    bullets: ["五点负责广告点击后的转化承接：功能说明、效果证明、场景承接、信任背书和售后/风险消除会影响CVR与ACOS。"],
+    main_image: ["主图负责点击和CPC效率：用户扫一眼是否知道产品差异，决定CTR、点击质量和流量成本。"],
+    secondary_images: ["副图承接广告点击后的疑问：功能证明、场景、尺寸、对比、安全、使用步骤会影响CVR和跳出风险。"],
+    a_plus: ["A+负责深层信任和品牌溢价：品牌故事、技术/材质原理、差异化证明和对比表影响CVR、ACOS和客单信任。"],
+    video_brand: ["视频让用户看到功能如何发生，主要影响详情页停留、CVR和复杂产品的理解成本。"],
+    review_validation: ["评论验证广告承诺是否可信：好评支撑卖点，差评暴露痛点，直接影响CVR、ACOS和退货/差评风险。"],
   };
   return map[key] || (items?.length ? [items.join(" → ")] : []);
+}
+
+function moduleAdMetricMap(key: string) {
+  const map: Record<string, {
+    metrics: string[];
+    funnelRole: string;
+    strengthMeaning: string;
+    weaknessMeaning: string;
+    attackAngle: string;
+  }> = {
+    title: {
+      metrics: ["曝光相关性", "搜索词匹配质量", "CTR", "CPC"],
+      funnelRole: "负责把广告带进正确搜索语义池，决定流量准不准。",
+      strengthMeaning: "标题词序清晰、关系词/状态词明确时，广告更容易拿到高意图流量。",
+      weaknessMeaning: "标题只堆属性词时，容易获得泛曝光，点击和转化都会被稀释。",
+      attackAngle: "我方用更具体的场景词、状态触发词和长尾词避开正面价格竞争。",
+    },
+    main_image: {
+      metrics: ["CTR", "CPC", "点击质量"],
+      funnelRole: "负责用户第一眼是否愿意点，影响点击率和单次点击成本。",
+      strengthMeaning: "主图一眼说明差异时，CTR更容易占优。",
+      weaknessMeaning: "主图只展示产品、不展示差异时，广告点击优势弱。",
+      attackAngle: "我方主图前置竞品没有讲清的核心差异或使用结果。",
+    },
+    secondary_images: {
+      metrics: ["CVR", "跳出率", "ACOS"],
+      funnelRole: "负责把点击后的疑问讲清楚，降低跳出和转化阻力。",
+      strengthMeaning: "副图能证明功能、场景、尺寸和风险时，广告点击更容易转订单。",
+      weaknessMeaning: "副图缺少证据链时，点击进来后会卡在信任和理解。",
+      attackAngle: "我方副图按功能、场景、尺寸、对比、安全、使用步骤补齐证据。",
+    },
+    bullets: {
+      metrics: ["CVR", "订单转化", "ACOS"],
+      funnelRole: "负责成交理由，解释用户为什么现在买。",
+      strengthMeaning: "五点每点对应一个购买理由时，广告点击后的转化承接更强。",
+      weaknessMeaning: "五点堆参数或空泛承诺时，CTR可能有但CVR不稳。",
+      attackAngle: "我方五点用痛点、机制、证据、场景、风险消除重写成交逻辑。",
+    },
+    a_plus: {
+      metrics: ["CVR", "品牌信任", "ACOS", "客单承接"],
+      funnelRole: "负责深层信任、品牌溢价和复杂决策解释。",
+      strengthMeaning: "A+能建立品牌、技术、对比和信任闭环时，广告成本更容易被转化消化。",
+      weaknessMeaning: "A+只是装饰图时，对广告转化帮助有限。",
+      attackAngle: "我方A+打竞品没讲透的技术原理、对比证据和售后保障。",
+    },
+    video_brand: {
+      metrics: ["CVR", "停留时长", "理解成本"],
+      funnelRole: "负责动态证明产品怎么用、效果怎么发生。",
+      strengthMeaning: "视频能降低复杂功能理解成本时，转化会更稳。",
+      weaknessMeaning: "没有视频或视频只做氛围，会浪费动态证明机会。",
+      attackAngle: "我方视频展示真实使用步骤和结果对比。",
+    },
+    review_validation: {
+      metrics: ["CVR", "ACOS", "广告承诺可信度", "退货/差评风险"],
+      funnelRole: "负责验证广告承诺是否被真实用户支持。",
+      strengthMeaning: "好评支撑核心卖点时，广告承诺可信度高。",
+      weaknessMeaning: "差评集中暴露同一痛点时，是竞品转化漏点。",
+      attackAngle: "我方广告避开竞品差评雷区，并在图片/五点/A+明确回应。",
+    },
+  };
+  return map[key] || {
+    metrics: ["CTR", "CVR", "ACOS"],
+    funnelRole: "负责影响广告点击后的理解和转化。",
+    strengthMeaning: "强项可转化为我方可验证卖点。",
+    weaknessMeaning: "弱项可转化为我方攻击切口。",
+    attackAngle: "用广告小预算验证该切口是否成立。",
+  };
 }
 
 function toScoreNumber(value: unknown): number {
@@ -1064,7 +1131,7 @@ export default function CompetitorAnalysis() {
             objective="拆解竞品Listing为什么卖得好，提炼我方可借鉴动作"
             inputSource="竞品ASIN/Amazon链接、标题、五点、主图/副图、A+、评论、关键词、价格和销量表现"
             process="按Listing结构、Rufus/COSMO语义、评论反向验证和价格销量信号拆解转化原因"
-            outputTarget="竞品核心优势、Listing拆解、关键词结构、评论痛点、可借鉴动作和不建议模仿点"
+            outputTarget="竞品核心优势、广告转化拆解、关键词结构、评论痛点、可借鉴动作和不建议模仿点"
             action="把可借鉴动作带回本品诊断或上新检测"
             feedback="保存竞品诊断快照，沉淀到关键词库、竞品库和复盘优化"
             tone="violet"
@@ -1305,7 +1372,7 @@ function DataSourceBadge({ source }: { source?: string; confidence?: string }) {
 const RESULT_TABS = [
   { key: "overview", label: "总览", icon: Search },
   { key: "score", label: "竞品评分", icon: Target },
-  { key: "listing-breakdown", label: "Listing拆解", icon: FileText },
+  { key: "listing-breakdown", label: "广告转化拆解", icon: FileText },
   { key: "keywords", label: "关键词结构", icon: Zap },
   { key: "review-pain", label: "评论痛点", icon: MessageSquare },
   { key: "strategy", label: "借鉴策略", icon: AlertCircle },
@@ -1850,9 +1917,23 @@ function ListingBreakdownView({ breakdown, compliance }: { breakdown: ListingBre
 
   return (
     <div className="space-y-4">
+      <Card className="bg-white border-gray-200">
+        <CardContent className="p-4">
+          <div className="flex items-start gap-3">
+            <TrendingUp className="mt-0.5 h-5 w-5 text-brand-600" />
+            <div>
+              <h3 className="text-sm font-semibold text-gray-900">竞品广告转化拆解</h3>
+              <p className="mt-1 text-sm leading-relaxed text-gray-600">
+                按标题、主图、副图、五点、A+和评论拆解其对广告漏斗的影响：标题看流量准不准，主图看点不点击，副图/五点/A+看转不转化，评论看广告承诺能不能被信任。
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {modules.map((module) => {
           const Icon = iconMap[module.key] || FileText;
+          const adRead = moduleAdMetricMap(module.key);
           const displayIntents = sameStringList(module.covered_user_intents, module.keywords)
             ? moduleDefaultIntents(module.key)
             : module.covered_user_intents;
@@ -1879,6 +1960,16 @@ function ListingBreakdownView({ breakdown, compliance }: { breakdown: ListingBre
               </CardHeader>
               <CardContent className="space-y-4">
                 <ComplianceInlineNotice violations={complianceViolations} />
+                <div className="rounded-lg border border-brand-100 bg-brand-50 p-3">
+                  <div className="flex flex-wrap gap-1.5 mb-2">
+                    {adRead.metrics.map((metric) => (
+                      <span key={metric} className="rounded-full border border-brand-200 bg-white px-2 py-0.5 text-[11px] font-medium text-brand-700">
+                        {metric}
+                      </span>
+                    ))}
+                  </div>
+                  <p className="text-xs leading-relaxed text-gray-700">{adRead.funnelRole}</p>
+                </div>
                 {imageUrls.length > 0 && (
                   <div className="flex gap-2 overflow-x-auto pb-1">
                     {imageUrls.slice(0, 8).map((url, idx) => (
@@ -1887,12 +1978,13 @@ function ListingBreakdownView({ breakdown, compliance }: { breakdown: ListingBre
                   </div>
                 )}
                 <OriginalEvidencePreview raw={module.raw_content} moduleName={module.name} />
+                <BreakdownSection title="广告指标判断" items={[adRead.strengthMeaning, adRead.weaknessMeaning]} tone="blue" />
                 <BreakdownSection title="结构拆解" items={displayStructure} />
                 <BreakdownSection title="强项判断" items={module.strengths} tone="green" />
                 <BreakdownSection title="弱项判断" items={module.weaknesses} tone="red" />
                 <BreakdownSection title="覆盖的用户意图" items={displayIntents} badge />
                 <BreakdownSection title="对应关键词/语义词" items={displayKeywords} badge />
-                <BreakdownSection title="我方可借鉴动作" items={module.borrowable_actions} tone="blue" />
+                <BreakdownSection title="我方广告打法" items={[adRead.attackAngle, ...(module.borrowable_actions || [])]} tone="blue" />
                 <BreakdownSection title="不建议模仿点" items={module.do_not_copy} tone="amber" />
                 <details className="rounded-lg border border-gray-100 bg-white p-3">
                   <summary className="cursor-pointer text-sm font-medium text-gray-600">展开查看原始内容</summary>
