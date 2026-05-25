@@ -142,7 +142,7 @@ function buildLaunchReadiness(result: ScoringResult, keywords: string) {
     launchAdvice,
     riskLevel,
     mustFix: mustFix.length ? mustFix : ["当前未发现必须阻断上架的问题"],
-    missingKeywords: missingKeywords.length ? missingKeywords : ["暂无明显缺失，建议结合目标竞品搜索词复核"],
+    missingKeywords: missingKeywords.length ? missingKeywords : ["暂无明显缺失，建议结合类目核心搜索词复核"],
     mismatchPoints: mismatchPoints.length ? mismatchPoints : ["暂无明显表达错配"],
     preLaunchActions: dims.flatMap((dim) => dim.suggestions.slice(0, 1)).filter(Boolean).slice(0, 4),
   };
@@ -990,7 +990,6 @@ export default function PreLaunchTest() {
   const [keywords, setKeywords] = useState("");
   const [category, setCategory] = useState("");
   const [price, setPrice] = useState("");
-  const [targetCompetitors, setTargetCompetitors] = useState("");
   const [targetPriceBand, setTargetPriceBand] = useState("");
   const [mainImages, setMainImages] = useState<string[]>([]);
   const [aPlusImages, setAPlusImages] = useState<string[]>([]);
@@ -1188,7 +1187,6 @@ export default function PreLaunchTest() {
         a_plus_desc: aPlusDesc,
         category,
         price,
-        target_competitors: targetCompetitors,
         target_price_band: targetPriceBand,
         main_image_count: mainImages.length,
         a_plus_image_count: aPlusImages.length,
@@ -1233,7 +1231,6 @@ export default function PreLaunchTest() {
           a_plus_desc: aPlusDesc,
           category,
           price,
-          target_competitors: targetCompetitors,
           target_price_band: targetPriceBand,
           main_image_count: mainImages.length,
           a_plus_image_count: aPlusImages.length,
@@ -1296,7 +1293,6 @@ export default function PreLaunchTest() {
             a_plus_desc: aPlusDesc,
             category,
             price,
-            target_competitors: targetCompetitors,
             target_price_band: targetPriceBand,
           image_count: mainImages.length + aPlusImages.length,
           main_image_ocr_texts: ocrOverride?.mainImageTexts || lastMainImageTexts,
@@ -1425,7 +1421,7 @@ export default function PreLaunchTest() {
 
           <PageHeader
             objective="上架前判断Listing是否建议上架"
-            inputSource="标题、五点、主图/副图、A+、价格、类目、关键词、目标竞品、目标价格带"
+            inputSource="标题、五点、主图/副图、A+、价格、类目、关键词、目标价格带"
             process="按评论需求、COSMO语义和因果转化标准做上新准入检测"
             outputTarget="是否建议上架、风险等级、必改项、缺失关键词、表达错配点"
             action="修改必改项后再进入上线后诊断"
@@ -1461,11 +1457,11 @@ export default function PreLaunchTest() {
               <label className="text-sm text-gray-500 mb-1.5 block flex items-center gap-1.5">
                 <Type className="w-3.5 h-3.5" /> 产品标题 *
               </label>
-              <Input
+              <Textarea
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder="输入完整的Amazon产品标题..."
-                className="bg-gray-50 border-gray-200 text-gray-900 placeholder:text-gray-600"
+                className="bg-gray-50 border-gray-200 text-gray-900 placeholder:text-gray-600 min-h-[88px] resize-y leading-6"
               />
             </div>
 
@@ -1473,11 +1469,11 @@ export default function PreLaunchTest() {
               <label className="text-sm text-gray-500 mb-1.5 block flex items-center gap-1.5">
                 <TrendingUp className="w-3.5 h-3.5" /> 搜索关键词
               </label>
-              <Input
+              <Textarea
                 value={keywords}
                 onChange={(e) => setKeywords(e.target.value)}
                 placeholder="输入后台搜索关键词，逗号分隔..."
-                className="bg-gray-50 border-gray-200 text-gray-900 placeholder:text-gray-600"
+                className="bg-gray-50 border-gray-200 text-gray-900 placeholder:text-gray-600 min-h-[76px] resize-y leading-6"
               />
             </div>
 
@@ -1490,7 +1486,7 @@ export default function PreLaunchTest() {
                   value={category}
                   onChange={(e) => setCategory(e.target.value)}
                   placeholder="例如 Pet Supplies / Cat Litter Boxes"
-                  className="bg-gray-50 border-gray-200 text-gray-900 placeholder:text-gray-600"
+                  className="bg-gray-50 border-gray-200 text-gray-900 placeholder:text-gray-600 h-14 text-base"
                 />
               </div>
               <div>
@@ -1501,18 +1497,7 @@ export default function PreLaunchTest() {
                   value={price}
                   onChange={(e) => setPrice(e.target.value)}
                   placeholder="例如 $29.99"
-                  className="bg-gray-50 border-gray-200 text-gray-900 placeholder:text-gray-600"
-                />
-              </div>
-              <div>
-                <label className="text-sm text-gray-500 mb-1.5 block flex items-center gap-1.5">
-                  <Sparkles className="w-3.5 h-3.5" /> 目标竞品
-                </label>
-                <Input
-                  value={targetCompetitors}
-                  onChange={(e) => setTargetCompetitors(e.target.value)}
-                  placeholder="输入目标竞品ASIN，逗号分隔"
-                  className="bg-gray-50 border-gray-200 text-gray-900 placeholder:text-gray-600"
+                  className="bg-gray-50 border-gray-200 text-gray-900 placeholder:text-gray-600 h-14 text-base"
                 />
               </div>
               <div>
@@ -1523,7 +1508,7 @@ export default function PreLaunchTest() {
                   value={targetPriceBand}
                   onChange={(e) => setTargetPriceBand(e.target.value)}
                   placeholder="例如 低价带 / 中价带 / 高价带"
-                  className="bg-gray-50 border-gray-200 text-gray-900 placeholder:text-gray-600"
+                  className="bg-gray-50 border-gray-200 text-gray-900 placeholder:text-gray-600 h-14 text-base"
                 />
               </div>
             </div>
@@ -1551,7 +1536,7 @@ export default function PreLaunchTest() {
                 value={aPlusDesc}
                 onChange={(e) => setAPlusDesc(e.target.value)}
                 placeholder="描述A+内容：品牌故事、对比图、场景图、尺寸图..."
-                className="bg-gray-50 border-gray-200 text-gray-900 placeholder:text-gray-600 min-h-[60px] resize-none"
+                className="bg-gray-50 border-gray-200 text-gray-900 placeholder:text-gray-600 min-h-[120px] resize-y leading-6"
               />
               <div className="mt-2">
                 <p className="text-[10px] text-gray-500 mb-1.5">
@@ -1576,7 +1561,7 @@ export default function PreLaunchTest() {
                 value={bulletPoints}
                 onChange={(e) => setBulletPoints(e.target.value)}
                 placeholder="输入五点描述，每条一行：&#10;• 第一点描述...&#10;• 第二点描述...&#10;• 第三点描述...&#10;• 第四点描述...&#10;• 第五点描述..."
-                className="bg-gray-50 border-gray-200 text-gray-900 placeholder:text-gray-600 min-h-[120px] resize-none"
+                className="bg-gray-50 border-gray-200 text-gray-900 placeholder:text-gray-600 min-h-[240px] resize-y leading-6"
               />
               <p className="mt-1.5 text-[11px] text-gray-500">
                 五点每点只讲一个购买理由：功能、效果、场景、信任、售后；避免空喊 high quality / best / premium。
@@ -1843,7 +1828,7 @@ export default function PreLaunchTest() {
               </div>
               <h3 className="text-gray-500 font-medium mb-2">Listing 上新检测</h3>
               <p className="text-gray-600 text-sm max-w-md mx-auto leading-relaxed">
-                输入标题、五点、图片、A+、价格、类目、关键词、目标竞品和目标价格带，
+                输入标题、五点、图片、A+、价格、类目、关键词和目标价格带，
                 系统会输出是否建议上架、风险等级、必改项、缺词和表达错配点
               </p>
               <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mt-8 max-w-2xl mx-auto">

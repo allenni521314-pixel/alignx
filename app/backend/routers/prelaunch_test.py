@@ -63,7 +63,6 @@ class EvaluateLaunchRequest(BaseModel):
     a_plus_desc: str = ""
     category: str = ""
     price: str = ""
-    target_competitors: str = ""
     target_price_band: str = ""
     main_image_count: int = 0
     a_plus_image_count: int = 0
@@ -187,7 +186,6 @@ def _build_rule_evaluation(request: EvaluateLaunchRequest) -> dict[str, Any]:
         request.bullet_points,
         request.a_plus_desc,
         request.category,
-        request.target_competitors,
     ])
     title_text = request.title or ""
     bullet_text = request.bullet_points or ""
