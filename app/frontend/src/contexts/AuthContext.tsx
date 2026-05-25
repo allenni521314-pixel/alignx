@@ -53,6 +53,17 @@ function getApiBaseUrl(): string {
   return import.meta.env.VITE_API_BASE_URL || '';
 }
 
+function getRequestErrorMessage(err: unknown, fallback: string): string {
+  if (axios.isAxiosError(err)) {
+    const detail = err.response?.data?.detail;
+    if (typeof detail === 'string' && detail.trim()) return detail;
+    if (Array.isArray(detail) && detail.length) return detail.map((item) => item.msg || item.message || String(item)).join('；');
+    if (err.response?.status) return `请求失败（${err.response.status}），请稍后重试`;
+  }
+
+  return err instanceof Error && err.message ? err.message : fallback;
+}
+
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
@@ -128,11 +139,18 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const phoneLogin = useCallback(async (phone: string, password: string, displayName = '') => {
     setError(null);
-    const res = await axios.post(`${getApiBaseUrl()}/api/v1/auth/phone/login`, {
-      phone,
-      password,
-      display_name: displayName,
-    });
+    let res;
+    try {
+      res = await axios.post(`${getApiBaseUrl()}/api/v1/auth/phone/login`, {
+        phone,
+        password,
+        display_name: displayName,
+      });
+    } catch (err) {
+      const message = getRequestErrorMessage(err, '登录失败，请稍后重试');
+      setError(message);
+      throw new Error(message);
+    }
 
     const { token, user: userData } = res.data;
 

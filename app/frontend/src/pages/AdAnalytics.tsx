@@ -37,6 +37,9 @@ interface Product {
 interface AdRecord {
   id: number;
   product_id: number;
+  hypothesis_id?: string;
+  keyword_group_id?: string;
+  optimization_round?: number;
   ad_group_name: string;
   keyword: string;
   match_type: string;
@@ -48,7 +51,27 @@ interface AdRecord {
   date: string;
 }
 
+interface ValidationGroup {
+  hypothesis_id: string;
+  keyword_group_id: string;
+  optimization_round: number;
+  keywords: string[];
+  impressions: number;
+  clicks: number;
+  spend: number;
+  orders: number;
+  sales: number;
+  ctr: string;
+  cvr: string;
+  acos: string;
+  record_count: number;
+  assigned: boolean;
+}
+
 const emptyAd = {
+  hypothesis_id: "",
+  keyword_group_id: "",
+  optimization_round: 1,
   ad_group_name: "",
   keyword: "",
   match_type: "exact",
@@ -205,6 +228,71 @@ export default function AdAnalytics() {
     }))
     .sort((a, b) => b.sales - a.sales);
 
+  const validationGroups: ValidationGroup[] = Array.from(
+    filteredAds.reduce((map, ad) => {
+      const hypothesisId = ad.hypothesis_id || "unassigned";
+      const keywordGroupId = ad.keyword_group_id || ad.ad_group_name || "default";
+      const round = ad.optimization_round || 1;
+      const key = `${hypothesisId}::${keywordGroupId}::${round}`;
+      const current = map.get(key) || {
+        hypothesis_id: hypothesisId,
+        keyword_group_id: keywordGroupId,
+        optimization_round: round,
+        keywords: new Set<string>(),
+        impressions: 0,
+        clicks: 0,
+        spend: 0,
+        orders: 0,
+        sales: 0,
+        record_count: 0,
+        assigned: hypothesisId !== "unassigned",
+      };
+      current.keywords.add(ad.keyword);
+      current.impressions += ad.impressions || 0;
+      current.clicks += ad.clicks || 0;
+      current.spend += ad.spend || 0;
+      current.orders += ad.orders || 0;
+      current.sales += ad.sales || 0;
+      current.record_count += 1;
+      map.set(key, current);
+      return map;
+    }, new Map<string, {
+      hypothesis_id: string;
+      keyword_group_id: string;
+      optimization_round: number;
+      keywords: Set<string>;
+      impressions: number;
+      clicks: number;
+      spend: number;
+      orders: number;
+      sales: number;
+      record_count: number;
+      assigned: boolean;
+    }>())
+      .values()
+  )
+    .map((group) => ({
+      ...group,
+      keywords: Array.from(group.keywords),
+      ctr: group.impressions > 0 ? ((group.clicks / group.impressions) * 100).toFixed(2) : "0.00",
+      cvr: group.clicks > 0 ? ((group.orders / group.clicks) * 100).toFixed(2) : "0.00",
+      acos: group.sales > 0 ? ((group.spend / group.sales) * 100).toFixed(2) : "0.00",
+    }))
+    .sort((a, b) => Number(b.assigned) - Number(a.assigned) || b.clicks - a.clicks || b.sales - a.sales);
+
+  const primaryValidation = validationGroups.find((group) => group.assigned) || validationGroups[0];
+  const validationMetrics = primaryValidation || {
+    hypothesis_id: "unassigned",
+    keyword_group_id: "all",
+    optimization_round: 1,
+    clicks: totalClicks,
+    ctr,
+    cvr,
+    acos,
+    sales: totalSales,
+    assigned: false,
+  };
+
   const chartData = keywordRanking.slice(0, 8).map((kw) => ({
     name: kw.keyword.length > 8 ? kw.keyword.substring(0, 8) + "..." : kw.keyword,
     sales: kw.sales,
@@ -226,6 +314,9 @@ export default function AdAnalytics() {
       await client.entities.ad_data.create({
         data: {
           product_id: Number(selectedProductId),
+          hypothesis_id: form.hypothesis_id || undefined,
+          keyword_group_id: form.keyword_group_id || undefined,
+          optimization_round: Number(form.optimization_round) || 1,
           ...form,
           impressions: Number(form.impressions),
           clicks: Number(form.clicks),
@@ -246,6 +337,9 @@ export default function AdAnalytics() {
         output_snapshot: {
           product_id: Number(selectedProductId),
           ...form,
+          hypothesis_id: form.hypothesis_id || undefined,
+          keyword_group_id: form.keyword_group_id || undefined,
+          optimization_round: Number(form.optimization_round) || 1,
           impressions: Number(form.impressions),
           clicks: Number(form.clicks),
           spend: Number(form.spend),
@@ -277,32 +371,34 @@ export default function AdAnalytics() {
   ];
 
   const validationConclusion = (() => {
-    if (totalClicks < 100) {
+    const validationClicks = Number(validationMetrics.clicks || 0);
+    const cvrNum = Number(validationMetrics.cvr);
+    const acosNum = Number(validationMetrics.acos);
+    const ctrNum = Number(validationMetrics.ctr);
+    if (validationClicks < 100) {
       return {
         level: "数据不足",
         color: "text-amber-700 bg-amber-50 border-amber-200",
         icon: AlertTriangle,
-        summary: "当前点击量不足100，暂不建议判定测试是否成立。",
+        summary: `当前主验证假设 ${validationMetrics.hypothesis_id} 点击量不足100，暂不建议判定测试是否成立。`,
         actions: ["继续跑量到100次点击以上", "保持预算和Listing版本稳定", "不要提前扩大或暂停测试"],
       };
     }
-    const cvrNum = Number(cvr);
-    const acosNum = Number(acos);
-    if (cvrNum >= 8 && (acosNum <= 35 || totalSales === 0)) {
+    if (cvrNum >= 8 && (acosNum <= 35 || Number(validationMetrics.sales || 0) === 0)) {
       return {
         level: "测试成立",
         color: "text-emerald-700 bg-emerald-50 border-emerald-200",
         icon: CheckCircle2,
-        summary: "转化承接表现较好，可以把当前Listing表达和关键词方向沉淀为有效假设。",
+        summary: `假设 ${validationMetrics.hypothesis_id} 的关键词组 ${validationMetrics.keyword_group_id} 转化承接表现较好，可沉淀为有效假设。`,
         actions: ["扩大高转化关键词预算", "保留当前Listing承诺表达", "将结论回流到复盘优化"],
       };
     }
-    if (Number(ctr) > 0.4 && cvrNum < 5) {
+    if (ctrNum > 0.4 && cvrNum < 5) {
       return {
         level: "点击成立，转化未成立",
         color: "text-teal-700 bg-teal-50 border-teal-200",
         icon: AlertTriangle,
-        summary: "主图/标题能吸引点击，但详情页、价格、评价或承诺可信度没有承接。",
+        summary: `假设 ${validationMetrics.hypothesis_id} 点击入口成立，但详情页、价格、评价或承诺可信度没有承接。`,
         actions: ["回到本品诊断检查详情页承接", "复核价格和评价信任", "保留点击词但调整Listing表达"],
       };
     }
@@ -327,18 +423,19 @@ export default function AdAnalytics() {
       action_name: "广告效果验证",
       product_id: selectedProductId && selectedProductId !== "all" ? Number(selectedProductId) : null,
       title: `广告效果验证-${validationConclusion.level}`,
-      input_snapshot: { selected_product_id: selectedProductId || "all", records: filteredAds },
+      input_snapshot: { selected_product_id: selectedProductId || "all", primary_validation: validationMetrics, records: filteredAds },
       output_snapshot: {
         conclusion: validationConclusion,
         metrics: { totalImpressions, totalClicks, totalSpend, totalOrders, totalSales, ctr, cvr, acos, roas },
         keyword_ranking: keywordRanking,
+        hypothesis_validations: validationGroups,
       },
       data_source: "ad_data",
       confidence: totalClicks >= 100 ? "high" : totalClicks >= 30 ? "medium" : "low",
       ai_called: false,
       source_record_table: "ad_data",
     }).catch(() => {});
-  }, [isValidationView, loading, selectedProductId, totalImpressions, totalClicks, totalSpend, totalOrders, totalSales, validationConclusion.level]);
+  }, [isValidationView, loading, selectedProductId, totalImpressions, totalClicks, totalSpend, totalOrders, totalSales, validationConclusion.level, validationMetrics.hypothesis_id, validationMetrics.keyword_group_id]);
 
   return (
     <div className="flex h-screen bg-white text-gray-900">
@@ -421,6 +518,18 @@ export default function AdAnalytics() {
                   <Input value={form.ad_group_name} onChange={(e) => setForm({ ...form, ad_group_name: e.target.value })} className="bg-gray-50 border-gray-200 text-gray-900 mt-1" placeholder="如：主推词-精准" />
                 </div>
                 <div>
+                  <Label className="text-gray-600 text-xs">验证假设ID</Label>
+                  <Input value={form.hypothesis_id} onChange={(e) => setForm({ ...form, hypothesis_id: e.target.value })} className="bg-gray-50 border-gray-200 text-gray-900 mt-1" placeholder="如 hypothesis-1" />
+                </div>
+                <div>
+                  <Label className="text-gray-600 text-xs">关键词组ID</Label>
+                  <Input value={form.keyword_group_id} onChange={(e) => setForm({ ...form, keyword_group_id: e.target.value })} className="bg-gray-50 border-gray-200 text-gray-900 mt-1" placeholder="如 odor-control-p0" />
+                </div>
+                <div>
+                  <Label className="text-gray-600 text-xs">优化轮次</Label>
+                  <Input type="number" value={form.optimization_round} onChange={(e) => setForm({ ...form, optimization_round: parseInt(e.target.value) || 1 })} className="bg-gray-50 border-gray-200 text-gray-900 mt-1" />
+                </div>
+                <div>
                   <Label className="text-gray-600 text-xs">关键词 *</Label>
                   <Input value={form.keyword} onChange={(e) => setForm({ ...form, keyword: e.target.value })} className="bg-gray-50 border-gray-200 text-gray-900 mt-1" />
                 </div>
@@ -491,6 +600,71 @@ export default function AdAnalytics() {
                     {action}
                   </div>
                 ))}
+              </div>
+            </Card>
+          )}
+
+          {isValidationView && validationGroups.length > 0 && (
+            <Card className="bg-white border-gray-200 p-5 mb-4 sm:mb-6">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-900">假设级验证结果</h3>
+                  <p className="text-xs text-gray-500 mt-1">优先按 hypothesis_id + keyword_group_id + 轮次判断，避免多个实验混在一起。</p>
+                </div>
+                <span className="text-xs text-gray-400">
+                  已绑定 {validationGroups.filter((group) => group.assigned).length} 组
+                </span>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-gray-500 border-b border-gray-100">
+                      <th className="text-left p-3 font-medium">假设</th>
+                      <th className="text-left p-3 font-medium">关键词组</th>
+                      <th className="text-right p-3 font-medium">点击</th>
+                      <th className="text-right p-3 font-medium">CTR</th>
+                      <th className="text-right p-3 font-medium">CVR</th>
+                      <th className="text-right p-3 font-medium">ACoS</th>
+                      <th className="text-left p-3 font-medium">状态</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {validationGroups.map((group) => {
+                      const status = group.clicks < 100
+                        ? "待验证"
+                        : Number(group.cvr) >= 8 && (Number(group.acos) <= 35 || group.sales === 0)
+                          ? "已命中"
+                          : "未命中";
+                      return (
+                        <tr key={`${group.hypothesis_id}-${group.keyword_group_id}-${group.optimization_round}`} className="border-b border-gray-100 hover:bg-gray-50">
+                          <td className="p-3">
+                            <p className="font-medium text-gray-900">{group.hypothesis_id}</p>
+                            <p className="text-[11px] text-gray-400">第 {group.optimization_round} 轮 · {group.record_count} 条记录</p>
+                          </td>
+                          <td className="p-3 text-gray-600">
+                            <p>{group.keyword_group_id}</p>
+                            <p className="text-[11px] text-gray-400 truncate max-w-[260px]">{group.keywords.join(", ")}</p>
+                          </td>
+                          <td className="p-3 text-right text-gray-600">{group.clicks}</td>
+                          <td className="p-3 text-right text-teal-600">{group.ctr}%</td>
+                          <td className="p-3 text-right text-green-600">{group.cvr}%</td>
+                          <td className={`p-3 text-right ${Number(group.acos) > 35 ? "text-red-600" : "text-amber-600"}`}>{group.acos}%</td>
+                          <td className="p-3">
+                            <span className={`inline-flex px-2 py-1 rounded-full text-xs border ${
+                              status === "已命中"
+                                ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                : status === "待验证"
+                                  ? "bg-amber-50 text-amber-700 border-amber-200"
+                                  : "bg-red-50 text-red-700 border-red-200"
+                            }`}>
+                              {status}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
             </Card>
           )}

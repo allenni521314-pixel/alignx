@@ -15,6 +15,7 @@ from models.products import Products
 from schemas.auth import UserResponse
 from services.agent_chain import AgentNodeRunRequest, get_agent_node_status, run_agent_node, run_all_agent_nodes
 from services.agent_decision_system import build_agent_decision_system
+from services.judgment_feedback_rounds import JudgmentFeedbackRoundService
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -173,6 +174,80 @@ async def _all(db: AsyncSession, stmt):
     return result.scalars().all()
 
 
+def _ad_metrics(records: list[Ad_data]) -> dict:
+    metrics = {
+        "impressions": sum(a.impressions or 0 for a in records),
+        "clicks": sum(a.clicks or 0 for a in records),
+        "spend": round(sum(a.spend or 0 for a in records), 2),
+        "orders": sum(a.orders or 0 for a in records),
+        "sales": round(sum(a.sales or 0 for a in records), 2),
+    }
+    metrics["ctr"] = round(metrics["clicks"] / metrics["impressions"] * 100, 2) if metrics["impressions"] else 0
+    metrics["cvr"] = round(metrics["orders"] / metrics["clicks"] * 100, 2) if metrics["clicks"] else 0
+    metrics["acos"] = round(metrics["spend"] / metrics["sales"] * 100, 2) if metrics["sales"] else 0
+    return metrics
+
+
+def _failure_reason(metrics: dict) -> str:
+    impressions = metrics.get("impressions", 0) or 0
+    clicks = metrics.get("clicks", 0) or 0
+    ctr = metrics.get("ctr", 0) or 0
+    cvr = metrics.get("cvr", 0) or 0
+    acos = metrics.get("acos", 0) or 0
+    if clicks < 100:
+        return "sample_not_enough"
+    if impressions >= 1000 and ctr < 0.25:
+        return "image_click_gap"
+    if ctr < 0.4:
+        return "keyword_mismatch"
+    if cvr < 8:
+        return "detail_trust_gap"
+    if acos > 35:
+        return "price_promise_gap"
+    return "none"
+
+
+def _hit_status(metrics: dict) -> str:
+    clicks = metrics.get("clicks", 0) or 0
+    cvr = metrics.get("cvr", 0) or 0
+    acos = metrics.get("acos", 0) or 0
+    if clicks < 100:
+        return "待验证"
+    return "已命中" if cvr >= 8 and (acos == 0 or acos <= 35) else "未命中"
+
+
+def _hypothesis_validations(ads: list[Ad_data]) -> list[dict]:
+    grouped: dict[tuple[str, str, int], list[Ad_data]] = {}
+    for ad in ads:
+        hypothesis_id = getattr(ad, "hypothesis_id", None) or "unassigned"
+        keyword_group_id = getattr(ad, "keyword_group_id", None) or getattr(ad, "ad_group_name", None) or "default"
+        optimization_round = getattr(ad, "optimization_round", None) or 1
+        grouped.setdefault((hypothesis_id, keyword_group_id, optimization_round), []).append(ad)
+
+    validations: list[dict] = []
+    for (hypothesis_id, keyword_group_id, optimization_round), records in grouped.items():
+        metrics = _ad_metrics(records)
+        keywords = sorted({record.keyword for record in records if record.keyword})
+        validations.append(
+            {
+                "hypothesis_id": hypothesis_id,
+                "keyword_group_id": keyword_group_id,
+                "optimization_round": optimization_round,
+                "keywords": keywords,
+                "metrics": metrics,
+                "hit_status": _hit_status(metrics),
+                "failure_reason": _failure_reason(metrics),
+                "confidence": "高" if metrics["clicks"] >= 100 else "中" if metrics["clicks"] >= 50 else "低",
+                "record_count": len(records),
+            }
+        )
+    return sorted(
+        validations,
+        key=lambda item: (item["optimization_round"], item["metrics"]["clicks"], item["metrics"]["sales"]),
+        reverse=True,
+    )
+
+
 async def _build_chain(product: Products, user_id: str, db: AsyncSession) -> dict:
     asin_analysis = await _first(
         db,
@@ -214,16 +289,9 @@ async def _build_chain(product: Products, user_id: str, db: AsyncSession) -> dic
         .order_by(desc(OptimizationTimeline.created_at), desc(OptimizationTimeline.id)),
     )
 
-    ad_totals = {
-        "impressions": sum(a.impressions or 0 for a in ads),
-        "clicks": sum(a.clicks or 0 for a in ads),
-        "spend": round(sum(a.spend or 0 for a in ads), 2),
-        "orders": sum(a.orders or 0 for a in ads),
-        "sales": round(sum(a.sales or 0 for a in ads), 2),
-    }
-    ad_totals["ctr"] = round(ad_totals["clicks"] / ad_totals["impressions"] * 100, 2) if ad_totals["impressions"] else 0
-    ad_totals["cvr"] = round(ad_totals["orders"] / ad_totals["clicks"] * 100, 2) if ad_totals["clicks"] else 0
-    ad_totals["acos"] = round(ad_totals["spend"] / ad_totals["sales"] * 100, 2) if ad_totals["sales"] else 0
+    ad_totals = _ad_metrics(ads)
+    hypothesis_validations = _hypothesis_validations(ads)
+    assigned_validations = [item for item in hypothesis_validations if item["hypothesis_id"] != "unassigned"]
 
     stages = [
         _stage(
@@ -305,8 +373,19 @@ async def _build_chain(product: Products, user_id: str, db: AsyncSession) -> dic
             "ad_data",
             ads[0] if ads else None,
             score=ad_totals["cvr"] if ads else None,
-            summary="广告验证成立" if ad_totals["clicks"] >= 100 and ad_totals["cvr"] >= 8 else "广告验证待补充",
-            result=ad_totals,
+            summary=(
+                f"{len(assigned_validations)} 个假设已进入广告验证"
+                if assigned_validations
+                else "广告验证待绑定具体诊断假设"
+            ),
+            result={
+                **ad_totals,
+                "hypothesis_validations": hypothesis_validations,
+                "assigned_hypothesis_count": len(assigned_validations),
+                "unassigned_record_count": sum(
+                    item["record_count"] for item in hypothesis_validations if item["hypothesis_id"] == "unassigned"
+                ),
+            },
             next_action="进入数据回流",
         ),
         _stage(
@@ -344,6 +423,13 @@ async def _build_chain(product: Products, user_id: str, db: AsyncSession) -> dic
         "lifecycle_stage": product.lifecycle_stage,
         "optimization_round": product.optimization_round,
     }
+    learning_memory = await JudgmentFeedbackRoundService(db).learning_memory(
+        user_id=user_id,
+        asin=product.asin,
+        product_id=product.id,
+        limit=200,
+    )
+    decision_product_payload = {**product_payload, "learning_memory": learning_memory}
     return {
         "product": product_payload,
         "chain_status": "complete" if completed == len(stages) else "partial",
@@ -351,7 +437,7 @@ async def _build_chain(product: Products, user_id: str, db: AsyncSession) -> dic
         "total_stages": len(stages),
         "integrity_score": round(completed / len(stages) * 100),
         "stages": stages,
-        "agent_decision": build_agent_decision_system(product_payload, stages),
+        "agent_decision": build_agent_decision_system(decision_product_payload, stages),
     }
 
 

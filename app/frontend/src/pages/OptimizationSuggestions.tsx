@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AppSidebar } from "@/components/AppSidebar";
 import { PageHeader } from "@/components/PageHeader";
 import { NextStepActions } from "@/components/NextStepActions";
@@ -19,6 +19,101 @@ import {
   ClipboardCheck,
 } from "lucide-react";
 import { useLocation } from "react-router-dom";
+
+type AdMetrics = {
+  impressions?: number;
+  clicks?: number;
+  spend?: number;
+  orders?: number;
+  sales?: number;
+  ctr?: number;
+  cvr?: number;
+  acos?: number;
+};
+
+type HypothesisValidation = {
+  hypothesis_id: string;
+  keyword_group_id?: string;
+  optimization_round?: number;
+  keywords?: string[];
+  metrics?: AdMetrics;
+  hit_status?: string;
+  failure_reason?: string;
+  confidence?: string;
+  record_count?: number;
+};
+
+type AgentDecision = {
+  chief_decision?: {
+    current_stage?: string;
+    decision?: string;
+    why?: string;
+    next_action?: string;
+    risk_if_ignored?: string;
+    confidence?: string;
+  };
+  error_evidence_cards?: Array<{
+    id: string;
+    error: string;
+    evidence: string;
+    impact_area: string;
+    suggested_action: string;
+    validation_hypothesis_id: string;
+    priority?: { level?: string; score?: number };
+  }>;
+  action_priority?: Array<{
+    rank: number;
+    level: string;
+    score: number;
+    action: string;
+    expected_impact: string;
+    validation_hypothesis_id: string;
+    difficulty?: string;
+    verification_cost?: string;
+  }>;
+  hit_rate_learning?: {
+    status?: string;
+    hit_rate?: number;
+    basis?: string;
+    reusable_learning?: string;
+    next_iteration?: string;
+    likely_failure_reason?: string;
+    hypothesis_validations?: HypothesisValidation[];
+    assigned_hypothesis_count?: number;
+    completed_hypothesis_count?: number;
+  };
+  listing_version_contract?: {
+    current_round?: number;
+    next_snapshot_timing?: string;
+    required_fields?: string[];
+  };
+  failure_reason_taxonomy?: Array<{ key: string; label: string; rule: string }>;
+  learning_memory?: {
+    scope?: string;
+    total_rounds?: number;
+    completed_rounds?: number;
+    hit_rounds?: number;
+    miss_rounds?: number;
+    hit_rate?: number;
+    confidence?: string;
+    next_memory_action?: string;
+    top_failure_reasons?: Array<{ reason: string; count: number }>;
+    top_actions?: Array<{ action: string; count: number }>;
+    reusable_learnings?: Array<{
+      round_id: number;
+      optimization_round?: number;
+      diagnosis_issue?: string;
+      suggested_action?: string;
+      confidence_gain?: number;
+    }>;
+  };
+};
+
+type WorkflowChain = {
+  product?: { asin?: string; title?: string; optimization_round?: number };
+  chain_status?: string;
+  agent_decision?: AgentDecision;
+};
 
 const mockSuggestions = [
   {
@@ -146,6 +241,7 @@ export default function OptimizationSuggestions() {
   const location = useLocation();
   const view = new URLSearchParams(location.search).get("view") || "next-round";
   const savedViewRef = useRef("");
+  const [workflowChain, setWorkflowChain] = useState<WorkflowChain | null>(null);
   const [feedbackStats, setFeedbackStats] = useState({
     rounds: 3,
     hitRate: "100%",
@@ -179,6 +275,20 @@ export default function OptimizationSuggestions() {
       }
     }
     loadFeedbackStats();
+  }, []);
+
+  useEffect(() => {
+    async function loadWorkflowChain() {
+      try {
+        const res = await fetch("/api/v1/workflow-chain/current", { headers: getAuthHeaders() });
+        if (!res.ok) throw new Error(`workflow-chain ${res.status}`);
+        const data = await res.json();
+        setWorkflowChain(data);
+      } catch {
+        setWorkflowChain(null);
+      }
+    }
+    loadWorkflowChain();
   }, []);
 
   const pageConfig = {
@@ -228,9 +338,115 @@ export default function OptimizationSuggestions() {
   };
 
   const PageIcon = pageConfig.icon;
+  const agentDecision = workflowChain?.agent_decision;
+  const hitLearning = agentDecision?.hit_rate_learning;
+  const evidenceCards = agentDecision?.error_evidence_cards || [];
+  const actionPriority = agentDecision?.action_priority || [];
+  const hypothesisValidations = hitLearning?.hypothesis_validations || [];
+  const listingContract = agentDecision?.listing_version_contract;
+  const failureTaxonomy = agentDecision?.failure_reason_taxonomy || [];
+  const learningMemory = agentDecision?.learning_memory;
+  const contractGaps = ((listingContract as typeof listingContract & { current_gaps?: string[] })?.current_gaps || []) as string[];
+
+  const liveFeedbackStats = useMemo(() => {
+    if (!hitLearning && !workflowChain) return feedbackStats;
+    const hitRate =
+      typeof hitLearning?.hit_rate === "number"
+        ? `${hitLearning.hit_rate}%`
+        : hitLearning?.status || feedbackStats.hitRate;
+    return {
+      rounds: listingContract?.current_round || feedbackStats.rounds,
+      hitRate,
+      learnings: learningMemory?.completed_rounds || hitLearning?.completed_hypothesis_count || feedbackStats.learnings,
+    };
+  }, [feedbackStats, hitLearning, learningMemory, listingContract, workflowChain]);
+
+  const liveFeedbackRecords = useMemo(() => {
+    if (!hypothesisValidations.length) return feedbackRecords;
+    return hypothesisValidations.map((item) => {
+      const metrics = item.metrics || {};
+      const keywords = item.keywords?.length ? item.keywords.join("、") : item.keyword_group_id || "未命名词组";
+      return {
+        source: item.hypothesis_id === "unassigned" ? "未绑定广告记录" : "假设级广告验证",
+        item: `${item.hypothesis_id} / ${item.keyword_group_id || "default"}`,
+        before: `验证词组：${keywords}`,
+        after: `失败归因：${item.failure_reason || "none"}；置信度：${item.confidence || "低"}`,
+        metric: `曝光${metrics.impressions || 0}，点击${metrics.clicks || 0}，订单${metrics.orders || 0}，CVR ${(metrics.cvr || 0).toFixed(2)}%，ACOS ${(metrics.acos || 0).toFixed(2)}%`,
+        status: item.hit_status || "待验证",
+      };
+    });
+  }, [hypothesisValidations]);
+
+  const liveReviewConclusions = useMemo(() => {
+    if (!agentDecision) return reviewConclusions;
+    const failure = failureTaxonomy.find((item) => item.key === hitLearning?.likely_failure_reason);
+    const topEvidence = evidenceCards[0];
+    return [
+      {
+        label: "本轮判断",
+        text: agentDecision.chief_decision?.decision || "暂无完整闭环决策",
+        action: agentDecision.chief_decision?.next_action || "先补齐广告验证和复盘记录。",
+      },
+      {
+        label: "命中状态",
+        text: hitLearning?.basis || "广告验证尚未形成有效样本。",
+        action: hitLearning?.reusable_learning || "继续绑定假设ID后再回流判断。",
+      },
+      {
+        label: "主要未成立原因",
+        text: failure ? `${failure.label}：${failure.rule}` : "当前没有明确失败归因。",
+        action: hitLearning?.next_iteration || "下一轮继续按假设分组验证。",
+      },
+      {
+        label: "优先修正项",
+        text: topEvidence?.evidence || "暂无高优先级证据卡。",
+        action: topEvidence?.suggested_action || "完成诊断、广告、复盘三段数据绑定。",
+      },
+    ];
+  }, [agentDecision, evidenceCards, failureTaxonomy, hitLearning]);
+
+  const liveNextRoundActions = useMemo(() => {
+    if (!actionPriority.length) return nextRoundActions;
+    return actionPriority.map((item) => {
+      const target =
+        item.expected_impact === "ranking_relevance"
+          ? { path: "/listing-diagnosis", cta: "进入本品诊断", owner: "Listing 运营", problemType: "平台语义错配" }
+          : item.expected_impact === "click"
+            ? { path: "/listing-launch-check", cta: "进入上新检测", owner: "Listing 运营", problemType: "点击证据不足" }
+            : { path: "/listing-diagnosis", cta: "进入本品诊断", owner: "Listing 运营", problemType: "转化信任承接不足" };
+      return {
+        rank: item.rank,
+        problemType: target.problemType,
+        title: item.action,
+        reason: `来自 ${item.validation_hypothesis_id}，影响 ${item.expected_impact}，验证成本${item.verification_cost || "低"}。`,
+        decisionBasis: `优先级分 ${item.score}，难度${item.difficulty || "中"}；需要在下一轮广告中继续绑定假设ID。`,
+        owner: target.owner,
+        path: target.path,
+        cta: target.cta,
+        priority: item.level,
+      };
+    });
+  }, [actionPriority]);
+
+  const summaryChips = useMemo(() => {
+    if (!agentDecision) {
+      return [
+        "DEMOAMZ001 已回流至判断系统",
+        "除味需求已回流至 Listing 优化建议",
+        "广告验证结果已回流至下一轮测试优先级",
+      ];
+    }
+    return [
+      workflowChain?.product?.asin ? `${workflowChain.product.asin} 已进入闭环判断` : "当前产品已进入闭环判断",
+      hitLearning?.assigned_hypothesis_count
+        ? `${hitLearning.assigned_hypothesis_count} 个广告假设已绑定验证`
+        : "广告记录需要绑定假设ID",
+      listingContract?.next_snapshot_timing || "下一轮修改前后必须保存版本快照",
+    ];
+  }, [agentDecision, hitLearning, listingContract, workflowChain]);
 
   useEffect(() => {
-    const key = `${view}-${feedbackStats.rounds}-${feedbackStats.hitRate}-${feedbackStats.learnings}`;
+    const key = `${view}-${liveFeedbackStats.rounds}-${liveFeedbackStats.hitRate}-${liveFeedbackStats.learnings}-${workflowChain?.product?.asin || ""}`;
     if (savedViewRef.current === key) return;
     savedViewRef.current = key;
     saveActionSnapshot({
@@ -241,20 +457,37 @@ export default function OptimizationSuggestions() {
       title: pageConfig.title,
       input_snapshot: {
         view,
-        feedback_stats: feedbackStats,
+        feedback_stats: liveFeedbackStats,
+        product: workflowChain?.product || null,
       },
       output_snapshot: {
         page_config: pageConfig,
-        feedback_records: view === "data-feedback" ? feedbackRecords : [],
-        review_conclusions: view === "conclusion" ? reviewConclusions : [],
-        next_round_actions: view === "next-round" ? nextRoundActions : [],
+        feedback_records: view === "data-feedback" ? liveFeedbackRecords : [],
+        review_conclusions: view === "conclusion" ? liveReviewConclusions : [],
+        next_round_actions: view === "next-round" ? liveNextRoundActions : [],
+        agent_decision: agentDecision || null,
+        listing_version_contract: listingContract || null,
+        learning_memory: learningMemory || null,
       },
       data_source: "workflow_records",
-      confidence: feedbackStats.hitRate === "样本不足" ? "low" : "medium",
+      confidence: liveFeedbackStats.hitRate === "样本不足" ? "low" : "medium",
       ai_called: false,
       source_record_table: "action_snapshots",
     }).catch(() => {});
-  }, [view, feedbackStats.rounds, feedbackStats.hitRate, feedbackStats.learnings, pageConfig.title]);
+  }, [
+    view,
+    liveFeedbackStats.rounds,
+    liveFeedbackStats.hitRate,
+    liveFeedbackStats.learnings,
+    pageConfig,
+    liveFeedbackRecords,
+    liveReviewConclusions,
+    liveNextRoundActions,
+    agentDecision,
+    listingContract,
+    learningMemory,
+    workflowChain?.product,
+  ]);
 
   return (
     <div className="flex h-screen bg-gray-50 text-gray-900">
@@ -276,12 +509,59 @@ export default function OptimizationSuggestions() {
             tone={pageConfig.tone}
           />
 
+          {agentDecision && (
+            <Card className="bg-white border-gray-200 p-5 mb-6">
+              <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Badge className="bg-brand-50 text-brand-700 border-brand-200">
+                      {agentDecision.chief_decision?.current_stage || "闭环决策"}
+                    </Badge>
+                    <span className="text-xs text-gray-500">
+                      置信度：{agentDecision.chief_decision?.confidence || "低"}
+                    </span>
+                  </div>
+                  <h2 className="text-base font-semibold text-gray-900 mt-3">
+                    {agentDecision.chief_decision?.decision || "暂无完整决策"}
+                  </h2>
+                  <p className="text-sm text-gray-600 mt-2">
+                    {agentDecision.chief_decision?.why || "系统还在等待数据回流。"}
+                  </p>
+                  <p className="text-xs text-brand-600 mt-2">
+                    下一步：{agentDecision.chief_decision?.next_action || "补齐诊断、广告验证和复盘记录。"}
+                  </p>
+                </div>
+                <div className="grid grid-cols-3 gap-2 min-w-full lg:min-w-[360px]">
+                  {[
+                    { label: "绑定假设", value: String(hitLearning?.assigned_hypothesis_count || 0) },
+                    { label: "完成假设", value: String(hitLearning?.completed_hypothesis_count || 0) },
+                    { label: "版本轮次", value: String(listingContract?.current_round || 1) },
+                  ].map((item) => (
+                    <div key={item.label} className="rounded-lg bg-gray-50 border border-gray-100 p-3">
+                      <p className="text-[11px] text-gray-500">{item.label}</p>
+                      <p className="text-lg font-bold text-gray-900 mt-1">{item.value}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              {contractGaps.length > 0 && (
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {contractGaps.map((gap) => (
+                    <span key={gap} className="text-xs px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-100">
+                      {gap}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </Card>
+          )}
+
           {view === "data-feedback" && (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
               {[
-                { label: "已回流轮次", value: String(feedbackStats.rounds), desc: "来自执行记录与优化时间线" },
-                { label: "判断命中率", value: feedbackStats.hitRate, desc: "按广告点击和CVR验证判断是否成立" },
-                { label: "可复用经验", value: `${feedbackStats.learnings}条`, desc: "按类目、价格带、关键词沉淀" },
+                { label: "已回流轮次", value: String(liveFeedbackStats.rounds), desc: "来自执行记录与优化时间线" },
+                { label: "判断命中率", value: liveFeedbackStats.hitRate, desc: "按广告点击和CVR验证判断是否成立" },
+                { label: "可复用经验", value: `${liveFeedbackStats.learnings}条`, desc: "按类目、价格带、关键词沉淀" },
               ].map((item) => (
                 <Card key={item.label} className="bg-white border-gray-200 p-5">
                   <p className="text-xs text-gray-500">{item.label}</p>
@@ -296,7 +576,7 @@ export default function OptimizationSuggestions() {
             <Card className="bg-white border-gray-200 p-5 mb-6">
               <h2 className="text-sm font-semibold text-gray-900 mb-3">本轮复盘结论</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {reviewConclusions.map((item) => (
+                {liveReviewConclusions.map((item) => (
                   <div key={item.label} className="rounded-lg bg-gray-50 border border-gray-100 p-3">
                     <p className="text-[11px] font-semibold text-gray-500 mb-1">{item.label}</p>
                     <p className="text-sm text-gray-700">{item.text}</p>
@@ -314,7 +594,7 @@ export default function OptimizationSuggestions() {
                 <p className="text-xs text-gray-500 mt-1">保存每一轮输入、修改、验证结果和命中状态，供下一次判断校准。</p>
               </div>
               <div className="divide-y divide-gray-100">
-                {feedbackRecords.map((record) => (
+                {liveFeedbackRecords.map((record) => (
                   <div key={`${record.source}-${record.item}`} className="p-4 grid lg:grid-cols-[0.9fr_1.1fr_1.1fr_1fr_auto] gap-3 items-start">
                     <div>
                       <p className="text-[11px] text-gray-400">来源</p>
@@ -333,7 +613,7 @@ export default function OptimizationSuggestions() {
                       <p className="text-[11px] text-gray-400">验证指标</p>
                       <p className="text-sm text-gray-700">{record.metric}</p>
                     </div>
-                    <Badge className={record.status === "命中" ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-amber-50 text-amber-700 border-amber-200"}>
+                    <Badge className={record.status === "命中" || record.status === "已命中" ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-amber-50 text-amber-700 border-amber-200"}>
                       {record.status}
                     </Badge>
                   </div>
@@ -342,9 +622,69 @@ export default function OptimizationSuggestions() {
             </Card>
           )}
 
+          {learningMemory && (
+            <Card className="bg-white border-gray-200 p-5 mb-6">
+              <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4 mb-4">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <Database className="w-4 h-4 text-emerald-600" />
+                    <h2 className="text-sm font-semibold text-gray-900">类目/产品记忆</h2>
+                  </div>
+                  <p className="text-sm text-gray-600 mt-2">
+                    {learningMemory.next_memory_action || "复盘完成后会沉淀可复用经验。"}
+                  </p>
+                </div>
+                <div className="grid grid-cols-3 gap-2 min-w-full lg:min-w-[360px]">
+                  {[
+                    { label: "完成轮次", value: String(learningMemory.completed_rounds || 0) },
+                    { label: "历史命中率", value: `${learningMemory.hit_rate || 0}%` },
+                    { label: "记忆置信", value: learningMemory.confidence || "低" },
+                  ].map((item) => (
+                    <div key={item.label} className="rounded-lg bg-gray-50 border border-gray-100 p-3">
+                      <p className="text-[11px] text-gray-500">{item.label}</p>
+                      <p className="text-lg font-bold text-gray-900 mt-1">{item.value}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
+                  <p className="text-[11px] font-semibold text-gray-500 mb-2">高频失败原因</p>
+                  {(learningMemory.top_failure_reasons || []).length ? (
+                    <div className="space-y-2">
+                      {(learningMemory.top_failure_reasons || []).map((item) => (
+                        <div key={item.reason} className="flex items-center justify-between gap-3 text-sm">
+                          <span className="text-gray-700">{item.reason}</span>
+                          <Badge className="bg-amber-50 text-amber-700 border-amber-200">{item.count}次</Badge>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-500">暂无足够复盘样本。</p>
+                  )}
+                </div>
+                <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
+                  <p className="text-[11px] font-semibold text-gray-500 mb-2">可复用动作</p>
+                  {(learningMemory.top_actions || []).length ? (
+                    <div className="space-y-2">
+                      {(learningMemory.top_actions || []).map((item) => (
+                        <div key={item.action} className="text-sm text-gray-700">
+                          <span>{item.action}</span>
+                          <span className="text-xs text-gray-400 ml-2">{item.count}次</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-500">命中动作会在复盘后自动沉淀。</p>
+                  )}
+                </div>
+              </div>
+            </Card>
+          )}
+
           {view === "next-round" && (
             <div className="space-y-4">
-              {nextRoundActions.map((item) => (
+              {liveNextRoundActions.map((item) => (
                 <Card key={item.rank} className="bg-white border-gray-200 p-5">
                   <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
                     <div className="flex items-start gap-3">
@@ -407,11 +747,7 @@ export default function OptimizationSuggestions() {
               </h3>
             </div>
             <div className="flex flex-wrap gap-3">
-              {[
-                "DEMOAMZ001 已回流至判断系统",
-                "除味需求已回流至 Listing 优化建议",
-                "广告验证结果已回流至下一轮测试优先级",
-              ].map((text, i) => (
+              {summaryChips.map((text, i) => (
                 <div
                   key={i}
                   className="flex items-center gap-1.5 text-sm text-gray-600 bg-emerald-50 px-3 py-1.5 rounded-full"

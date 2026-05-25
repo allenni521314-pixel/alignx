@@ -14,6 +14,18 @@
             "type": "integer",
             "description": "Reference to products table"
         },
+        "hypothesis_id": {
+            "type": "string",
+            "description": "Validation hypothesis this ad record is testing"
+        },
+        "keyword_group_id": {
+            "type": "string",
+            "description": "Keyword group used for hypothesis-level validation"
+        },
+        "optimization_round": {
+            "type": "integer",
+            "description": "Optimization round number for the validation loop"
+        },
         "ad_group_name": {
             "type": "string",
             "description": "Ad group name"

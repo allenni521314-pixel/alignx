@@ -219,6 +219,24 @@ async def list_feedback_rounds(
     return {"items": [_feedback_round_to_dict(item) for item in items], "total": total, "skip": skip, "limit": limit}
 
 
+@router.get("/listing/learning-memory")
+async def get_learning_memory(
+    asin: str = "",
+    product_id: Optional[int] = None,
+    limit: int = 200,
+    current_user: UserResponse = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Aggregate historical feedback rounds into reusable judgment memory."""
+    service = JudgmentFeedbackRoundService(db)
+    return await service.learning_memory(
+        user_id=str(current_user.id),
+        asin=asin.strip().upper() or None,
+        product_id=product_id,
+        limit=limit,
+    )
+
+
 @router.patch("/listing/feedback-rounds/{round_id}")
 async def update_feedback_round(
     round_id: int,

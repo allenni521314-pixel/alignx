@@ -137,6 +137,7 @@ def build_agent_decision_system(product: dict, stages: list[dict]) -> dict:
     validation hypotheses, and feedback.
     """
 
+    learning_memory = product.get("learning_memory", {}) or {}
     selection = _stage(stages, "selection")
     launch = _stage(stages, "launch_check")
     diagnosis = _stage(stages, "listing_diagnosis")
@@ -148,13 +149,15 @@ def build_agent_decision_system(product: dict, stages: list[dict]) -> dict:
     judgment = report.get("judgment_system", {}) or {}
     alignment = judgment.get("alignment_scores", {}) or {}
     keyword_coverage = report.get("keyword_coverage", {}) or {}
+    cosmo_rufus = report.get("cosmo_rufus_analysis", {}) or {}
     missing_categories = keyword_coverage.get("missing_categories", {}) or {}
     missing_pain = missing_categories.get("pain_point", []) or []
     suggestions = report.get("suggestions", {}) or {}
     validation_items = (
-        judgment.get("sections", {})
-        .get("ad_validation", {})
-        .get("validation_items", [])
+        cosmo_rufus.get("validation_hypotheses", [])
+        or judgment.get("sections", {})
+            .get("ad_validation", {})
+            .get("validation_items", [])
         or []
     )
 
@@ -162,15 +165,27 @@ def build_agent_decision_system(product: dict, stages: list[dict]) -> dict:
     diagnosis_result = diagnosis.get("result", {}) or {}
     ad_result = ad_validation.get("result", {}) or {}
     timeline_events = review.get("result", {}).get("events", []) or []
+    hypothesis_validations = ad_result.get("hypothesis_validations", []) or []
+    assigned_hypothesis_validations = [
+        item for item in hypothesis_validations if item.get("hypothesis_id") != "unassigned"
+    ]
+    primary_validation = (
+        assigned_hypothesis_validations[0]
+        if assigned_hypothesis_validations
+        else hypothesis_validations[0]
+        if hypothesis_validations
+        else {}
+    )
+    primary_metrics = primary_validation.get("metrics", {}) if isinstance(primary_validation, dict) else {}
 
     review_score = _num(alignment.get("review_demand_alignment"))
     platform_score = _num(alignment.get("platform_semantic_alignment"))
     causal_score = _num(alignment.get("causal_conversion_alignment"))
     main_image_score = _num(launch_result.get("main_image_score"))
     risk_score = _num(diagnosis_result.get("risk_elimination"))
-    ad_clicks = _num(ad_result.get("clicks"))
-    ad_cvr = _num(ad_result.get("cvr"))
-    ad_acos = _num(ad_result.get("acos"))
+    ad_clicks = _num(primary_metrics.get("clicks") if primary_metrics else ad_result.get("clicks"))
+    ad_cvr = _num(primary_metrics.get("cvr") if primary_metrics else ad_result.get("cvr"))
+    ad_acos = _num(primary_metrics.get("acos") if primary_metrics else ad_result.get("acos"))
     timeline_count = len(timeline_events)
 
     evidence_cards: list[dict] = []
@@ -264,11 +279,13 @@ def build_agent_decision_system(product: dict, stages: list[dict]) -> dict:
         ad_action = item.get("ad_action", {}) or {}
         validation_hypotheses.append(
             {
-                "id": f"hypothesis-{index}",
+                "id": item.get("hypothesis_id") or item.get("id") or f"hypothesis-{index}",
                 "hypothesis": item.get("hypothesis") or "Listing 表达补强后，点击率与转化率应同步提升",
-                "basis": item.get("diagnosis_issue") or "来自统一判断系统的诊断问题",
+                "basis": item.get("diagnosis_issue") or item.get("cosmo_relation") or "来自统一判断系统的诊断问题",
+                "cosmo_relation": item.get("cosmo_relation", ""),
+                "rufus_question": item.get("rufus_question", ""),
                 "listing_action": item.get("suggested_listing_action") or suggestions.get("title_rewrite") or "补强Listing表达证据",
-                "ad_test_keywords": ad_action.get("keywords", []) or ["cat litter box odor eliminator"],
+                "ad_test_keywords": item.get("ad_test_keywords") or ad_action.get("keywords", []) or ["cat litter box odor eliminator"],
                 "match_types": ad_action.get("match_types", []) or ["phrase", "exact"],
                 "budget_rule": "先小预算验证，单关键词至少获得30次点击，整组超过100次点击后再判断",
                 "observation_window": "7-14天，避开大促和断货异常周期",
@@ -304,6 +321,13 @@ def build_agent_decision_system(product: dict, stages: list[dict]) -> dict:
     validation_hit = ad_clicks >= 100 and ad_cvr >= 8 and (ad_acos == 0 or ad_acos <= 35)
     hit_status = "已命中" if validation_hit else "待验证" if ad_clicks < 100 else "未命中"
     hit_rate = 100 if validation_hit else 0
+    validated_hypothesis_count = len([item for item in assigned_hypothesis_validations if item.get("hit_status") == "已命中"])
+    completed_hypothesis_count = len([item for item in assigned_hypothesis_validations if item.get("hit_status") != "待验证"])
+    hypothesis_hit_rate = (
+        round(validated_hypothesis_count * 100 / completed_hypothesis_count)
+        if completed_hypothesis_count
+        else hit_rate
+    )
 
     if validation_hit:
         reusable_learning = "除味机制表达与精准除味词广告验证方向成立，可进入数据回流沉淀。"
@@ -316,15 +340,54 @@ def build_agent_decision_system(product: dict, stages: list[dict]) -> dict:
         next_iteration = "拆分主图表达、详情页信任点和价格承诺，重新建立A/B测试。"
 
     failure_reason_taxonomy = [
-        {"key": "keyword_mismatch", "label": "关键词意图错配", "rule": "CTR低且点击样本充足时优先检查"},
-        {"key": "image_click_gap", "label": "主图点击不足", "rule": "曝光足够但CTR低时触发"},
-        {"key": "detail_trust_gap", "label": "详情页信任承接不足", "rule": "CTR提升但CVR不升时触发"},
-        {"key": "price_promise_gap", "label": "价格与承诺强度不匹配", "rule": "CVR低且价格高于竞品均值时触发"},
-        {"key": "review_support_gap", "label": "评论信任不足", "rule": "转化低且评论量/评分弱于竞品时触发"},
-        {"key": "competitor_interference", "label": "竞品促销或排名干扰", "rule": "自身表达未变但CTR/CVR突然下滑时触发"},
+        {
+            "key": "sample_not_enough",
+            "label": "样本不足",
+            "rule": "假设级点击少于100时，不允许直接判定诊断失败",
+            "next_action": "继续小预算拉样本，或减少关键词分组噪音",
+        },
+        {
+            "key": "keyword_mismatch",
+            "label": "关键词意图错配",
+            "rule": "点击样本充足但CTR低于0.4%时触发",
+            "next_action": "拆分属性词、场景词、状态触发词，暂停泛意图词",
+        },
+        {
+            "key": "image_click_gap",
+            "label": "主图点击不足",
+            "rule": "曝光超过1000且CTR低于0.25%时触发",
+            "next_action": "把已验证痛点证据前置到主图或第一张副图",
+        },
+        {
+            "key": "detail_trust_gap",
+            "label": "详情页信任承接不足",
+            "rule": "CTR不低但CVR低于8%时触发",
+            "next_action": "补强五点、A+、风险解释、使用边界和售后承诺",
+        },
+        {
+            "key": "price_promise_gap",
+            "label": "价格与承诺强度不匹配",
+            "rule": "CVR可接受但ACOS高于35%时触发",
+            "next_action": "检查价格带、优惠、主卖点承诺强度和竞品促销",
+        },
+        {
+            "key": "review_support_gap",
+            "label": "评论信任不足",
+            "rule": "转化低且评分、评论量弱于竞品时触发",
+            "next_action": "降低承诺强度，补证据，避免广告承接超过评论信任",
+        },
+        {
+            "key": "competitor_interference",
+            "label": "竞品促销或排名干扰",
+            "rule": "自身表达未变但CTR/CVR突然下滑时触发",
+            "next_action": "复查Top竞品价格、券、排名和主图变化",
+        },
     ]
 
-    if ad_clicks < 100:
+    primary_failure_reason = primary_validation.get("failure_reason") if isinstance(primary_validation, dict) else None
+    if primary_failure_reason:
+        likely_failure_reason = primary_failure_reason
+    elif ad_clicks < 100:
         likely_failure_reason = "sample_not_enough"
     elif not validation_hit and ad_cvr < 8:
         likely_failure_reason = "detail_trust_gap"
@@ -367,6 +430,21 @@ def build_agent_decision_system(product: dict, stages: list[dict]) -> dict:
         ],
         "current_round": product.get("optimization_round") or 1,
         "next_snapshot_timing": "执行Listing修改前先保存before，修改后保存after，广告验证完成后补充post_metrics",
+        "minimum_viable_contract": [
+            "每次Listing修改必须绑定至少1个source_evidence_id",
+            "每个广告验证记录必须绑定validation_hypothesis_id",
+            "点击样本不足时只能输出待验证，不能输出未命中",
+            "复盘结论必须写入hit_status和failure_reason",
+        ],
+        "current_gaps": [
+            gap
+            for gap, missing in [
+                ("广告记录尚未绑定诊断假设", not assigned_hypothesis_validations),
+                ("复盘记录尚未沉淀", timeline_count == 0),
+                ("广告样本不足100点击", ad_clicks < 100),
+            ]
+            if missing
+        ],
     }
 
     if evidence_cards:
@@ -405,12 +483,20 @@ def build_agent_decision_system(product: dict, stages: list[dict]) -> dict:
         "validation_hypotheses": validation_hypotheses,
         "hit_rate_learning": {
             "status": hit_status,
-            "hit_rate": hit_rate,
-            "basis": f"广告点击 {ad_clicks:.0f}，CVR {ad_cvr:.2f}%，ACOS {ad_acos:.2f}%，复盘记录 {len(timeline_events)} 条",
+            "hit_rate": hypothesis_hit_rate,
+            "basis": (
+                f"主验证假设 {primary_validation.get('hypothesis_id', 'unassigned')}："
+                f"点击 {ad_clicks:.0f}，CVR {ad_cvr:.2f}%，ACOS {ad_acos:.2f}%；"
+                f"已绑定假设 {len(assigned_hypothesis_validations)} 个，复盘记录 {len(timeline_events)} 条"
+            ),
             "reusable_learning": reusable_learning,
             "next_iteration": next_iteration,
             "likely_failure_reason": likely_failure_reason,
+            "hypothesis_validations": hypothesis_validations,
+            "assigned_hypothesis_count": len(assigned_hypothesis_validations),
+            "completed_hypothesis_count": completed_hypothesis_count,
         },
+        "learning_memory": learning_memory,
         "listing_version_contract": listing_version_contract,
         "failure_reason_taxonomy": failure_reason_taxonomy,
         "readiness": {

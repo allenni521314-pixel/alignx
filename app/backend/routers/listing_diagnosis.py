@@ -38,6 +38,7 @@ from services.amazon_rules_engine import evaluate_amazon_compliance, load_active
 from services.judgment_feedback_rounds import JudgmentFeedbackRoundService
 from services.listing_diagnoses import Listing_diagnosesService
 from services.judgment_system import JudgmentSystemService
+from services.cosmo_rufus_rules import build_cosmo_rufus_analysis, merge_cosmo_rufus_into_legacy
 
 logger = logging.getLogger(__name__)
 AI_DIAGNOSIS_TIMEOUT_SECONDS = int(os.getenv("AI_DIAGNOSIS_TIMEOUT_SECONDS", "180"))
@@ -1337,6 +1338,10 @@ async def _diagnose_single(
     causal_diagnosis = legacy_bridge.get("causal_diagnosis", data.get("causal_diagnosis", {}))
     ad_validation_plan = legacy_bridge.get("ad_validation_plan", data.get("ad_validation_plan", {}))
     # ========== 统一判断系统结束 ==========
+    cosmo_rufus_analysis = build_cosmo_rufus_analysis(listing, data)
+    data = merge_cosmo_rufus_into_legacy(data, cosmo_rufus_analysis)
+    ad_validation_plan = data.get("ad_validation_plan", ad_validation_plan)
+
     amazon_compliance = await _evaluate_listing_compliance(listing, db)
     data["amazon_compliance"] = amazon_compliance
 
@@ -1388,6 +1393,7 @@ async def _diagnose_single(
                                 "alignment_scores": judgment_system.get("alignment_scores", {}),
                                 "diagnosis_confidence": diagnosis_confidence,
                                 "data_integrity": data_integrity,
+                                "cosmo_rufus_analysis": cosmo_rufus_analysis,
                             },
                             ensure_ascii=False,
                         ),
@@ -1428,6 +1434,7 @@ async def _diagnose_single(
         "ad_validation_plan": ad_validation_plan,
         "data_integrity": data_integrity,
         "diagnosis_confidence": diagnosis_confidence,
+        "cosmo_rufus_analysis": cosmo_rufus_analysis,
         "amazon_compliance": amazon_compliance,
     }
 

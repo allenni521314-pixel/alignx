@@ -28,12 +28,25 @@ export default async (request) => {
   headers.delete("content-length");
   headers.set("accept-encoding", "identity");
 
-  const response = await fetch(targetUrl, {
-    method: request.method,
-    headers,
-    body: ["GET", "HEAD"].includes(request.method) ? undefined : request.body,
-    redirect: "manual",
-  });
+  let response;
+  try {
+    response = await fetch(targetUrl, {
+      method: request.method,
+      headers,
+      body: ["GET", "HEAD"].includes(request.method) ? undefined : request.body,
+      redirect: "manual",
+    });
+  } catch (error) {
+    return json(
+      {
+        detail:
+          "Public API backend is temporarily unreachable. Please retry after the backend wakes up.",
+        upstream: backendBase,
+        error: error instanceof Error ? error.message : "Unknown proxy error",
+      },
+      502
+    );
+  }
 
   const responseHeaders = new Headers(response.headers);
   responseHeaders.delete("content-encoding");

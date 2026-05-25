@@ -23,6 +23,9 @@ router = APIRouter(prefix="/api/v1/entities/ad_data", tags=["ad_data"])
 class Ad_dataData(BaseModel):
     """Entity data schema (for create/update)"""
     product_id: int
+    hypothesis_id: Optional[str] = None
+    keyword_group_id: Optional[str] = None
+    optimization_round: Optional[int] = 1
     ad_group_name: str
     keyword: str
     match_type: str = None
@@ -38,6 +41,9 @@ class Ad_dataData(BaseModel):
 class Ad_dataUpdateData(BaseModel):
     """Update entity data (partial updates allowed)"""
     product_id: Optional[int] = None
+    hypothesis_id: Optional[str] = None
+    keyword_group_id: Optional[str] = None
+    optimization_round: Optional[int] = None
     ad_group_name: Optional[str] = None
     keyword: Optional[str] = None
     match_type: Optional[str] = None
@@ -55,6 +61,9 @@ class Ad_dataResponse(BaseModel):
     id: int
     user_id: str
     product_id: int
+    hypothesis_id: Optional[str] = None
+    keyword_group_id: Optional[str] = None
+    optimization_round: Optional[int] = None
     ad_group_name: str
     keyword: str
     match_type: Optional[str] = None
