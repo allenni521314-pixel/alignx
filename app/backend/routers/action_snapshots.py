@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import get_db
-from dependencies.auth import get_current_user
+from dependencies.auth import get_current_user, get_user_scope_ids
 from schemas.auth import UserResponse
 from services.action_snapshots import ActionSnapshotsService
 
@@ -114,8 +114,9 @@ async def list_snapshots(
     db: AsyncSession = Depends(get_db),
 ):
     svc = ActionSnapshotsService(db)
+    scope_user_ids = await get_user_scope_ids(current_user, db)
     rows, total = await svc.list(
-        user_id=str(current_user.id),
+        user_id=scope_user_ids,
         module_key=module_key,
         action_key=action_key,
         asin=asin,
