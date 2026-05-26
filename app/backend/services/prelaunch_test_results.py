@@ -14,16 +14,25 @@ class Prelaunch_test_resultsService:
         await self.db.refresh(record)
         return record
 
-    async def get_by_id(self, record_id: int, user_id: str):
+    async def get_by_id(self, record_id: int, user_id: str | list[str]):
+        user_filter = (
+            Prelaunch_test_results.user_id.in_(user_id)
+            if isinstance(user_id, list)
+            else Prelaunch_test_results.user_id == user_id
+        )
         q = select(Prelaunch_test_results).where(
             Prelaunch_test_results.id == record_id,
-            Prelaunch_test_results.user_id == user_id,
+            user_filter,
         )
         result = await self.db.execute(q)
         return result.scalar_one_or_none()
 
-    async def list_by_user(self, user_id: str, skip: int = 0, limit: int = 50, search: str = ""):
-        base = [Prelaunch_test_results.user_id == user_id]
+    async def list_by_user(self, user_id: str | list[str], skip: int = 0, limit: int = 50, search: str = ""):
+        base = [
+            Prelaunch_test_results.user_id.in_(user_id)
+            if isinstance(user_id, list)
+            else Prelaunch_test_results.user_id == user_id
+        ]
         if search.strip():
             base.append(Prelaunch_test_results.title.ilike(f"%{search.strip()}%"))
 
