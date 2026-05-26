@@ -22,7 +22,8 @@ interface AuthContextType {
   error: string | null;
   login: () => Promise<void>;
   logout: () => Promise<void>;
-  phoneLogin: (phone: string, password: string, displayName?: string) => Promise<void>;
+  sendEmailCode: (email: string, displayName?: string) => Promise<{ debugCode?: string; delivery: string }>;
+  emailLogin: (email: string, code: string, displayName?: string) => Promise<void>;
   refetch: () => Promise<void>;
   isAdmin: boolean;
 }
@@ -74,7 +75,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       setLoading(true);
       setError(null);
 
-      // First check if we have a phone-auth token in localStorage
+      // First check if we have an AlignX email-auth token in localStorage
       const storedToken = localStorage.getItem(AUTH_TOKEN_KEY);
       const storedUser = localStorage.getItem(AUTH_USER_KEY);
 
@@ -117,33 +118,39 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         // Not authenticated via OIDC either
       }
 
-      // No auth found — create a guest user so the app works without login
-      setUser({
-        id: 'guest',
-        email: 'guest@alignx.local',
-        name: 'Guest',
-        role: 'user',
-      });
+      setUser(null);
     } catch {
-      // Even on error, provide guest access
-      setUser({
-        id: 'guest',
-        email: 'guest@alignx.local',
-        name: 'Guest',
-        role: 'user',
-      });
+      setUser(null);
     } finally {
       setLoading(false);
     }
   }, []);
 
-  const phoneLogin = useCallback(async (phone: string, password: string, displayName = '') => {
+  const sendEmailCode = useCallback(async (email: string, displayName = '') => {
+    setError(null);
+    try {
+      const res = await axios.post(`${getApiBaseUrl()}/api/v1/auth/email/send-code`, {
+        email,
+        display_name: displayName,
+      });
+      return {
+        debugCode: res.data?.debug_code || undefined,
+        delivery: res.data?.delivery || 'email',
+      };
+    } catch (err) {
+      const message = getRequestErrorMessage(err, '验证码发送失败，请稍后重试');
+      setError(message);
+      throw new Error(message);
+    }
+  }, []);
+
+  const emailLogin = useCallback(async (email: string, code: string, displayName = '') => {
     setError(null);
     let res;
     try {
-      res = await axios.post(`${getApiBaseUrl()}/api/v1/auth/phone/login`, {
-        phone,
-        password,
+      res = await axios.post(`${getApiBaseUrl()}/api/v1/auth/email/login`, {
+        email,
+        code,
         display_name: displayName,
       });
     } catch (err) {
@@ -154,7 +161,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
     const { token, user: userData } = res.data;
 
-    // Store token and user in localStorage
     localStorage.setItem(AUTH_TOKEN_KEY, token);
     localStorage.setItem(AUTH_USER_KEY, JSON.stringify(userData));
 
@@ -188,7 +194,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     try {
       setError(null);
 
-      // Clear phone auth data
+      // Clear AlignX auth data
       localStorage.removeItem(AUTH_TOKEN_KEY);
       localStorage.removeItem(AUTH_USER_KEY);
 
@@ -215,7 +221,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     error,
     login,
     logout,
-    phoneLogin,
+    sendEmailCode,
+    emailLogin,
     refetch: checkAuthStatus,
     isAdmin: user?.role === 'admin',
   };

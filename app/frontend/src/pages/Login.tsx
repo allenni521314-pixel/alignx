@@ -5,55 +5,93 @@ import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { AlignXLogo } from "@/components/AlignXLogo";
-import { ArrowLeft, Building2, Loader2, Lock, Phone, ShieldCheck } from "lucide-react";
+import { ArrowLeft, Building2, KeyRound, Loader2, Mail, ShieldCheck } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
-
-const FIXED_PASSWORD = "alignx2026";
 
 export default function Login() {
   const navigate = useNavigate();
-  const { phoneLogin } = useAuth();
+  const { sendEmailCode, emailLogin } = useAuth();
   const [storeName, setStoreName] = useState("");
-  const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
+  const [code, setCode] = useState("");
   const [remember, setRemember] = useState(true);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [codeSent, setCodeSent] = useState(false);
+  const [sendingCode, setSendingCode] = useState(false);
   const [loading, setLoading] = useState(false);
+
+  const validateBase = () => {
+    const cleanStoreName = storeName.trim();
+    const cleanEmail = email.trim().toLowerCase();
+
+    if (!cleanStoreName) {
+      setError("请输入测试公司或亚马逊店铺名称");
+      return null;
+    }
+    if (cleanStoreName.length < 2) {
+      setError("公司或店铺名称至少需要2个字符");
+      return null;
+    }
+    if (!cleanEmail) {
+      setError("请输入邮箱");
+      return null;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+      setError("请输入正确的邮箱地址");
+      return null;
+    }
+
+    return { cleanStoreName, cleanEmail };
+  };
+
+  const handleSendCode = async () => {
+    setError("");
+    setNotice("");
+    const base = validateBase();
+    if (!base) return;
+
+    setSendingCode(true);
+    try {
+      const res = await sendEmailCode(base.cleanEmail, base.cleanStoreName);
+      setCodeSent(true);
+      setNotice(res.debugCode ? `验证码：${res.debugCode}` : "验证码已发送，请查看邮箱");
+    } catch (err: unknown) {
+      const message =
+        typeof err === "object" && err && "message" in err
+          ? String((err as { message?: string }).message)
+          : "验证码发送失败，请稍后重试";
+      setError(message);
+    } finally {
+      setSendingCode(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    setNotice("");
 
-    const cleanStoreName = storeName.trim();
-    const cleanPhone = phone.trim();
+    const base = validateBase();
+    if (!base) return;
 
-    if (!cleanStoreName) {
-      setError("请输入测试公司或亚马逊店铺名称");
-      return;
-    }
-    if (cleanStoreName.length < 2) {
-      setError("公司或店铺名称至少需要2个字符");
-      return;
-    }
-    if (!cleanPhone) {
-      setError("请输入手机号");
-      return;
-    }
-    if (!/^1[3-9]\d{9}$/.test(cleanPhone)) {
-      setError("请输入正确的11位手机号");
+    const cleanCode = code.trim();
+    if (!/^\d{6}$/.test(cleanCode)) {
+      setError("请输入6位邮箱验证码");
       return;
     }
 
     setLoading(true);
     try {
-      await phoneLogin(cleanPhone, FIXED_PASSWORD, cleanStoreName);
+      await emailLogin(base.cleanEmail, cleanCode, base.cleanStoreName);
       if (remember) localStorage.setItem("alignx_remember_login", "1");
       localStorage.setItem(
         "alignx_trial_user",
         JSON.stringify({
-          name: cleanStoreName,
-          account: cleanPhone,
+          name: base.cleanStoreName,
+          account: base.cleanEmail,
           plan: "内测版",
-          login_type: "beta_store_phone",
+          login_type: "beta_store_email",
         })
       );
       navigate("/dashboard");
@@ -61,7 +99,7 @@ export default function Login() {
       const message =
         typeof err === "object" && err && "message" in err
           ? String((err as { message?: string }).message)
-          : "登录失败，请检查账号或密码";
+          : "登录失败，请检查邮箱或验证码";
       setError(message);
     } finally {
       setLoading(false);
@@ -108,26 +146,41 @@ export default function Login() {
 
             <div className="space-y-2">
               <label className="text-sm text-gray-600 flex items-center gap-2">
-                <Phone className="w-4 h-4 text-brand-600" />
-                手机号
+                <Mail className="w-4 h-4 text-brand-600" />
+                邮箱
               </label>
               <Input
-                placeholder="请输入11位手机号"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value.replace(/\D/g, "").slice(0, 11))}
-                inputMode="numeric"
+                placeholder="请输入邮箱地址"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                inputMode="email"
                 className="h-12 bg-gray-50 border-gray-200"
               />
             </div>
 
-            <div className="rounded-lg border border-brand-100 bg-brand-50 px-4 py-3">
-              <div className="flex items-center gap-2 text-sm font-medium text-brand-700">
-                <Lock className="w-4 h-4 shrink-0" />
-                测试密码已自动填充
+            <div className="space-y-2">
+              <label className="text-sm text-gray-600 flex items-center gap-2">
+                <KeyRound className="w-4 h-4 text-brand-600" />
+                邮箱验证码
+              </label>
+              <div className="flex gap-2">
+                <Input
+                  placeholder="请输入6位验证码"
+                  value={code}
+                  onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                  inputMode="numeric"
+                  className="h-12 bg-gray-50 border-gray-200"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={sendingCode}
+                  onClick={handleSendCode}
+                  className="h-12 min-w-[112px]"
+                >
+                  {sendingCode ? <Loader2 className="w-4 h-4 animate-spin" /> : codeSent ? "重新发送" : "发送验证码"}
+                </Button>
               </div>
-              <p className="mt-1 text-xs text-gray-500">
-                内测版本统一使用固定测试密码，登录时系统会自动提交。
-              </p>
             </div>
 
             <div className="flex items-center justify-between text-sm">
@@ -144,6 +197,11 @@ export default function Login() {
             {error && (
               <div className="text-red-600 text-sm bg-red-50 border border-red-100 rounded-lg px-4 py-3">
                 {error}
+              </div>
+            )}
+            {notice && (
+              <div className="text-brand-700 text-sm bg-brand-50 border border-brand-100 rounded-lg px-4 py-3">
+                {notice}
               </div>
             )}
 

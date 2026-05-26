@@ -1,13 +1,20 @@
 import { useAuth } from "@/contexts/AuthContext";
+import { useEffect } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 
 /**
- * Hook that previously required authentication and redirected to /login.
- * Now it simply returns the current auth state without enforcing login.
- * Pages will work for both authenticated and guest users.
+ * Require an authenticated beta account for app pages.
  */
 export function useRequireAuth() {
   const { user, loading } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
 
-  // No redirect — allow guest access
+  useEffect(() => {
+    if (!loading && !user) {
+      navigate("/login", { replace: true, state: { from: `${location.pathname}${location.search}` } });
+    }
+  }, [loading, location.pathname, location.search, navigate, user]);
+
   return { user, loading, isAuthenticated: !!user };
 }

@@ -95,7 +95,7 @@ export default function Settings() {
                 <div className="grid md:grid-cols-2 gap-4">
                   <div>
                     <Label className="text-gray-500">账号</Label>
-                    <Input value={user?.email || "guest@alignx.local"} disabled className="mt-1.5 bg-gray-50" />
+                    <Input value={user?.email || "未登录"} disabled className="mt-1.5 bg-gray-50" />
                   </div>
                   <div>
                     <Label className="text-gray-500">用户状态</Label>
