@@ -110,6 +110,7 @@ interface KeywordSalesValidationReport {
     organic_top50_count?: number;
     sponsored_keyword_count?: number;
     avg_organic_position?: number | null;
+    rank_data_source?: string;
     rank_data_note?: string;
   };
   organic_rank_strength: number;
@@ -2628,6 +2629,9 @@ export default function AsinManager() {
                                 <h3 className="font-bold text-gray-900">关键词销量验证</h3>
                               </div>
                               <p className="text-xs text-gray-500 mt-1">销量来源风险雷达：交叉查看 BSR、评论、自然排名、广告位与促销信号。</p>
+                              <p className="text-[11px] text-gray-400 mt-1">
+                                数据来源：{keywordReport.keyword_rank_summary?.rank_data_source === "scrapling_top40_search" ? "Scrapling核心词Top40搜索快照" : "规则估算快照"}
+                              </p>
                             </div>
                             <div className="text-right">
                               <div className="text-2xl font-bold text-emerald-700">{Math.round(keywordReport.keyword_sales_score)}</div>
@@ -2660,12 +2664,16 @@ export default function AsinManager() {
                             {keywordReport.rank_snapshots.slice(0, 8).map((row) => (
                               <div key={row.keyword} className="grid grid-cols-5 px-3 py-2 text-xs border-t border-gray-100">
                                 <span className="col-span-2 font-medium text-gray-700">{row.keyword}</span>
-                                <span className={row.organic_position ? "text-emerald-700" : "text-gray-400"}>{row.organic_position || "未进前48"}</span>
+                                <span className={row.organic_position ? "text-emerald-700" : "text-gray-400"}>{row.organic_position || "未进Top40"}</span>
                                 <span className={row.sponsored_position ? "text-amber-700" : "text-gray-400"}>{row.sponsored_position || "-"}</span>
                                 <span className="text-gray-500">{row.search_page || "-"}</span>
                               </div>
                             ))}
                           </div>
+
+                          {keywordReport.keyword_rank_summary?.rank_data_note && (
+                            <p className="text-[11px] text-gray-500 mb-3">{keywordReport.keyword_rank_summary.rank_data_note}</p>
+                          )}
 
                           {keywordReport.suspicious_signals.length > 0 && (
                             <div className="rounded-lg bg-red-50 border border-red-100 p-3 mb-3">

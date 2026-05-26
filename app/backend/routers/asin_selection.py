@@ -217,6 +217,54 @@ def _rank_snapshot(asin: str, marketplace: str, keyword: str, product: dict[str,
     }
 
 
+async def _scrapling_rank_snapshots(
+    asin: str,
+    marketplace: str,
+    keywords: list[str],
+    crawl_time: datetime,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    ranks: list[dict[str, Any]] = []
+    errors: list[str] = []
+    target_asin = asin.strip().upper()
+    for keyword in keywords[:3]:
+        keyword_items: list[dict[str, Any]] = []
+        for batch_index in range(1, 5):
+            try:
+                batch = await capture_top40_batch(keyword=keyword, marketplace=marketplace, batch_index=batch_index, include_details=False)
+            except Exception as exc:
+                errors.append(f"{keyword}: batch_{batch_index}: {str(exc)[:160]}")
+                break
+            if batch.get("status") == "blocked":
+                errors.append(f"{keyword}: batch_{batch_index}: blocked")
+                break
+            keyword_items.extend(batch.get("items") or [])
+            if any(str(item.get("asin") or "").upper() == target_asin for item in keyword_items):
+                break
+
+        matched = [item for item in keyword_items if str(item.get("asin") or "").upper() == target_asin]
+        organic_positions = [int(item["searchRank"]) for item in matched if not item.get("isSponsored") and item.get("searchRank")]
+        sponsored_positions = [int(item["searchRank"]) for item in matched if item.get("isSponsored") and item.get("searchRank")]
+        organic_position = min(organic_positions) if organic_positions else None
+        sponsored_position = min(sponsored_positions) if sponsored_positions else None
+        overall = min([p for p in [organic_position, sponsored_position] if p], default=None)
+        ranks.append(
+            {
+                "asin": target_asin,
+                "keyword": keyword,
+                "search_page": math.ceil((overall or 49) / 16),
+                "organic_position": organic_position,
+                "sponsored_position": sponsored_position,
+                "overall_position": overall,
+                "is_organic": organic_position is not None and organic_position <= 40,
+                "is_sponsored": sponsored_position is not None,
+                "rank_type": "scrapling_top40_search_snapshot" if overall else "scrapling_top40_not_found",
+                "crawl_time": crawl_time,
+                "marketplace": marketplace,
+            }
+        )
+    return ranks, errors
+
+
 def _traffic_level(score: float) -> str:
     if score >= 80:
         return "关键词销量健康，适合进入机会池"
@@ -287,13 +335,20 @@ def _build_report(asin: str, marketplace: str, category: str, product: dict[str,
 
     opportunity = [q["keyword"] for q in qualities if q["conversion_intent_score"] >= 65 and q["relevance_score"] >= 45][:8]
     risk_keywords = [r["keyword"] for r in ranks if not r.get("organic_position") or (r.get("organic_position") or 99) > 35][:8]
+    rank_types = {str(r.get("rank_type") or "") for r in ranks}
+    has_real_search_snapshot = any(rank_type.startswith("scrapling_top40") for rank_type in rank_types)
     summary = {
         "core_keywords_checked": len(core),
         "organic_top20_count": sum(1 for r in ranks if r.get("organic_position") and r["organic_position"] <= 20),
         "organic_top50_count": len(organic_positions),
         "sponsored_keyword_count": sponsored_count,
         "avg_organic_position": round(sum(organic_positions) / len(organic_positions), 1) if organic_positions else None,
-        "rank_data_note": "当前为风险雷达快照，可接入真实关键词排名数据源替换采集层。",
+        "rank_data_source": "scrapling_top40_search" if has_real_search_snapshot else "estimated_search_snapshot",
+        "rank_data_note": (
+            "当前使用核心关键词亚马逊Top40搜索快照，区分自然位和Sponsored广告位。"
+            if has_real_search_snapshot
+            else "当前为风险雷达估算快照，建议接入真实关键词排名数据源校准。"
+        ),
     }
     return {
         "asin": asin,
@@ -346,8 +401,13 @@ async def _generate_validation(request: KeywordSalesValidationRequest, user_id: 
         keywords = [asin.lower()]
 
     qualities = [_keyword_quality(keyword, product["title"], product["category"]) for keyword in keywords]
-    ranks = [_rank_snapshot(asin, marketplace, q["keyword"], product, q, crawl_time) for q in qualities]
+    ranks, rank_errors = await _scrapling_rank_snapshots(asin, marketplace, keywords, crawl_time)
+    if not ranks or all(not rank.get("overall_position") for rank in ranks):
+        ranks = [_rank_snapshot(asin, marketplace, q["keyword"], product, q, crawl_time) for q in qualities]
+        rank_errors = rank_errors + ["scrapling_top40_no_match_fallback_to_estimated"]
     report = _build_report(asin, marketplace, product["category"], product, ranks, qualities, request.days_range)
+    if rank_errors:
+        report["keyword_rank_summary"]["rank_capture_errors"] = rank_errors[:8]
 
     for rank in ranks:
         db.add(AsinKeywordRankSnapshot(user_id=user_id, **rank))
