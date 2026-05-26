@@ -288,6 +288,8 @@ def _build_report(asin: str, marketplace: str, category: str, product: dict[str,
     top20_count = sum(1 for r in ranks if r.get("organic_position") and r["organic_position"] <= 20)
     top20_coverage = top20_count / max(1, len(ranks))
     sponsored_ratio = sponsored_count / max(1, len(ranks))
+    rank_types = {str(r.get("rank_type") or "") for r in ranks}
+    has_real_search_snapshot = any(rank_type.startswith("scrapling_top40") for rank_type in rank_types)
     ad_signal = sponsored_ratio * 60 + (12 if has_promo else 0) + (25 if not organic_positions else 0)
     organic_credit = organic_strength * 0.45 + top20_coverage * 25
     bsr_credit = 0
@@ -298,7 +300,16 @@ def _build_report(asin: str, marketplace: str, category: str, product: dict[str,
             bsr_credit = 10
         elif bsr <= 5000:
             bsr_credit = 6
-    ad_risk = round(max(0, min(100, ad_signal - organic_credit - bsr_credit)))
+    raw_ad_risk = max(0, min(100, ad_signal - organic_credit - bsr_credit))
+    # Do not show 0 risk just because no Sponsored slot was captured. Top40
+    # snapshots are sparse and ad placement changes by time, account and query.
+    # A zero here would imply "no ad risk", which is too strong for seller use.
+    if sponsored_count == 0:
+        evidence_floor = 20 if has_real_search_snapshot and organic_strength >= 75 else 28
+        if not has_real_search_snapshot:
+            evidence_floor = 35
+        raw_ad_risk = max(raw_ad_risk, evidence_floor)
+    ad_risk = round(raw_ad_risk)
     core_match = round(core_good / max(1, len(core)) * 25)
     long_tail_score = min(15, len(long_tail) * 3)
     stability_score = 10 if organic_positions else 2
@@ -323,7 +334,7 @@ def _build_report(asin: str, marketplace: str, category: str, product: dict[str,
     if organic_strength >= 80 and ad_risk <= 20 and top20_coverage < 0.6:
         judgment = "核心词自然流量强，长尾覆盖不足"
     elif organic_strength >= 80 and ad_risk <= 20:
-        judgment = "自然流量健康"
+        judgment = "自然流量优秀"
     elif total >= 80:
         judgment = "自然流量健康"
     elif ad_risk >= 55 and organic_strength < 55:
@@ -341,8 +352,6 @@ def _build_report(asin: str, marketplace: str, category: str, product: dict[str,
 
     opportunity = [q["keyword"] for q in qualities if q["conversion_intent_score"] >= 65 and q["relevance_score"] >= 45][:8]
     risk_keywords = [r["keyword"] for r in ranks if not r.get("organic_position") or (r.get("organic_position") or 99) > 35][:8]
-    rank_types = {str(r.get("rank_type") or "") for r in ranks}
-    has_real_search_snapshot = any(rank_type.startswith("scrapling_top40") for rank_type in rank_types)
     summary = {
         "core_keywords_checked": len(core),
         "organic_top20_count": sum(1 for r in ranks if r.get("organic_position") and r["organic_position"] <= 20),
@@ -355,6 +364,12 @@ def _build_report(asin: str, marketplace: str, category: str, product: dict[str,
             if has_real_search_snapshot
             else "当前为风险雷达估算快照，建议接入真实关键词排名数据源校准。"
         ),
+        "ad_risk_note": (
+            "未抓到Sponsored广告位时，系统按优秀卖家的低风险下限20%处理，不再显示0；请用不同时段/账号复查广告位。"
+            if sponsored_count == 0
+            else "已抓到Sponsored广告位，广告依赖风险按广告位占比、自然位和促销信号综合计算。"
+        ),
+        "ad_risk_level": "优秀自然流量结构" if ad_risk <= 20 else "健康可控" if ad_risk <= 35 else "需要观察" if ad_risk <= 55 else "广告依赖风险高",
     }
     return {
         "asin": asin,
