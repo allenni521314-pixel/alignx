@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
 import {
   Target,
   Eye,
@@ -337,6 +338,7 @@ export function FiveDimensionScoreCard({
   const [expanded, setExpanded] = useState(!compact);
   const [expandedDim, setExpandedDim] = useState<string | null>(null);
   const [showAvoidanceReport, setShowAvoidanceReport] = useState(false);
+  const [selectedAction, setSelectedAction] = useState<{ action: string; route: string; note: string } | null>(null);
 
   const toggleDim = (key: string) => {
     setExpandedDim(expandedDim === key ? null : key);
@@ -390,18 +392,58 @@ export function FiveDimensionScoreCard({
     window.location.href = "/asin-manager";
   };
 
+  const goToActionRoute = (action: string, route: string, note: string) => {
+    const payload = {
+      action,
+      asin: result.asin,
+      product_title: result.product_title,
+      decision,
+      pool_status: poolStatus,
+      route,
+      created_at: new Date().toISOString(),
+    };
+    localStorage.setItem("alignx_next_action_context", JSON.stringify(payload));
+    setSelectedAction({ action, route, note });
+    toast.success(note);
+    setTimeout(() => {
+      window.location.href = route;
+    }, 250);
+  };
+
   const handleNextAction = (action: string) => {
     if (action.includes("风险") || action.includes("证据")) {
       scrollToRiskEvidence();
+      setSelectedAction({ action, route: "#asin-risk-evidence", note: "已展开风险证据，请先确认一票否决是否真实成立。" });
       return;
     }
     if (action.includes("避坑") || action.includes("报告")) {
       showReportInline();
+      setSelectedAction({ action, route: "#asin-avoidance-report", note: "已生成页面内避坑报告，可复制后做人工复核。" });
       return;
     }
-    if (action.includes("重新选品") || action.includes("选品")) {
-      restartSelection();
+    const asinParam = encodeURIComponent(result.asin || "");
+    const titleParam = encodeURIComponent(result.product_title || "");
+    if (action.includes("Listing") || action.includes("改良") || action.includes("上新")) {
+      goToActionRoute(action, `/listing-launch-check?asin=${asinParam}&source=asin-decision`, "已进入Listing/上新检测，继续验证页面承接力。");
+      return;
     }
+    if (action.includes("广告") || action.includes("测试关键词") || action.includes("验证指标") || action.includes("最小验证")) {
+      goToActionRoute(action, `/ab-test-comparison?asin=${asinParam}&source=asin-decision`, "已进入广告验证计划，把选品假设转成可测试指标。");
+      return;
+    }
+    if (action.includes("执行") || action.includes("跟踪")) {
+      goToActionRoute(action, `/optimization-suggestions?view=data-feedback&asin=${asinParam}`, "已进入验证回流，用执行记录反哺判断模型。");
+      return;
+    }
+    if (action.includes("竞品") || action.includes("配件") || action.includes("周边")) {
+      goToActionRoute(action, `/competitor-analysis?tab=strategy&asin=${asinParam}&angle=adjacent`, "已进入竞品/周边分析，优先找可切入的配件或差评机会。");
+      return;
+    }
+    if (action.includes("替代机会") || action.includes("相邻类目") || action.includes("重新选择") || action.includes("重新选品") || action.includes("选品")) {
+      goToActionRoute(action, `/asin-manager?mode=adjacent&asin=${asinParam}&seed=${titleParam}`, "已回到ASIN机会页，按相邻类目/替代机会继续找入口。");
+      return;
+    }
+    goToActionRoute(action, `/asin-manager?next_action=${encodeURIComponent(action)}&asin=${asinParam}`, "已记录下一步动作，返回ASIN决策继续处理。");
   };
 
   const hasOldPriceItems = Boolean(
@@ -667,6 +709,14 @@ export function FiveDimensionScoreCard({
               <pre className="whitespace-pre-wrap text-[11px] leading-relaxed text-amber-900 font-sans">
                 {buildAvoidanceReport()}
               </pre>
+            </div>
+          )}
+
+          {selectedAction && (
+            <div className="rounded-lg border border-brand-100 bg-brand-50 p-3 text-xs text-brand-900 leading-relaxed">
+              <Info className="w-3.5 h-3.5 inline mr-1 text-brand-500" />
+              {selectedAction.note}
+              <span className="ml-2 text-brand-600">目标：{selectedAction.route}</span>
             </div>
           )}
 
