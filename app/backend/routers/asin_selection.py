@@ -10,7 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import get_db
-from dependencies.auth import get_current_user
+from dependencies.auth import get_current_user, get_user_scope_ids
 from models.asin_keyword_sales_validation import (
     AsinKeywordIntentScore,
     AsinKeywordRankSnapshot,
@@ -555,9 +555,10 @@ async def keyword_sales_history(
     db: AsyncSession = Depends(get_db),
 ):
     asin = asin.strip().upper()
+    scope_user_ids = await get_user_scope_ids(current_user, db)
     result = await db.execute(
         select(AsinKeywordSalesValidationReport)
-        .where(AsinKeywordSalesValidationReport.user_id == str(current_user.id), AsinKeywordSalesValidationReport.asin == asin)
+        .where(AsinKeywordSalesValidationReport.user_id.in_(scope_user_ids), AsinKeywordSalesValidationReport.asin == asin)
         .order_by(AsinKeywordSalesValidationReport.created_at.desc())
         .limit(30)
     )
