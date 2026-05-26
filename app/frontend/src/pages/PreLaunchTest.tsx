@@ -1421,7 +1421,7 @@ export default function PreLaunchTest() {
 
           <PageHeader
             objective="上架前判断Listing是否建议上架"
-            inputSource="标题、五点、主图/副图、A+、价格、类目、关键词、目标价格带"
+            inputSource="标题、五点、主图/副图、A+、后台搜索关键词"
             process="按评论需求、COSMO语义和因果转化标准做上新准入检测"
             outputTarget="是否建议上架、风险等级、必改项、缺失关键词、表达错配点"
             action="修改必改项后进入本品诊断，生成广告验证假设"
@@ -1477,40 +1477,19 @@ export default function PreLaunchTest() {
               />
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="text-sm text-gray-500 mb-1.5 block flex items-center gap-1.5">
-                  <Search className="w-3.5 h-3.5" /> 类目
-                </label>
-                <Input
-                  value={category}
-                  onChange={(e) => setCategory(e.target.value)}
-                  placeholder="例如 Pet Supplies / Cat Litter Boxes"
-                  className="bg-gray-50 border-gray-200 text-gray-900 placeholder:text-gray-600 h-14 text-base"
-                />
-              </div>
-              <div>
-                <label className="text-sm text-gray-500 mb-1.5 block flex items-center gap-1.5">
-                  <TrendingUp className="w-3.5 h-3.5" /> 价格
-                </label>
-                <Input
-                  value={price}
-                  onChange={(e) => setPrice(e.target.value)}
-                  placeholder="例如 $29.99"
-                  className="bg-gray-50 border-gray-200 text-gray-900 placeholder:text-gray-600 h-14 text-base"
-                />
-              </div>
-              <div>
-                <label className="text-sm text-gray-500 mb-1.5 block flex items-center gap-1.5">
-                  <CheckCircle2 className="w-3.5 h-3.5" /> 目标价格带
-                </label>
-                <Input
-                  value={targetPriceBand}
-                  onChange={(e) => setTargetPriceBand(e.target.value)}
-                  placeholder="例如 低价带 / 中价带 / 高价带"
-                  className="bg-gray-50 border-gray-200 text-gray-900 placeholder:text-gray-600 h-14 text-base"
-                />
-              </div>
+            <div>
+              <label className="text-sm text-gray-500 mb-1.5 block flex items-center gap-1.5">
+                <List className="w-3.5 h-3.5" /> 五点描述 *
+              </label>
+              <Textarea
+                value={bulletPoints}
+                onChange={(e) => setBulletPoints(e.target.value)}
+                placeholder="输入五点描述，每条一行：&#10;• 第一点描述...&#10;• 第二点描述...&#10;• 第三点描述...&#10;• 第四点描述...&#10;• 第五点描述..."
+                className="bg-gray-50 border-gray-200 text-gray-900 placeholder:text-gray-600 min-h-[240px] resize-y leading-6"
+              />
+              <p className="mt-1.5 text-[11px] text-gray-500">
+                五点每点只讲一个购买理由：功能、效果、场景、信任、售后；避免空喊 high quality / best / premium。
+              </p>
             </div>
 
             <div>
@@ -1551,21 +1530,6 @@ export default function PreLaunchTest() {
                   onRemove={handleAPlusImageRemove}
                 />
               </div>
-            </div>
-
-            <div>
-              <label className="text-sm text-gray-500 mb-1.5 block flex items-center gap-1.5">
-                <List className="w-3.5 h-3.5" /> 五点描述 *
-              </label>
-              <Textarea
-                value={bulletPoints}
-                onChange={(e) => setBulletPoints(e.target.value)}
-                placeholder="输入五点描述，每条一行：&#10;• 第一点描述...&#10;• 第二点描述...&#10;• 第三点描述...&#10;• 第四点描述...&#10;• 第五点描述..."
-                className="bg-gray-50 border-gray-200 text-gray-900 placeholder:text-gray-600 min-h-[240px] resize-y leading-6"
-              />
-              <p className="mt-1.5 text-[11px] text-gray-500">
-                五点每点只讲一个购买理由：功能、效果、场景、信任、售后；避免空喊 high quality / best / premium。
-              </p>
             </div>
 
             <Button
@@ -1828,7 +1792,7 @@ export default function PreLaunchTest() {
               </div>
               <h3 className="text-gray-500 font-medium mb-2">Listing 上新检测</h3>
               <p className="text-gray-600 text-sm max-w-md mx-auto leading-relaxed">
-                输入标题、五点、图片、A+、价格、类目、关键词和目标价格带，
+                输入标题、五点、图片、A+和后台搜索关键词，
                 系统会输出是否建议上架、风险等级、必改项、缺词和表达错配点
               </p>
               <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mt-8 max-w-2xl mx-auto">
