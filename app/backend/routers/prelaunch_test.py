@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import get_db
-from dependencies.auth import get_current_user
+from dependencies.auth import get_current_user, get_user_scope_ids
 from schemas.auth import UserResponse
 from services.ai_gateway import AgentRequest, AIGatewayService
 from services.prelaunch_test_results import Prelaunch_test_resultsService
@@ -566,8 +566,9 @@ async def get_history(
 ):
     """Get user's pre-launch test history."""
     svc = Prelaunch_test_resultsService(db)
+    scope_user_ids = await get_user_scope_ids(current_user, db)
     rows, total = await svc.list_by_user(
-        user_id=str(current_user.id),
+        user_id=scope_user_ids,
         skip=skip,
         limit=limit,
         search=search,
@@ -598,7 +599,8 @@ async def get_result_detail(
 ):
     """Get full detail of a pre-launch test result."""
     svc = Prelaunch_test_resultsService(db)
-    record = await svc.get_by_id(result_id, user_id=str(current_user.id))
+    scope_user_ids = await get_user_scope_ids(current_user, db)
+    record = await svc.get_by_id(result_id, user_id=scope_user_ids)
     if not record:
         raise HTTPException(status_code=404, detail="记录不存在")
 
