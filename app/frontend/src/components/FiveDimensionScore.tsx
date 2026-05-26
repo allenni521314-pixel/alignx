@@ -18,6 +18,7 @@ import {
   ShieldAlert,
   Route,
   Database,
+  Copy,
 } from "lucide-react";
 
 /* ------------------------------------------------------------------ */
@@ -343,6 +344,7 @@ export function FiveDimensionScoreCard({
 }) {
   const [expanded, setExpanded] = useState(!compact);
   const [expandedDim, setExpandedDim] = useState<string | null>(null);
+  const [showAvoidanceReport, setShowAvoidanceReport] = useState(false);
 
   const toggleDim = (key: string) => {
     setExpandedDim(expandedDim === key ? null : key);
@@ -355,9 +357,9 @@ export function FiveDimensionScoreCard({
     }, 80);
   };
 
-  const downloadAvoidanceReport = () => {
+  const buildAvoidanceReport = () => {
     const triggeredVetoes = (result.veto_rules || []).filter((rule) => rule.triggered);
-    const lines = [
+    return [
       `ASIN避坑报告：${result.asin}`,
       `产品：${result.product_title || "-"}`,
       `总分：${result.total_score}`,
@@ -377,16 +379,19 @@ export function FiveDimensionScoreCard({
       "",
       "建议动作：",
       ...(result.next_actions || result.suggestions || []).map((item) => `- ${item}`),
-    ];
-    const blob = new Blob([lines.join("\n")], { type: "text/plain;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `${result.asin || "asin"}-avoidance-report.txt`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
+    ].join("\n");
+  };
+
+  const showReportInline = () => {
+    setShowAvoidanceReport(true);
+    setExpanded(true);
+    setTimeout(() => {
+      document.getElementById("asin-avoidance-report")?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 80);
+  };
+
+  const copyAvoidanceReport = async () => {
+    await navigator.clipboard?.writeText(buildAvoidanceReport());
   };
 
   const restartSelection = () => {
@@ -399,7 +404,7 @@ export function FiveDimensionScoreCard({
       return;
     }
     if (action.includes("避坑") || action.includes("报告")) {
-      downloadAvoidanceReport();
+      showReportInline();
       return;
     }
     if (action.includes("重新选品") || action.includes("选品")) {
@@ -642,6 +647,29 @@ export function FiveDimensionScoreCard({
                   </div>
                 ))}
               </div>
+            </div>
+          )}
+
+          {showAvoidanceReport && (
+            <div id="asin-avoidance-report" className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+              <div className="flex items-start justify-between gap-3 mb-2">
+                <h4 className="text-xs font-semibold text-amber-800 flex items-center gap-1">
+                  <ShieldAlert className="w-3.5 h-3.5" />
+                  ASIN避坑报告
+                </h4>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-xs border-amber-200 bg-white text-amber-800 hover:bg-amber-100"
+                  onClick={copyAvoidanceReport}
+                >
+                  <Copy className="w-3.5 h-3.5 mr-1" />
+                  复制
+                </Button>
+              </div>
+              <pre className="whitespace-pre-wrap text-[11px] leading-relaxed text-amber-900 font-sans">
+                {buildAvoidanceReport()}
+              </pre>
             </div>
           )}
 
