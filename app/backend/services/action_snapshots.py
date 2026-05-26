@@ -24,7 +24,7 @@ class ActionSnapshotsService:
 
     async def list(
         self,
-        user_id: Optional[str] = None,
+        user_id: Optional[str | list[str]] = None,
         module_key: str = "",
         action_key: str = "",
         asin: str = "",
@@ -35,8 +35,12 @@ class ActionSnapshotsService:
         count_query = select(func.count()).select_from(ActionSnapshot)
 
         if user_id:
-            query = query.where(ActionSnapshot.user_id == user_id)
-            count_query = count_query.where(ActionSnapshot.user_id == user_id)
+            if isinstance(user_id, list):
+                query = query.where(ActionSnapshot.user_id.in_(user_id))
+                count_query = count_query.where(ActionSnapshot.user_id.in_(user_id))
+            else:
+                query = query.where(ActionSnapshot.user_id == user_id)
+                count_query = count_query.where(ActionSnapshot.user_id == user_id)
         if module_key:
             query = query.where(ActionSnapshot.module_key == module_key)
             count_query = count_query.where(ActionSnapshot.module_key == module_key)
