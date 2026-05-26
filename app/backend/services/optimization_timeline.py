@@ -45,7 +45,7 @@ class Optimization_timelineService:
         self,
         skip: int = 0,
         limit: int = 200,
-        user_id: Optional[str] = None,
+        user_id: Optional[str | list[str]] = None,
         sort: Optional[str] = None,
         query_filter: Optional[Dict[str, Any]] = None,
     ) -> tuple[List[OptimizationTimeline], int]:
@@ -53,7 +53,10 @@ class Optimization_timelineService:
             query = select(OptimizationTimeline)
             count_query = select(func.count()).select_from(OptimizationTimeline)
 
-            if user_id:
+            if isinstance(user_id, list):
+                query = query.where(OptimizationTimeline.user_id.in_(user_id))
+                count_query = count_query.where(OptimizationTimeline.user_id.in_(user_id))
+            elif user_id:
                 query = query.where(OptimizationTimeline.user_id == user_id)
                 count_query = count_query.where(OptimizationTimeline.user_id == user_id)
 
