@@ -129,7 +129,37 @@ interface KeywordSalesValidationReport {
     overall_position?: number | null;
     is_organic?: boolean;
     is_sponsored?: boolean;
+    rank_type?: string;
   }>;
+}
+
+function normalizeKeywordSalesReport(report: KeywordSalesValidationReport): KeywordSalesValidationReport {
+  const rankSnapshots = Array.isArray(report.rank_snapshots) ? report.rank_snapshots : [];
+  const sponsoredCount = rankSnapshots.filter((row) => row?.is_sponsored).length;
+  const rankSource = report.keyword_rank_summary?.rank_data_source || "";
+  const hasRealSearchSnapshot =
+    rankSource === "scrapling_top40_search" ||
+    rankSnapshots.some((row) => String(row?.rank_type || "").startsWith("scrapling_top40"));
+
+  if ((Number(report.ad_dependency_risk) || 0) > 0 || sponsoredCount > 0) {
+    return report;
+  }
+
+  const organicStrength = Number(report.organic_rank_strength) || 0;
+  const evidenceFloor = hasRealSearchSnapshot && organicStrength >= 75 ? 20 : hasRealSearchSnapshot ? 28 : 35;
+  return {
+    ...report,
+    ad_dependency_risk: evidenceFloor,
+    keyword_rank_summary: {
+      ...(report.keyword_rank_summary || {}),
+      ad_risk_level:
+        evidenceFloor <= 20 ? "优秀自然流量结构" : evidenceFloor <= 35 ? "健康可控" : "需要观察",
+      ad_risk_note:
+        hasRealSearchSnapshot && organicStrength >= 75
+          ? "未抓到Sponsored广告位时，系统按优秀卖家的低风险下限20%处理；这代表低广告依赖风险，不代表广告依赖为0。"
+          : "当前广告位证据不足，系统不把缺失广告位当成0风险；建议用不同时段/账号复查Sponsored位置。",
+    },
+  };
 }
 
 interface ScraplingTop40Item {
@@ -439,7 +469,7 @@ export default function AsinManager() {
           timeout: 30000,
         });
         const latest = res.data?.items?.[0]?.report;
-        return latest ? [product.asin, latest] as const : null;
+        return latest ? [product.asin, normalizeKeywordSalesReport(latest)] as const : null;
       })
     );
     const map: Record<string, KeywordSalesValidationReport> = {};
@@ -722,7 +752,7 @@ export default function AsinManager() {
         },
         { headers: getAuthHeaders(), timeout: 180000 }
       );
-      setKeywordValidationResults((prev) => ({ ...prev, [product.asin]: res.data }));
+      setKeywordValidationResults((prev) => ({ ...prev, [product.asin]: normalizeKeywordSalesReport(res.data) }));
       setExpandedKeywordAsin(product.asin);
       toast.success(`${product.asin} 关键词销量验证完成：${Math.round(res.data.keyword_sales_score || 0)}分`);
     } catch (e: unknown) {
@@ -754,9 +784,10 @@ export default function AsinManager() {
       },
       { headers: getAuthHeaders(), timeout: 180000 }
     );
-    setKeywordValidationResults((prev) => ({ ...prev, [productData.asin]: res.data }));
+    const normalizedReport = normalizeKeywordSalesReport(res.data);
+    setKeywordValidationResults((prev) => ({ ...prev, [productData.asin]: normalizedReport }));
     setExpandedKeywordAsin(productData.asin);
-    return res.data as KeywordSalesValidationReport;
+    return normalizedReport;
   };
 
   /* ---- CRUD ---- */
