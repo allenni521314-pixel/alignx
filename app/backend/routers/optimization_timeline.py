@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import get_db
 from services.optimization_timeline import Optimization_timelineService
-from dependencies.auth import get_current_user
+from dependencies.auth import get_current_user, get_user_scope_ids
 from schemas.auth import UserResponse
 
 logger = logging.getLogger(__name__)
@@ -54,6 +54,7 @@ async def create_optimization_timeline(
     current_user: UserResponse = Depends(get_current_user),
 ):
     service = Optimization_timelineService(db)
+    scope_user_ids = await get_user_scope_ids(current_user, db)
     obj = await service.create(data.model_dump(exclude_unset=True), user_id=str(current_user.id))
     if not obj:
         raise HTTPException(status_code=500, detail="Failed to create optimization_timeline")
@@ -78,7 +79,7 @@ async def list_optimization_timeline(
         limit=limit,
         sort=sort,
         query_filter=query_filter if query_filter else None,
-        user_id=str(current_user.id),
+        user_id=scope_user_ids,
     )
     return Optimization_timelineListResponse(items=items, total=total, skip=skip, limit=limit)
 
