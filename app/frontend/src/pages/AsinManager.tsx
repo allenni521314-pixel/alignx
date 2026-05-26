@@ -112,6 +112,8 @@ interface KeywordSalesValidationReport {
     avg_organic_position?: number | null;
     rank_data_source?: string;
     rank_data_note?: string;
+    ad_risk_note?: string;
+    ad_risk_level?: string;
   };
   organic_rank_strength: number;
   ad_dependency_risk: number;
@@ -2646,7 +2648,10 @@ export default function AsinManager() {
                             </div>
                             <div className="rounded-lg bg-amber-50 border border-amber-100 p-3">
                               <p className="text-xs text-gray-500">广告依赖风险</p>
-                              <p className="text-lg font-bold text-amber-700">{keywordReport.ad_dependency_risk}</p>
+                              <p className="text-lg font-bold text-amber-700">{keywordReport.ad_dependency_risk}%</p>
+                              <p className="text-[11px] text-amber-700 mt-0.5">
+                                {keywordReport.keyword_rank_summary?.ad_risk_level || (keywordReport.ad_dependency_risk <= 20 ? "优秀自然流量结构" : keywordReport.ad_dependency_risk <= 35 ? "健康可控" : "需要观察")}
+                              </p>
                             </div>
                             <div className="rounded-lg bg-gray-50 border border-gray-100 p-3">
                               <p className="text-xs text-gray-500">系统判断</p>
@@ -2673,6 +2678,9 @@ export default function AsinManager() {
 
                           {keywordReport.keyword_rank_summary?.rank_data_note && (
                             <p className="text-[11px] text-gray-500 mb-3">{keywordReport.keyword_rank_summary.rank_data_note}</p>
+                          )}
+                          {keywordReport.keyword_rank_summary?.ad_risk_note && (
+                            <p className="text-[11px] text-amber-700 mb-3">{keywordReport.keyword_rank_summary.ad_risk_note}</p>
                           )}
 
                           {keywordReport.suspicious_signals.length > 0 && (
