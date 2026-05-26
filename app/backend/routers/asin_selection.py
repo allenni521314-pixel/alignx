@@ -307,6 +307,8 @@ def _build_report(asin: str, marketplace: str, category: str, product: dict[str,
     review_score = 10 if reviews >= 100 and organic_strength >= 35 else 6 if reviews >= 50 else 3
     promo_penalty = 5 if has_promo else 0
     total = max(0, min(100, core_match + long_tail_score + stability_score + ad_score + bsr_score + review_score - promo_penalty))
+    if organic_strength >= 80 and ad_risk <= 20:
+        total = max(total, 78 if top20_coverage < 0.6 else 85)
 
     suspicious: list[str] = []
     if bsr and bsr <= 3000 and organic_strength < 35:
@@ -318,7 +320,11 @@ def _build_report(asin: str, marketplace: str, category: str, product: dict[str,
     if reviews >= 500 and organic_strength < 30:
         suspicious.append("评论体量较高但关键词覆盖弱，需要排查站外或历史促销流量。")
 
-    if total >= 80:
+    if organic_strength >= 80 and ad_risk <= 20 and top20_coverage < 0.6:
+        judgment = "核心词自然流量强，长尾覆盖不足"
+    elif organic_strength >= 80 and ad_risk <= 20:
+        judgment = "自然流量健康"
+    elif total >= 80:
         judgment = "自然流量健康"
     elif ad_risk >= 55 and organic_strength < 55:
         judgment = "广告依赖型销量"
@@ -326,7 +332,7 @@ def _build_report(asin: str, marketplace: str, category: str, product: dict[str,
         judgment = "促销辅助销量"
     elif bsr and bsr <= 3000 and organic_strength < 35:
         judgment = "非自然搜索驱动"
-    elif has_promo:
+    elif has_promo and organic_strength < 60:
         judgment = "促销驱动销量"
     elif total < 50:
         judgment = "销量来源可疑"

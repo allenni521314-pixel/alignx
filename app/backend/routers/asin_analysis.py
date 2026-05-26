@@ -1882,24 +1882,31 @@ def _build_six_dimension_rule_engine(asin: str, marketplace: str, product_title:
     platform_terms = ["echo show", "echo dot", "echo spot", "echo studio", "alexa", "fire tv", "kindle", "ring video", "blink outdoor"]
     accessory_context = any(x in text for x in ["compatible", "case for", "cover for", "stand for", "mount for", "charger for", "replacement"])
     amazon_owned_or_bound = platform_ecosystem or "平台生态" in seller_type or "Amazon自营" in seller_type
+    hard_compliance_context = any(x in text for x in ["medical", "baby", "food", "fda", "ul", "fcc", "battery", "laser", "chemical"])
+    has_bundle_or_accessory_margin = any(x in text for x in ["pack", "set", "bundle", "replacement", "accessory", "refill"])
+    review_barrier = reviews >= 30000 and bsr and bsr <= 3000 and not product_data.get("new_seller_case")
+    low_price_barrier = bool(price and price < 10 and not has_bundle_or_accessory_margin)
 
     veto_rules = [
-        {"rule_name": "品牌垄断明显", "triggered": bool(product_data.get("brand_monopoly_risk") or (reviews >= 20000 and bsr and bsr < 5000)), "reason": "头部评论、销量或平台品牌门槛过高，新品切入难度大。", "evidence": [f"评论数 {int(reviews)}", f"BSR {int(bsr)}", seller_type]},
+        {"rule_name": "品牌垄断明显", "triggered": bool(product_data.get("brand_monopoly_risk")), "reason": "存在明确品牌垄断或品牌强绑定证据。", "evidence": [seller_type]},
         {"rule_name": "平台生态强绑定", "triggered": bool((amazon_owned_or_bound or any(x in text for x in platform_terms)) and not accessory_context), "reason": "该商品依赖Amazon自有生态、系统入口或品牌流量，不应按普通第三方产品直接进入。", "evidence": [title, seller_type]},
         {"rule_name": "侵权风险高", "triggered": risk_hits >= 1 or "patent" in text, "reason": "存在侵权或受限关键词信号。", "evidence": [f"风险词命中 {risk_hits}"]},
-        {"rule_name": "认证/合规风险高", "triggered": compliance_hits >= 2, "reason": "可能需要认证或合规准入。", "evidence": [f"合规词命中 {compliance_hits}"]},
-        {"rule_name": "利润无法覆盖广告成本", "triggered": bool(price and price < 15), "reason": "低客单价产品广告承受力弱。", "evidence": [f"价格 {price}"]},
+        {"rule_name": "认证/合规风险高", "triggered": compliance_hits >= 3 and hard_compliance_context, "reason": "可能需要强认证或合规准入。", "evidence": [f"合规词命中 {compliance_hits}"]},
+        {"rule_name": "利润无法覆盖广告成本", "triggered": low_price_barrier, "reason": "低客单价产品广告承受力弱，需要核算套装、配件或供应链成本。", "evidence": [f"价格 {price}"]},
         {"rule_name": "价格带严重错配", "triggered": bool(price and price > 150 and rating < 4.3), "reason": "高价但评分/信任支撑不足。", "evidence": [f"价格 {price}", f"评分 {rating}"]},
         {"rule_name": "履约不可控", "triggered": any(x in text for x in ["fragile", "oversize", "glass", "liquid", "heavy"]), "reason": "可能存在破损、超大件、液体或重货履约风险。", "evidence": [title]},
-        {"rule_name": "Review门槛过高且新品无进入案例", "triggered": reviews >= 10000 and not product_data.get("new_seller_case"), "reason": "评论门槛偏高，缺少新品进入证据。", "evidence": [f"评论数 {int(reviews)}"]},
+        {"rule_name": "Review门槛过高且新品无进入案例", "triggered": review_barrier, "reason": "头部样本评论门槛很高，不适合正面复制，需要找细分词、差异款或长尾切口。", "evidence": [f"评论数 {int(reviews)}", f"BSR {int(bsr)}"]},
         {"rule_name": "产品差异化无法通过Listing表达", "triggered": diff_hits == 0 and total_score < 70, "reason": "缺少可表达差异点，容易进入价格竞争。", "evidence": ["差异化信号为0"]},
         {"rule_name": "不是第三方卖家的合理切入品", "triggered": bool(amazon_owned_or_bound and reviews > 1000 and not accessory_context), "reason": "平台自营/生态强绑定且评论门槛较高，普通第三方卖家直接切入风险大。", "evidence": [seller_type, f"评论数 {int(reviews)}"]},
     ]
     triggered_vetoes = [rule for rule in veto_rules if rule["triggered"]]
-    risk_level = "high" if triggered_vetoes or total_score < 55 else "medium" if total_score < 75 or confidence_level == "low" else "low"
+    hard_veto_names = {"品牌垄断明显", "平台生态强绑定", "侵权风险高", "认证/合规风险高", "价格带严重错配", "履约不可控", "不是第三方卖家的合理切入品"}
+    hard_vetoes = [rule for rule in triggered_vetoes if rule["rule_name"] in hard_veto_names]
+    market_barriers = [rule for rule in triggered_vetoes if rule["rule_name"] not in hard_veto_names]
+    risk_level = "high" if hard_vetoes or total_score < 55 else "medium" if market_barriers or total_score < 75 or confidence_level == "low" else "low"
 
-    derivative_signal = total_score >= 55 and (triggered_vetoes or dimension_scores.get("competition", 0) < 12) and (scenario_hits >= 2 or pain_hits >= 2)
-    if triggered_vetoes and risk_level == "high":
+    derivative_signal = total_score >= 55 and (market_barriers or dimension_scores.get("competition", 0) < 12) and (scenario_hits >= 2 or pain_hits >= 2)
+    if hard_vetoes:
         pool_status = "rejected_pool"
     elif total_score >= 75 and risk_level != "high":
         pool_status = "opportunity_pool"
@@ -1912,7 +1919,7 @@ def _build_six_dimension_rule_engine(asin: str, marketplace: str, product_title:
     else:
         pool_status = "not_entered"
 
-    if triggered_vetoes:
+    if hard_vetoes:
         decision = "高风险禁止进入"
     elif pool_status == "opportunity_pool":
         decision = "可进入"
@@ -1941,7 +1948,7 @@ def _build_six_dimension_rule_engine(asin: str, marketplace: str, product_title:
     }.get(pool_status, "/asin-manager")
     one_sentence_reason = (
         f"{decision}：总分{total_score}，数据置信度{confidence_level}，风险{risk_level}，"
-        f"{'触发一票否决：' + triggered_vetoes[0]['rule_name'] if triggered_vetoes else '未触发重大否决规则'}。"
+        f"{'触发硬性否决：' + hard_vetoes[0]['rule_name'] if hard_vetoes else ('存在进入门槛：' + market_barriers[0]['rule_name'] if market_barriers else '未触发重大否决规则')}。"
     )
 
     return {
