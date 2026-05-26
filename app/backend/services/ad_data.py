@@ -57,7 +57,7 @@ class Ad_dataService:
         self, 
         skip: int = 0, 
         limit: int = 20, 
-        user_id: Optional[str] = None,
+        user_id: Optional[str | list[str]] = None,
         query_dict: Optional[Dict[str, Any]] = None,
         sort: Optional[str] = None,
     ) -> Dict[str, Any]:
@@ -66,7 +66,10 @@ class Ad_dataService:
             query = select(Ad_data)
             count_query = select(func.count(Ad_data.id))
             
-            if user_id:
+            if isinstance(user_id, list):
+                query = query.where(Ad_data.user_id.in_(user_id))
+                count_query = count_query.where(Ad_data.user_id.in_(user_id))
+            elif user_id:
                 query = query.where(Ad_data.user_id == user_id)
                 count_query = count_query.where(Ad_data.user_id == user_id)
             
