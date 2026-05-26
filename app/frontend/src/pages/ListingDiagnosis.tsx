@@ -143,15 +143,15 @@ interface AdKeyword {
 }
 
 interface ElementDim {
-  functional: number;
-  scenario: number;
-  persona: number;
-  motivation: number;
-  competitive: number;
-  trend: number;
+  function_expression: number;
+  scenario_expression: number;
+  identity_fit: number;
+  psychology_benefit: number;
+  risk_elimination: number;
   product_identity: number;
   compatibility: number;
-  subjective: number;
+  subjective_properties: number;
+  differentiation: number;
   market_trend: number;
 }
 
@@ -331,18 +331,27 @@ const ELEMENT_META = [
   { key: "backend", label: "后台属性", icon: <Database className="w-4 h-4" /> },
 ];
 
-const HEATMAP_DIM_KEYS: { key: keyof ElementDim; label: string; color: string }[] = [
-  { key: "functional", label: "功能", color: "text-teal-600" },
-  { key: "scenario", label: "场景", color: "text-emerald-600" },
-  { key: "persona", label: "画像", color: "text-gold-600" },
-  { key: "motivation", label: "动机", color: "text-pink-600" },
-  { key: "competitive", label: "竞品", color: "text-red-600" },
-  { key: "trend", label: "趋势", color: "text-amber-600" },
-  { key: "product_identity", label: "身份", color: "text-teal-600" },
-  { key: "compatibility", label: "兼容", color: "text-lime-400" },
-  { key: "subjective", label: "主观", color: "text-rose-400" },
-  { key: "market_trend", label: "市场", color: "text-teal-600" },
+const MODULE_ATTRIBUTION_ORDER: (keyof Scores)[] = [
+  "product_identity",
+  "function_expression",
+  "scenario_expression",
+  "compatibility",
+  "identity_fit",
+  "subjective_properties",
+  "psychology_benefit",
+  "risk_elimination",
+  "differentiation",
+  "market_trend",
 ];
+
+const HEATMAP_DIM_KEYS: { key: keyof ElementDim; label: string; color: string }[] = MODULE_ATTRIBUTION_ORDER.map((key) => {
+  const dim = DIMENSIONS.find((item) => item.key === key)!;
+  return {
+    key: dim.key as keyof ElementDim,
+    label: dim.label,
+    color: dim.color,
+  };
+});
 
 const MARKETPLACE_OPTIONS = [
   { value: "US", label: "🇺🇸 美国站", domain: "www.amazon.com" },
@@ -938,21 +947,20 @@ function getAvgScore(scores: Scores): number {
 }
 
 /**
- * Normalize backend element dimension keys to frontend keys.
- * Backend returns short keys: product_id, compat, subjective, market
- * Frontend expects: product_identity, compatibility, subjective, market_trend
+ * Normalize backend element attribution keys to 8D+2 keys.
+ * New backend returns 8D+2 keys; aliases keep older saved diagnoses readable.
  */
 function normalizeElementDims(ed: Record<string, unknown>): ElementDim {
   return {
-    functional: Number(ed.functional) || 0,
-    scenario: Number(ed.scenario) || 0,
-    persona: Number(ed.persona) || 0,
-    motivation: Number(ed.motivation) || 0,
-    competitive: Number(ed.competitive) || 0,
-    trend: Number(ed.trend) || 0,
+    function_expression: Number(ed.function_expression ?? ed.functional) || 0,
+    scenario_expression: Number(ed.scenario_expression ?? ed.scenario) || 0,
+    identity_fit: Number(ed.identity_fit ?? ed.persona) || 0,
+    psychology_benefit: Number(ed.psychology_benefit ?? ed.motivation) || 0,
+    risk_elimination: Number(ed.risk_elimination) || 0,
     product_identity: Number(ed.product_identity ?? ed.product_id) || 0,
     compatibility: Number(ed.compatibility ?? ed.compat) || 0,
-    subjective: Number(ed.subjective) || 0,
+    subjective_properties: Number(ed.subjective_properties ?? ed.subjective) || 0,
+    differentiation: Number(ed.differentiation ?? ed.competitive) || 0,
     market_trend: Number(ed.market_trend ?? ed.market) || 0,
   };
 }
@@ -2422,8 +2430,8 @@ export default function ListingDiagnosis() {
       ...DIMENSIONS.map(d => `${d.label}: ${diagResult.scores[d.key] || 0}/100 - ${diagResult.analysis?.[d.key] || ""}`),
       ``,
       ...(elements.length > 0 ? [
-        `--- 要素级8D+2分析 ---`,
-        ...elements.map(e => `[${e.label}] ${e.summary}\n  功能:${e.dims.functional} 场景:${e.dims.scenario} 画像:${e.dims.persona} 动机:${e.dims.motivation} 竞品:${e.dims.competitive} 趋势:${e.dims.trend} 身份:${e.dims.product_identity} 兼容:${e.dims.compatibility} 主观:${e.dims.subjective} 市场:${e.dims.market_trend}`),
+        `--- 模块级8D+2归因 ---`,
+        ...elements.map(e => `[${e.label}] ${e.summary}\n  功能表达:${e.dims.function_expression} 场景表达:${e.dims.scenario_expression} 身份适配:${e.dims.identity_fit} 心理利益:${e.dims.psychology_benefit} 风险消除:${e.dims.risk_elimination} 产品身份:${e.dims.product_identity} 兼容搭配:${e.dims.compatibility} 主观属性:${e.dims.subjective_properties} 差异化:${e.dims.differentiation} 市场趋势:${e.dims.market_trend}`),
         ``,
       ] : []),
       `--- 优化建议 ---`,
@@ -2821,7 +2829,7 @@ export default function ListingDiagnosis() {
                         假设验证
                       </TabsTrigger>
                       <TabsTrigger value="heatmap" className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600 text-xs sm:text-sm">
-                        要素热力图
+                        模块归因图
                       </TabsTrigger>
                       <TabsTrigger value="keywords" className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600 text-xs sm:text-sm">
                         关键词覆盖
@@ -2929,11 +2937,11 @@ export default function ListingDiagnosis() {
                       </div>
                     </TabsContent>
 
-                    {/* ===== Element Heatmap ===== */}
+                    {/* ===== Module Attribution Heatmap ===== */}
                     <TabsContent value="heatmap" className="mt-4">
                       {elementsData.length > 0 ? (
                         <Card className="bg-gray-50 border-gray-200 p-5">
-                          <h3 className="text-sm font-semibold text-gray-600 mb-4">📊 Listing要素 × 8D+2语义覆盖度热力图</h3>
+                          <h3 className="text-sm font-semibold text-gray-600 mb-4">Listing模块 × 8D+2归因图</h3>
                           <div className="overflow-x-auto">
                             <table className="w-full min-w-[600px]">
                               <thead>
@@ -2984,7 +2992,7 @@ export default function ListingDiagnosis() {
                         </Card>
                       ) : (
                         <Card className="bg-gray-50 border-gray-200 p-8 text-center">
-                          <p className="text-gray-500 text-sm">暂无要素热力图数据</p>
+                          <p className="text-gray-500 text-sm">暂无模块归因数据</p>
                         </Card>
                       )}
                     </TabsContent>

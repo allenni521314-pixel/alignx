@@ -703,11 +703,11 @@ DIAGNOSIS_PROMPT = """【最高优先级指令】你正在诊断的产品是: "{
     "ad_summary": "广告关键词策略总结"
   }},
   "elements": {{
-    "title": {{"functional": 0-100, "scenario": 0-100, "persona": 0-100, "motivation": 0-100, "competitive": 0-100, "trend": 0-100, "product_id": 0-100, "compat": 0-100, "subjective": 0-100, "market": 0-100, "summary": "标题各维度分析"}},
-    "bullets": {{"functional": 0-100, "scenario": 0-100, "persona": 0-100, "motivation": 0-100, "competitive": 0-100, "trend": 0-100, "product_id": 0-100, "compat": 0-100, "subjective": 0-100, "market": 0-100, "summary": "五点描述各维度分析"}},
-    "images": {{"functional": 0-100, "scenario": 0-100, "persona": 0-100, "motivation": 0-100, "competitive": 0-100, "trend": 0-100, "product_id": 0-100, "compat": 0-100, "subjective": 0-100, "market": 0-100, "summary": "图片各维度分析"}},
-    "aplus": {{"functional": 0-100, "scenario": 0-100, "persona": 0-100, "motivation": 0-100, "competitive": 0-100, "trend": 0-100, "product_id": 0-100, "compat": 0-100, "subjective": 0-100, "market": 0-100, "summary": "A+内容各维度分析"}},
-    "backend": {{"functional": 0-100, "scenario": 0-100, "persona": 0-100, "motivation": 0-100, "competitive": 0-100, "trend": 0-100, "product_id": 0-100, "compat": 0-100, "subjective": 0-100, "market": 0-100, "summary": "后台属性各维度分析"}}
+    "title": {{"function_expression": 0-100, "scenario_expression": 0-100, "identity_fit": 0-100, "psychology_benefit": 0-100, "risk_elimination": 0-100, "product_identity": 0-100, "compatibility": 0-100, "subjective_properties": 0-100, "differentiation": 0-100, "market_trend": 0-100, "summary": "标题对8D+2各维度的责任归因"}},
+    "bullets": {{"function_expression": 0-100, "scenario_expression": 0-100, "identity_fit": 0-100, "psychology_benefit": 0-100, "risk_elimination": 0-100, "product_identity": 0-100, "compatibility": 0-100, "subjective_properties": 0-100, "differentiation": 0-100, "market_trend": 0-100, "summary": "五点描述对8D+2各维度的责任归因"}},
+    "images": {{"function_expression": 0-100, "scenario_expression": 0-100, "identity_fit": 0-100, "psychology_benefit": 0-100, "risk_elimination": 0-100, "product_identity": 0-100, "compatibility": 0-100, "subjective_properties": 0-100, "differentiation": 0-100, "market_trend": 0-100, "summary": "图片对8D+2各维度的责任归因"}},
+    "aplus": {{"function_expression": 0-100, "scenario_expression": 0-100, "identity_fit": 0-100, "psychology_benefit": 0-100, "risk_elimination": 0-100, "product_identity": 0-100, "compatibility": 0-100, "subjective_properties": 0-100, "differentiation": 0-100, "market_trend": 0-100, "summary": "A+内容对8D+2各维度的责任归因"}},
+    "backend": {{"function_expression": 0-100, "scenario_expression": 0-100, "identity_fit": 0-100, "psychology_benefit": 0-100, "risk_elimination": 0-100, "product_identity": 0-100, "compatibility": 0-100, "subjective_properties": 0-100, "differentiation": 0-100, "market_trend": 0-100, "summary": "后台属性对8D+2各维度的责任归因"}}
   }},
 
 ⚠️ 关于elements中各要素的评分规则（极其重要，必须遵守）：
@@ -892,10 +892,10 @@ def _build_listing_text(listing: ListingInput) -> str:
     return " | ".join(parts) if parts else "未提供"
 
 
-# All 10 dimension keys used in the elements heatmap
+# All 10 8D+2 dimension keys used in the module attribution heatmap
 _ELEMENT_DIM_KEYS = [
-    "functional", "scenario", "persona", "motivation", "competitive",
-    "trend", "product_id", "compat", "subjective", "market",
+    "function_expression", "scenario_expression", "identity_fit", "psychology_benefit", "risk_elimination",
+    "product_identity", "compatibility", "subjective_properties", "differentiation", "market_trend",
 ]
 
 
@@ -1285,11 +1285,11 @@ def _build_compact_diagnosis_prompt(listing: ListingInput) -> str:
     "ad_summary": "广告验证策略"
   }},
   "elements": {{
-    "title": {{"functional": 50, "scenario": 50, "persona": 50, "motivation": 50, "competitive": 50, "trend": 50, "product_id": 50, "compat": 50, "subjective": 50, "market": 50, "summary": "标题判断"}},
-    "bullets": {{"functional": 50, "scenario": 50, "persona": 50, "motivation": 50, "competitive": 50, "trend": 50, "product_id": 50, "compat": 50, "subjective": 50, "market": 50, "summary": "五点判断"}},
-    "images": {{"functional": 50, "scenario": 50, "persona": 50, "motivation": 50, "competitive": 50, "trend": 50, "product_id": 50, "compat": 50, "subjective": 50, "market": 50, "summary": "图片判断"}},
-    "aplus": {{"functional": 50, "scenario": 50, "persona": 50, "motivation": 50, "competitive": 50, "trend": 50, "product_id": 50, "compat": 50, "subjective": 50, "market": 50, "summary": "A+判断"}},
-    "backend": {{"functional": 30, "scenario": 30, "persona": 30, "motivation": 30, "competitive": 30, "trend": 30, "product_id": 30, "compat": 30, "subjective": 30, "market": 30, "summary": "后台关键词判断"}}
+    "title": {{"function_expression": 50, "scenario_expression": 50, "identity_fit": 50, "psychology_benefit": 50, "risk_elimination": 50, "product_identity": 50, "compatibility": 50, "subjective_properties": 50, "differentiation": 50, "market_trend": 50, "summary": "标题判断"}},
+    "bullets": {{"function_expression": 50, "scenario_expression": 50, "identity_fit": 50, "psychology_benefit": 50, "risk_elimination": 50, "product_identity": 50, "compatibility": 50, "subjective_properties": 50, "differentiation": 50, "market_trend": 50, "summary": "五点判断"}},
+    "images": {{"function_expression": 50, "scenario_expression": 50, "identity_fit": 50, "psychology_benefit": 50, "risk_elimination": 50, "product_identity": 50, "compatibility": 50, "subjective_properties": 50, "differentiation": 50, "market_trend": 50, "summary": "图片判断"}},
+    "aplus": {{"function_expression": 50, "scenario_expression": 50, "identity_fit": 50, "psychology_benefit": 50, "risk_elimination": 50, "product_identity": 50, "compatibility": 50, "subjective_properties": 50, "differentiation": 50, "market_trend": 50, "summary": "A+判断"}},
+    "backend": {{"function_expression": 30, "scenario_expression": 30, "identity_fit": 30, "psychology_benefit": 30, "risk_elimination": 30, "product_identity": 30, "compatibility": 30, "subjective_properties": 30, "differentiation": 30, "market_trend": 30, "summary": "后台关键词判断"}}
   }},
   "market_estimates": {{"estimated_monthly_sales": 0, "estimated_bsr_rank": 0}},
   "analyzed_product_name": "{listing.title or ""}",
