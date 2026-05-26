@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
 from core.database import get_db
-from dependencies.auth import get_current_user
+from dependencies.auth import get_current_user, get_user_scope_ids
 from schemas.auth import UserResponse
 from services.causal_diagnosis import CausalDiagnosisService, STATE_GAP_TAXONOMY
 from services.review_causal_validation import ReviewCausalValidationService
@@ -293,9 +293,10 @@ async def get_causal_diagnosis_history(
 ):
     """获取用户的因果诊断历史记录"""
     try:
+        scope_user_ids = await get_user_scope_ids(current_user, db)
         query = (
             select(HumanStateBody)
-            .where(HumanStateBody.user_id == str(current_user.id))
+            .where(HumanStateBody.user_id.in_(scope_user_ids))
             .order_by(HumanStateBody.created_at.desc())
             .offset(skip)
             .limit(limit)
@@ -336,7 +337,8 @@ async def get_causal_diagnosis_detail(
             raise HTTPException(status_code=404, detail="因果诊断记录不存在")
 
         # 验证所有权
-        if record.user_id and record.user_id != str(current_user.id):
+        scope_user_ids = await get_user_scope_ids(current_user, db)
+        if record.user_id and record.user_id not in scope_user_ids:
             raise HTTPException(status_code=403, detail="无权访问此记录")
 
         return {
