@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import get_db
 from services.products import ProductsService
-from dependencies.auth import get_current_user
+from dependencies.auth import get_current_user, get_user_scope_ids
 from schemas.auth import UserResponse
 
 # Set up logging
@@ -129,12 +129,13 @@ async def query_productss(
             except json.JSONDecodeError:
                 raise HTTPException(status_code=400, detail="Invalid query JSON format")
         
+        scope_user_ids = await get_user_scope_ids(current_user, db)
         result = await service.get_list(
             skip=skip, 
             limit=limit,
             query_dict=query_dict,
             sort=sort,
-            user_id=str(current_user.id),
+            user_id=scope_user_ids,
         )
         logger.debug(f"Found {result['total']} productss")
         return result
@@ -168,12 +169,13 @@ async def query_productss_all(
             except json.JSONDecodeError:
                 raise HTTPException(status_code=400, detail="Invalid query JSON format")
 
+        scope_user_ids = await get_user_scope_ids(current_user, db)
         result = await service.get_list(
             skip=skip,
             limit=limit,
             query_dict=query_dict,
             sort=sort,
-            user_id=str(current_user.id)
+            user_id=scope_user_ids
         )
         logger.debug(f"Found {result['total']} productss")
         return result
