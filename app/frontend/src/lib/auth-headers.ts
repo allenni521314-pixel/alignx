@@ -1,20 +1,13 @@
 /**
  * Shared utility to get authentication headers for API calls.
- * Checks multiple token storage locations:
- * 1. "alignx_token" - custom email-code login
- * 2. "token" - Atoms Cloud SDK / OIDC login
+ * AlignX beta user data is keyed by email-code auth only. Do not silently fall
+ * back to legacy SDK tokens, because that can attach requests to another
+ * historical user_id in the same browser.
  */
 export function getAuthHeaders(): Record<string, string> {
-  // Check custom AlignX login token first
   const alignxToken = localStorage.getItem("alignx_token");
   if (alignxToken) {
     return { Authorization: `Bearer ${alignxToken}` };
-  }
-
-  // Check SDK/OIDC token
-  const sdkToken = localStorage.getItem("token");
-  if (sdkToken) {
-    return { Authorization: `Bearer ${sdkToken}` };
   }
 
   return {};
@@ -24,5 +17,5 @@ export function getAuthHeaders(): Record<string, string> {
  * Get the raw token string (for non-axios usage).
  */
 export function getAuthToken(): string | null {
-  return localStorage.getItem("alignx_token") || localStorage.getItem("token") || null;
+  return localStorage.getItem("alignx_token") || null;
 }
