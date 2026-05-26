@@ -23,6 +23,7 @@ import logging
 import re
 import asyncio
 import os
+import hashlib
 from datetime import datetime, timezone
 from typing import List, Optional
 
@@ -199,7 +200,7 @@ class ListingInput(BaseModel):
 class DiagnoseRequest(BaseModel):
     listing: ListingInput
     precision_context: dict = {}
-    force_refresh: bool = True
+    force_refresh: bool = False
 
 
 class DiagnoseResponse(BaseModel):
@@ -309,6 +310,56 @@ async def _get_cached_listing_diagnosis(listing: ListingInput, db: AsyncSession,
     data["scores"] = scores
     data["id"] = record.id
     return data
+
+
+async def _get_exact_cached_listing_diagnosis(listing: ListingInput, db: AsyncSession, user_id: str) -> dict | None:
+    """Return a saved diagnosis only when the current Listing content is identical."""
+    if not listing.title:
+        return None
+    from sqlalchemy import select
+    from models.listing_diagnoses import Listing_diagnoses as LD
+
+    current_fingerprint = _listing_content_fingerprint(_sanitize_listing_for_ai(listing))
+    result = await db.execute(
+        select(LD)
+        .where(LD.user_id == user_id, LD.listing_title == listing.title[:500], LD.marketplace == listing.marketplace)
+        .where(LD.diagnosis_report.isnot(None), LD.input_data.isnot(None), LD.score_function_expression > 0)
+        .order_by(LD.id.desc())
+        .limit(20)
+    )
+    for record in result.scalars().all():
+        try:
+            saved_input = json.loads(record.input_data or "{}")
+            saved_listing = ListingInput(**saved_input)
+        except Exception:
+            continue
+        if _listing_content_fingerprint(_sanitize_listing_for_ai(saved_listing)) != current_fingerprint:
+            continue
+        try:
+            data = json.loads(record.diagnosis_report or "{}")
+        except Exception:
+            return None
+        scores = dict(data.get("scores") or {})
+        scores.update({
+            "function_expression": record.score_function_expression or scores.get("function_expression", 0),
+            "scenario_expression": record.score_scenario_expression or scores.get("scenario_expression", 0),
+            "identity_fit": record.score_identity_fit or scores.get("identity_fit", 0),
+            "psychology_benefit": record.score_psychology_benefit or scores.get("psychology_benefit", 0),
+            "risk_elimination": record.score_risk_elimination or scores.get("risk_elimination", 0),
+            "product_identity": record.score_product_identity or scores.get("product_identity", 0),
+            "compatibility": record.score_compatibility or scores.get("compatibility", 0),
+            "subjective_properties": record.score_subjective_properties or scores.get("subjective_properties", 0),
+            "differentiation": record.score_differentiation or scores.get("differentiation", 0),
+            "market_trend": record.score_market_trend or scores.get("market_trend", 0),
+            "causal_state_gap_coverage": record.score_causal_state_gap_coverage or scores.get("causal_state_gap_coverage", 0),
+            "causal_mechanism_clarity": record.score_causal_mechanism_clarity or scores.get("causal_mechanism_clarity", 0),
+            "causal_side_effect_transparency": record.score_causal_side_effect_transparency or scores.get("causal_side_effect_transparency", 0),
+        })
+        data["scores"] = scores
+        data["id"] = record.id
+        data["_cache_hit"] = "exact_content"
+        return data
+    return None
 
 
 class CompareRequest(BaseModel):
@@ -878,6 +929,70 @@ def _sanitize_listing_for_ai(listing: ListingInput) -> ListingInput:
     })
 
 
+def _listing_content_fingerprint(listing: ListingInput) -> str:
+    """Stable fingerprint for fields that should trigger a new diagnosis when changed."""
+    payload = {
+        "asin": (listing.asin or "").strip().upper(),
+        "marketplace": (listing.marketplace or "").strip().upper(),
+        "title": _clean_listing_text(listing.title, max_chars=500),
+        "bullet_points": _clean_listing_text(listing.bullet_points, max_chars=3000),
+        "description": _clean_listing_text(listing.description, max_chars=1400),
+        "a_plus_content": _clean_listing_text(listing.a_plus_content, max_chars=1000, keep_image_signal=True),
+        "backend_keywords": _clean_listing_text(listing.backend_keywords, max_chars=600),
+        "main_image_description": _clean_listing_text(listing.main_image_description, max_chars=600, keep_image_signal=True),
+        "category": _clean_listing_text(listing.category, max_chars=180),
+        "price": str(listing.price or "").strip(),
+        "rating": str(listing.rating or "").strip(),
+        "review_count": str(listing.review_count or "").strip(),
+        "bsr_rank": str(listing.bsr_rank or "").strip(),
+        "image_count": str(listing.image_count or "").strip(),
+        "has_video": bool(listing.has_video),
+        "has_a_plus": bool(listing.has_a_plus),
+    }
+    raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _element_baseline_for_listing(listing: ListingInput, element_key: str) -> int:
+    if element_key == "title":
+        return 58 if listing.title else 18
+    if element_key == "bullets":
+        return 58 if listing.bullet_points else 18
+    if element_key == "images":
+        return 52 if (listing.main_image_description or listing.image_count or listing.has_video) else 20
+    if element_key == "aplus":
+        return 48 if (listing.a_plus_content or listing.has_a_plus) else 18
+    if element_key == "backend":
+        return 42 if listing.backend_keywords else 20
+    return 25
+
+
+def _ensure_element_scores(data: dict, listing: ListingInput) -> dict:
+    """Ensure heatmap elements are always present and non-zero for display stability."""
+    elements = data.get("elements") if isinstance(data.get("elements"), dict) else {}
+    labels = {
+        "title": "标题",
+        "bullets": "五点描述",
+        "images": "图片",
+        "aplus": "A+内容",
+        "backend": "后台属性",
+    }
+    for el_key in ("title", "bullets", "images", "aplus", "backend"):
+        el_data = elements.get(el_key)
+        if not isinstance(el_data, dict):
+            el_data = {}
+            elements[el_key] = el_data
+        all_zero = all(float(el_data.get(dk, 0) or 0) <= 0 for dk in _ELEMENT_DIM_KEYS)
+        if all_zero:
+            baseline = _element_baseline_for_listing(listing, el_key)
+            for dk in _ELEMENT_DIM_KEYS:
+                el_data[dk] = max(float(el_data.get(dk, 0) or 0), baseline + _stable_score_offset(el_key, dk))
+            if not el_data.get("summary"):
+                el_data["summary"] = f"{labels[el_key]}评分由系统基于当前Listing内容稳定推断；AI未返回完整热力图时用于防止展示为空。"
+    data["elements"] = elements
+    return data
+
+
 def _derive_fallback_insights(listing: ListingInput) -> dict:
     text = f"{listing.title} {listing.bullet_points} {listing.description} {listing.a_plus_content} {listing.category}".lower()
     title = (listing.title or "").lower()
@@ -1283,32 +1398,7 @@ async def _diagnose_single(
                     f"AI分析的产品「{analyzed_name}」与输入产品「{product_title}」不匹配"
                 )
 
-    # Post-process elements to ensure no all-zero scores
-    elements = data.get("elements", {})
-    if elements:
-        dim_keys = _ELEMENT_DIM_KEYS
-        for el_key, el_data in elements.items():
-            if isinstance(el_data, dict):
-                all_zero = all(el_data.get(dk, 0) == 0 for dk in dim_keys)
-                if all_zero:
-                    if el_key == "aplus" and listing.a_plus_content and (
-                        "已检测" in listing.a_plus_content or len(listing.a_plus_content) > 5
-                    ):
-                        baseline = 40
-                        logger.warning(f"A+ element had all-zero scores despite content being present. Applying baseline={baseline}")
-                    elif el_key == "images" and listing.main_image_description:
-                        baseline = 35
-                    elif el_key == "backend" and not listing.backend_keywords:
-                        baseline = 15
-                    elif el_key in ("title", "bullets") and (listing.title or listing.bullet_points):
-                        baseline = 30
-                    else:
-                        baseline = 20
-                    for dk in dim_keys:
-                        el_data[dk] = max(el_data.get(dk, 0), baseline + _stable_score_offset(el_key, dk))
-                    if not el_data.get("summary"):
-                        el_data["summary"] = "评分基于产品特征推断（详细内容未完整获取）"
-        data["elements"] = elements
+    data = _ensure_element_scores(data, listing)
 
     record_id = None
 
@@ -1710,7 +1800,7 @@ async def diagnose_listing(
 
         result = None
         if not request.force_refresh:
-            result = await _get_cached_listing_diagnosis(listing, db, str(current_user.id))
+            result = await _get_exact_cached_listing_diagnosis(listing, db, str(current_user.id))
         if not result:
             result = await _diagnose_single(
                 listing=listing,

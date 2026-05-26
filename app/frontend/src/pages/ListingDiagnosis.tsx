@@ -2133,7 +2133,7 @@ export default function ListingDiagnosis() {
       }
 
       const diagPayload: Record<string, unknown> = {
-        force_refresh: true,
+        force_refresh: false,
         listing: {
           ...activeListing,
           marketplace,
