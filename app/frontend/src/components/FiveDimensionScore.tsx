@@ -348,6 +348,65 @@ export function FiveDimensionScoreCard({
     setExpandedDim(expandedDim === key ? null : key);
   };
 
+  const scrollToRiskEvidence = () => {
+    setExpanded(true);
+    setTimeout(() => {
+      document.getElementById("asin-risk-evidence")?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 80);
+  };
+
+  const downloadAvoidanceReport = () => {
+    const triggeredVetoes = (result.veto_rules || []).filter((rule) => rule.triggered);
+    const lines = [
+      `ASIN避坑报告：${result.asin}`,
+      `产品：${result.product_title || "-"}`,
+      `总分：${result.total_score}`,
+      `决策：${result.decision || (result.qualified ? "可继续验证" : "暂不建议进入")}`,
+      `一句话原因：${result.one_sentence_reason || "-"}`,
+      "",
+      "风险证据：",
+      ...(triggeredVetoes.length
+        ? triggeredVetoes.flatMap((rule) => [
+            `- ${rule.rule_name}：${rule.reason}`,
+            ...(rule.evidence || []).map((item) => `  证据：${item}`),
+          ])
+        : ["- 暂无一票否决证据，请结合维度扣分继续人工复核。"]),
+      "",
+      "维度分析：",
+      ...Object.entries(result.analysis || {}).map(([key, value]) => `- ${key}：${value}`),
+      "",
+      "建议动作：",
+      ...(result.next_actions || result.suggestions || []).map((item) => `- ${item}`),
+    ];
+    const blob = new Blob([lines.join("\n")], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${result.asin || "asin"}-avoidance-report.txt`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const restartSelection = () => {
+    window.location.href = "/asin-manager";
+  };
+
+  const handleNextAction = (action: string) => {
+    if (action.includes("风险") || action.includes("证据")) {
+      scrollToRiskEvidence();
+      return;
+    }
+    if (action.includes("避坑") || action.includes("报告")) {
+      downloadAvoidanceReport();
+      return;
+    }
+    if (action.includes("重新选品") || action.includes("选品")) {
+      restartSelection();
+    }
+  };
+
   const hasOldPriceItems = Boolean(
     result.dimensions?.some((dim) =>
       dim.items?.some((item) =>
@@ -567,7 +626,7 @@ export function FiveDimensionScoreCard({
           </div>
 
           {triggeredVetoes.length > 0 && (
-            <div className="rounded-lg border border-red-200 bg-red-50 p-3">
+            <div id="asin-risk-evidence" className="rounded-lg border border-red-200 bg-red-50 p-3">
               <h4 className="text-xs font-semibold text-red-700 mb-2 flex items-center gap-1">
                 <ShieldAlert className="w-3.5 h-3.5" />
                 一票否决原因
@@ -595,7 +654,13 @@ export function FiveDimensionScoreCard({
               </h4>
               <div className="flex flex-wrap gap-2">
                 {(result.next_actions || result.suggestions).map((s, i) => (
-                  <Button key={i} size="sm" variant={i === 0 ? "default" : "outline"} className="h-8 text-xs">
+                  <Button
+                    key={i}
+                    size="sm"
+                    variant={i === 0 ? "default" : "outline"}
+                    className="h-8 text-xs"
+                    onClick={() => handleNextAction(s)}
+                  >
                     {s}
                   </Button>
                 ))}

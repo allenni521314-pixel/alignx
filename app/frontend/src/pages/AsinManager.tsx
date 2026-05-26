@@ -298,7 +298,7 @@ export default function AsinManager() {
   const [batchImportText, setBatchImportText] = useState("");
   const [batchImportLoading, setBatchImportLoading] = useState(false);
   const [batchImportCurrent, setBatchImportCurrent] = useState("");
-  const [importMode, setImportMode] = useState<"single" | "batch" | "top40">("top40");
+  const [importMode, setImportMode] = useState<"single" | "top40">("single");
   const [autoFetch, setAutoFetch] = useState(true);
   const [scraplingKeyword, setScraplingKeyword] = useState("");
   const [scraplingBatchIndex, setScraplingBatchIndex] = useState(1);
@@ -1709,16 +1709,6 @@ export default function AsinManager() {
                   单个ASIN抓取
                 </button>
                 <button
-                  onClick={() => setImportMode("batch")}
-                  className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all ${
-                    importMode === "batch"
-                      ? "bg-amber-600/80 text-gray-900"
-                      : "text-gray-500 hover:text-gray-900 hover:bg-gray-100"
-                  }`}
-                >
-                  批量ASIN抓取
-                </button>
-                <button
                   onClick={() => setImportMode("top40")}
                   className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all ${
                     importMode === "top40"
@@ -1828,35 +1818,6 @@ export default function AsinManager() {
                     抓取保存并验证
                   </Button>
                 </div>
-                </div>
-              ) : importMode === "batch" ? (
-                <div className="space-y-3">
-                  <div>
-                    <Label className="text-gray-500 text-sm">
-                      批量ASIN（每行一个，或用逗号分隔，最多20个）
-                    </Label>
-                    <Textarea
-                      value={batchImportText}
-                      onChange={(e) => setBatchImportText(e.target.value)}
-                      placeholder={"B0XXXXXXXXX\nB0YYYYYYYYY\nB0ZZZZZZZZZ"}
-                      rows={5}
-                      className="mt-1 bg-gray-50 border-gray-200 text-gray-900 font-mono text-xs resize-none"
-                    />
-                  </div>
-                  <Button
-                    onClick={handleBatchAutoImport}
-                    disabled={batchImportLoading || !batchImportText.trim()}
-                    className="bg-amber-600 hover:bg-amber-500 text-white"
-                  >
-                    {batchImportLoading ? (
-                      <Loader2 className="w-4 h-4 mr-1 animate-spin" />
-                    ) : (
-                      <CloudDownload className="w-4 h-4 mr-1" />
-                    )}
-                    {batchImportLoading
-                      ? "正在批量抓取真实数据..."
-                      : `开始批量抓取真实数据 (${batchImportText.split(/[\n,;]+/).filter((a) => a.trim()).length} 个)`}
-                  </Button>
                 </div>
               ) : (
                 <div className="space-y-4">
