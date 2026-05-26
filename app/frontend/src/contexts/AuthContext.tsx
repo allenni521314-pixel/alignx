@@ -6,7 +6,6 @@ import React, {
   useCallback,
   ReactNode,
 } from 'react';
-import { client } from '../lib/api';
 import axios from 'axios';
 
 interface User {
@@ -102,22 +101,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         }
       }
 
-      // Fallback: check platform OIDC auth
-      try {
-        const res = await client.auth.me();
-        if (res?.data) {
-          setUser({
-            id: res.data.id || res.data.sub || '',
-            email: res.data.email || '',
-            name: res.data.name || res.data.nickname || '',
-            role: res.data.role || 'user',
-          });
-          return;
-        }
-      } catch {
-        // Not authenticated via OIDC either
-      }
-
+      localStorage.removeItem('token');
       setUser(null);
     } catch {
       setUser(null);
@@ -163,6 +147,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
     localStorage.setItem(AUTH_TOKEN_KEY, token);
     localStorage.setItem(AUTH_USER_KEY, JSON.stringify(userData));
+    localStorage.removeItem('token');
 
     // Also set the token for the SDK client (for entity operations)
     try {
@@ -183,7 +168,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const login = useCallback(async () => {
     try {
       setError(null);
-      // Redirect to login page instead of OIDC
+      // Redirect to the email-code login page.
       window.location.href = '/login';
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed');
@@ -197,13 +182,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       // Clear AlignX auth data
       localStorage.removeItem(AUTH_TOKEN_KEY);
       localStorage.removeItem(AUTH_USER_KEY);
-
-      // Also try OIDC logout
-      try {
-        await client.auth.logout();
-      } catch {
-        // Ignore OIDC logout errors
-      }
+      localStorage.removeItem('token');
 
       setUser(null);
     } catch (err) {
