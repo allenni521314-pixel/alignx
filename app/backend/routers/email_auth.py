@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from models.auth import User
 from models.email_verification_codes import EmailVerificationCode
 from pydantic import BaseModel
-from sqlalchemy import delete, desc, select
+from sqlalchemy import delete, desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
@@ -228,8 +228,8 @@ async def email_login(payload: EmailLoginRequest, db: AsyncSession = Depends(get
     user_result = await db.execute(select(User).where(User.id == user_id))
     user = user_result.scalar_one_or_none()
     if not user:
-        existing_email_result = await db.execute(select(User).where(User.email == email))
-        user = existing_email_result.scalar_one_or_none()
+        existing_email_result = await db.execute(select(User).where(func.lower(User.email) == email).order_by(desc(User.last_login)))
+        user = existing_email_result.scalars().first()
 
     role = "super_admin" if email in _super_admin_emails() else "user"
     if user:
