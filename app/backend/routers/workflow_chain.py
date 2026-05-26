@@ -285,7 +285,7 @@ async def _build_chain(product: Products, user_id: str, db: AsyncSession) -> dic
     timeline = await _all(
         db,
         select(OptimizationTimeline)
-        .where(OptimizationTimeline.product_id == product.id)
+        .where(OptimizationTimeline.user_id == user_id, OptimizationTimeline.product_id == product.id)
         .order_by(desc(OptimizationTimeline.created_at), desc(OptimizationTimeline.id)),
     )
 

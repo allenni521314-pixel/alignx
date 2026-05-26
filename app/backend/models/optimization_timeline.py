@@ -1,5 +1,5 @@
 from core.database import Base
-from sqlalchemy import Column, DateTime, Float, Integer, String
+from sqlalchemy import Column, DateTime, Integer, String
 
 
 class OptimizationTimeline(Base):
@@ -7,6 +7,7 @@ class OptimizationTimeline(Base):
     __table_args__ = {"extend_existing": True}
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True, nullable=False)
+    user_id = Column(String, nullable=True, index=True)
     product_id = Column(Integer, nullable=False)
     step_name = Column(String, nullable=False)
     action_timestamp = Column(String, nullable=True)

@@ -155,9 +155,10 @@ async def query_ad_datas_all(
     skip: int = Query(0, ge=0, description="Number of records to skip"),
     limit: int = Query(20, ge=1, le=2000, description="Max number of records to return"),
     fields: str = Query(None, description="Comma-separated list of fields to return"),
+    current_user: UserResponse = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    # Query ad_datas with filtering, sorting, and pagination without user limitation
+    # Query ad_datas with filtering, sorting, and pagination current user only
     logger.debug(f"Querying ad_datas: query={query}, sort={sort}, skip={skip}, limit={limit}, fields={fields}")
 
     service = Ad_dataService(db)
@@ -174,7 +175,8 @@ async def query_ad_datas_all(
             skip=skip,
             limit=limit,
             query_dict=query_dict,
-            sort=sort
+            sort=sort,
+            user_id=str(current_user.id)
         )
         logger.debug(f"Found {result['total']} ad_datas")
         return result

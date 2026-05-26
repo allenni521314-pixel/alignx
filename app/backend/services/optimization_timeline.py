@@ -33,6 +33,8 @@ class Optimization_timelineService:
     async def get_by_id(self, obj_id: int, user_id: Optional[str] = None) -> Optional[OptimizationTimeline]:
         try:
             query = select(OptimizationTimeline).where(OptimizationTimeline.id == obj_id)
+            if user_id:
+                query = query.where(OptimizationTimeline.user_id == user_id)
             result = await self.db.execute(query)
             return result.scalar_one_or_none()
         except Exception as e:
@@ -50,6 +52,10 @@ class Optimization_timelineService:
         try:
             query = select(OptimizationTimeline)
             count_query = select(func.count()).select_from(OptimizationTimeline)
+
+            if user_id:
+                query = query.where(OptimizationTimeline.user_id == user_id)
+                count_query = count_query.where(OptimizationTimeline.user_id == user_id)
 
             if query_filter:
                 for key, value in query_filter.items():
@@ -82,7 +88,7 @@ class Optimization_timelineService:
 
     async def delete(self, obj_id: int, user_id: Optional[str] = None) -> bool:
         try:
-            obj = await self.get_by_id(obj_id)
+            obj = await self.get_by_id(obj_id, user_id=user_id)
             if not obj:
                 return False
             await self.db.delete(obj)
