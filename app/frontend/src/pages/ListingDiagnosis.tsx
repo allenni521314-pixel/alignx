@@ -2133,6 +2133,7 @@ export default function ListingDiagnosis() {
       }
 
       const diagPayload: Record<string, unknown> = {
+        force_refresh: true,
         listing: {
           ...activeListing,
           marketplace,
@@ -2531,7 +2532,7 @@ export default function ListingDiagnosis() {
                     onClick={() => latestDiagnosis && loadDiagnosisAsCurrent(latestDiagnosis.id)}
                   >
                     <History className="w-4 h-4 mr-1.5" />
-                    加载最近诊断
+                    最新诊断
                   </Button>
                   <AsinPicker
                     onSelect={(product: AsinProduct) => {
@@ -2548,9 +2549,9 @@ export default function ListingDiagnosis() {
                         marketplace,
                       }));
                       setDiagnosisPhase("fetch_success");
-                      toast.success(`已从自动保存快照导入 ${product.asin}`);
+                      toast.success(`已从历史诊断导入 ${product.asin}`);
                     }}
-                    buttonLabel="自动保存快照"
+                    buttonLabel="历史诊断"
                     snapshotModuleKeys={["listing_diagnosis"]}
                     onSnapshotLoad={(snapshot) => loadSnapshotAsCurrentDiagnosis(snapshot)}
                   />

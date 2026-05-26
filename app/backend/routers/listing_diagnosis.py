@@ -199,6 +199,7 @@ class ListingInput(BaseModel):
 class DiagnoseRequest(BaseModel):
     listing: ListingInput
     precision_context: dict = {}
+    force_refresh: bool = True
 
 
 class DiagnoseResponse(BaseModel):
@@ -268,8 +269,8 @@ async def _evaluate_listing_compliance(listing: ListingInput, db: AsyncSession) 
     return evaluate_amazon_compliance(payload, rules)
 
 
-async def _get_cached_listing_diagnosis(listing: ListingInput, db: AsyncSession) -> dict | None:
-    """Return the latest saved diagnosis for the same Listing title/marketplace to keep scores stable."""
+async def _get_cached_listing_diagnosis(listing: ListingInput, db: AsyncSession, user_id: str) -> dict | None:
+    """Return the user's latest saved diagnosis only for explicit history/latest loads."""
     if not listing.title:
         return None
     from sqlalchemy import select
@@ -277,7 +278,7 @@ async def _get_cached_listing_diagnosis(listing: ListingInput, db: AsyncSession)
 
     result = await db.execute(
         select(LD)
-        .where(LD.listing_title == listing.title[:500], LD.marketplace == listing.marketplace)
+        .where(LD.user_id == user_id, LD.listing_title == listing.title[:500], LD.marketplace == listing.marketplace)
         .where(LD.diagnosis_report.isnot(None), LD.score_function_expression > 0)
         .order_by(LD.id.desc())
         .limit(1)
@@ -1707,7 +1708,9 @@ async def diagnose_listing(
         if not listing.title and not listing.bullet_points:
             raise HTTPException(status_code=400, detail="请至少输入标题或五点描述")
 
-        result = await _get_cached_listing_diagnosis(listing, db)
+        result = None
+        if not request.force_refresh:
+            result = await _get_cached_listing_diagnosis(listing, db, str(current_user.id))
         if not result:
             result = await _diagnose_single(
                 listing=listing,
