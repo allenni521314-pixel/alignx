@@ -993,6 +993,29 @@ def _ensure_element_scores(data: dict, listing: ListingInput) -> dict:
     return data
 
 
+def _normalize_diagnosis_result(result: dict, listing: ListingInput) -> dict:
+    """Fill required response fields when an AI/cached result is partial."""
+    data = dict(result or {})
+    data["scores"] = data.get("scores") if isinstance(data.get("scores"), dict) else {}
+    data["analysis"] = data.get("analysis") if isinstance(data.get("analysis"), dict) else {}
+    data["suggestions"] = data.get("suggestions") if isinstance(data.get("suggestions"), dict) else {}
+    data["keyword_coverage"] = data.get("keyword_coverage") if isinstance(data.get("keyword_coverage"), dict) else {}
+    data["ad_keywords"] = data.get("ad_keywords") if isinstance(data.get("ad_keywords"), dict) else {}
+    data["market_estimates"] = data.get("market_estimates") if isinstance(data.get("market_estimates"), dict) else {}
+    data = _normalize_keyword_payload(data)
+    data = _ensure_element_scores(data, listing)
+    if not data.get("overall_summary"):
+        weak_dims = [
+            key for key, value in data["scores"].items()
+            if isinstance(value, (int, float)) and value < 80
+        ][:3]
+        weak_text = "、".join(weak_dims) if weak_dims else "核心维度"
+        data["overall_summary"] = f"系统已完成Listing诊断归一化。当前需优先检查{weak_text}，并结合模块归因图定位标题、五点、图片、A+或后台词的责任。"
+    if not data.get("analyzed_product_name"):
+        data["analyzed_product_name"] = listing.title or ""
+    return data
+
+
 def _derive_fallback_insights(listing: ListingInput) -> dict:
     text = f"{listing.title} {listing.bullet_points} {listing.description} {listing.a_plus_content} {listing.category}".lower()
     title = (listing.title or "").lower()
@@ -1808,17 +1831,18 @@ async def diagnose_listing(
                 db=db,
                 precision_context=request.precision_context,
             )
+        result = _normalize_diagnosis_result(result, listing)
         if not result.get("amazon_compliance"):
             result["amazon_compliance"] = await _evaluate_listing_compliance(listing, db)
         return DiagnoseResponse(
-            scores=result["scores"],
-            analysis=result["analysis"],
-            suggestions=result["suggestions"],
-            keyword_coverage=result["keyword_coverage"],
-            ad_keywords=result["ad_keywords"],
+            scores=result.get("scores", {}),
+            analysis=result.get("analysis", {}),
+            suggestions=result.get("suggestions", {}),
+            keyword_coverage=result.get("keyword_coverage", {}),
+            ad_keywords=result.get("ad_keywords", {}),
             elements=result.get("elements", {}),
             market_estimates=result.get("market_estimates", {}),
-            overall_summary=result["overall_summary"],
+            overall_summary=result.get("overall_summary", ""),
             analyzed_product_name=result.get("analyzed_product_name", ""),
             product_mismatch=result.get("product_mismatch", False),
             product_mismatch_detail=result.get("product_mismatch_detail", ""),
