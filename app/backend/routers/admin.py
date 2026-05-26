@@ -49,7 +49,7 @@ async def get_admin_me(current_user: UserResponse = Depends(get_current_user)):
         "email": current_user.email,
         "name": current_user.name,
         "role": current_user.role,
-        "is_super_admin": current_user.role in ("super_admin", "admin"),
+        "is_super_admin": current_user.role == "super_admin",
     }
 
 

@@ -61,7 +61,7 @@ async def get_current_user(token: str = Depends(get_bearer_token)) -> UserRespon
 
 async def get_admin_user(current_user: UserResponse = Depends(get_current_user)) -> UserResponse:
     """Dependency to ensure current user has admin role."""
-    if current_user.role != "admin":
+    if current_user.role not in ("admin", "super_admin"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
     return current_user
 
@@ -69,9 +69,8 @@ async def get_admin_user(current_user: UserResponse = Depends(get_current_user))
 def is_super_admin(user: UserResponse) -> bool:
     """Check if the given user has super_admin privileges.
     Super admins can see all sellers' data across tenants.
-    Both 'super_admin' and 'admin' roles are treated as super admins for data viewing.
     """
-    return user.role in ("super_admin", "admin")
+    return user.role == "super_admin"
 
 
 async def get_super_admin_user(current_user: UserResponse = Depends(get_current_user)) -> UserResponse:

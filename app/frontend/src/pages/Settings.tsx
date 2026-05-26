@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AppSidebar } from "@/components/AppSidebar";
-import AdminPanel from "@/components/admin/AdminPanel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -14,7 +13,6 @@ import {
   Activity,
   CreditCard,
   Database,
-  Loader2,
   Lock,
   ShieldCheck,
   User,
@@ -33,29 +31,7 @@ export default function Settings() {
   const navigate = useNavigate();
   const { user } = useRequireAuth();
   const [activeTab, setActiveTab] = useState<SettingsTab>("account");
-  const [isSuperAdmin, setIsSuperAdmin] = useState(
-    sessionStorage.getItem("super_admin_unlocked") === "1"
-  );
-  const [gatePhone, setGatePhone] = useState("");
-  const [gatePassword, setGatePassword] = useState("");
-  const [gateSubmitting, setGateSubmitting] = useState(false);
-  const SUPER_ADMIN_PHONE = "13924666118";
-  const SUPER_ADMIN_PASSWORD = "alignx2026";
-
-  const handleGateSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    setGateSubmitting(true);
-    setTimeout(() => {
-      if (gatePhone.trim() === SUPER_ADMIN_PHONE && gatePassword === SUPER_ADMIN_PASSWORD) {
-        sessionStorage.setItem("super_admin_unlocked", "1");
-        setIsSuperAdmin(true);
-        toast.success("超级管理员验证通过");
-      } else {
-        toast.error("账号或密码错误");
-      }
-      setGateSubmitting(false);
-    }, 300);
-  };
+  const isSuperAdmin = user?.role === "super_admin";
 
   const tabs = [
     { key: "account" as const, label: "账号中心", icon: User },
@@ -167,22 +143,33 @@ export default function Settings() {
 
           {activeTab === "admin" && (
             isSuperAdmin ? (
-              <AdminPanel />
+              <Card className="bg-white border-gray-200 p-6 max-w-md">
+                <div className="mb-5">
+                  <ShieldCheck className="w-6 h-6 text-brand-600 mb-3" />
+                  <h2 className="text-lg font-bold">超级管理员后台</h2>
+                  <p className="text-sm text-gray-500 mt-1">
+                    只有超级管理员账号可以进入这里查看每个用户的测试内容。
+                  </p>
+                </div>
+                <Button onClick={() => navigate("/admin")} className="w-full bg-brand-600 hover:bg-brand-500 text-white">
+                  进入超级管理员后台
+                </Button>
+              </Card>
             ) : (
               <Card className="bg-white border-gray-200 p-6 max-w-md">
                 <div className="mb-5">
-                  <Lock className="w-6 h-6 text-gold-600 mb-3" />
+                  <Lock className="w-6 h-6 text-amber-600 mb-3" />
                   <h2 className="text-lg font-bold">超级管理员入口</h2>
-                  <p className="text-sm text-gray-500 mt-1">请输入超级管理员账号与密码以进入。</p>
+                  <p className="text-sm text-gray-500 mt-1">
+                    当前邮箱不是超级管理员账号，不能查看其它用户的测试内容。
+                  </p>
                 </div>
-                <form onSubmit={handleGateSubmit} className="space-y-4">
-                  <Input placeholder="管理员账号" value={gatePhone} onChange={(e) => setGatePhone(e.target.value)} />
-                  <Input type="password" placeholder="管理员密码" value={gatePassword} onChange={(e) => setGatePassword(e.target.value)} />
-                  <Button disabled={gateSubmitting} className="w-full bg-gold-600 hover:bg-gold-500 text-white">
-                    {gateSubmitting ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <ShieldCheck className="w-4 h-4 mr-2" />}
-                    进入管理后台
-                  </Button>
-                </form>
+                <Button onClick={() => {
+                  toast.info("请使用超级管理员邮箱重新登录");
+                  navigate("/login");
+                }} className="w-full bg-brand-600 hover:bg-brand-500 text-white">
+                  切换超级管理员邮箱
+                </Button>
               </Card>
             )
           )}
