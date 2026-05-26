@@ -1683,41 +1683,41 @@ def _build_product_context(product_data: dict, product_title: str = "") -> str:
 
 
 SIX_DIMENSION_SCHEMA = [
-    ("demand", "需求维", [
+    ("demand", "需求强度", [
         ("pain_clarity", "痛点明确度"),
         ("usage_frequency", "使用频率"),
         ("demand_rigidity", "需求刚性"),
         ("payment_clarity", "付费理由清晰度"),
     ]),
-    ("scenario", "场景维", [
-        ("scene_clarity", "场景明确度"),
-        ("scene_trigger", "场景触发强度"),
-        ("scene_expansion", "场景扩展性"),
-        ("scene_visual", "场景可视化表达"),
+    ("search_entry", "搜索入口", [
+        ("core_keyword_capacity", "核心关键词容量"),
+        ("long_tail_opportunity", "长尾词机会"),
+        ("organic_entry_access", "自然排名可进入性"),
+        ("ad_entry_tolerance", "广告入口承受力"),
     ]),
-    ("competition", "竞争维", [
+    ("competition", "竞争结构", [
+        ("top20_review_barrier", "Top20评论门槛"),
+        ("low_review_rank_opportunity", "低评论高排名样本"),
+        ("sponsored_pressure", "广告位压力"),
         ("homogeneity", "同质化程度"),
-        ("differentiation_anchor", "差异化锚点"),
+    ]),
+    ("differentiation", "差异化切口", [
+        ("differentiation_anchor", "可表达差异点"),
+        ("competitor_weakness", "竞品差评机会"),
+        ("listing_expression_fit", "Listing表达承接"),
         ("substitution_difficulty", "替代难度"),
-        ("competitor_weakness", "竞品弱点可攻击性"),
     ]),
-    ("profit", "利润维", [
+    ("business", "商业承受力", [
         ("gross_margin", "毛利空间"),
+        ("price_band_match", "价格带合理性"),
         ("ad_tolerance", "广告承受力"),
-        ("pricing_rationality", "定价合理性"),
-        ("profit_scalability", "放大利润空间"),
+        ("profit_scalability", "套装/变体/复购空间"),
     ]),
-    ("trend", "趋势维", [
-        ("demand_growth", "需求增长趋势"),
-        ("category_lifecycle", "品类生命周期"),
+    ("risk_trend", "风险与趋势", [
         ("compliance_risk", "政策合规风险"),
-        ("tech_supply_trend", "技术与供应链趋势"),
-    ]),
-    ("price_tier", "价格带维", [
-        ("price_band_match", "价格带匹配度"),
-        ("value_perception", "价值感知支撑"),
-        ("premium_potential", "溢价空间"),
-        ("price_risk_resistance", "价格风险承受力"),
+        ("demand_growth", "BSR/关键词趋势"),
+        ("category_lifecycle", "类目生命周期"),
+        ("new_entry_signal", "新品进入案例"),
     ]),
 ]
 
@@ -1811,18 +1811,49 @@ def _build_six_dimension_rule_engine(asin: str, marketplace: str, product_title:
     diff_hits = sum(1 for term in diff_terms if term in text)
     compliance_hits = sum(1 for term in compliance_terms if term in text)
     risk_hits = sum(1 for term in risk_terms if term in text)
+    keyword_blob = " ".join(
+        str(product_data.get(key) or "")
+        for key in ("keyword_data", "main_keywords", "search_keywords", "backend_keywords")
+    ).lower()
+    keyword_count = len({kw for kw in re.split(r"[,;\n]+", keyword_blob) if kw.strip()})
+    top20 = product_data.get("top20_competitors") or product_data.get("top40_items") or []
+    top20_count = len(top20) if isinstance(top20, list) else 0
+    low_review_rank_count = 0
+    sponsored_count = 0
+    if isinstance(top20, list):
+        for index, item in enumerate(top20[:20], start=1):
+            if not isinstance(item, dict):
+                continue
+            item_reviews = _num_value(item.get("review_count") or item.get("reviews") or item.get("reviewCount"))
+            if index <= 20 and item_reviews and item_reviews <= 500:
+                low_review_rank_count += 1
+            if item.get("isSponsored") or item.get("sponsored"):
+                sponsored_count += 1
+    sponsored_ratio = sponsored_count / top20_count if top20_count else _num_value(product_data.get("sponsored_ratio"), 0)
+    organic_entry_score = 4.5 if bsr and bsr <= 3000 and reviews < 10000 else 3.6 if bsr and bsr <= 20000 else 2.4 if bsr else 2.8
+    if reviews >= 30000 and bsr and bsr <= 5000:
+        organic_entry_score = min(organic_entry_score, 2.2)
+    review_barrier_score = 4.4 if reviews < 800 else 3.5 if reviews < 5000 else 2.4 if reviews < 30000 else 1.5
 
     item_map = {
         "pain_clarity": _score_item(min(5, 1.5 + pain_hits * 0.7), [f"痛点词命中 {pain_hits} 个"], [] if pain_hits >= 2 else ["标题/五点未充分暴露用户痛点"], "补充评论痛点和差评问题，确认是否是真需求。"),
         "usage_frequency": _score_item(4.5 if any(x in text for x in ["daily", "everyday", "home", "office", "cat", "charger"]) else 3, ["存在日常/高频使用信号"] if any(x in text for x in ["daily", "everyday", "home", "office", "cat", "charger"]) else [], ["缺少使用频率证据"] if not any(x in text for x in ["daily", "everyday", "home", "office", "cat", "charger"]) else [], "用评论、QA或场景词确认使用频率。"),
         "demand_rigidity": _score_item(4.2 if pain_hits >= 3 else 3 if pain_hits >= 1 else 2, [f"痛点强度 {pain_hits}"], [] if pain_hits else ["刚需证据不足"], "判断用户是否必须解决该问题，而不是可买可不买。"),
         "payment_clarity": _score_item(4.3 if rating >= 4.3 and reviews >= 100 else 3.5 if price > 0 and rating >= 4 else 2.5, [f"价格 {price}", f"评分 {rating}", f"评论 {int(reviews)}"], ["价值支撑不足"] if rating < 4.1 or reviews < 50 else [], "用功能、效果、信任证据支撑付费理由。"),
+        "core_keyword_capacity": _score_item(4.4 if keyword_count >= 5 else 3.6 if keyword_count >= 2 or bsr else 2.6, [f"关键词证据 {keyword_count} 组", f"BSR {int(bsr)}" if bsr else "BSR缺失"], ["核心搜索入口证据不足"] if keyword_count < 2 and not bsr else [], "先确定1-3个核心词，再用Top40排名和广告位验证入口大小。"),
+        "long_tail_opportunity": _score_item(4.2 if scenario_hits >= 3 and pain_hits >= 1 else 3.3 if scenario_hits >= 2 or pain_hits >= 2 else 2.4, [f"场景词 {scenario_hits}", f"痛点词 {pain_hits}"], ["缺少长尾场景/属性组合词"] if scenario_hits < 2 else [], "把用途、对象、属性组合成长尾词，优先验证低CPC高CVR入口。"),
+        "organic_entry_access": _score_item(organic_entry_score, [f"BSR {int(bsr)}" if bsr else "BSR缺失", f"评论 {int(reviews)}"], ["自然位进入难度高"] if organic_entry_score < 3 else [], "看核心词Top40自然位，而不是只看BSR。若头部评论过高，切细分词进入。"),
+        "ad_entry_tolerance": _score_item(4 if price >= 40 else 3.2 if price >= 25 else 2.2 if price > 0 else 2.5, [f"价格 {price}"], ["客单价低，广告试错空间小"] if price and price < 25 else [], "用目标毛利和CPC反推可承受ACOS，低客单价优先找自然/长尾入口。"),
         "scene_clarity": _score_item(min(5, 1.5 + scenario_hits * 0.6), [f"场景词命中 {scenario_hits} 个"], [] if scenario_hits >= 2 else ["场景表达不足"], "明确核心使用场景和目标人群。"),
         "scene_trigger": _score_item(4.2 if scenario_hits >= 3 and pain_hits >= 1 else 3 if scenario_hits else 2, [f"场景 {scenario_hits} / 痛点 {pain_hits}"], ["场景不能强触发购买"] if scenario_hits < 2 else [], "用状态触发词表达什么时候会需要它。"),
         "scene_expansion": _score_item(4.2 if scenario_hits >= 4 else 3 if scenario_hits >= 2 else 2, [f"可扩展场景 {scenario_hits}"], ["场景过窄"] if scenario_hits < 2 else [], "补充相邻场景但不要泛化到无关人群。"),
         "scene_visual": _score_item(4.5 if image_count >= 7 or has_video else 3.5 if image_count >= 4 else 2, [f"图片数 {int(image_count)}", f"视频 {has_video}"], ["图片/视频场景证据不足"] if image_count < 7 and not has_video else [], "用图片/视频验证场景是否可视化。"),
+        "top20_review_barrier": _score_item(review_barrier_score, [f"当前评论 {int(reviews)}", f"低评论高位样本 {low_review_rank_count} 个"], ["Top20评论门槛偏高"] if review_barrier_score < 3 else [], "不要只看销量第一，要看Top20里有没有低评论也能上位的切口。"),
+        "low_review_rank_opportunity": _score_item(4.2 if low_review_rank_count >= 2 or product_data.get("new_seller_case") else 3 if low_review_rank_count == 1 else 2.3, [f"低评论高排名样本 {low_review_rank_count} 个"], ["缺少新品/低评论进入案例"] if low_review_rank_count == 0 and not product_data.get("new_seller_case") else [], "抓Top40，找低评论但自然位靠前的ASIN，证明新卖家仍可进入。"),
+        "sponsored_pressure": _score_item(4.2 if sponsored_ratio <= 0.15 else 3 if sponsored_ratio <= 0.35 else 2.1, [f"广告位占比 {round(sponsored_ratio * 100)}%"], ["广告位压力高，可能需要更强预算或更细长尾词"] if sponsored_ratio > 0.35 else [], "核心词广告位过密时，先切属性词/场景词，别正面烧钱。"),
         "homogeneity": _score_item(2.2 if diff_hits == 0 else 3.2 if diff_hits < 2 else 4, [f"差异化信号 {diff_hits}"], ["同质化风险高"] if diff_hits == 0 else [], "对Top竞品做同尺子比较，确认同质化程度。"),
         "differentiation_anchor": _score_item(min(5, 1.8 + diff_hits * 0.8), [f"差异化词命中 {diff_hits} 个"], ["差异化锚点不清晰"] if diff_hits < 2 else [], "找到可以被Listing和广告表达的核心差异。"),
+        "listing_expression_fit": _score_item(4.3 if bullet_count >= 5 and image_count >= 6 else 3.3 if bullet_count >= 3 and image_count >= 4 else 2.2, [f"五点 {bullet_count}/5", f"图片 {int(image_count)}"], ["Listing承接不足，差异点无法被图文证明"] if bullet_count < 5 or image_count < 6 else [], "差异化必须能被标题、主图、副图、五点和A+重复证明。"),
         "substitution_difficulty": _score_item(4 if diff_hits >= 3 and reviews >= 100 else 3 if diff_hits else 2, [f"差异化 {diff_hits}", f"评论门槛 {int(reviews)}"], ["用户转向竞品成本低"] if diff_hits < 2 else [], "确认是否有结构、配件、体验或服务门槛。"),
         "competitor_weakness": _score_item(3.5 if product_data.get("review_pain_points") else 2.2, ["已有评论痛点数据"] if product_data.get("review_pain_points") else [], ["缺少竞品差评机会数据"], "抓取竞品差评，找可攻击弱点。"),
         "gross_margin": _score_item(4 if price >= 35 else 3 if price >= 20 else 2, [f"价格 {price}"], ["低价品毛利空间偏窄"] if price and price < 20 else [], "补充采购成本、FBA费和退货率后复算毛利。"),
@@ -1837,6 +1868,7 @@ def _build_six_dimension_rule_engine(asin: str, marketplace: str, product_title:
         "value_perception": _score_item(4 if rating >= 4.3 and (has_a_plus or image_count >= 7) else 3, [f"评分 {rating}", f"A+ {has_a_plus}", f"图片 {int(image_count)}"], ["价值感知支撑不足"] if rating < 4.2 else [], "用A+、图片和评论支撑价格价值感。"),
         "premium_potential": _score_item(4 if diff_hits >= 2 and has_a_plus else 2.8, [f"差异化 {diff_hits}", f"A+ {has_a_plus}"], ["溢价证据不足"] if diff_hits < 2 else [], "用品牌信任和差异化证明支撑溢价。"),
         "price_risk_resistance": _score_item(4 if price >= 35 and diff_hits >= 2 else 2.8, [f"价格 {price}", f"差异化 {diff_hits}"], ["容易陷入价格战"] if diff_hits < 2 else [], "验证是否能避开纯价格竞争。"),
+        "new_entry_signal": _score_item(4.2 if product_data.get("new_seller_case") or low_review_rank_count >= 2 else 3 if bsr and bsr < 50000 else 2.3, [f"新品/低评论进入证据 {low_review_rank_count} 个"], ["缺少新卖家进入证据"] if not product_data.get("new_seller_case") and low_review_rank_count == 0 else [], "用Top40和评论增长确认新品是否仍能进入，而不是只看头部销量。"),
     }
 
     dimensions = []
@@ -1905,7 +1937,15 @@ def _build_six_dimension_rule_engine(asin: str, marketplace: str, product_title:
     market_barriers = [rule for rule in triggered_vetoes if rule["rule_name"] not in hard_veto_names]
     risk_level = "high" if hard_vetoes or total_score < 55 else "medium" if market_barriers or total_score < 75 or confidence_level == "low" else "low"
 
-    derivative_signal = total_score >= 55 and (market_barriers or dimension_scores.get("competition", 0) < 12) and (scenario_hits >= 2 or pain_hits >= 2)
+    derivative_signal = (
+        total_score >= 55
+        and (
+            market_barriers
+            or dimension_scores.get("competition", 0) < 12
+            or dimension_scores.get("differentiation", 0) < 12
+        )
+        and (dimension_scores.get("search_entry", 0) >= 10 or scenario_hits >= 2 or pain_hits >= 2)
+    )
     if hard_vetoes:
         pool_status = "rejected_pool"
     elif total_score >= 75 and risk_level != "high":
@@ -2033,6 +2073,7 @@ async def five_dimension_score(
         overall_summary = engine["one_sentence_reason"]
 
         detail_payload = {
+            "dimension_scores": dimension_scores,
             "detail_scores": detail_scores,
             "analysis": analysis,
             "overall_summary": overall_summary,
@@ -2061,12 +2102,11 @@ async def five_dimension_score(
             "product_data": json.dumps(product_data, ensure_ascii=False) if product_data else "",
             "score_5d_total": total_score,
             "score_5d_demand": float(dimension_scores.get("demand", 0)),
-            "score_5d_scenario": float(dimension_scores.get("scenario", 0)),
+            "score_5d_scenario": float(dimension_scores.get("search_entry", 0)),
             "score_5d_competition": float(dimension_scores.get("competition", 0)),
-            "score_5d_profit": float(dimension_scores.get("profit", 0)),
-            "score_5d_trend": float(dimension_scores.get("trend", 0)),
-            # ==== 新增：第6维 价格带维度 ====
-            "score_5d_price_tier": float(dimension_scores.get("price_tier", 0)),
+            "score_5d_profit": float(dimension_scores.get("differentiation", 0)),
+            "score_5d_trend": float(dimension_scores.get("business", 0)),
+            "score_5d_price_tier": float(dimension_scores.get("risk_trend", 0)),
             "price_tier_category": price_tier_category,
             "price_tier_analysis": json.dumps(price_tier_analysis, ensure_ascii=False),
             "score_5d_detail": json.dumps(detail_payload, ensure_ascii=False),
@@ -2187,9 +2227,21 @@ async def get_five_dimension_history(
             is_legacy_score = not bool(detail_dimensions) or not bool(detail.get("data_completeness"))
             if isinstance(detail_dimensions, list):
                 for dim in detail_dimensions:
+                    if isinstance(dim, dict) and dim.get("dimension_key") in {"scenario", "profit", "trend", "price_tier"}:
+                        is_legacy_score = True
                     for item in dim.get("items", []) if isinstance(dim, dict) else []:
                         if item.get("item_name") in {"价值支撑", "促销空间", "价格竞争力", "价格带供需结构", "价格带进入门槛", "价格带抗风险能力"}:
                             is_legacy_score = True
+            stored_scores = detail.get("dimension_scores") if isinstance(detail, dict) else None
+            if not isinstance(stored_scores, dict):
+                stored_scores = {
+                    "demand": row.score_5d_demand,
+                    "search_entry": row.score_5d_scenario,
+                    "competition": row.score_5d_competition,
+                    "differentiation": row.score_5d_profit,
+                    "business": row.score_5d_trend,
+                    "risk_trend": getattr(row, "score_5d_price_tier", 0),
+                }
 
             items.append({
                 "id": row.id,
@@ -2199,14 +2251,7 @@ async def get_five_dimension_history(
                 "total_score": row.score_5d_total,
                 "raw_total": detail.get("raw_total", 0),
                 "qualified": bool(row.qualified),
-                "dimension_scores": {
-                    "demand": row.score_5d_demand,
-                    "scenario": row.score_5d_scenario,
-                    "competition": row.score_5d_competition,
-                    "profit": row.score_5d_profit,
-                    "trend": row.score_5d_trend,
-                    "price_tier": getattr(row, "score_5d_price_tier", 0),
-                },
+                "dimension_scores": stored_scores,
                 "price_tier_category": getattr(row, "price_tier_category", None),
                 "price_tier_analysis": json.loads(row.price_tier_analysis) if getattr(row, "price_tier_analysis", None) else {},
                 "detail_scores": detail.get("detail_scores", {}),
