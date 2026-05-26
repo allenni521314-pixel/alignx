@@ -4,9 +4,13 @@ from datetime import datetime
 from typing import Optional
 
 from core.auth import AccessTokenError, decode_access_token
+from core.database import get_db
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from models.auth import User
 from schemas.auth import UserResponse
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 
@@ -91,3 +95,21 @@ def get_effective_user_id(current_user: UserResponse, view_all: bool = False) ->
     if view_all and is_super_admin(current_user):
         return None
     return str(current_user.id)
+
+
+async def get_user_scope_ids(current_user: UserResponse, db: AsyncSession) -> list[str]:
+    """Return user ids that belong to the same normalized email identity.
+
+    AlignX moved from OIDC/phone-style ids to deterministic email ids during
+    beta auth. Historical records may still be attached to the older id, so
+    read paths should include same-email aliases while keeping cross-email
+    tenant isolation intact.
+    """
+    ids = {str(current_user.id)}
+    email = (current_user.email or "").strip().lower()
+    if not email:
+        return list(ids)
+
+    result = await db.execute(select(User.id).where(func.lower(User.email) == email))
+    ids.update(str(row[0]) for row in result.all() if row and row[0])
+    return list(ids)
