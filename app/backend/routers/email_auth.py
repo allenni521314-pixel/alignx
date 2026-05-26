@@ -92,6 +92,12 @@ def _smtp_port() -> int:
         return 587
 
 
+def _as_aware_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
 def _send_email_code(email: str, code: str) -> str:
     smtp_host = getattr(settings, "smtp_host", "")
     smtp_user = getattr(settings, "smtp_username", "")
@@ -157,7 +163,7 @@ async def send_email_code(payload: EmailCodeRequest, db: AsyncSession = Depends(
         .order_by(desc(EmailVerificationCode.created_at))
     )
     latest = latest_result.scalars().first()
-    if latest and latest.created_at and (now - latest.created_at).total_seconds() < RESEND_COOLDOWN_SECONDS:
+    if latest and latest.created_at and (now - _as_aware_utc(latest.created_at)).total_seconds() < RESEND_COOLDOWN_SECONDS:
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="验证码发送过快，请稍后再试")
 
     code = f"{secrets.randbelow(1_000_000):06d}"
