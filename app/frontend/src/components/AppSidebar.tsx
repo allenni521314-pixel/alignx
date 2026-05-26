@@ -154,6 +154,7 @@ export function AppSidebar() {
   const handleLogout = async () => {
     localStorage.removeItem("alignx_token");
     localStorage.removeItem("alignx_user");
+    localStorage.removeItem("token");
     navigate("/");
     window.location.reload();
   };
