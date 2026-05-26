@@ -262,6 +262,118 @@ export async function getAllProducts(limit = 50) {
 }
 
 /* ------------------------------------------------------------------ */
+/*  Judgment Feedback / Learning Memory                                */
+/* ------------------------------------------------------------------ */
+
+export interface JudgmentFeedbackRound {
+  id: number;
+  product_id?: number | null;
+  asin?: string | null;
+  optimization_round: number;
+  stage: string;
+  status: string;
+  diagnosis_issue?: string;
+  judgment_basis?: unknown;
+  suggested_action?: string;
+  ad_validation_plan?: unknown;
+  before_snapshot?: unknown;
+  after_snapshot?: unknown;
+  ad_result?: {
+    primary_validation?: {
+      hypothesis_id?: string;
+      keyword_group_id?: string;
+      optimization_round?: number;
+    };
+    [key: string]: unknown;
+  };
+  hit_status?: string;
+  miss_reason?: string;
+  next_iteration?: string;
+}
+
+interface FeedbackRoundPayload {
+  product_id?: number | null;
+  asin?: string;
+  marketplace?: string;
+  optimization_round: number;
+  stage: string;
+  status: string;
+  diagnosis_issue?: string;
+  judgment_basis?: unknown;
+  suggested_action?: string;
+  ad_validation_plan?: unknown;
+  before_snapshot?: unknown;
+  after_snapshot?: unknown;
+  ad_result?: JudgmentFeedbackRound["ad_result"];
+  hit_status?: string;
+  miss_reason?: string;
+  next_iteration?: string;
+  confidence_before?: number;
+  confidence_after?: number;
+  executed_at?: string;
+}
+
+function sameValidationRound(round: JudgmentFeedbackRound, payload: FeedbackRoundPayload) {
+  const current = round.ad_result?.primary_validation || {};
+  const next = payload.ad_result?.primary_validation || {};
+  return (
+    round.stage === payload.stage &&
+    Number(round.optimization_round || 1) === Number(payload.optimization_round || 1) &&
+    String(current.hypothesis_id || "") === String(next.hypothesis_id || "") &&
+    String(current.keyword_group_id || "") === String(next.keyword_group_id || "")
+  );
+}
+
+export async function listJudgmentFeedbackRounds(params: {
+  productId?: number;
+  asin?: string;
+  limit?: number;
+}): Promise<JudgmentFeedbackRound[]> {
+  try {
+    const search = new URLSearchParams();
+    if (params.productId) search.set("product_id", String(params.productId));
+    if (params.asin) search.set("asin", params.asin);
+    search.set("limit", String(params.limit || 100));
+    const res = await fetch(`/api/v1/judgment-system/listing/feedback-rounds?${search.toString()}`, {
+      headers: getAuthHeaders(),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.detail || "Failed to load feedback rounds");
+    return data?.items || [];
+  } catch (e) {
+    console.error("Failed to fetch judgment feedback rounds:", e);
+    return [];
+  }
+}
+
+export async function upsertAdValidationFeedbackRound(payload: FeedbackRoundPayload): Promise<boolean> {
+  try {
+    const rounds = await listJudgmentFeedbackRounds({
+      productId: payload.product_id || undefined,
+      asin: payload.asin,
+      limit: 100,
+    });
+    const existing = rounds.find((round) => sameValidationRound(round, payload));
+    const url = existing
+      ? `/api/v1/judgment-system/listing/feedback-rounds/${existing.id}`
+      : "/api/v1/judgment-system/listing/feedback-rounds";
+    const res = await fetch(url, {
+      method: existing ? "PATCH" : "POST",
+      headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data?.detail || "Failed to save feedback round");
+    }
+    return true;
+  } catch (e) {
+    console.error("Failed to upsert ad validation feedback round:", e);
+    return false;
+  }
+}
+
+/* ------------------------------------------------------------------ */
 /*  Dashboard Aggregation                                              */
 /* ------------------------------------------------------------------ */
 

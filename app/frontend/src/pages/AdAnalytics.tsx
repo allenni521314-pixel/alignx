@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { client } from "@/lib/api";
 import { useRequireAuth } from "@/hooks/useRequireAuth";
 import { getAuthHeaders } from "@/lib/auth-headers";
-import { saveActionSnapshot } from "@/lib/workflow-api";
+import { saveActionSnapshot, upsertAdValidationFeedbackRound } from "@/lib/workflow-api";
 import { getApiErrorMessage } from "@/lib/api-retry";
 import { toast } from "sonner";
 import {
@@ -66,6 +66,28 @@ interface ValidationGroup {
   acos: string;
   record_count: number;
   assigned: boolean;
+}
+
+function inferValidationHitStatus(level: string) {
+  if (level === "测试成立") return "已命中";
+  if (level === "数据不足") return "待验证";
+  if (level === "点击成立，转化未成立") return "部分命中";
+  return "未命中";
+}
+
+function inferValidationFailureReason(metrics: { impressions?: number; clicks?: number; ctr?: string | number; cvr?: string | number; acos?: string | number }, level: string) {
+  const impressions = Number(metrics.impressions || 0);
+  const clicks = Number(metrics.clicks || 0);
+  const ctr = Number(metrics.ctr || 0);
+  const cvr = Number(metrics.cvr || 0);
+  const acos = Number(metrics.acos || 0);
+  if (level === "测试成立") return "none";
+  if (clicks < 100) return "sample_not_enough";
+  if (impressions >= 1000 && ctr < 0.25) return "image_click_gap";
+  if (ctr < 0.4) return "keyword_mismatch";
+  if (cvr < 8) return "detail_trust_gap";
+  if (acos > 35) return "price_promise_gap";
+  return "needs_manual_review";
 }
 
 const emptyAd = {
@@ -416,6 +438,18 @@ export default function AdAnalytics() {
     const key = `${selectedProductId || "all"}-${totalImpressions}-${totalClicks}-${totalSpend}-${totalOrders}-${totalSales}-${validationConclusion.level}`;
     if (validationSnapshotKeyRef.current === key) return;
     validationSnapshotKeyRef.current = key;
+    const selectedProduct = products.find((product) => String(product.id) === selectedProductId);
+    const hitStatus = inferValidationHitStatus(validationConclusion.level);
+    const missReason = inferValidationFailureReason(
+      {
+        impressions: validationMetrics.impressions || totalImpressions,
+        clicks: validationMetrics.clicks || totalClicks,
+        ctr: validationMetrics.ctr || ctr,
+        cvr: validationMetrics.cvr || cvr,
+        acos: validationMetrics.acos || acos,
+      },
+      validationConclusion.level,
+    );
     saveActionSnapshot({
       module_key: "ad_analytics",
       module_name: "广告投放",
@@ -435,7 +469,54 @@ export default function AdAnalytics() {
       ai_called: false,
       source_record_table: "ad_data",
     }).catch(() => {});
-  }, [isValidationView, loading, selectedProductId, totalImpressions, totalClicks, totalSpend, totalOrders, totalSales, validationConclusion.level, validationMetrics.hypothesis_id, validationMetrics.keyword_group_id]);
+    if (selectedProductId && selectedProductId !== "all") {
+      upsertAdValidationFeedbackRound({
+        product_id: Number(selectedProductId),
+        asin: selectedProduct?.asin,
+        marketplace: "US",
+        optimization_round: Number(validationMetrics.optimization_round || 1),
+        stage: "ad_validation",
+        status: hitStatus === "待验证" ? "running" : "completed",
+        diagnosis_issue: `广告假设 ${validationMetrics.hypothesis_id} / ${validationMetrics.keyword_group_id} 验证结果`,
+        judgment_basis: {
+          source: "ad_analytics_validation_view",
+          rule: "按 hypothesis_id + keyword_group_id + optimization_round 聚合广告数据，回流判断命中率。",
+          conclusion: validationConclusion.summary,
+        },
+        suggested_action: validationConclusion.actions[0] || "",
+        ad_result: {
+          conclusion: validationConclusion,
+          primary_validation: validationMetrics,
+          validation_groups: validationGroups,
+          aggregate_metrics: { totalImpressions, totalClicks, totalSpend, totalOrders, totalSales, ctr, cvr, acos, roas },
+        },
+        hit_status: hitStatus,
+        miss_reason: missReason,
+        next_iteration: validationConclusion.actions.join("；"),
+        confidence_after: totalClicks >= 100 ? 85 : totalClicks >= 30 ? 65 : 40,
+        executed_at: new Date().toISOString(),
+      }).catch(() => {});
+    }
+  }, [
+    isValidationView,
+    loading,
+    selectedProductId,
+    products,
+    totalImpressions,
+    totalClicks,
+    totalSpend,
+    totalOrders,
+    totalSales,
+    ctr,
+    cvr,
+    acos,
+    roas,
+    validationConclusion.level,
+    validationConclusion.summary,
+    validationMetrics.hypothesis_id,
+    validationMetrics.keyword_group_id,
+    validationMetrics.optimization_round,
+  ]);
 
   return (
     <div className="flex h-screen bg-white text-gray-900">
