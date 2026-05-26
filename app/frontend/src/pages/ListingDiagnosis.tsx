@@ -499,6 +499,116 @@ function buildPriorityIssues(result: DiagnosisResult | null): PriorityIssue[] {
     });
 }
 
+function extractTitleSignals(title: string) {
+  const lower = String(title || "").toLowerCase();
+  const tokens = lower
+    .replace(/[^a-z0-9\s+-]/g, " ")
+    .split(/\s+/)
+    .filter((word) => word.length > 2);
+  const stop = new Set(["with", "for", "and", "the", "this", "that", "from", "plus", "edition", "black", "white"]);
+  const identity = tokens.filter((word) => !stop.has(word)).slice(0, 5);
+  const attributes = [
+    ...(lower.match(/\b\d+(\.\d+)?\s?(mah|w|db|inch|inches|oz|lb|ml|l|pack|pcs|piece|pieces)\b/g) || []),
+    ...tokens.filter((word) => /(usb|waterproof|quiet|portable|compact|wireless|rechargeable|adjustable|foldable|mini|slim|carbon|filter|compatible)/.test(word)),
+  ];
+  const scenarios = tokens.filter((word) => /(bedroom|office|travel|outdoor|indoor|apartment|camping|beach|pool|kitchen|bathroom|desk|car|kids|cats|dogs|pet)/.test(word));
+  const painStates = tokens.filter((word) => /(odor|smell|ammonia|noise|pain|leak|mess|tracking|dust|safe|sleep|stress|comfort|relief)/.test(word));
+  const unique = (items: string[]) => Array.from(new Set(items.map((item) => item.trim()).filter(Boolean))).slice(0, 8);
+  return {
+    identity: unique(identity),
+    attributes: unique(attributes),
+    scenarios: unique(scenarios),
+    painStates: unique(painStates),
+  };
+}
+
+function adMetricRead(module: string) {
+  const map: Record<string, { metrics: string[]; hypothesis: string; success: string; failure: string }> = {
+    title: {
+      metrics: ["曝光相关性", "CTR", "CPC", "搜索词精准度"],
+      hypothesis: "标题补清产品身份、核心属性和场景关系后，广告进入的搜索词会更准，CTR提升且CPC不恶化。",
+      success: "曝光足够后CTR提升，搜索词更集中在目标品类/场景词。",
+      failure: "CTR不升或搜索词发散，说明标题语义或广告词池仍错配。",
+    },
+    main_image: {
+      metrics: ["CTR", "CPC", "点击质量"],
+      hypothesis: "主图一眼表达产品身份和差异后，同一广告词的CTR会提升。",
+      success: "曝光>=1000且点击>=100后CTR提升，CPC不明显上升。",
+      failure: "低CTR优先归因为主图点击力或首屏差异不足。",
+    },
+    secondary_images: {
+      metrics: ["CVR", "跳出风险", "ACOS"],
+      hypothesis: "副图补齐功能、尺寸、场景、对比和风险证据后，点击后的CVR会提升。",
+      success: "CTR稳定时CVR提升、ACOS下降或订单增加。",
+      failure: "CTR高CVR低，说明副图/详情页承接不足。",
+    },
+    bullets: {
+      metrics: ["CVR", "订单转化", "ACOS"],
+      hypothesis: "五点按购买理由重写后，点击用户更容易被说服下单。",
+      success: "同词组CVR提升，订单增加，ACOS下降。",
+      failure: "点击成立但转化不升，说明购买理由、价格或评论信任不足。",
+    },
+    a_plus: {
+      metrics: ["CVR", "信任承接", "ACOS"],
+      hypothesis: "A+补齐品牌、技术、对比和FAQ信任后，中后段转化更稳。",
+      success: "CVR提升且高意图词ACOS下降。",
+      failure: "CVR不变，说明A+未解决核心犹豫或用户未进入深度阅读。",
+    },
+    reviews: {
+      metrics: ["CVR", "广告承诺可信度", "退货/差评风险"],
+      hypothesis: "把评论痛点转成图片/五点/A+回应后，广告承诺更可信。",
+      success: "高意图词CVR提升，差评相关疑虑减少。",
+      failure: "CVR不升且评论信任弱，说明承诺强度超过真实证据。",
+    },
+  };
+  return map[module] || map.title;
+}
+
+function buildListingHypotheses(result: DiagnosisResult, listing: ListingInput) {
+  const titleSignals = extractTitleSignals(listing.title || result.listing_title || result.analyzed_product_name || "");
+  const validationItems = Array.isArray(result.ad_validation_plan?.validation_items)
+    ? result.ad_validation_plan?.validation_items
+    : [];
+  const issueByPosition = new Map(buildPriorityIssues(result).map((item) => [item.position, item]));
+  const rows = [
+    { key: "title", module: "标题", issue: issueByPosition.get("标题") },
+    { key: "main_image", module: "主图", issue: issueByPosition.get("主图") },
+    { key: "secondary_images", module: "附图", issue: issueByPosition.get("副图") },
+    { key: "bullets", module: "五点描述", issue: issueByPosition.get("五点描述") },
+    { key: "a_plus", module: "A+图文", issue: issueByPosition.get("A+ 内容") },
+    { key: "reviews", module: "评论反馈", issue: issueByPosition.get("评分 / 评论") },
+  ];
+  const keywordPool = [
+    ...(result.ad_keywords?.high_conversion || []),
+    ...(result.ad_keywords?.long_tail || []),
+    ...(result.ad_keywords?.traffic || []),
+  ]
+    .map((item) => normalizeAmazonAdKeyword(item.keyword))
+    .filter(Boolean);
+  return rows.map((row, index) => {
+    const read = adMetricRead(row.key);
+    const validation = validationItems[index] || validationItems.find((item: any) => String(item.id || "").includes(String(index + 1))) || {};
+    const keywords = (
+      validation.ad_action?.keywords ||
+      validation.ad_test_keywords ||
+      keywordPool.slice(index, index + 3) ||
+      []
+    ).map((kw: string) => normalizeAmazonAdKeyword(kw)).filter(Boolean).slice(0, 4);
+    return {
+      ...row,
+      metrics: read.metrics,
+      hypothesis: validation.hypothesis || read.hypothesis,
+      success: validation.decision_rules?.[0] || read.success,
+      failure: validation.decision_rules?.[2] || read.failure,
+      action: validation.suggested_listing_action || row.issue?.action || "补齐该模块和标题语义骨架的一致性，再进入广告验证。",
+      priority: row.issue?.priority || "P1 建议优化",
+      impact: row.issue?.impact || "中",
+      keywords,
+      titleSignals,
+    };
+  });
+}
+
 /** Parse plain text pasted from Amazon page into listing fields */
 function parseManualPasteText(text: string): {
   title: string;
@@ -1243,6 +1353,101 @@ function BackendJudgmentPanel({ result }: { result: DiagnosisResult }) {
             ))}
           </div>
         )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function ListingHypothesisLoopPanel({ result, listing }: { result: DiagnosisResult; listing: ListingInput }) {
+  const rows = buildListingHypotheses(result, listing);
+  const signals = rows[0]?.titleSignals || extractTitleSignals(listing.title || result.listing_title || "");
+  const signalBlocks = [
+    { label: "产品身份", values: signals.identity },
+    { label: "属性", values: signals.attributes },
+    { label: "用途/场景", values: signals.scenarios },
+    { label: "状态触发", values: signals.painStates },
+  ];
+
+  return (
+    <Card className="bg-white border-brand-100">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base flex items-center gap-2">
+          <TrendingUp className="w-5 h-5 text-brand-600" />
+          诊断假设验证闭环
+        </CardTitle>
+        <p className="text-xs text-gray-500">
+          先从标题识别产品身份、属性、用途和场景，再判断各模块影响哪些广告指标，最后用真实投放验证。
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+          {signalBlocks.map((block) => (
+            <div key={block.label} className="rounded-lg border border-gray-100 bg-gray-50 p-3">
+              <p className="text-[11px] font-semibold text-gray-500">{block.label}</p>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {(block.values.length ? block.values : ["待补齐"]).map((value) => (
+                  <Badge key={value} variant="outline" className="border-brand-100 bg-white text-brand-700 text-[10px]">
+                    {value}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {rows.map((row) => (
+            <div key={row.key} className="rounded-xl border border-gray-100 bg-gray-50 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h4 className="font-semibold text-gray-900">{row.module}</h4>
+                  <p className="mt-1 text-xs text-gray-500">{row.issue?.judgement || "检查该模块是否承接标题语义和购买理由。"}</p>
+                </div>
+                <Badge className={row.priority.startsWith("P0") ? "bg-red-600 text-white" : row.priority.startsWith("P1") ? "bg-amber-500 text-white" : "bg-gray-100 text-gray-600"}>
+                  {row.priority}
+                </Badge>
+              </div>
+
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {row.metrics.map((metric) => (
+                  <Badge key={metric} variant="outline" className="bg-white border-teal-100 text-teal-700 text-[10px]">
+                    {metric}
+                  </Badge>
+                ))}
+              </div>
+
+              <div className="mt-3 space-y-3 text-sm">
+                <div>
+                  <p className="text-[11px] text-gray-500 mb-1">修改动作</p>
+                  <p className="text-gray-700 leading-relaxed">{row.action}</p>
+                </div>
+                <div className="rounded-lg border border-brand-100 bg-white p-3">
+                  <p className="text-[11px] font-semibold text-brand-700 mb-1">广告验证假设</p>
+                  <p className="text-gray-700 leading-relaxed">{row.hypothesis}</p>
+                  {row.keywords.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {row.keywords.map((kw) => (
+                        <Badge key={kw} variant="outline" className="text-[10px] border-gray-200 text-gray-600">
+                          {kw}
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div className="rounded-lg bg-emerald-50 border border-emerald-100 p-3">
+                    <p className="text-[11px] font-semibold text-emerald-700">命中规则</p>
+                    <p className="mt-1 text-xs text-gray-600 leading-relaxed">{row.success}</p>
+                  </div>
+                  <div className="rounded-lg bg-amber-50 border border-amber-100 p-3">
+                    <p className="text-[11px] font-semibold text-amber-700">未命中归因</p>
+                    <p className="mt-1 text-xs text-gray-600 leading-relaxed">{row.failure}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
       </CardContent>
     </Card>
   );
@@ -2571,6 +2776,8 @@ export default function ListingDiagnosis() {
                     marketScore={marketValidation?.market_total}
                   />
 
+                  <ListingHypothesisLoopPanel result={diagResult} listing={listing} />
+
                   <PriorityIssueTable rows={buildPriorityIssues(diagResult)} />
 
                   <ModuleDiagnosisCards result={diagResult} listing={listing} />
@@ -2608,6 +2815,9 @@ export default function ListingDiagnosis() {
                       </TabsTrigger>
                       <TabsTrigger value="scores" className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600 text-xs sm:text-sm">
                         8D+2评分
+                      </TabsTrigger>
+                      <TabsTrigger value="hypotheses" className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600 text-xs sm:text-sm">
+                        假设验证
                       </TabsTrigger>
                       <TabsTrigger value="heatmap" className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600 text-xs sm:text-sm">
                         要素热力图
@@ -2698,6 +2908,10 @@ export default function ListingDiagnosis() {
                           <p className="text-sm text-gray-500 leading-relaxed">{diagResult.overall_summary}</p>
                         </CardContent>
                       </Card>
+                    </TabsContent>
+
+                    <TabsContent value="hypotheses" className="mt-4">
+                      <ListingHypothesisLoopPanel result={diagResult} listing={listing} />
                     </TabsContent>
 
                     {/* ===== 8D+2 Scores ===== */}
