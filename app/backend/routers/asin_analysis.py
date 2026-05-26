@@ -16,7 +16,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import get_db
-from dependencies.auth import get_current_user
+from dependencies.auth import get_current_user, get_user_scope_ids
 from schemas.auth import UserResponse
 from services.aihub import AIHubService
 from services.amazon_rules_engine import evaluate_amazon_compliance, load_active_rules
@@ -2183,8 +2183,9 @@ async def get_five_dimension_history(
     from models.asin_analyses import Asin_analyses
 
     try:
+        scope_user_ids = await get_user_scope_ids(current_user, db)
         base_filter = and_(
-            Asin_analyses.user_id == str(current_user.id),
+            Asin_analyses.user_id.in_(scope_user_ids),
             Asin_analyses.score_5d_total.isnot(None),
         )
         if asin:
