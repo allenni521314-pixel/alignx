@@ -13,10 +13,38 @@ from core.auth import create_access_token
 from core.config import settings
 from core.database import get_db
 from fastapi import APIRouter, Depends, HTTPException, status
+from models.action_snapshots import ActionSnapshot
+from models.ad_campaigns import Ad_campaigns
+from models.ad_data import Ad_data
+from models.ad_recommendations import Ad_recommendations
+from models.asin_analyses import Asin_analyses
+from models.asin_keyword_sales_validation import (
+    AsinKeywordIntentScore,
+    AsinKeywordRankSnapshot,
+    AsinKeywordSalesValidationReport,
+)
 from models.auth import User
+from models.batch_causal_tasks import BatchCausalTask
+from models.competitor_insights import Competitor_insights
+from models.consumer_intent_results import Consumer_intent_results
+from models.cosmo_results import Cosmo_results
+from models.causal_ab_comparison import CausalABComparison
 from models.email_verification_codes import EmailVerificationCode
+from models.fetch_history import Fetch_history
+from models.health_reports import Health_reports
+from models.human_state_body import HumanStateBody
+from models.judgment_feedback_rounds import JudgmentFeedbackRound
+from models.keywords import Keywords
+from models.listing_diagnoses import Listing_diagnoses
+from models.listings import Listings
+from models.optimization_timeline import OptimizationTimeline
+from models.prelaunch_test_results import Prelaunch_test_results
+from models.products import Products
+from models.review_causal_validation import ReviewCausalValidation
+from models.sales_metrics import Sales_metrics
+from models.scrape_logs import Scrape_logs
 from pydantic import BaseModel
-from sqlalchemy import delete, desc, func, select
+from sqlalchemy import delete, desc, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
@@ -27,6 +55,35 @@ EMAIL_RE = re.compile(r"^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$", re.IGNORECASE)
 CODE_TTL_MINUTES = 10
 RESEND_COOLDOWN_SECONDS = 60
 MAX_VERIFY_ATTEMPTS = 5
+
+EMAIL_OWNED_MODELS = [
+    Products,
+    Asin_analyses,
+    Listing_diagnoses,
+    Prelaunch_test_results,
+    ActionSnapshot,
+    AsinKeywordRankSnapshot,
+    AsinKeywordSalesValidationReport,
+    AsinKeywordIntentScore,
+    Ad_data,
+    OptimizationTimeline,
+    Scrape_logs,
+    Competitor_insights,
+    Health_reports,
+    Listings,
+    Fetch_history,
+    Cosmo_results,
+    Ad_campaigns,
+    Ad_recommendations,
+    Sales_metrics,
+    Keywords,
+    Consumer_intent_results,
+    JudgmentFeedbackRound,
+    CausalABComparison,
+    ReviewCausalValidation,
+    BatchCausalTask,
+    HumanStateBody,
+]
 
 
 class EmailCodeRequest(BaseModel):
@@ -67,6 +124,27 @@ def _hash_code(email: str, code: str) -> str:
 
 def _email_user_id(email: str) -> str:
     return f"email_{hashlib.sha256(email.encode('utf-8')).hexdigest()[:20]}"
+
+
+async def _merge_same_email_history(db: AsyncSession, canonical_user_id: str, alias_user_ids: set[str]) -> int:
+    """Move records from old same-email ids onto the deterministic email id."""
+    stale_ids = {uid for uid in alias_user_ids if uid and uid != canonical_user_id}
+    if not stale_ids:
+        return 0
+
+    moved = 0
+    for model in EMAIL_OWNED_MODELS:
+        try:
+            result = await db.execute(
+                update(model)
+                .where(model.user_id.in_(stale_ids))
+                .values(user_id=canonical_user_id)
+            )
+            moved += int(result.rowcount or 0)
+        except Exception:
+            logger.exception("Failed to merge same-email history for table %s", getattr(model, "__tablename__", model))
+            raise
+    return moved
 
 
 def _super_admin_emails() -> set[str]:
@@ -227,9 +305,10 @@ async def email_login(payload: EmailLoginRequest, db: AsyncSession = Depends(get
     user_id = _email_user_id(email)
     user_result = await db.execute(select(User).where(User.id == user_id))
     user = user_result.scalar_one_or_none()
-    if not user:
-        existing_email_result = await db.execute(select(User).where(func.lower(User.email) == email).order_by(desc(User.last_login)))
-        user = existing_email_result.scalars().first()
+    same_email_result = await db.execute(select(User).where(func.lower(User.email) == email).order_by(desc(User.last_login)))
+    same_email_users = list(same_email_result.scalars().all())
+    alias_user_ids = {str(item.id) for item in same_email_users if item.id}
+    latest_same_email_user = same_email_users[0] if same_email_users else None
 
     role = "super_admin" if email in _super_admin_emails() else "user"
     if user:
@@ -243,11 +322,16 @@ async def email_login(payload: EmailLoginRequest, db: AsyncSession = Depends(get
         user = User(
             id=user_id,
             email=email,
-            name=display_name or email.split("@", 1)[0],
+            name=display_name or (latest_same_email_user.name if latest_same_email_user else "") or email.split("@", 1)[0],
             role=role,
             last_login=now,
         )
         db.add(user)
+        await db.flush()
+
+    migrated_count = await _merge_same_email_history(db, user_id, alias_user_ids)
+    if migrated_count:
+        logger.info("Merged %s same-email records into canonical email user %s", migrated_count, user_id)
 
     await db.commit()
     await db.refresh(user)
