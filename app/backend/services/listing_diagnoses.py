@@ -41,11 +41,13 @@ class Listing_diagnosesService:
             logger.error(f"Error checking ownership for listing_diagnoses {obj_id}: {str(e)}")
             return False
 
-    async def get_by_id(self, obj_id: int, user_id: Optional[str] = None) -> Optional[Listing_diagnoses]:
+    async def get_by_id(self, obj_id: int, user_id: Optional[str | list[str]] = None) -> Optional[Listing_diagnoses]:
         """Get listing_diagnoses by ID (user can only see their own records)"""
         try:
             query = select(Listing_diagnoses).where(Listing_diagnoses.id == obj_id)
-            if user_id:
+            if isinstance(user_id, list):
+                query = query.where(Listing_diagnoses.user_id.in_(user_id))
+            elif user_id:
                 query = query.where(Listing_diagnoses.user_id == user_id)
             result = await self.db.execute(query)
             return result.scalar_one_or_none()
@@ -57,7 +59,7 @@ class Listing_diagnosesService:
         self, 
         skip: int = 0, 
         limit: int = 20, 
-        user_id: Optional[str] = None,
+        user_id: Optional[str | list[str]] = None,
         query_dict: Optional[Dict[str, Any]] = None,
         sort: Optional[str] = None,
     ) -> Dict[str, Any]:
@@ -66,7 +68,10 @@ class Listing_diagnosesService:
             query = select(Listing_diagnoses)
             count_query = select(func.count(Listing_diagnoses.id))
             
-            if user_id:
+            if isinstance(user_id, list):
+                query = query.where(Listing_diagnoses.user_id.in_(user_id))
+                count_query = count_query.where(Listing_diagnoses.user_id.in_(user_id))
+            elif user_id:
                 query = query.where(Listing_diagnoses.user_id == user_id)
                 count_query = count_query.where(Listing_diagnoses.user_id == user_id)
             
