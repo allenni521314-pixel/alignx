@@ -107,8 +107,8 @@ const emptyAd = {
 
 const demoProduct: Product = {
   id: 1,
-  asin: "DEMOAMZ001",
-  title: "DEMO AlignX Odor Control Cat Litter Box",
+  asin: "当前ASIN",
+  title: "示例：除味猫砂盆广告验证",
 };
 
 const demoAdRecords: AdRecord[] = [
@@ -350,7 +350,7 @@ export default function AdAnalytics() {
       });
       saveActionSnapshot({
         module_key: "ad_analytics",
-        module_name: "广告投放",
+        module_name: "广告验证",
         action_key: "save_ad_execution",
         action_name: "广告执行记录",
         product_id: Number(selectedProductId),
@@ -412,7 +412,7 @@ export default function AdAnalytics() {
         color: "text-emerald-700 bg-emerald-50 border-emerald-200",
         icon: CheckCircle2,
         summary: `假设 ${validationMetrics.hypothesis_id} 的关键词组 ${validationMetrics.keyword_group_id} 转化承接表现较好，可沉淀为有效假设。`,
-        actions: ["扩大高转化关键词预算", "保留当前Listing承诺表达", "将结论回流到复盘优化"],
+        actions: ["扩大高转化关键词预算", "保留当前Listing承诺表达", "将结论回流到数据回流模块"],
       };
     }
     if (ctrNum > 0.4 && cvrNum < 5) {
@@ -452,7 +452,7 @@ export default function AdAnalytics() {
     );
     saveActionSnapshot({
       module_key: "ad_analytics",
-      module_name: "广告投放",
+      module_name: "广告验证",
       action_key: "validate_ad_effect",
       action_name: "广告效果验证",
       product_id: selectedProductId && selectedProductId !== "all" ? Number(selectedProductId) : null,
@@ -532,7 +532,7 @@ export default function AdAnalytics() {
               <p className="text-gray-500 mt-1 text-sm">
                 {isValidationView
                   ? "判断A/B测试和Listing诊断假设是否被广告数据验证"
-                  : "录入和查看每一轮广告投放执行数据"}
+                  : "录入每一轮广告执行数据，为后续效果验证提供事实依据"}
               </p>
             </div>
             {isValidationView ? (
@@ -549,22 +549,22 @@ export default function AdAnalytics() {
 
           {isValidationView ? (
             <PageHeader
-              objective="验证广告测试计划的点击、转化和投入产出表现"
+              objective="验证Listing诊断假设是否带来点击、转化和投入产出改善"
               inputSource="执行记录中的曝光、点击、花费、订单、销售额"
               process="按CTR、CVR、ACOS、ROAS判断诊断假设是否成立"
               outputTarget="效果验证结论、成立/未成立原因、下一步动作"
-              action="将验证结论送入复盘优化"
-              feedback="用真实投放结果校准下一轮判断"
+              action="将验证结论送入数据回流"
+              feedback="用真实投放结果校准下一轮诊断和优化判断"
               tone="orange"
             />
           ) : (
             <PageHeader
-              objective="保存每一轮广告投放执行数据"
+              objective="保存每一轮广告执行数据"
               inputSource="Campaign、Ad Group、Keyword、Search Term、CTR、CVR、CPC、ACOS、ROAS、Spend、Orders"
               process="结构化记录投放动作和实际指标"
               outputTarget="可追溯的执行记录、关键词表现明细"
               action="进入效果验证判断测试是否成立"
-              feedback="为复盘优化提供真实执行数据"
+              feedback="为效果验证和数据回流提供真实执行数据"
               tone="cyan"
             />
           )}

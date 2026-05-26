@@ -75,7 +75,7 @@ const navGroups: NavGroup[] = [
   },
   {
     stage: "二",
-    title: "Listing 运营",
+    title: "Listing 诊断",
     icon: Target,
     color: "text-teal-400",
     activeColor: "text-teal-600",
@@ -99,7 +99,7 @@ const navGroups: NavGroup[] = [
   },
   {
     stage: "三",
-    title: "广告投放",
+    title: "广告验证",
     icon: Megaphone,
     color: "text-amber-400",
     activeColor: "text-amber-600",
@@ -111,7 +111,7 @@ const navGroups: NavGroup[] = [
   },
   {
     stage: "四",
-    title: "复盘优化",
+    title: "数据回流",
     icon: RotateCcw,
     color: "text-emerald-400",
     activeColor: "text-emerald-600",
@@ -132,7 +132,7 @@ const navGroups: NavGroup[] = [
     color: "text-gold-400",
     activeColor: "text-gold-600",
     items: [
-      { path: "/settings", label: "超级管理员入口", icon: ShieldCheck },
+      { path: "/settings", label: "系统设置", icon: Settings },
     ],
   },
 ];

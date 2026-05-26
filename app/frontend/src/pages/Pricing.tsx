@@ -23,8 +23,8 @@ const columns = [
   ["本品诊断", "listingDiagnosis"],
   ["竞品诊断", "competitorDiagnosis"],
   ["对齐度分析", "alignment"],
-  ["广告验证", "adValidation"],
-  ["复盘优化", "reviewOptimization"],
+  ["广告假设验证", "adValidation"],
+  ["数据回流复盘", "reviewOptimization"],
   ["历史记录", "history"],
   ["团队成员", "members"],
   ["店铺数量", "stores"],
@@ -44,7 +44,7 @@ export default function Pricing() {
               <CreditCard className="w-6 h-6 text-brand-600" />
               套餐与用量
             </h1>
-            <p className="text-sm text-gray-500 mt-1">按套餐权益、月度额度和加量包控制真实分析能力。</p>
+            <p className="text-sm text-gray-500 mt-1">按套餐权益、月度额度和加量包控制从诊断假设到广告验证、数据回流的闭环能力。</p>
           </div>
 
           <Card className="bg-white border-gray-200 p-5 mb-6">
@@ -191,7 +191,7 @@ export default function Pricing() {
               <div>
                 <h2 className="font-semibold text-gray-900">权限说明</h2>
                 <p className="text-sm text-gray-600 mt-1">
-                  试用版用于验证判断价值；轻量版提供入门体验；专业版开放完整闭环；团队版提升多人多店效率；企业版提供数据资产和定制服务。
+                  试用版用于验证单点判断价值；轻量版适合小规模跑通诊断；专业版开放诊断假设、广告验证和数据回流完整闭环；团队版提升多人多店协同；企业版提供数据资产和定制模型服务。
                 </p>
               </div>
             </div>

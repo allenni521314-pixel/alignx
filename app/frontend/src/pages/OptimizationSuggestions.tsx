@@ -118,7 +118,7 @@ type WorkflowChain = {
 const mockSuggestions = [
   {
     problem: "除味主需求验证成立",
-    reason: "DEMOAMZ001 在 cat litter box odor eliminator 和 ammonia odor remover 两组词上点击与转化同时达标，说明评论高频需求已被Listing承接。",
+    reason: "当前ASIN在 cat litter box odor eliminator 和 ammonia odor remover 两组词上点击与转化同时达标，说明评论高频需求已被Listing承接。",
     action: "保留标题前半段 Odor Control 和 Activated Carbon Filter 表达，下一轮把除味场景同步到主图和第一张副图。",
     verify: "继续观察除味词CTR、CVR和ACOS是否保持稳定",
     priority: "高",
@@ -169,7 +169,7 @@ const feedbackRecords = [
 const reviewConclusions = [
   {
     label: "成立假设",
-    text: "除味和氨气风险表达能提升 DEMOAMZ001 的点击确认和下单信任。",
+    text: "除味和氨气风险表达能提升当前ASIN的点击确认和下单信任。",
     action: "保留 odor eliminator、ammonia odor remover 两组关键词和对应 Listing 表达。",
   },
   {
@@ -196,7 +196,7 @@ const nextRoundActions = [
     title: "补强主图和首张副图的除味证据",
     reason: "上新检测主图分 74，广告验证已证明除味需求有效，视觉证据仍需要承接。",
     decisionBasis: "视觉证据弱，但广告验证已证明买家需求真实存在。",
-    owner: "Listing 运营",
+    owner: "本品诊断",
     path: "/listing-diagnosis",
     cta: "进入本品诊断",
     priority: "P0",
@@ -207,7 +207,7 @@ const nextRoundActions = [
     title: "补充滤芯更换周期和维护成本",
     reason: "风险消除分 76，买家可能理解除味承诺，但仍担心后续耗材成本。",
     decisionBasis: "这是上架表达完整性和信任解释问题，需要回到上新检测重新校准。",
-    owner: "Listing 运营",
+    owner: "上新检测",
     path: "/listing-launch-check",
     cta: "进入上新检测",
     priority: "P1",
@@ -218,7 +218,7 @@ const nextRoundActions = [
     title: "重建下一轮广告关键词分组",
     reason: "保留已命中除味主词，降低 deodorizer 预算，新增 apartment/enclosed 场景词。",
     decisionBasis: "问题来自广告关键词意图分化，需要重新生成测试计划再进入执行记录。",
-    owner: "广告投放",
+    owner: "广告验证",
     path: "/ab-test-comparison",
     cta: "进入A/B测试",
     priority: "P1",
@@ -229,7 +229,7 @@ const nextRoundActions = [
     title: "复查竞品是否已强化除味场景",
     reason: "如果竞品近期同步强化 Odor Control 场景，本品需要重新判断差异化空间。",
     decisionBasis: "复盘结论依赖竞品环境，竞品变化会影响下一轮动作优先级。",
-    owner: "Listing 运营",
+    owner: "竞品诊断",
     path: "/competitor-analysis?tab=strategy",
     cta: "进入竞品诊断",
     priority: "P2",
@@ -410,10 +410,10 @@ export default function OptimizationSuggestions() {
     return actionPriority.map((item) => {
       const target =
         item.expected_impact === "ranking_relevance"
-          ? { path: "/listing-diagnosis", cta: "进入本品诊断", owner: "Listing 运营", problemType: "平台语义错配" }
+          ? { path: "/listing-diagnosis", cta: "进入本品诊断", owner: "本品诊断", problemType: "平台语义错配" }
           : item.expected_impact === "click"
-            ? { path: "/listing-launch-check", cta: "进入上新检测", owner: "Listing 运营", problemType: "点击证据不足" }
-            : { path: "/listing-diagnosis", cta: "进入本品诊断", owner: "Listing 运营", problemType: "转化信任承接不足" };
+            ? { path: "/listing-launch-check", cta: "进入上新检测", owner: "上新检测", problemType: "点击证据不足" }
+            : { path: "/listing-diagnosis", cta: "进入本品诊断", owner: "本品诊断", problemType: "转化信任承接不足" };
       return {
         rank: item.rank,
         problemType: target.problemType,
@@ -431,7 +431,7 @@ export default function OptimizationSuggestions() {
   const summaryChips = useMemo(() => {
     if (!agentDecision) {
       return [
-        "DEMOAMZ001 已回流至判断系统",
+        "当前ASIN已回流至判断系统",
         "除味需求已回流至 Listing 优化建议",
         "广告验证结果已回流至下一轮测试优先级",
       ];
@@ -451,7 +451,7 @@ export default function OptimizationSuggestions() {
     savedViewRef.current = key;
     saveActionSnapshot({
       module_key: "optimization",
-      module_name: "复盘优化",
+      module_name: "数据回流",
       action_key: view,
       action_name: pageConfig.title,
       title: pageConfig.title,

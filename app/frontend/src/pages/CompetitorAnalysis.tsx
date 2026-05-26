@@ -1133,7 +1133,7 @@ export default function CompetitorAnalysis() {
             process="按Listing结构、Rufus/COSMO语义、评论反向验证和价格销量信号拆解转化原因"
             outputTarget="竞品核心优势、广告转化拆解、关键词结构、评论痛点、可借鉴动作和不建议模仿点"
             action="把可借鉴动作带回本品诊断或上新检测"
-            feedback="保存竞品诊断快照，沉淀到关键词库、竞品库和复盘优化"
+            feedback="保存竞品诊断快照，沉淀到关键词库、竞品库和后续数据回流"
             tone="violet"
           />
 

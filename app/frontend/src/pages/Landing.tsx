@@ -20,18 +20,18 @@ const valueCards = [
     icon: Layers3,
   },
   {
-    title: "Listing 运营",
-    desc: "诊断上新前后 Listing 的表达错配",
+    title: "Listing诊断",
+    desc: "识别标题、五点、图片、A+与评论需求的错配",
     icon: ClipboardCheck,
   },
   {
-    title: "广告投放",
-    desc: "用真实流量验证诊断结论",
+    title: "广告验证",
+    desc: "用CTR、CVR、ACOS验证诊断假设是否成立",
     icon: Megaphone,
   },
   {
-    title: "复盘优化",
-    desc: "沉淀执行结果，生成下一轮动作",
+    title: "数据回流",
+    desc: "把命中和未命中的假设沉淀为下一轮动作",
     icon: RotateCcw,
   },
 ];
@@ -71,7 +71,7 @@ export default function Landing() {
             AlignX 亚马逊商品转化决策系统
           </h1>
           <p className="text-gray-500 text-lg mt-6 max-w-3xl leading-relaxed">
-            围绕选品、Listing 运营、广告投放与复盘优化，帮助卖家找到商品不转化的真实原因，并输出可执行动作。
+            从ASIN和Listing诊断提出假设，用广告数据验证，再把命中结果回流到下一轮优化，帮助卖家持续逼近真实转化原因。
           </p>
           <div className="flex flex-col sm:flex-row gap-3 mt-8">
             <Button onClick={() => navigate("/register")} size="lg" className="bg-brand-600 hover:bg-brand-500 text-white">
@@ -103,8 +103,8 @@ export default function Landing() {
         <section className="px-5 sm:px-8 pb-16 max-w-7xl mx-auto">
           <Card className="p-6 border-gray-200 bg-gray-50">
             <h2 className="text-2xl font-bold mb-5">工作流程</h2>
-            <div className="grid md:grid-cols-4 gap-3">
-              {["选品决策", "Listing 运营", "广告投放", "复盘优化"].map((step, index) => (
+            <div className="grid sm:grid-cols-2 lg:grid-cols-6 gap-3">
+              {["ASIN选品", "上新检测", "本品诊断", "广告验证", "数据回流", "下一轮优化"].map((step, index) => (
                 <div key={step} className="flex items-center gap-3 bg-white border border-gray-200 rounded-lg p-4">
                   <span className="w-7 h-7 rounded-full bg-brand-600 text-white text-xs font-bold flex items-center justify-center">
                     {index + 1}

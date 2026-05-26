@@ -70,9 +70,9 @@ export type LifecycleStage =
 export const LIFECYCLE_LABELS: Record<LifecycleStage, string> = {
   discovery: "① 选品决策",
   semantic: "② Listing上新检测",
-  strategy: "③ 上线后诊断",
-  verification: "④ 广告投放验证",
-  optimization: "⑤ 复盘优化",
+  strategy: "③ 本品Listing诊断",
+  verification: "④ 广告验证",
+  optimization: "⑤ 数据回流复盘",
 };
 
 export const LIFECYCLE_PATHS: Record<LifecycleStage, string> = {
@@ -604,7 +604,7 @@ export function getProductStageInfo(
           stage: label,
           issue: health
             ? `Listing评分${health.grade}级`
-            : "正在进行上线后诊断",
+            : "正在进行本品Listing诊断",
           suggestion: "查看本品诊断",
           action: path,
         };
@@ -636,14 +636,14 @@ export function getProductStageInfo(
   }
   if (health.grade === "A" || health.grade === "B") {
     return {
-      stage: "④ 广告投放验证",
+      stage: "④ 广告验证",
       issue: "Listing已优化，需验证效果",
       suggestion: "进入广告验证",
       action: "/ad-analytics?view=validation",
     };
   }
   return {
-    stage: "③ 上线后诊断",
+    stage: "③ 本品Listing诊断",
     issue: `Listing评分${health.grade}级，需优化`,
     suggestion: "查看本品诊断",
     action: "/listing-diagnosis",

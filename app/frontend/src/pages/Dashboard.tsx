@@ -241,7 +241,7 @@ const CYCLE_STEPS = [
   {
     id: 1,
     label: "选品决策",
-    desc: "用6维模型筛选高潜力ASIN",
+    desc: "先判断ASIN是否值得进入测试池",
     icon: Target,
     color: "bg-brand-600",
     textColor: "text-brand-600",
@@ -254,7 +254,7 @@ const CYCLE_STEPS = [
   {
     id: 2,
     label: "上新检测",
-    desc: "上架前判断Listing是否具备条件",
+    desc: "上架前补齐Listing基础表达",
     icon: FileSearch,
     color: "bg-teal-600",
     textColor: "text-teal-600",
@@ -266,8 +266,8 @@ const CYCLE_STEPS = [
   },
   {
     id: 3,
-    label: "上线后诊断",
-    desc: "用统一判断系统诊断本品表现",
+    label: "本品诊断",
+    desc: "生成Listing问题和广告验证假设",
     icon: Stethoscope,
     color: "bg-emerald-600",
     textColor: "text-emerald-600",
@@ -280,7 +280,7 @@ const CYCLE_STEPS = [
   {
     id: 4,
     label: "广告验证",
-    desc: "用广告数据验证诊断假设",
+    desc: "用CTR、CVR、ACOS验证假设",
     icon: Stethoscope,
     color: "bg-teal-600",
     textColor: "text-teal-600",
@@ -292,8 +292,8 @@ const CYCLE_STEPS = [
   },
   {
     id: 5,
-    label: "复盘优化",
-    desc: "沉淀结果并生成下一轮动作",
+    label: "数据回流",
+    desc: "回流命中结果并生成下一轮动作",
     icon: Megaphone,
     color: "bg-amber-600",
     textColor: "text-amber-600",
@@ -309,7 +309,7 @@ const NAV_CYCLE_STEPS = [
   {
     id: 1,
     label: "选品决策",
-    desc: "用6维模型筛选高潜力ASIN",
+    desc: "先判断ASIN是否值得进入测试池",
     icon: Target,
     color: "bg-brand-600",
     textColor: "text-brand-600",
@@ -320,7 +320,7 @@ const NAV_CYCLE_STEPS = [
   {
     id: 2,
     label: "上新检测",
-    desc: "上架前判断Listing是否具备条件",
+    desc: "上架前补齐Listing基础表达",
     icon: FileSearch,
     color: "bg-teal-600",
     textColor: "text-teal-600",
@@ -330,8 +330,8 @@ const NAV_CYCLE_STEPS = [
   },
   {
     id: 3,
-    label: "上线后诊断",
-    desc: "用统一判断系统诊断本品表现",
+    label: "本品诊断",
+    desc: "生成Listing问题和广告验证假设",
     icon: Stethoscope,
     color: "bg-emerald-600",
     textColor: "text-emerald-600",
@@ -342,7 +342,7 @@ const NAV_CYCLE_STEPS = [
   {
     id: 4,
     label: "广告验证",
-    desc: "用真实广告流量验证策略有效性",
+    desc: "用真实广告流量验证诊断假设",
     icon: Megaphone,
     color: "bg-amber-600",
     textColor: "text-amber-600",
@@ -352,7 +352,7 @@ const NAV_CYCLE_STEPS = [
   },
   {
     id: 5,
-    label: "复盘优化",
+    label: "数据回流",
     desc: "验证结果回流系统，启动下一轮",
     icon: RotateCcw,
     color: "bg-gold-600",
@@ -378,21 +378,17 @@ const FEEDBACK_COLORS: Record<string, string> = {
 const STEP_COLOR_MAP: Record<string, { bg: string; text: string; dot: string }> = {
   "选品决策": { bg: "bg-brand-100", text: "text-brand-700", dot: "#0f2a24" },
   "Listing上新检测": { bg: "bg-teal-100", text: "text-teal-700", dot: "#0d9488" },
-  "上线后诊断": { bg: "bg-emerald-100", text: "text-emerald-700", dot: "#059669" },
-  "本品诊断": { bg: "bg-teal-100", text: "text-teal-700", dot: "#0d9488" },
+  "本品诊断": { bg: "bg-emerald-100", text: "text-emerald-700", dot: "#059669" },
   "广告验证": { bg: "bg-amber-100", text: "text-amber-700", dot: "#d97706" },
-  "广告投放验证": { bg: "bg-amber-100", text: "text-amber-700", dot: "#d97706" },
-  "复盘优化": { bg: "bg-gold-100", text: "text-gold-700", dot: "#c6a86e" },
+  "数据回流": { bg: "bg-gold-100", text: "text-gold-700", dot: "#c6a86e" },
 };
 
 const STEP_ICON_MAP: Record<string, typeof Target> = {
   "选品决策": Target,
   "Listing上新检测": FileSearch,
-  "上线后诊断": Stethoscope,
   "本品诊断": Stethoscope,
   "广告验证": Megaphone,
-  "广告投放验证": Megaphone,
-  "复盘优化": RotateCcw,
+  "数据回流": RotateCcw,
 };
 
 /* ------------------------------------------------------------------ */
@@ -632,7 +628,7 @@ export default function Dashboard() {
     return [
       {
         rank: 1,
-        module: "复盘优化",
+        module: "数据回流",
         priority: "P0",
         status: hitLearning?.status === "已命中" ? "必须回流" : "等待验证",
         evidence: hitLearning?.basis || "效果验证完成后必须先进入数据回流，不能跳过复盘层。",
@@ -643,9 +639,9 @@ export default function Dashboard() {
       },
       {
         rank: 2,
-        module: "Listing 运营",
+        module: "本品诊断",
         priority: topAction?.level || "P1",
-        status: chief?.current_stage === "复盘优化" ? "下一轮修正" : "待诊断",
+        status: chief?.current_stage?.includes("复盘") ? "下一轮修正" : "待诊断",
         evidence: topAction?.action || "上新检测、本品诊断和买家意图共同决定 Listing 修改优先级。",
         action: "进入本品诊断",
         path: "/listing-diagnosis",
@@ -654,7 +650,7 @@ export default function Dashboard() {
       },
       {
         rank: 3,
-        module: "广告投放",
+        module: "广告验证",
         priority: "P1",
         status: stages.get("ad_validation")?.status === "completed" ? "已验证" : "待验证",
         evidence: validationHypotheses[0]?.hypothesis || "诊断结论需要通过广告点击、转化和ACOS验证。",
@@ -725,7 +721,7 @@ export default function Dashboard() {
               商品转化循环工作台
             </h1>
             <p className="text-gray-500 mt-2 text-sm sm:text-base max-w-3xl">
-              围绕消费者意图、竞品策略、Listing 表达与广告反馈，持续优化商品转化表现
+              从ASIN和Listing诊断提出假设，用广告数据验证，再把命中结果回流到下一轮优化
             </p>
           </div>
 
@@ -1560,7 +1556,7 @@ export default function Dashboard() {
                                   : "bg-amber-50 text-amber-700"
                               }`}
                             >
-                              6D: {fiveDScore.total_score}分
+                              选品分: {fiveDScore.total_score}分
                             </span>
                           )}
                           <span className="text-gray-400">

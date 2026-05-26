@@ -42,7 +42,7 @@ interface ABResult {
 
 const demoVariantA: VariantForm = {
   label: "A 原版本",
-  asin: "DEMOAMZ001",
+  asin: "当前ASIN",
   title: "Large Enclosed Cat Litter Box with Filter for Indoor Cats",
   bullets:
     "Extra large enclosed cat litter box for indoor cats\nCarbon filter helps reduce everyday litter smell\nEasy pull-out tray for quick cleaning\nHigh wall design helps reduce tracking\nModern white design fits home corners",
@@ -52,7 +52,7 @@ const demoVariantA: VariantForm = {
 
 const demoVariantB: VariantForm = {
   label: "B 除味强化版",
-  asin: "DEMOAMZ001",
+  asin: "当前ASIN",
   title: "Odor Control Cat Litter Box with Activated Carbon Filter, Extra Large Enclosed Design for Indoor Cats",
   bullets:
     "Targets ammonia odor with replaceable activated carbon filter\nExtra large enclosed design gives adult cats room to turn\nPull-out tray and scoop slot simplify daily cleaning\nHigh splash guard and sealed entrance reduce litter tracking\nBuilt for apartments, bedrooms, and multi-cat odor control",
@@ -76,7 +76,7 @@ const demoABResult: ABResult = {
     "若CTR提升但CVR未提升，下一轮补充滤芯更换周期和清洁成本说明。",
   ],
   text_report:
-    "DEMOAMZ001 当前A/B结论：B版本对评论高频需求「氨气除味」「公寓使用」「清洁便利」承接更完整，适合进入小预算广告验证。验证重点看CTR、CVR和ACOS是否同步改善。",
+    "当前ASIN的A/B结论：B版本对评论高频需求「氨气除味」「公寓使用」「清洁便利」承接更完整，适合进入小预算广告验证。验证重点看CTR、CVR和ACOS是否同步改善。",
 };
 
 function toVariantPayload(v: VariantForm) {
@@ -270,7 +270,7 @@ export default function ABTestComparison() {
             process="比较因果转化链条、状态差距覆盖、机制清晰度和副作用透明度"
             outputTarget="胜出版本、维度差距、预测转化影响、测试建议"
             action="将胜出版本进入广告执行记录"
-            feedback="真实广告结果回流到效果验证和复盘优化"
+            feedback="真实广告结果回流到效果验证和数据回流"
             tone="amber"
           />
 

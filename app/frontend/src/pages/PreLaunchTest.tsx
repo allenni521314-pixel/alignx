@@ -1424,8 +1424,8 @@ export default function PreLaunchTest() {
             inputSource="标题、五点、主图/副图、A+、价格、类目、关键词、目标价格带"
             process="按评论需求、COSMO语义和因果转化标准做上新准入检测"
             outputTarget="是否建议上架、风险等级、必改项、缺失关键词、表达错配点"
-            action="修改必改项后再进入上线后诊断"
-            feedback="每一轮检测完整保存为历史记录，作为上线后复盘基线"
+            action="修改必改项后进入本品诊断，生成广告验证假设"
+            feedback="每一轮检测完整保存为历史记录，作为本品诊断和后续广告验证基线"
             tone="teal"
           />
 
