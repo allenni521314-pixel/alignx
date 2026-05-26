@@ -245,6 +245,15 @@ interface DiagnosisResult {
   judgment_system?: Record<string, any>;
   ad_validation_plan?: Record<string, any>;
   amazon_compliance?: ComplianceResult;
+  trace?: {
+    diagnosis_id?: number;
+    cache_hit?: string;
+    ai_called?: boolean;
+    content_fingerprint?: string;
+    content_fingerprint_short?: string;
+    generated_at?: string;
+    frontend_version?: string;
+  };
 }
 
 interface ConfidenceItem {
@@ -1458,6 +1467,32 @@ function ListingHypothesisLoopPanel({ result, listing }: { result: DiagnosisResu
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+function DiagnosisTraceBar({ result }: { result: DiagnosisResult }) {
+  const trace = result.trace;
+  if (!trace) return null;
+  const mode = trace.ai_called ? "新AI诊断" : trace.cache_hit ? "命中缓存" : "历史诊断";
+  const generatedAt = trace.generated_at ? new Date(trace.generated_at).toLocaleString() : "";
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-[11px] text-gray-500">
+      <span className="font-semibold text-gray-700">诊断追踪</span>
+      <Badge variant="outline" className="bg-white border-brand-100 text-brand-700 text-[10px]">
+        {mode}
+      </Badge>
+      {trace.diagnosis_id !== undefined && (
+        <span>ID #{trace.diagnosis_id || "未保存"}</span>
+      )}
+      {trace.content_fingerprint_short && (
+        <span>指纹 {trace.content_fingerprint_short}</span>
+      )}
+      {trace.frontend_version && (
+        <span>前端 {trace.frontend_version}</span>
+      )}
+      {generatedAt && <span>{generatedAt}</span>}
+    </div>
   );
 }
 
@@ -2786,6 +2821,8 @@ export default function ListingDiagnosis() {
                   />
 
                   <ListingHypothesisLoopPanel result={diagResult} listing={listing} />
+
+                  <DiagnosisTraceBar result={diagResult} />
 
                   <PriorityIssueTable rows={buildPriorityIssues(diagResult)} />
 

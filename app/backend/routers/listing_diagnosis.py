@@ -226,6 +226,7 @@ class DiagnoseResponse(BaseModel):
     diagnosis_confidence: dict = {}
     ad_validation_plan: dict = {}
     amazon_compliance: dict = {}
+    trace: dict = {}
     # =========================================
 
 
@@ -358,6 +359,7 @@ async def _get_exact_cached_listing_diagnosis(listing: ListingInput, db: AsyncSe
         data["scores"] = scores
         data["id"] = record.id
         data["_cache_hit"] = "exact_content"
+        data["_ai_called"] = False
         return data
     return None
 
@@ -1543,6 +1545,8 @@ async def _diagnose_single(
         "product_mismatch": data.get("product_mismatch", False),
         "product_mismatch_detail": data.get("product_mismatch_detail", ""),
         "id": record_id,
+        "_ai_called": True,
+        "_cache_hit": "",
         "causal_diagnosis": causal_diagnosis,
         "judgment_system": judgment_system,
         "ad_validation_plan": ad_validation_plan,
@@ -1832,6 +1836,16 @@ async def diagnose_listing(
                 precision_context=request.precision_context,
             )
         result = _normalize_diagnosis_result(result, listing)
+        content_fingerprint = _listing_content_fingerprint(_sanitize_listing_for_ai(listing))
+        trace = {
+            "diagnosis_id": result.get("id"),
+            "cache_hit": result.get("_cache_hit") or "",
+            "ai_called": bool(result.get("_ai_called", not result.get("_cache_hit"))),
+            "content_fingerprint": content_fingerprint,
+            "content_fingerprint_short": content_fingerprint[:8],
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "frontend_version": "module-attribution-v2",
+        }
         if not result.get("amazon_compliance"):
             result["amazon_compliance"] = await _evaluate_listing_compliance(listing, db)
         return DiagnoseResponse(
@@ -1862,6 +1876,7 @@ async def diagnose_listing(
             diagnosis_confidence=result.get("diagnosis_confidence", {}),
             ad_validation_plan=result.get("ad_validation_plan", {}),
             amazon_compliance=result.get("amazon_compliance", {}),
+            trace=trace,
             # =========================================
         )
     except HTTPException:
