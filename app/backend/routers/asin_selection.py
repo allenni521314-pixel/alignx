@@ -275,6 +275,45 @@ def _traffic_level(score: float) -> str:
     return "销量可信度低，不建议作为选品参考"
 
 
+def _normalize_keyword_sales_report(report: dict[str, Any]) -> dict[str, Any]:
+    """Normalize legacy keyword-sales reports before returning them to the UI."""
+    if not isinstance(report, dict):
+        return {}
+
+    summary = report.get("keyword_rank_summary")
+    if not isinstance(summary, dict):
+        summary = {}
+        report["keyword_rank_summary"] = summary
+
+    ad_risk = _num(report.get("ad_dependency_risk"))
+    rank_snapshots = report.get("rank_snapshots") if isinstance(report.get("rank_snapshots"), list) else []
+    sponsored_count = sum(1 for row in rank_snapshots if isinstance(row, dict) and row.get("is_sponsored"))
+    rank_source = str(summary.get("rank_data_source") or "")
+    has_real_search_snapshot = rank_source == "scrapling_top40_search" or any(
+        isinstance(row, dict) and str(row.get("rank_type") or "").startswith("scrapling_top40")
+        for row in rank_snapshots
+    )
+    organic_strength = _num(report.get("organic_rank_strength"))
+
+    # Legacy reports saved ad_dependency_risk=0 when no Sponsored slot was
+    # captured. That is missing evidence, not proof of zero ad dependence.
+    if ad_risk <= 0 and sponsored_count == 0:
+        evidence_floor = 20 if has_real_search_snapshot and organic_strength >= 75 else 28
+        if not has_real_search_snapshot:
+            evidence_floor = 35
+        report["ad_dependency_risk"] = evidence_floor
+        summary["ad_risk_level"] = (
+            "优秀自然流量结构" if evidence_floor <= 20 else "健康可控" if evidence_floor <= 35 else "需要观察"
+        )
+        summary["ad_risk_note"] = (
+            "未抓到Sponsored广告位时，系统按优秀卖家的低风险下限20%处理；这代表低广告依赖风险，不代表广告依赖为0。"
+            if has_real_search_snapshot and organic_strength >= 75
+            else "当前广告位证据不足，系统不把缺失广告位当成0风险；建议用不同时段/账号复查Sponsored位置。"
+        )
+
+    return report
+
+
 def _build_report(asin: str, marketplace: str, category: str, product: dict[str, Any], ranks: list[dict[str, Any]], qualities: list[dict[str, Any]], days_range: int) -> dict[str, Any]:
     bsr = _num(product.get("bsr_rank"))
     reviews = _num(product.get("review_count"))
@@ -568,6 +607,7 @@ async def keyword_sales_history(
             payload = json.loads(row.report_payload or "{}")
         except Exception:
             payload = {}
+        payload = _normalize_keyword_sales_report(payload)
         items.append({
             "id": row.id,
             "asin": row.asin,
