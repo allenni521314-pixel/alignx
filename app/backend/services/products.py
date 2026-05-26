@@ -57,7 +57,7 @@ class ProductsService:
         self, 
         skip: int = 0, 
         limit: int = 20, 
-        user_id: Optional[str] = None,
+        user_id: Optional[str | list[str]] = None,
         query_dict: Optional[Dict[str, Any]] = None,
         sort: Optional[str] = None,
     ) -> Dict[str, Any]:
@@ -67,8 +67,12 @@ class ProductsService:
             count_query = select(func.count(Products.id))
             
             if user_id:
-                query = query.where(Products.user_id == user_id)
-                count_query = count_query.where(Products.user_id == user_id)
+                if isinstance(user_id, list):
+                    query = query.where(Products.user_id.in_(user_id))
+                    count_query = count_query.where(Products.user_id.in_(user_id))
+                else:
+                    query = query.where(Products.user_id == user_id)
+                    count_query = count_query.where(Products.user_id == user_id)
             
             if query_dict:
                 for field, value in query_dict.items():
