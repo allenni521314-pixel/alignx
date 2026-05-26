@@ -195,7 +195,10 @@ def _rank_snapshot(asin: str, marketplace: str, keyword: str, product: dict[str,
         organic_position = 18 if bsr and bsr <= 5000 else 32
     elif relevance >= 20:
         organic_position = 45
-    sponsored_position = 2 if has_promo and relevance < 70 else 6 if has_promo else None
+    # Coupon/Deal is a promotion signal, not proof that every keyword is ad-driven.
+    # Only treat weakly related keywords as likely sponsored exposure in this
+    # estimated snapshot; strong relevance should first be credited as organic.
+    sponsored_position = 2 if has_promo and relevance < 45 else 6 if has_promo and relevance < 75 else None
     is_organic = organic_position is not None and organic_position <= 48
     is_sponsored = sponsored_position is not None
     overall = min([p for p in [organic_position, sponsored_position] if p], default=None)
@@ -234,7 +237,20 @@ def _build_report(asin: str, marketplace: str, category: str, product: dict[str,
     core_good = sum(1 for r in core if r.get("organic_position") and r["organic_position"] <= 20)
     long_tail = [q for q in qualities if len(str(q["keyword"]).split()) >= 3 and q["relevance_score"] >= 45]
     organic_strength = round(max(0, 100 - (sum(organic_positions) / max(1, len(organic_positions))) * 2)) if organic_positions else 0
-    ad_risk = round(min(100, sponsored_count / max(1, len(ranks)) * 70 + (25 if not organic_positions else 0) + (15 if has_promo else 0)))
+    top20_count = sum(1 for r in ranks if r.get("organic_position") and r["organic_position"] <= 20)
+    top20_coverage = top20_count / max(1, len(ranks))
+    sponsored_ratio = sponsored_count / max(1, len(ranks))
+    ad_signal = sponsored_ratio * 60 + (12 if has_promo else 0) + (25 if not organic_positions else 0)
+    organic_credit = organic_strength * 0.45 + top20_coverage * 25
+    bsr_credit = 0
+    if organic_positions and bsr:
+        if bsr <= 100:
+            bsr_credit = 15
+        elif bsr <= 1000:
+            bsr_credit = 10
+        elif bsr <= 5000:
+            bsr_credit = 6
+    ad_risk = round(max(0, min(100, ad_signal - organic_credit - bsr_credit)))
     core_match = round(core_good / max(1, len(core)) * 25)
     long_tail_score = min(15, len(long_tail) * 3)
     stability_score = 10 if organic_positions else 2
@@ -247,7 +263,7 @@ def _build_report(asin: str, marketplace: str, category: str, product: dict[str,
     suspicious: list[str] = []
     if bsr and bsr <= 3000 and organic_strength < 35:
         suspicious.append("BSR靠前但核心关键词自然排名弱，可能不是自然搜索驱动。")
-    if ad_risk >= 55:
+    if ad_risk >= 55 and organic_strength < 55:
         suspicious.append("广告位或促销信号较强，存在广告依赖型销量风险。")
     if has_promo:
         suspicious.append("当前伴随 Coupon/Deal，销量表现可能被促销放大。")
@@ -256,8 +272,10 @@ def _build_report(asin: str, marketplace: str, category: str, product: dict[str,
 
     if total >= 80:
         judgment = "自然流量健康"
-    elif ad_risk >= 55:
+    elif ad_risk >= 55 and organic_strength < 55:
         judgment = "广告依赖型销量"
+    elif has_promo and ad_risk >= 35:
+        judgment = "促销辅助销量"
     elif bsr and bsr <= 3000 and organic_strength < 35:
         judgment = "非自然搜索驱动"
     elif has_promo:
