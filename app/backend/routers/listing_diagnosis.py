@@ -32,7 +32,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import get_db
-from dependencies.auth import get_current_user
+from dependencies.auth import get_current_user, get_user_scope_ids
 from schemas.auth import UserResponse
 from services.aihub import AIHubService
 from services.amazon_rules_engine import evaluate_amazon_compliance, load_active_rules
@@ -1984,10 +1984,10 @@ async def get_diagnosis_history(
     from sqlalchemy import select, func, or_
     from models.listing_diagnoses import Listing_diagnoses as LD
 
-    user_id = str(current_user.id)
+    scope_user_ids = await get_user_scope_ids(current_user, db)
 
     # Build base query
-    base_filter = [LD.user_id == user_id]
+    base_filter = [LD.user_id.in_(scope_user_ids)]
     if search.strip():
         base_filter.append(LD.listing_title.ilike(f"%{search.strip()}%"))
     if marketplace_filter.strip():
@@ -1999,7 +1999,7 @@ async def get_diagnosis_history(
     total = count_result.scalar() or 0
 
     # Aggregate stats for this user (unfiltered)
-    stats_filter = [LD.user_id == user_id]
+    stats_filter = [LD.user_id.in_(scope_user_ids)]
     stats_q = select(
         func.count(LD.id).label("total_count"),
         func.avg(LD.score_function_expression).label("avg_func"),
@@ -2100,8 +2100,9 @@ async def get_diagnosis_detail(
     db: AsyncSession = Depends(get_db),
 ):
     """Get full diagnosis detail by ID."""
+    scope_user_ids = await get_user_scope_ids(current_user, db)
     svc = Listing_diagnosesService(db)
-    record = await svc.get_by_id(diagnosis_id, user_id=str(current_user.id))
+    record = await svc.get_by_id(diagnosis_id, user_id=scope_user_ids)
     if not record:
         raise HTTPException(status_code=404, detail="诊断记录不存在")
 
@@ -2203,13 +2204,13 @@ async def get_scrape_stats(
         from sqlalchemy import select, func, case, cast, Float
         from models.scrape_logs import Scrape_logs as SL
 
-        user_id = str(current_user.id)
+        scope_user_ids = await get_user_scope_ids(current_user, db)
 
         # Overall stats
         overall_q = select(
             func.count(SL.id).label("total"),
             func.sum(case((SL.success == True, 1), else_=0)).label("success_count"),
-        ).where(SL.user_id == user_id)
+        ).where(SL.user_id.in_(scope_user_ids))
         overall_result = await db.execute(overall_q)
         overall_row = overall_result.one_or_none()
 
@@ -2222,7 +2223,7 @@ async def get_scrape_stats(
             SL.scrape_method,
             func.count(SL.id).label("total"),
             func.sum(case((SL.success == True, 1), else_=0)).label("success_count"),
-        ).where(SL.user_id == user_id).group_by(SL.scrape_method)
+        ).where(SL.user_id.in_(scope_user_ids)).group_by(SL.scrape_method)
         method_result = await db.execute(method_q)
         method_rows = method_result.all()
 
@@ -2240,7 +2241,7 @@ async def get_scrape_stats(
         # Recent logs (last 10)
         recent_q = (
             select(SL)
-            .where(SL.user_id == user_id)
+            .where(SL.user_id.in_(scope_user_ids))
             .order_by(SL.id.desc())
             .limit(10)
         )
