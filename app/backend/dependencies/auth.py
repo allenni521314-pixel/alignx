@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Optional
 
 from core.auth import AccessTokenError, decode_access_token
-from fastapi import Depends, HTTPException, Request, status
+from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from schemas.auth import UserResponse
 
@@ -14,30 +14,21 @@ bearer_scheme = HTTPBearer(auto_error=False)
 
 
 async def get_bearer_token(
-    request: Request, credentials: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme)
-) -> Optional[str]:
-    """Extract bearer token from Authorization header. Returns None for guest access."""
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme),
+) -> str:
+    """Extract bearer token from Authorization header."""
     if credentials and credentials.scheme.lower() == "bearer":
         return credentials.credentials
 
-    # Allow guest access — return None instead of raising 401
-    return None
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Authentication required",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
 
 
-async def get_current_user(token: Optional[str] = Depends(get_bearer_token)) -> UserResponse:
-    """Dependency to get current authenticated user via JWT token.
-    Returns a guest user when no token is provided.
-    """
-    # Guest access — no token provided
-    if token is None:
-        return UserResponse(
-            id="guest",
-            email="guest@alignx.local",
-            name="Guest",
-            role="user",
-            last_login=None,
-        )
-
+async def get_current_user(token: str = Depends(get_bearer_token)) -> UserResponse:
+    """Dependency to get current authenticated user via JWT token."""
     try:
         payload = decode_access_token(token)
     except AccessTokenError as exc:
