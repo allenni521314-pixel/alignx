@@ -61,7 +61,7 @@ interface NavGroup {
 const navGroups: NavGroup[] = [
   {
     stage: "一",
-    title: "选品决策",
+    title: "ASIN 决策",
     icon: Search,
     color: "text-brand-400",
     activeColor: "text-brand-600",
@@ -111,12 +111,12 @@ const navGroups: NavGroup[] = [
   },
   {
     stage: "四",
-    title: "数据回流",
+    title: "闭环优化",
     icon: RotateCcw,
     color: "text-emerald-400",
     activeColor: "text-emerald-600",
     items: [
-      { path: "/optimization-suggestions?view=data-feedback", label: "数据回流", icon: Database },
+      { path: "/optimization-suggestions?view=data-feedback", label: "验证回流", icon: Database },
       { path: "/optimization-suggestions?view=conclusion", label: "复盘结论", icon: MessageSquareText },
       {
         path: "/optimization-suggestions?view=next-round",
