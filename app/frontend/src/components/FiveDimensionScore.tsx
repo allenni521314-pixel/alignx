@@ -6,7 +6,6 @@ import {
   Eye,
   Swords,
   DollarSign,
-  Tag,
   TrendingUp,
   ChevronDown,
   ChevronUp,
@@ -31,14 +30,7 @@ export interface FiveDScoreResult {
   product_title: string;
   total_score: number;
   qualified: boolean;
-  dimension_scores: {
-    demand: number;
-    scenario: number;
-    competition: number;
-    profit: number;
-    trend: number;
-    price_tier: number;
-  };
+  dimension_scores: Record<string, number>;
   detail_scores: Record<string, number>;
   analysis: Record<string, string>;
   suggestions: string[];
@@ -85,7 +77,7 @@ export interface FiveDScoreResult {
 const DIMENSIONS = [
   {
     key: "demand",
-    label: "需求维",
+    label: "需求强度",
     icon: Target,
     color: "text-teal-600",
     bgColor: "bg-teal-50",
@@ -98,73 +90,73 @@ const DIMENSIONS = [
     ],
   },
   {
-    key: "scenario",
-    label: "场景维",
-    icon: Eye,
+    key: "search_entry",
+    label: "搜索入口",
+    icon: Route,
     color: "text-emerald-600",
     bgColor: "bg-emerald-50",
     barColor: "bg-emerald-500",
     subItems: [
-      { key: "scene_clarity", label: "场景明确度" },
-      { key: "scene_trigger", label: "场景触发强度" },
-      { key: "scene_expansion", label: "场景扩展性" },
-      { key: "scene_visual", label: "场景可视化表达" },
+      { key: "core_keyword_capacity", label: "核心关键词容量" },
+      { key: "long_tail_opportunity", label: "长尾词机会" },
+      { key: "organic_entry_access", label: "自然排名可进入性" },
+      { key: "ad_entry_tolerance", label: "广告入口承受力" },
     ],
   },
   {
     key: "competition",
-    label: "竞争维",
+    label: "竞争结构",
     icon: Swords,
     color: "text-amber-600",
     bgColor: "bg-amber-50",
     barColor: "bg-amber-500",
     subItems: [
-      { key: "homogeneity", label: "同质化程度(反向)" },
-      { key: "differentiation_anchor", label: "差异化锚点" },
-      { key: "substitution_difficulty", label: "替代难度" },
-      { key: "competitor_weakness", label: "竞品弱点可攻击性" },
+      { key: "top20_review_barrier", label: "Top20评论门槛" },
+      { key: "low_review_rank_opportunity", label: "低评论高排名样本" },
+      { key: "sponsored_pressure", label: "广告位压力" },
+      { key: "homogeneity", label: "同质化程度" },
     ],
   },
   {
-    key: "profit",
-    label: "利润维",
+    key: "differentiation",
+    label: "差异化切口",
+    icon: Eye,
+    color: "text-sky-600",
+    bgColor: "bg-sky-50",
+    barColor: "bg-sky-500",
+    subItems: [
+      { key: "differentiation_anchor", label: "可表达差异点" },
+      { key: "competitor_weakness", label: "竞品差评机会" },
+      { key: "listing_expression_fit", label: "Listing表达承接" },
+      { key: "substitution_difficulty", label: "替代难度" },
+    ],
+  },
+  {
+    key: "business",
+    label: "商业承受力",
     icon: DollarSign,
     color: "text-gold-600",
     bgColor: "bg-gold-50",
     barColor: "bg-gold-500",
     subItems: [
       { key: "gross_margin", label: "毛利空间" },
+      { key: "price_band_match", label: "价格带合理性" },
       { key: "ad_tolerance", label: "广告承受力" },
-      { key: "pricing_rationality", label: "定价合理性" },
-      { key: "profit_scalability", label: "放大利润空间" },
+      { key: "profit_scalability", label: "套装/变体/复购空间" },
     ],
   },
   {
-    key: "trend",
-    label: "趋势维",
+    key: "risk_trend",
+    label: "风险与趋势",
     icon: TrendingUp,
     color: "text-rose-600",
     bgColor: "bg-rose-50",
     barColor: "bg-rose-500",
     subItems: [
-      { key: "demand_growth", label: "需求增长趋势" },
-      { key: "category_lifecycle", label: "品类生命周期" },
-      { key: "compliance_risk", label: "政策合规风险(反向)" },
-      { key: "tech_supply_trend", label: "技术与供应链趋势" },
-    ],
-  },
-  {
-    key: "price_tier",
-    label: "价格带维",
-    icon: Tag,
-    color: "text-teal-600",
-    bgColor: "bg-teal-50",
-    barColor: "bg-teal-500",
-    subItems: [
-      { key: "price_band_match", label: "价格带匹配度" },
-      { key: "value_perception", label: "价值感知支撑" },
-      { key: "premium_potential", label: "溢价空间" },
-      { key: "price_risk_resistance", label: "价格风险承受力" },
+      { key: "compliance_risk", label: "政策合规风险" },
+      { key: "demand_growth", label: "BSR/关键词趋势" },
+      { key: "category_lifecycle", label: "类目生命周期" },
+      { key: "new_entry_signal", label: "新品进入案例" },
     ],
   },
 ] as const;
@@ -214,14 +206,14 @@ const getDimensionKey = (name: string) => {
 function RadarChart({
   scores,
 }: {
-  scores: { demand: number; scenario: number; competition: number; profit: number; trend: number; price_tier?: number };
+  scores: Record<string, number>;
 }) {
   const cx = 120;
   const cy = 120;
   const maxR = 90;
   const levels = [4, 8, 12, 16, 20];
-  const dims = ["demand", "scenario", "competition", "profit", "trend", "price_tier"] as const;
-  const labels = ["需求", "场景", "竞争", "利润", "趋势", "价格"];
+  const dims = ["demand", "search_entry", "competition", "differentiation", "business", "risk_trend"] as const;
+  const labels = ["需求", "搜索", "竞争", "差异", "商业", "风险"];
 
   const angleStep = (2 * Math.PI) / dims.length;
   const startAngle = -Math.PI / 2;
@@ -413,11 +405,16 @@ export function FiveDimensionScoreCard({
   };
 
   const hasOldPriceItems = Boolean(
-    result.dimensions?.some((dim) =>
-      dim.items?.some((item) =>
-        ["价值支撑", "促销空间", "价格竞争力", "价格带供需结构", "价格带进入门槛", "价格带抗风险能力"].includes(item.item_name)
-      )
-    )
+    result.dimensions?.some((dim) => {
+      const key = dim.dimension_key || getDimensionKey(dim.dimension_name);
+      return (
+        ["scenario", "profit", "trend", "price_tier", "场景维", "利润维", "趋势维", "价格带维"].includes(key) ||
+        dim.items?.some((item) =>
+          ["价值支撑", "促销空间", "价格竞争力", "价格带供需结构", "价格带进入门槛", "价格带抗风险能力"].includes(item.item_name)
+        )
+      );
+    }) ||
+      (Boolean(result.dimension_scores?.scenario) && !Boolean(result.dimension_scores?.search_entry))
   );
   const isLegacyScore = Boolean(
     result.is_legacy_score ||
