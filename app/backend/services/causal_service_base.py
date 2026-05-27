@@ -156,7 +156,7 @@ class CausalServiceBase:
         self,
         system_prompt: str,
         user_prompt: str,
-        model: str = "AI_DEFAULT_MODEL",
+        model: str = "AI_DEEP_MODEL",
         temperature: float = 0.1,
         max_tokens: int = 3000,
         fallback_result: Optional[Any] = None,

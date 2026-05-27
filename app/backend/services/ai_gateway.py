@@ -17,6 +17,7 @@ import httpx
 from openai import AsyncOpenAI
 from pydantic import BaseModel, Field
 from services.ai_usage import record_ai_usage
+from services.model_invocation_contract import workflow_summary
 
 logger = logging.getLogger(__name__)
 
@@ -135,6 +136,10 @@ class AIGatewayService:
             api_mode=self.api_mode,
             supported_agents=self.supported_agents,
         )
+
+    @staticmethod
+    def workflow_contract() -> list[dict[str, object]]:
+        return workflow_summary()
 
     def select_model(self, depth: DecisionDepth) -> str:
         if depth == "light":
@@ -362,7 +367,8 @@ class AIGatewayService:
             "task": request.task,
             "agent": request.agent,
             "payload": request.payload,
-            "required_flow": "选品决策 -> Listing 上新检测 -> Listing 上线后诊断 -> 广告投放验证 -> 复盘优化",
+            "required_flow": "Scraping事实 -> 规则结构化 -> BGE语义召回 -> BGE重排 -> DeepSeek判断 -> 快照保存 -> 广告验证回流",
+            "model_contract": self.workflow_contract(),
         }
 
         try:

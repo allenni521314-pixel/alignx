@@ -273,6 +273,7 @@ async def analyze_top40_market(keyword: str, marketplace: str, items: list[dict[
                     ChatMessage(role="system", content="你是 AlignX ASIN选品市场机会分析Agent。只返回JSON，不输出Markdown。"),
                     ChatMessage(role="user", content=json.dumps(prompt, ensure_ascii=False)),
                 ],
+                model="AI_REASONING_MODEL",
                 temperature=0.2,
                 max_tokens=3000,
             )

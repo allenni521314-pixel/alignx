@@ -1037,7 +1037,7 @@ async def _analyze_single_asin_with_scraped(
     # Single AI call for both product data enrichment AND scoring
     combined_request = GenTxtRequest(
         messages=[ChatMessage(role="user", content=combined_prompt)],
-        model="AI_DEFAULT_MODEL",
+        model="AI_REASONING_MODEL",
         temperature=0,
         max_tokens=4096,
     )
@@ -1051,7 +1051,7 @@ async def _analyze_single_asin_with_scraped(
         except ValueError as e:
             logger.warning(f"Combined analysis JSON parse failed (attempt {attempt + 1}/2): {e}")
             if attempt == 0:
-                combined_request.model = "AI_DEFAULT_MODEL"
+                combined_request.model = "AI_REASONING_MODEL"
         except Exception as e:
             logger.warning(f"Combined analysis AI call failed for {asin} (attempt {attempt + 1}/2): {e}")
             if attempt == 1:
@@ -1428,7 +1428,7 @@ async def compare_asins(
         from schemas.aihub import GenTxtRequest, ChatMessage
         comparison_request = GenTxtRequest(
             messages=[ChatMessage(role="user", content=comparison_prompt)],
-            model="AI_DEFAULT_MODEL",
+            model="AI_REASONING_MODEL",
             temperature=0,
             max_tokens=8192,
         )
@@ -1442,7 +1442,7 @@ async def compare_asins(
             except ValueError as e:
                 logger.warning(f"Comparison JSON parse failed (attempt {attempt + 1}/2): {e}")
                 if attempt == 0:
-                    comparison_request.model = "AI_DEFAULT_MODEL"
+                    comparison_request.model = "AI_REASONING_MODEL"
 
         if comparison_data is None:
             comparison_data = {

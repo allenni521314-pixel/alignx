@@ -287,7 +287,7 @@ class CausalDiagnosisService:
                     ),
                     ChatMessage(role="user", content=prompt)
                 ],
-                model="AI_DEFAULT_MODEL",
+                model="AI_DEEP_MODEL",
                 temperature=0.2,
                 max_tokens=3000,
             )
@@ -351,7 +351,7 @@ AlignX额外要求 = 机制必须能落到Rufus/COSMO可理解的关系词和状
                     ),
                     ChatMessage(role="user", content=prompt)
                 ],
-                model="AI_DEFAULT_MODEL",
+                model="AI_DEEP_MODEL",
                 temperature=0.2,
                 max_tokens=2500,
             )
@@ -416,7 +416,7 @@ AlignX额外要求 = 机制必须能落到Rufus/COSMO可理解的关系词和状
                     ),
                     ChatMessage(role="user", content=prompt)
                 ],
-                model="AI_DEFAULT_MODEL",
+                model="AI_DEEP_MODEL",
                 temperature=0.2,
                 max_tokens=2500,
             )

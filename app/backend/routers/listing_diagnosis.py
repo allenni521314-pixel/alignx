@@ -1377,7 +1377,7 @@ async def _diagnose_single(
             ChatMessage(role="system", content=system_msg),
             ChatMessage(role="user", content=prompt),
         ],
-        model="AI_DEFAULT_MODEL",
+        model="AI_DEEP_MODEL",
         temperature=0,
         max_tokens=4096,
     )
@@ -1404,13 +1404,13 @@ async def _diagnose_single(
             last_error = e
             logger.warning(f"AI response parse failed (attempt {attempt + 1}/2): {e}")
             if attempt == 0:
-                request.model = "AI_DEFAULT_MODEL"
+                request.model = "AI_DEEP_MODEL"
                 request.max_tokens = 4096
         except Exception as e:
             last_error = e
             logger.warning(f"AI diagnosis call failed (attempt {attempt + 1}/2): {e}")
             if attempt == 0:
-                request.model = "AI_DEFAULT_MODEL"
+                request.model = "AI_DEEP_MODEL"
     else:
         data = _fallback_listing_diagnosis(listing, reason=str(last_error or ""))
 
@@ -1675,7 +1675,7 @@ async def fetch_listing_from_url(
                 ),
                 ChatMessage(role="user", content=prompt),
             ],
-            model="AI_DEFAULT_MODEL",
+            model="AI_REASONING_MODEL",
             temperature=0.2,
             max_tokens=8192,
         )
@@ -1690,7 +1690,7 @@ async def fetch_listing_from_url(
             except ValueError as e:
                 logger.warning(f"Fetch URL AI JSON parse failed (attempt {attempt + 1}/2): {e}")
                 if attempt == 0:
-                    ai_request.model = "AI_DEFAULT_MODEL"
+                    ai_request.model = "AI_REASONING_MODEL"
 
         if data is None:
             data = {
@@ -1957,7 +1957,7 @@ async def compare_listings(
         from schemas.aihub import GenTxtRequest, ChatMessage
         compare_request = GenTxtRequest(
             messages=[ChatMessage(role="user", content=compare_prompt)],
-            model="AI_DEFAULT_MODEL",
+            model="AI_REASONING_MODEL",
             temperature=0,
             max_tokens=8192,
         )
@@ -1971,7 +1971,7 @@ async def compare_listings(
             except ValueError as e:
                 logger.warning(f"Compare JSON parse failed (attempt {attempt + 1}/2): {e}")
                 if attempt == 0:
-                    compare_request.model = "AI_DEFAULT_MODEL"
+                    compare_request.model = "AI_REASONING_MODEL"
 
         if comparison_data is None:
             comparison_data = {

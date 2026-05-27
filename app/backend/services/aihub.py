@@ -14,6 +14,7 @@ from core.config import settings
 from openai import AsyncOpenAI
 from schemas.aihub import GenImgRequest, GenImgResponse, GenTxtRequest, GenTxtResponse
 from services.ai_usage import record_ai_usage
+from services.model_invocation_contract import TEXT_MODEL_ALIASES, VISION_MODEL_ALIASES
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +43,9 @@ class AIHubService:
             or os.getenv("OPENAI_MODEL")
             or "deepseek-chat"
         )
+        self.light_model = os.getenv("AI_LIGHT_MODEL") or self.default_model
+        self.reasoning_model = os.getenv("AI_REASONING_MODEL") or os.getenv("AI_STANDARD_MODEL") or self.default_model
+        self.deep_model = os.getenv("AI_DEEP_MODEL") or self.reasoning_model
         self.vision_api_key = (os.getenv("VISION_API_KEY") or os.getenv("QWEN_API_KEY") or "").strip()
         self.vision_base_url = (
             os.getenv("VISION_BASE_URL")
@@ -75,16 +79,36 @@ class AIHubService:
             )
 
     def _resolve_model(self, requested_model: str | None) -> str:
-        """Map legacy hard-coded model names to the configured provider model."""
+        """Resolve role aliases and reject accidental cross-role model usage."""
         if not requested_model:
             return self.default_model
         if requested_model == "AI_DEFAULT_MODEL":
             return self.default_model
+        if requested_model == "AI_LIGHT_MODEL":
+            return self.light_model
+        if requested_model == "AI_REASONING_MODEL":
+            return self.reasoning_model
+        if requested_model == "AI_DEEP_MODEL":
+            return self.deep_model
         if requested_model == "AI_VISION_MODEL":
             return self.vision_model
         legacy_prefixes = ("gemini-", "gpt-5", "gpt-4", "claude-")
         if requested_model.startswith(legacy_prefixes):
             return self.default_model
+        allowed_models = {
+            self.default_model,
+            self.light_model,
+            self.reasoning_model,
+            self.deep_model,
+            self.vision_model,
+            *TEXT_MODEL_ALIASES,
+            *VISION_MODEL_ALIASES,
+        }
+        if requested_model not in allowed_models:
+            raise ValueError(
+                f"Model '{requested_model}' is not allowed by AlignX model contract. "
+                "Use role aliases such as AI_REASONING_MODEL, AI_DEEP_MODEL, or AI_VISION_MODEL."
+            )
         return requested_model
 
     def _client_for_model(self, requested_model: str | None) -> AsyncOpenAI:

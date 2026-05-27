@@ -187,7 +187,7 @@ class ReviewCausalValidationService:
                     ),
                     ChatMessage(role="user", content=prompt)
                 ],
-                model="AI_DEFAULT_MODEL",
+                model="AI_DEEP_MODEL",
                 temperature=0.1,
                 max_tokens=3000,
             )
@@ -246,7 +246,7 @@ class ReviewCausalValidationService:
                     ),
                     ChatMessage(role="user", content=prompt)
                 ],
-                model="AI_DEFAULT_MODEL",
+                model="AI_DEEP_MODEL",
                 temperature=0.1,
                 max_tokens=2000,
             )
@@ -339,7 +339,7 @@ class ReviewCausalValidationService:
                     ),
                     ChatMessage(role="user", content=prompt)
                 ],
-                model="AI_DEFAULT_MODEL",
+                model="AI_DEEP_MODEL",
                 temperature=0.2,
                 max_tokens=3000,
             )

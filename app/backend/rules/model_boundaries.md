@@ -2,6 +2,23 @@
 
 This file defines which model family owns each responsibility in AlignX. The goal is to prevent provider conflicts and keep ASIN, Listing, keyword, vision, and history-retrieval workflows auditable.
 
+## 0. Non-negotiable invocation chain
+
+All production scoring workflows must follow the same evidence chain:
+
+`Scraping facts -> rule structuring -> BGE-M3 semantic recall -> BGE rerank -> DeepSeek reasoning -> versioned snapshot -> ad validation feedback`
+
+Model calls are not interchangeable:
+
+- Scraping captures facts and never writes conclusions.
+- Rules normalize facts and block impossible conclusions, such as out-of-stock items being treated as healthy sales.
+- BGE-M3 retrieves semantic memory and similar evidence, but never scores by itself.
+- BGE Reranker filters evidence, but never writes business advice.
+- Qwen Vision extracts image/A+ evidence, but never makes the final seller decision.
+- DeepSeek writes the final seller-facing judgment using only structured facts and selected evidence.
+
+If any required fact source is missing, the result must lower confidence or switch to a labeled fallback. It must not silently invent the missing data.
+
 ## 1. DeepSeek: text reasoning and business decisions
 
 DeepSeek is the primary text model for seller-facing analysis and final judgment.
@@ -27,6 +44,12 @@ Production text variables:
 - `AI_LIGHT_MODEL=deepseek-v4-flash`
 - `AI_REASONING_MODEL=deepseek-v4-pro`
 - `AI_DEEP_MODEL=deepseek-v4-pro`
+
+Business modules must call text models through role aliases only:
+
+- `AI_LIGHT_MODEL`: fast labels, minor summarization, UI assistance.
+- `AI_REASONING_MODEL`: ASIN decisions, competitor strategy, ad validation decisions.
+- `AI_DEEP_MODEL`: full Listing diagnosis, feedback-loop attribution, complex cross-module reasoning.
 
 ## 2. Qwen Vision: visual evidence extraction
 
@@ -100,12 +123,12 @@ Production rerank variables:
 ## 5. Workflow ownership
 
 ASIN selection Top40:
-1. Capture/search snapshot saves raw Top40 fields.
-2. Rules summarize price/rating/review/bought-count bands.
-3. BGE retrieves similar historical opportunities.
-4. Reranker selects the most relevant history.
-5. DeepSeek writes the opportunity conclusion.
-6. Single-ASIN deep research is launched separately.
+1. Scraping captures Top40/search snapshot and single-ASIN facts.
+2. Rules summarize price/rating/review/bought-count/stock/BSR/organic/ad position bands.
+3. BGE retrieves similar historical opportunities and keyword intent.
+4. Reranker selects the most relevant evidence.
+5. DeepSeek `AI_REASONING_MODEL` writes the 6D opportunity conclusion.
+6. Snapshot is saved before the next module starts.
 
 Competitor diagnosis:
 1. ASIN page data is fetched by the existing ASIN/Listing pipeline.
@@ -116,16 +139,20 @@ Competitor diagnosis:
 6. If DeepSeek fails, backend must mark `analysis_mode=rule_fallback`; never present fallback scores as full AI judgment.
 
 Listing diagnosis:
-1. User Listing fields and optional browser-parsed fields are structured.
-2. BGE retrieves similar Listing mistakes, keyword intent, and review pains.
-3. Qwen Vision checks main image/A+ evidence when images are available.
-4. DeepSeek produces diagnosis, rewrite direction, and next validation plan.
+1. Scraping/user input structures title, main image, secondary images, bullets, A+, reviews, stock and compliance facts.
+2. Rules establish product identity, required attributes, scenario coverage and hard blockers.
+3. BGE retrieves similar Listing mistakes, keyword intent and review pains.
+4. Reranker filters semantic evidence before it enters the prompt.
+5. Qwen Vision checks main image, secondary image and A+ evidence when images are available.
+6. DeepSeek `AI_DEEP_MODEL` produces 8D+2, rewrite direction and next validation plan.
+7. Versioned diagnosis snapshot is saved.
 
 Ad validation and feedback loop:
 1. Ads/search terms are stored as structured data.
 2. BGE matches terms to prior intent and pain clusters.
 3. Reranker selects the strongest evidence.
-4. DeepSeek decides whether to keep, pause, rewrite, or retest.
+4. DeepSeek `AI_REASONING_MODEL` decides whether to keep, pause, rewrite, or retest.
+5. DeepSeek `AI_DEEP_MODEL` is used only for cross-round attribution and weight correction.
 
 ## 6. Conflict rules
 
@@ -135,3 +162,4 @@ Ad validation and feedback loop:
 - Reranker output is evidence ordering, not the final seller decision.
 - If provider config returns `invalid_api_key`, `model_not_found`, or HTTP 401/403, stop and surface a configuration error. Do not silently convert it into a normal score.
 - Fallback scores must be labeled with `analysis_mode=rule_fallback` and shown with a warning in the UI.
+- Business modules must use role aliases (`AI_REASONING_MODEL`, `AI_DEEP_MODEL`, `AI_VISION_MODEL`, `AI_EMBEDDING_MODEL`, `RERANK_MODEL`) instead of provider names.

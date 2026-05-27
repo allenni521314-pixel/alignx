@@ -431,7 +431,7 @@ async def analyze_intent_matrix(
             ChatMessage(role="system", content=system_msg),
             ChatMessage(role="user", content=prompt),
         ],
-        model="AI_DEFAULT_MODEL",
+        model="AI_REASONING_MODEL",
         temperature=0.3,
         max_tokens=16384,
     )
@@ -447,7 +447,7 @@ async def analyze_intent_matrix(
             last_error = e
             logger.warning(f"Intent matrix AI parse failed (attempt {attempt + 1}/2): {e}")
             if attempt == 0:
-                ai_request.model = "AI_DEFAULT_MODEL"
+                ai_request.model = "AI_REASONING_MODEL"
                 ai_request.max_tokens = 16384
 
     if data is None:
