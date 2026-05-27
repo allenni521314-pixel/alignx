@@ -336,7 +336,7 @@ export function FiveDimensionScoreCard({
   compact?: boolean;
 }) {
   const [expanded, setExpanded] = useState(!compact);
-  const [expandedDim, setExpandedDim] = useState<string | null>(null);
+  const [expandedDim, setExpandedDim] = useState<string | null>("demand");
   const [showAvoidanceReport, setShowAvoidanceReport] = useState(false);
   const [selectedAction, setSelectedAction] = useState<{ action: string; route: string; note: string } | null>(null);
 
@@ -585,6 +585,14 @@ export function FiveDimensionScoreCard({
             </div>
           )}
 
+          <div className="rounded-lg border border-teal-100 bg-teal-50/70 px-3 py-2 text-xs text-teal-900 leading-relaxed flex items-start gap-2">
+            <Info className="w-3.5 h-3.5 mt-0.5 text-teal-600 flex-shrink-0" />
+            <div>
+              <span className="font-semibold">维度分析已展开。</span>
+              <span className="ml-1">点击右侧任一维度，可查看规则分、AI修正、证据、扣分原因和具体建议。</span>
+            </div>
+          </div>
+
           {/* Radar Chart + Summary */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <RadarChart scores={displayDimensionScores} />
@@ -599,14 +607,26 @@ export function FiveDimensionScoreCard({
                 return (
                   <div key={dimKey}>
                     <div
-                      className="flex items-center justify-between text-xs mb-1 cursor-pointer hover:bg-gray-50 rounded px-1 py-0.5 -mx-1"
+                      className={`flex items-center justify-between text-xs mb-1 cursor-pointer rounded px-2 py-1 -mx-1 transition-colors ${
+                        expandedDim === dimKey ? "bg-teal-50 ring-1 ring-teal-100" : "hover:bg-gray-50"
+                      }`}
                       onClick={() => toggleDim(dimKey)}
                     >
                       <span className={`flex items-center gap-1.5 font-medium ${dim.color}`}>
                         <Icon className="w-3.5 h-3.5" />
                         {structured.dimension_name}
                       </span>
-                      <span className="font-semibold text-gray-700">{score}/20</span>
+                      <span className="flex items-center gap-2">
+                        <span className="hidden sm:inline rounded border border-gray-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-gray-600">
+                          {expandedDim === dimKey ? "收起分析" : "查看分析"}
+                        </span>
+                        <span className="font-semibold text-gray-700">{score}/20</span>
+                        {expandedDim === dimKey ? (
+                          <ChevronUp className="w-3.5 h-3.5 text-gray-400" />
+                        ) : (
+                          <ChevronDown className="w-3.5 h-3.5 text-gray-400" />
+                        )}
+                      </span>
                     </div>
                     <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
                       <div
@@ -777,13 +797,17 @@ export function FiveDScoreButton({
 
   if (score !== undefined && score !== null) {
     return (
-      <button
+      <Button
+        variant="outline"
+        size="sm"
         onClick={onClick}
-        className="flex items-center gap-1 hover:opacity-80 transition-opacity"
-        title="点击重新评分"
+        className="h-8 border-brand-200 bg-brand-50 px-3 text-brand-800 hover:bg-brand-100"
+        title="查看6维选品分析"
       >
+        <Award className="w-3.5 h-3.5 mr-1.5" />
+        <span className="hidden sm:inline text-xs font-semibold mr-1.5">查看分析</span>
         <ScoreBadge score={score} />
-      </button>
+      </Button>
     );
   }
 
