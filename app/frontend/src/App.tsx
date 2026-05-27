@@ -12,6 +12,8 @@ import Settings from './pages/Settings';
 import AuthCallback from './pages/AuthCallback';
 import Login from './pages/Login';
 import Pricing from './pages/Pricing';
+import Terms from './pages/Terms';
+import Privacy from './pages/Privacy';
 import AuthError from './pages/AuthError';
 import CompetitorAnalysis from './pages/CompetitorAnalysis';
 import ListingDiagnosis from './pages/ListingDiagnosis';
@@ -86,6 +88,8 @@ const AppRoutes = () => {
         <Route path="/admin" element={<SuperAdmin />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="/pricing" element={<Pricing />} />
+        <Route path="/terms" element={<Terms />} />
+        <Route path="/privacy" element={<Privacy />} />
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Login />} />
         <Route path="/auth/callback" element={<AuthCallback />} />
