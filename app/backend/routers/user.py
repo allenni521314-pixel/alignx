@@ -9,18 +9,32 @@ from fastapi.encoders import jsonable_encoder
 from models.action_snapshots import ActionSnapshot
 from models.ad_campaigns import Ad_campaigns
 from models.ad_data import Ad_data
+from models.ad_recommendations import Ad_recommendations
 from models.asin_analyses import Asin_analyses
+from models.asin_keyword_sales_validation import (
+    AsinKeywordIntentScore,
+    AsinKeywordRankSnapshot,
+    AsinKeywordSalesValidationReport,
+)
+from models.batch_causal_tasks import BatchCausalTask
+from models.causal_ab_comparison import CausalABComparison
 from models.auth import User
 from models.competitor_insights import Competitor_insights
+from models.consumer_intent_results import Consumer_intent_results
+from models.cosmo_results import Cosmo_results
 from models.fetch_history import Fetch_history
 from models.health_reports import Health_reports
+from models.human_state_body import HumanStateBody
+from models.judgment_feedback_rounds import JudgmentFeedbackRound
 from models.keywords import Keywords
 from models.listing_diagnoses import Listing_diagnoses
 from models.listings import Listings
 from models.optimization_timeline import OptimizationTimeline
 from models.prelaunch_test_results import Prelaunch_test_results
 from models.products import Products
+from models.review_causal_validation import ReviewCausalValidation
 from models.sales_metrics import Sales_metrics
+from models.scrape_logs import Scrape_logs
 from pydantic import BaseModel
 from schemas.auth import UserResponse
 from sqlalchemy import func, inspect, select
@@ -35,16 +49,28 @@ USER_DATA_TABLES = [
     ("asin_analyses", Asin_analyses),
     ("listing_diagnoses", Listing_diagnoses),
     ("prelaunch_test_results", Prelaunch_test_results),
+    ("action_snapshots", ActionSnapshot),
+    ("asin_keyword_rank_snapshots", AsinKeywordRankSnapshot),
+    ("asin_keyword_sales_validation_reports", AsinKeywordSalesValidationReport),
+    ("asin_keyword_intent_scores", AsinKeywordIntentScore),
     ("listings", Listings),
     ("keywords", Keywords),
     ("ad_campaigns", Ad_campaigns),
     ("ad_data", Ad_data),
+    ("ad_recommendations", Ad_recommendations),
     ("sales_metrics", Sales_metrics),
     ("health_reports", Health_reports),
     ("fetch_history", Fetch_history),
+    ("cosmo_results", Cosmo_results),
     ("competitor_insights", Competitor_insights),
+    ("consumer_intent_results", Consumer_intent_results),
+    ("judgment_feedback_rounds", JudgmentFeedbackRound),
+    ("causal_ab_comparisons", CausalABComparison),
+    ("review_causal_validations", ReviewCausalValidation),
+    ("batch_causal_tasks", BatchCausalTask),
+    ("human_state_bodies", HumanStateBody),
+    ("scrape_logs", Scrape_logs),
     ("optimization_timeline", OptimizationTimeline),
-    ("action_snapshots", ActionSnapshot),
 ]
 
 
