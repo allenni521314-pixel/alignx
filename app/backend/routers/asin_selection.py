@@ -275,6 +275,26 @@ def _traffic_level(score: float) -> str:
     return "销量可信度低，不建议作为选品参考"
 
 
+def _is_inventory_blocked(product: dict[str, Any]) -> bool:
+    stock_status = str(product.get("stock_status") or "").lower()
+    availability = str(product.get("availability") or "").lower()
+    if stock_status == "unavailable":
+        return True
+    return any(
+        term in availability
+        for term in [
+            "currently unavailable",
+            "temporarily out of stock",
+            "out of stock",
+            "currently not available",
+            "无货",
+            "暂时缺货",
+            "目前无货",
+            "不可用",
+        ]
+    )
+
+
 def _normalize_keyword_sales_report(report: dict[str, Any]) -> dict[str, Any]:
     """Normalize legacy keyword-sales reports before returning them to the UI."""
     if not isinstance(report, dict):
@@ -294,6 +314,20 @@ def _normalize_keyword_sales_report(report: dict[str, Any]) -> dict[str, Any]:
         for row in rank_snapshots
     )
     organic_strength = _num(report.get("organic_rank_strength"))
+    product = report.get("product_snapshot") if isinstance(report.get("product_snapshot"), dict) else {}
+    if _is_inventory_blocked(product):
+        report["keyword_sales_score"] = 0
+        report["traffic_quality_level"] = "无库存/不可售，销量来源不可判定"
+        report["sales_source_judgment"] = "待补库存后验证"
+        report["organic_rank_strength"] = 0
+        report["ad_dependency_risk"] = 0
+        summary["inventory_blocker"] = True
+        summary["stock_status"] = product.get("stock_status") or "unavailable"
+        summary["availability"] = product.get("availability") or ""
+        summary["inventory_note"] = "该ASIN当前显示无库存或不可售，关键词销量验证不成立；请补库存并上架可售后重新抓取自然位、广告位和BSR。"
+        report["suspicious_signals"] = ["ASIN当前无库存/不可售，不能据此判断销量来源。"]
+        report["final_recommendation"] = "先补库存并确认页面可售，再重新进行关键词销量验证。"
+        return report
 
     # Legacy reports saved ad_dependency_risk=0 when no Sponsored slot was
     # captured. That is missing evidence, not proof of zero ad dependence.
@@ -318,6 +352,7 @@ def _build_report(asin: str, marketplace: str, category: str, product: dict[str,
     bsr = _num(product.get("bsr_rank"))
     reviews = _num(product.get("review_count"))
     has_promo = bool(product.get("coupon") or product.get("deal_status"))
+    inventory_blocked = _is_inventory_blocked(product)
     organic_positions = [r["organic_position"] for r in ranks if r.get("organic_position")]
     sponsored_count = sum(1 for r in ranks if r.get("is_sponsored"))
     core = ranks[: min(3, len(ranks))]
@@ -410,6 +445,34 @@ def _build_report(asin: str, marketplace: str, category: str, product: dict[str,
         ),
         "ad_risk_level": "优秀自然流量结构" if ad_risk <= 20 else "健康可控" if ad_risk <= 35 else "需要观察" if ad_risk <= 55 else "广告依赖风险高",
     }
+    if inventory_blocked:
+        summary.update(
+            {
+                "inventory_blocker": True,
+                "stock_status": product.get("stock_status") or "unavailable",
+                "availability": product.get("availability") or "",
+                "inventory_note": "该ASIN当前显示无库存或不可售，关键词销量验证不成立；请补库存并上架可售后重新抓取自然位、广告位和BSR。",
+                "ad_risk_level": "库存阻断，暂不判断",
+            }
+        )
+        return {
+            "asin": asin,
+            "marketplace": marketplace,
+            "days_range": days_range,
+            "product_snapshot": product,
+            "keyword_sales_score": 0,
+            "traffic_quality_level": "无库存/不可售，销量来源不可判定",
+            "sales_source_judgment": "待补库存后验证",
+            "keyword_rank_summary": summary,
+            "organic_rank_strength": 0,
+            "ad_dependency_risk": 0,
+            "suspicious_signals": ["ASIN当前无库存/不可售，不能据此判断销量来源。"],
+            "opportunity_keywords": [],
+            "risk_keywords": [r["keyword"] for r in ranks[:8]],
+            "rank_snapshots": ranks,
+            "keyword_intent_scores": qualities,
+            "final_recommendation": "先补库存并确认页面可售，再重新进行关键词销量验证；不要把当前无销量误判为广告或促销驱动。",
+        }
     return {
         "asin": asin,
         "marketplace": marketplace,
@@ -448,6 +511,8 @@ async def _generate_validation(request: KeywordSalesValidationRequest, user_id: 
         "bsr_rank": scraped.get("bsr_rank") or "",
         "coupon": scraped.get("coupon") or "",
         "deal_status": scraped.get("deal_status") or "",
+        "availability": scraped.get("availability") or "",
+        "stock_status": scraped.get("stock_status") or "unknown",
         "image_count": scraped.get("image_count") or "",
         "aplus_status": bool(scraped.get("has_a_plus")),
         "video_status": bool(scraped.get("has_video")),
