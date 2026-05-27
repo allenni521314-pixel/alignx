@@ -1920,6 +1920,9 @@ export default function AsinManager() {
                       <span>找出低评论高排名的潜在机会ASIN</span>
                       <span>生成推荐切入价带和后续验证动作</span>
                     </div>
+                    <div className="mt-3 rounded-md border border-amber-100 bg-white px-3 py-2 text-[11px] text-amber-800">
+                      Top40 是关键词样本池，不会自动写入 ASIN库。点击表格里的「加入ASIN库并评分」后，才会保存到 ASIN库并进入 6维评分、关键词验证和后续诊断闭环。
+                    </div>
                     {top40Usage && (
                       <div className="mt-3 rounded-md border border-amber-100 bg-white px-3 py-2 text-[11px] text-gray-600">
                         24小时额度：已用 {top40Usage.usedRuns}/{top40Usage.dailyRunLimit} 次，
@@ -1938,6 +1941,9 @@ export default function AsinManager() {
                           </p>
                           <p className="text-xs text-gray-500">
                             {scraplingResults.length}/4 批 · {scraplingResults.reduce((sum, item) => sum + item.items.length, 0)} 个竞品样本
+                          </p>
+                          <p className="text-[11px] text-amber-700 mt-1">
+                            样本池与 ASIN库分开保存；入库后才能在左侧 ASIN库继续评分、诊断和广告验证。
                           </p>
                         </div>
                         <span className="text-xs text-gray-500">
@@ -2035,6 +2041,7 @@ export default function AsinManager() {
                           <tbody>
                             {scraplingResults.flatMap((batch) => batch.items).map((item) => {
                               const analysisRow = top40AnalysisByAsin[item.asin] || {};
+                              const isInLibrary = products.some((product) => product.asin === item.asin);
                               return (
                                 <tr key={`${item.searchRank}-${item.asin}`} className="border-t border-gray-100">
                                   <td className="px-3 py-2 text-gray-700">{item.searchRank}</td>
@@ -2069,12 +2076,27 @@ export default function AsinManager() {
                                     )}
                                   </td>
                                   <td className="px-3 py-2 text-gray-700">{analysisRow.priceBandLabel || "-"}</td>
-                                  <td className="px-3 py-2 text-gray-700">{item.status || "-"}</td>
+                                  <td className="px-3 py-2 text-gray-700">
+                                    {isInLibrary ? (
+                                      <span className="inline-flex items-center gap-1 rounded bg-emerald-50 px-2 py-1 text-emerald-700 font-medium">
+                                        <CheckCircle2 className="w-3.5 h-3.5" />
+                                        已入库
+                                      </span>
+                                    ) : (
+                                      <span className="inline-flex items-center gap-1 rounded bg-amber-50 px-2 py-1 text-amber-700 font-medium">
+                                        未入库
+                                      </span>
+                                    )}
+                                  </td>
                                   <td className="px-3 py-2">
                                     <Button
                                       size="sm"
-                                      variant="outline"
-                                      className="h-8 whitespace-nowrap"
+                                      variant={isInLibrary ? "outline" : "default"}
+                                      className={
+                                        isInLibrary
+                                          ? "h-8 whitespace-nowrap border-gray-200"
+                                          : "h-8 whitespace-nowrap bg-emerald-700 hover:bg-emerald-600 text-white"
+                                      }
                                       onClick={() => handleTop40DeepDive(item)}
                                       disabled={top40DeepDiveAsin === item.asin || scoringAsin === item.asin}
                                     >
@@ -2083,7 +2105,7 @@ export default function AsinManager() {
                                       ) : (
                                         <Microscope className="w-3.5 h-3.5 mr-1" />
                                       )}
-                                      单品分析
+                                      {isInLibrary ? "重新评分" : "加入ASIN库并评分"}
                                     </Button>
                                   </td>
                                 </tr>
