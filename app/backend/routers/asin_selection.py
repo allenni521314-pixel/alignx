@@ -32,6 +32,8 @@ class KeywordSalesValidationRequest(BaseModel):
     target_keywords: list[str] = Field(default_factory=list)
     competitor_asins: list[str] = Field(default_factory=list)
     days_range: int = 30
+    inventory_status: str = ""
+    is_own_product: bool = False
 
 
 class KeywordRankCrawlRequest(KeywordSalesValidationRequest):
@@ -277,7 +279,10 @@ def _traffic_level(score: float) -> str:
 
 def _is_inventory_blocked(product: dict[str, Any]) -> bool:
     stock_status = str(product.get("stock_status") or "").lower()
+    manual_inventory_status = str(product.get("manual_inventory_status") or "").lower()
     availability = str(product.get("availability") or "").lower()
+    if manual_inventory_status in {"out_of_stock", "zero_inventory", "unavailable", "not_available"}:
+        return True
     if stock_status == "unavailable":
         return True
     return any(
@@ -513,6 +518,8 @@ async def _generate_validation(request: KeywordSalesValidationRequest, user_id: 
         "deal_status": scraped.get("deal_status") or "",
         "availability": scraped.get("availability") or "",
         "stock_status": scraped.get("stock_status") or "unknown",
+        "manual_inventory_status": request.inventory_status or "",
+        "is_own_product": bool(request.is_own_product),
         "image_count": scraped.get("image_count") or "",
         "aplus_status": bool(scraped.get("has_a_plus")),
         "video_status": bool(scraped.get("has_video")),
