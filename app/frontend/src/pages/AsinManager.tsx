@@ -114,9 +114,17 @@ interface KeywordSalesValidationReport {
     rank_data_note?: string;
     ad_risk_note?: string;
     ad_risk_level?: string;
+    inventory_blocker?: boolean;
+    inventory_note?: string;
+    stock_status?: string;
+    availability?: string;
   };
   organic_rank_strength: number;
   ad_dependency_risk: number;
+  product_snapshot?: {
+    availability?: string;
+    stock_status?: string;
+  };
   suspicious_signals: string[];
   opportunity_keywords: string[];
   risk_keywords: string[];
@@ -2683,7 +2691,7 @@ export default function AsinManager() {
                                 <ShieldCheck className="w-4 h-4 text-emerald-700" />
                                 <h3 className="font-bold text-gray-900">关键词销量验证</h3>
                               </div>
-                              <p className="text-xs text-gray-500 mt-1">销量来源风险雷达：交叉查看 BSR、评论、自然排名、广告位与促销信号。</p>
+                              <p className="text-xs text-gray-500 mt-1">销量来源风险雷达：交叉查看库存可售、BSR、评论、自然排名、广告位与促销信号。</p>
                               <p className="text-[11px] text-gray-400 mt-1">
                                 数据来源：{keywordReport.keyword_rank_summary?.rank_data_source === "scrapling_top40_search" ? "Scrapling核心词Top40搜索快照" : "规则估算快照"}
                               </p>
@@ -2701,7 +2709,9 @@ export default function AsinManager() {
                             </div>
                             <div className="rounded-lg bg-amber-50 border border-amber-100 p-3">
                               <p className="text-xs text-gray-500">广告依赖风险</p>
-                              <p className="text-lg font-bold text-amber-700">{keywordReport.ad_dependency_risk}%</p>
+                              <p className="text-lg font-bold text-amber-700">
+                                {keywordReport.keyword_rank_summary?.inventory_blocker ? "暂不判断" : `${keywordReport.ad_dependency_risk}%`}
+                              </p>
                               <p className="text-[11px] text-amber-700 mt-0.5">
                                 {keywordReport.keyword_rank_summary?.ad_risk_level || (keywordReport.ad_dependency_risk <= 20 ? "优秀自然流量结构" : keywordReport.ad_dependency_risk <= 35 ? "健康可控" : "需要观察")}
                               </p>
@@ -2734,6 +2744,22 @@ export default function AsinManager() {
                           )}
                           {keywordReport.keyword_rank_summary?.ad_risk_note && (
                             <p className="text-[11px] text-amber-700 mb-3">{keywordReport.keyword_rank_summary.ad_risk_note}</p>
+                          )}
+                          {keywordReport.keyword_rank_summary?.inventory_blocker && (
+                            <div className="rounded-lg bg-red-50 border border-red-100 p-3 mb-3">
+                              <div className="flex items-center gap-2 text-sm font-semibold text-red-700 mb-1">
+                                <AlertTriangle className="w-4 h-4" />
+                                库存阻断：当前不做销量来源判断
+                              </div>
+                              <p className="text-xs text-red-700 leading-5">
+                                {keywordReport.keyword_rank_summary.inventory_note || "该ASIN当前无库存或不可售，请补库存并确认页面可售后重新验证。"}
+                              </p>
+                              {(keywordReport.keyword_rank_summary.availability || keywordReport.product_snapshot?.availability) && (
+                                <p className="text-[11px] text-red-600 mt-2">
+                                  页面可售状态：{keywordReport.keyword_rank_summary.availability || keywordReport.product_snapshot?.availability}
+                                </p>
+                              )}
+                            </div>
                           )}
 
                           {keywordReport.suspicious_signals.length > 0 && (
