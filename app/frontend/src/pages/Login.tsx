@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,7 +10,7 @@ import { useAuth } from "@/contexts/AuthContext";
 
 export default function Login() {
   const navigate = useNavigate();
-  const { sendEmailCode, emailLogin } = useAuth();
+  const { user, loading: authLoading, sendEmailCode, emailLogin } = useAuth();
   const [storeName, setStoreName] = useState("");
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
@@ -21,6 +21,25 @@ export default function Login() {
   const [codeSent, setCodeSent] = useState(false);
   const [sendingCode, setSendingCode] = useState(false);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!authLoading && user) {
+      navigate("/dashboard", { replace: true });
+    }
+  }, [authLoading, navigate, user]);
+
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem("alignx_trial_user") || "{}");
+      if (localStorage.getItem("alignx_remember_login") === "1") {
+        if (saved.name) setStoreName(String(saved.name));
+        if (saved.account) setEmail(String(saved.account));
+        if (localStorage.getItem("alignx_terms_accepted") === "1") setAcceptedTerms(true);
+      }
+    } catch {
+      // Ignore malformed local storage from older beta builds.
+    }
+  }, []);
 
   const validateBase = () => {
     const cleanStoreName = storeName.trim();
@@ -89,16 +108,23 @@ export default function Login() {
     setLoading(true);
     try {
       await emailLogin(base.cleanEmail, cleanCode, base.cleanStoreName);
-      if (remember) localStorage.setItem("alignx_remember_login", "1");
-      localStorage.setItem(
-        "alignx_trial_user",
-        JSON.stringify({
-          name: base.cleanStoreName,
-          account: base.cleanEmail,
-          plan: "内测版",
-          login_type: "beta_store_email",
-        })
-      );
+      if (remember) {
+        localStorage.setItem("alignx_remember_login", "1");
+        localStorage.setItem(
+          "alignx_trial_user",
+          JSON.stringify({
+            name: base.cleanStoreName,
+            account: base.cleanEmail,
+            plan: "内测版",
+            login_type: "beta_store_email",
+          })
+        );
+        localStorage.setItem("alignx_terms_accepted", "1");
+      } else {
+        localStorage.removeItem("alignx_remember_login");
+        localStorage.removeItem("alignx_trial_user");
+        localStorage.removeItem("alignx_terms_accepted");
+      }
       navigate("/dashboard");
     } catch (err: unknown) {
       const message =
