@@ -245,10 +245,16 @@ interface DiagnosisResult {
   judgment_system?: Record<string, any>;
   ad_validation_plan?: Record<string, any>;
   amazon_compliance?: ComplianceResult;
-  trace?: {
+ trace?: {
     diagnosis_id?: number;
     cache_hit?: string;
     ai_called?: boolean;
+    diagnosis_meta?: {
+      schema_version?: string;
+      rules_version?: string;
+      cache_policy?: string;
+      content_fingerprint_short?: string;
+    };
     content_fingerprint?: string;
     content_fingerprint_short?: string;
     generated_at?: string;
@@ -1475,6 +1481,8 @@ function DiagnosisTraceBar({ result }: { result: DiagnosisResult }) {
   if (!trace) return null;
   const mode = trace.ai_called ? "新AI诊断" : trace.cache_hit ? "命中缓存" : "历史诊断";
   const generatedAt = trace.generated_at ? new Date(trace.generated_at).toLocaleString() : "";
+  const meta = trace.diagnosis_meta || {};
+  const fingerprint = meta.content_fingerprint_short || trace.content_fingerprint_short;
 
   return (
     <div className="flex flex-wrap items-center gap-2 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-[11px] text-gray-500">
@@ -1485,8 +1493,17 @@ function DiagnosisTraceBar({ result }: { result: DiagnosisResult }) {
       {trace.diagnosis_id !== undefined && (
         <span>ID #{trace.diagnosis_id || "未保存"}</span>
       )}
-      {trace.content_fingerprint_short && (
-        <span>指纹 {trace.content_fingerprint_short}</span>
+      {meta.schema_version && (
+        <span>版本 {meta.schema_version}</span>
+      )}
+      {meta.rules_version && (
+        <span>规则 {meta.rules_version}</span>
+      )}
+      {meta.cache_policy && (
+        <span>缓存 {meta.cache_policy === "exact_content_only" ? "仅同内容命中" : meta.cache_policy}</span>
+      )}
+      {fingerprint && (
+        <span>指纹 {fingerprint}</span>
       )}
       {trace.frontend_version && (
         <span>前端 {trace.frontend_version}</span>
