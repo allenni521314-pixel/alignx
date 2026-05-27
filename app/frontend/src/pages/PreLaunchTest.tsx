@@ -1077,61 +1077,237 @@ export default function PreLaunchTest() {
   };
 
   const productHint = `${title} ${category}`.toLowerCase();
-  const isPowerBank = /power bank|charger|battery|充电|移动电源/.test(productHint);
-  const isSpeaker = /speaker|bluetooth|音箱|扬声器/.test(productHint);
-  const suggestedKeywords = isPowerBank
-    ? ["travel power bank", "compact charger for small purse", "usb c power bank for iphone and samsung", "slim pocket power bank", "lightweight phone charger for flights"]
-    : isSpeaker
-      ? ["waterproof bluetooth speaker", "portable speaker for camping", "poolside bluetooth speaker", "speaker for hiking and travel", "bluetooth speaker with fm radio"]
-      : ["for travel", "with easy setup", "compact everyday use", "gift ready", "low risk purchase"];
+  const getProductProfile = () => {
+    if (/cat|litter|odor|deodorizer|pet|air purifier|臭|猫砂|除味|宠物/.test(productHint)) {
+      return {
+        defaultTitle: "Cat Litter Odor Deodorizer for Pet Home and Small Room with Quiet Odor Control",
+        titlePatch: "for Cat Litter Room and Pet Home with Quiet Odor Control",
+        keywords: [
+          "cat litter odor deodorizer",
+          "pet room odor control",
+          "odor remover for litter box",
+          "quiet air freshener for pets",
+          "cat room smell control",
+          "small room deodorizer for apartment",
+          "pet home odor eliminator",
+          "litter box smell reducer",
+          "safe odor control for cats",
+          "bathroom kitchen pet odor remover",
+        ],
+        bullets: [
+          "Function: targets cat litter odor and everyday pet room smells with a compact deodorizing design.",
+          "Effect: helps reduce lingering ammonia and bathroom odors so the room feels cleaner between litter changes.",
+          "Scenario: made for cat rooms apartments bathrooms kitchens and small pet living spaces.",
+          "Trust: quiet ozone free operation supports daily use around home areas where pets and people stay.",
+          "Support: simple setup and easy maintenance help buyers use it consistently after delivery.",
+        ],
+        aplus: [
+          "1 Brand Promise: Built for homes where cat litter odor is a real daily problem and buyers need a cleaner small room experience without complicated setup.",
+          "2 Technology Principle: The deodorizing structure is positioned as a targeted odor control aid for pet spaces and should explain how air contact and placement help reduce smell around the litter area.",
+          "3 Scenario Education: Show a cat room apartment bathroom kitchen and bedroom corner so shoppers immediately understand where the product should be placed and when it is useful.",
+          "4 Benefit Proof: Use before and after room odor language carefully and focus on reduced lingering smell cleaner air feeling and easier daily pet care.",
+          "5 Differentiation: Compare with sprays candles and bulky purifiers by emphasizing compact placement quiet use and no need to cover odor with fragrance.",
+          "6 Size and Compatibility: Show product dimensions cord length placement distance and suitable room types so buyers can judge fit before purchase.",
+          "7 Safety and Trust: Explain ozone free use material safety and quiet operation in plain evidence based language without absolute medical or guaranteed claims.",
+          "8 Use and Maintenance: Show plug in placement cleaning reminders and recommended use habits to reduce wrong expectations.",
+          "9 After Sale Loop: Close with setup help maintenance guidance and responsive support so buyers feel risk is controlled after delivery.",
+        ].join("\n"),
+      };
+    }
+    if (/case|iphone|magsafe|phone|手机壳|保护壳/.test(productHint)) {
+      return {
+        defaultTitle: "Magnetic Phone Case for iPhone with MagSafe Compatibility and Drop Protection",
+        titlePatch: "for iPhone with MagSafe Compatibility and Drop Protection",
+        keywords: [
+          "clear magnetic case for iphone",
+          "magsafe compatible phone case",
+          "anti yellowing phone case",
+          "military grade drop protection case",
+          "slim protective iphone cover",
+          "clear case with screen protector",
+          "shockproof phone bumper case",
+          "wireless charging compatible case",
+          "camera protection iphone case",
+          "everyday protective phone case",
+        ],
+        bullets: [
+          "Function: magnetic ring supports MagSafe style charging and daily accessory alignment.",
+          "Effect: raised edges and reinforced corners help reduce drop impact and camera scratches.",
+          "Scenario: clear slim profile works for commuting travel office and everyday phone carry.",
+          "Trust: anti yellowing material and fitted buttons help keep the case usable over time.",
+          "Support: easy installation and responsive replacement support reduce purchase risk.",
+        ],
+        aplus: [
+          "1 Brand Promise: Protect the phone without hiding the original look and make daily charging easier.",
+          "2 Technology Principle: Explain the magnetic alignment structure corner buffer design raised camera edge and screen lip in simple visual proof.",
+          "3 Scenario Education: Show commuting office travel pocket use and one hand grip so shoppers know this is an everyday protective case.",
+          "4 Benefit Proof: Demonstrate drop protection scratch reduction button response wireless charging and clear back visibility.",
+          "5 Differentiation: Compare ordinary clear cases loose magnetic cases and bulky rugged cases by showing magnetic strength fit and slim protection.",
+          "6 Size and Compatibility: State exact iPhone model compatibility and show port camera button and charging alignment.",
+          "7 Safety and Trust: Use material and durability proof without unverifiable absolute claims.",
+          "8 Use and Maintenance: Show installation cleaning anti yellowing care and charging notes.",
+          "9 After Sale Loop: Offer fit support and replacement guidance if model selection or installation is wrong.",
+        ].join("\n"),
+      };
+    }
+    if (/power bank|charger|battery|充电|移动电源/.test(productHint)) {
+      return {
+        defaultTitle: "Portable Power Bank for Travel and Everyday Backup Charging with USB C",
+        titlePatch: "for Travel and Everyday Backup Charging with USB C",
+        keywords: [
+          "travel power bank",
+          "compact charger for small purse",
+          "usb c power bank for iphone",
+          "portable phone charger for samsung",
+          "slim pocket power bank",
+          "lightweight charger for flights",
+          "backup battery for commute",
+          "fast charging portable charger",
+          "power bank with cable",
+          "emergency phone battery pack",
+        ],
+        bullets: [
+          "Function: portable backup battery helps keep phones charged during travel commute and daily use.",
+          "Effect: USB C charging support reduces low battery risk when outlets are not available.",
+          "Scenario: slim size fits small bags pockets flights office days and weekend trips.",
+          "Trust: clear capacity input output and device compatibility details help buyers choose correctly.",
+          "Support: simple charging steps and after sale help reduce setup and compatibility concerns.",
+        ],
+        aplus: [
+          "1 Brand Promise: Give buyers a reliable daily backup charging option for travel and busy days.",
+          "2 Technology Principle: Explain capacity input output USB C interface cable use and device compatibility clearly.",
+          "3 Scenario Education: Show airport commute office school outdoor and emergency battery situations.",
+          "4 Benefit Proof: Explain how it helps avoid low battery anxiety and keeps phones available for calls maps and payments.",
+          "5 Differentiation: Compare bulky chargers wall chargers and low capacity backups by size portability and practical output.",
+          "6 Size and Compatibility: Show dimensions weight supported phones and charging cable requirements.",
+          "7 Safety and Trust: Describe protection features and material evidence without absolute safety claims.",
+          "8 Use and Maintenance: Show first charge recharge indicators storage and travel notes.",
+          "9 After Sale Loop: Provide compatibility help and replacement support for defective charging issues.",
+        ].join("\n"),
+      };
+    }
+    if (/speaker|bluetooth|音箱|扬声器/.test(productHint)) {
+      return {
+        defaultTitle: "Waterproof Bluetooth Speaker for Camping Pool Beach and Travel",
+        titlePatch: "for Camping Pool Beach and Travel with Waterproof Portable Sound",
+        keywords: [
+          "waterproof bluetooth speaker",
+          "portable speaker for camping",
+          "poolside bluetooth speaker",
+          "speaker for hiking and travel",
+          "bluetooth speaker with fm radio",
+          "outdoor wireless speaker",
+          "compact speaker for beach",
+          "portable party speaker",
+          "speaker for shower and patio",
+          "travel bluetooth speaker",
+        ],
+        bullets: [
+          "Function: portable Bluetooth speaker delivers wireless sound for music calls and outdoor use.",
+          "Effect: water resistant design helps reduce worry around splashes poolside use and beach trips.",
+          "Scenario: built for camping hiking patio shower travel and small gatherings.",
+          "Trust: clear battery connection and waterproof level details help buyers set the right expectation.",
+          "Support: simple pairing and responsive support reduce setup problems after delivery.",
+        ],
+        aplus: [
+          "1 Brand Promise: Make outdoor and travel music easier without a bulky audio setup.",
+          "2 Technology Principle: Explain Bluetooth pairing sound driver battery waterproof level and control layout.",
+          "3 Scenario Education: Show camping pool beach shower patio and travel bag use cases.",
+          "4 Benefit Proof: Demonstrate portable sound splash resistance battery life and easy pairing.",
+          "5 Differentiation: Compare phone speakers large speakers and non waterproof speakers by portability and scene fit.",
+          "6 Size and Compatibility: Show dimensions weight device compatibility and charging interface.",
+          "7 Safety and Trust: Explain waterproof limits and charging precautions in clear evidence based language.",
+          "8 Use and Maintenance: Show pairing steps cleaning drying and storage recommendations.",
+          "9 After Sale Loop: Provide pairing help battery support and replacement guidance if needed.",
+        ].join("\n"),
+      };
+    }
+    return {
+      defaultTitle: "Product for Everyday Use with Clear Benefits and Low Risk Setup",
+      titlePatch: "for Everyday Use with Clear Benefits and Low Risk Setup",
+      keywords: [
+        "everyday use product",
+        "easy setup product",
+        "compact home use item",
+        "gift ready useful product",
+        "low risk purchase",
+        "practical product for home",
+        "portable daily use item",
+        "simple maintenance product",
+        "problem solving product",
+        "trusted everyday accessory",
+      ],
+      bullets: [
+        "Function: explains the core job clearly so shoppers understand what the product does.",
+        "Effect: connects the feature to a practical result and reduces uncertainty before purchase.",
+        "Scenario: shows who uses it where it is used and why that moment matters.",
+        "Trust: includes material fit safety compatibility or evidence details buyers can verify.",
+        "Support: explains setup maintenance and after sale help to reduce post purchase risk.",
+      ],
+      aplus: [
+        "1 Brand Promise: Explain the user problem and the product role in one clear scenario.",
+        "2 Technology Principle: Show the core structure material or mechanism that creates the benefit.",
+        "3 Scenario Education: Use real scenes to help shoppers recognize when they need the product.",
+        "4 Benefit Proof: Connect every feature to a practical result that can be seen or verified.",
+        "5 Differentiation: Compare against common alternatives and explain why this option is easier safer or more practical.",
+        "6 Size and Compatibility: Clarify dimensions fit package contents and limitations.",
+        "7 Safety and Trust: Add material certification warranty or careful use evidence without exaggerated claims.",
+        "8 Use and Maintenance: Show setup steps care instructions and mistake prevention.",
+        "9 After Sale Loop: Close with support replacement and service expectations so buyers feel protected.",
+      ].join("\n"),
+    };
+  };
 
-  const applyDimensionFix = (dimension: PrelaunchDimensionKey, dim: DimensionScore) => {
-    const suggestions = dim.suggestions.filter(Boolean);
-    if (dimension === "title_keywords") {
-      setKeywords((prev) => appendUniqueCsv(prev, suggestedKeywords));
-      if (!title.toLowerCase().includes(" for ") && suggestedKeywords[0]) {
-        setTitle((prev) => prev.trim() ? `${prev.trim()} for Travel and Everyday Use` : suggestedKeywords[0]);
-      }
-    }
-    if (dimension === "backend_keywords") {
-      setKeywords((prev) => appendUniqueCsv(prev, suggestedKeywords));
-    }
-    if (dimension === "main_image") {
-      setAPlusDesc((prev) => appendUniqueLines(prev, [
-        "Main image brief: clearly show product type, core difference, size/scale, and the primary use scenario.",
-        "Secondary images: show function proof, use case, comparison, risk removal, and what is included.",
-      ]));
-    }
-    if (dimension === "a_plus_description") {
-      setAPlusDesc((prev) => appendUniqueLines(prev, [
-        "A+ module: show target user scenario, core benefit, comparison proof, size details, and trust/risk-removal evidence.",
-        ...suggestions.slice(0, 2).map((item) => `A+ improvement note: ${item}`),
-      ]));
-    }
-    if (dimension === "bullet_points") {
-      const additions = isPowerBank
-        ? [
-            "Travel-ready power bank for flights, commuting, and everyday backup charging.",
-            "Compact design fits a small purse or pocket while keeping phones charged on the go.",
-            "USB-C charging support for iPhone, Samsung, and everyday mobile devices.",
-          ]
-        : isSpeaker
-          ? [
-              "Portable speaker for beach trips, camping, poolside music, and outdoor parties.",
-              "Water-resistant design helps reduce worry around splashes and outdoor use.",
-              "Compact wireless speaker with clear sound for travel, gifts, and everyday use.",
-            ]
-          : [
-              "Designed for the real use case, with clear benefits and reduced purchase risk.",
-              "Easy to use, easy to verify, and built for everyday scenarios.",
-              "Clear value promise with practical details buyers can trust before purchase.",
-            ];
-      setBulletPoints((prev) => appendUniqueLines(prev, additions));
-    }
+  const productProfile = getProductProfile();
+  const suggestedKeywords = productProfile.keywords;
+
+  const buildOptimizedTitle = () => {
+    const current = title.trim();
+    if (!current) return productProfile.defaultTitle;
+    const lower = current.toLowerCase();
+    const hasRelation = /\b(for|with|without|compatible|fits)\b/.test(lower);
+    const hasState = /\b(odor|control|safe|quiet|waterproof|portable|charging|protection|easy|compact|reduce|anti|drop)\b/.test(lower);
+    if (hasRelation && hasState) return current;
+    const patched = `${current} ${productProfile.titlePatch}`;
+    return patched.length > 190 ? patched.slice(0, 187).trim() : patched;
+  };
+
+  const replaceWithOptimizedInput = () => {
     setSaved(false);
     setResult(null);
     setOptimizationRound((prev) => prev + 1);
     inputFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  const applyDimensionFix = (dimension: PrelaunchDimensionKey, dim: DimensionScore) => {
+    const suggestions = dim.suggestions.filter(Boolean);
+    if (dimension === "title_keywords") {
+      setTitle(buildOptimizedTitle());
+      setKeywords(appendUniqueCsv("", suggestedKeywords));
+    }
+    if (dimension === "backend_keywords") {
+      setKeywords(appendUniqueCsv("", suggestedKeywords));
+    }
+    if (dimension === "main_image") {
+      if (mainImages.length < MAX_MAIN_IMAGES) {
+        inputFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+        toast.warning("主图/副图维度需要补齐7张图片并按职责排序，文本回填不能代替图片证据");
+        return;
+      }
+      setAPlusDesc((prev) => appendUniqueLines(prev, [
+        "Image brief: 1 white background click image 2 core benefit proof 3 real use scenario 4 size and structure 5 competitor comparison 6 safety or material proof 7 package setup and use steps.",
+      ]));
+    }
+    if (dimension === "a_plus_description") {
+      setAPlusDesc(appendUniqueLines(productProfile.aplus, suggestions.slice(0, 2).map((item) => `Extra review note: ${item}`)));
+      if (aPlusImages.length < MAX_APLUS_IMAGES) {
+        toast.warning("已回填A+文本闭环；A+要稳定到80分以上，还需要补齐9张A+图并按顺序上传");
+      }
+    }
+    if (dimension === "bullet_points") {
+      setBulletPoints(productProfile.bullets.join("\n"));
+    }
+    replaceWithOptimizedInput();
     toast.success("已把优化建议回填到输入区，请重新检测分数");
   };
 

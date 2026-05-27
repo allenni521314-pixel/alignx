@@ -93,8 +93,19 @@ def _cap_score(value: float, cap: int) -> int:
     return max(35, min(cap, round(value)))
 
 
-def _split_list(value: str) -> list[str]:
+def _split_keywords(value: str) -> list[str]:
     return [item.strip() for item in re.split(r"[\n,，;；]+", value or "") if item.strip()]
+
+
+def _split_bullets(value: str) -> list[str]:
+    text = (value or "").strip()
+    if not text:
+        return []
+    lines = [line.strip() for line in re.split(r"\n+", text) if line.strip()]
+    if len(lines) <= 1:
+        marker_parts = re.split(r"(?:^|\s)(?:[•\-*]|\d+[.)]|[A-Z][.)])\s+", text)
+        lines = [part.strip() for part in marker_parts if part.strip()]
+    return [re.sub(r"^(?:[•\-*]|\d+[.)]|[A-Z][.)])\s*", "", line).strip() for line in lines if line.strip()]
 
 
 def _count_hits(text: str, terms: list[str]) -> int:
@@ -178,8 +189,8 @@ def _sequence_missing(sequence: list[str], count: int) -> list[str]:
 
 def _build_rule_evaluation(request: EvaluateLaunchRequest) -> dict[str, Any]:
     title = request.title.strip()
-    keyword_items = _split_list(request.keywords)
-    bullet_items = _split_list(request.bullet_points)
+    keyword_items = _split_keywords(request.keywords)
+    bullet_items = _split_bullets(request.bullet_points)
     all_text = " ".join([
         request.title,
         request.keywords,
