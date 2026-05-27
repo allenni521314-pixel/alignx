@@ -67,7 +67,7 @@ LISTING_DIAGNOSIS_CONTRACT = WorkflowContract(
         PipelineStep("fact_rules", "rules", "结构化商品身份、属性、场景、库存和合规事实", "structured_listing_facts", True),
         PipelineStep("semantic_recall", "embedding", "召回相似Listing错误、评论痛点和语义锚点", "semantic_candidates"),
         PipelineStep("evidence_rerank", "rerank", "选择最相关证据进入诊断Prompt", "ranked_evidence"),
-        PipelineStep("visual_evidence", "vision", "读取主图、副图、A+图片承诺与风险", "visual_evidence"),
+        PipelineStep("visual_ocr_evidence", "vision", "用Qwen Vision/OCR读取主图、副图、A+图片中的产品、场景、文字、徽章、认证和风险承诺", "visual_ocr_evidence"),
         PipelineStep("diagnosis_reasoning", "text_deep", "输出8D+2、本品问题和广告验证假设", "listing_diagnosis"),
     ),
 )
@@ -80,7 +80,7 @@ COMPETITOR_CONTRACT = WorkflowContract(
         PipelineStep("fact_rules", "rules", "统一竞品与本品可比字段", "comparison_facts", True),
         PipelineStep("semantic_recall", "embedding", "召回相似竞品打法、评论痛点和广告词意图", "semantic_candidates"),
         PipelineStep("evidence_rerank", "rerank", "选出可用于优劣势判断的证据", "ranked_evidence"),
-        PipelineStep("visual_evidence", "vision", "比较主图/副图/A+证据链", "visual_evidence"),
+        PipelineStep("visual_ocr_evidence", "vision", "用Qwen Vision/OCR比较主图/副图/A+图片证据链和图片内文案", "visual_ocr_evidence"),
         PipelineStep("strategy_reasoning", "text_reasoning", "把优劣势转成可测试广告假设", "competitor_strategy"),
     ),
 )

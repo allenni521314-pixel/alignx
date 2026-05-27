@@ -51,15 +51,16 @@ Business modules must call text models through role aliases only:
 - `AI_REASONING_MODEL`: ASIN decisions, competitor strategy, ad validation decisions.
 - `AI_DEEP_MODEL`: full Listing diagnosis, feedback-loop attribution, complex cross-module reasoning.
 
-## 2. Qwen Vision: visual evidence extraction
+## 2. Qwen Vision/OCR: visual evidence extraction
 
-Qwen Vision is the visual understanding model. It supports Listing quality by reading image and A+ evidence that text scraping cannot reliably capture.
+Qwen Vision/OCR is the visual understanding and image-text extraction model. It supports Listing quality by reading main images, secondary images, A+ images, and image-embedded text that text scraping cannot reliably capture.
 
 Use Qwen Vision for:
 - Main image diagnosis: product visibility, background compliance, click clarity, props, visual noise.
 - Secondary image structure: feature proof, scenario proof, dimensions, compatibility, before/after, trust proof.
 - A+ image and brand story extraction when text is embedded inside images.
 - Image OCR for claims, badges, warranty wording, medical/absolute claims, and risk phrases.
+- OCR extraction for certification icons, comparison tables, dosage/spec labels, compatibility text, installation steps, and hidden compliance claims.
 - Competitor image structure comparison.
 - Pre-launch image checks before publishing.
 
@@ -69,7 +70,7 @@ Do not use Qwen Vision for:
 - Keyword vector retrieval.
 - Price, BSR, rating, bought-count, or sales opportunity conclusions without DeepSeek or rules.
 
-Production vision variables:
+Production vision/OCR variables:
 - `VISION_PROVIDER=qwen`
 - `VISION_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1`
 - `VISION_API_KEY=<qwen/dashscope vision key>`
@@ -134,7 +135,7 @@ Competitor diagnosis:
 1. ASIN page data is fetched by the existing ASIN/Listing pipeline.
 2. BGE retrieves similar product and review history when available.
 3. Reranker filters that evidence.
-4. Qwen Vision analyzes images/A+ only when images are present and visual diagnosis is requested.
+4. Qwen Vision/OCR analyzes images/A+ only when images are present and visual diagnosis is requested.
 5. DeepSeek produces final 8D+2 scoring and strategy.
 6. If DeepSeek fails, backend must mark `analysis_mode=rule_fallback`; never present fallback scores as full AI judgment.
 
@@ -143,7 +144,7 @@ Listing diagnosis:
 2. Rules establish product identity, required attributes, scenario coverage and hard blockers.
 3. BGE retrieves similar Listing mistakes, keyword intent and review pains.
 4. Reranker filters semantic evidence before it enters the prompt.
-5. Qwen Vision checks main image, secondary image and A+ evidence when images are available.
+5. Qwen Vision/OCR checks main image, secondary image, A+ evidence and image-embedded claims when images are available.
 6. DeepSeek `AI_DEEP_MODEL` produces 8D+2, rewrite direction and next validation plan.
 7. Versioned diagnosis snapshot is saved.
 

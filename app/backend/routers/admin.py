@@ -360,13 +360,13 @@ async def get_admin_ai_models(
             purpose="复杂复盘、跨模块归因和高价值诊断任务。",
         ),
         AdminAIModelItem(
-            module="图片/视觉理解",
+            module="图片/OCR视觉理解",
             env_key="AI_VISION_MODEL",
             model=vision_model,
             provider=os.getenv("VISION_PROVIDER") or "qwen",
             configured=bool(vision_api_key),
             endpoint=vision_endpoint,
-            purpose="主图、副图、A+图片和图片内文字理解。",
+            purpose="主图、副图、A+图片、图片内文字、徽章、认证、风险承诺和合规话术识别。",
         ),
         AdminAIModelItem(
             module="语义向量召回",
