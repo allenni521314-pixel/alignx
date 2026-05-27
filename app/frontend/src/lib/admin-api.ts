@@ -72,6 +72,31 @@ export interface AdminAIModelStatus {
   };
   recharge_links: Array<{ provider: string; url: string }>;
   legacy_alias_policy: string;
+  invocation_contract?: Array<{
+    key: string;
+    name: string;
+    steps: Array<{
+      key: string;
+      owner: string;
+      purpose: string;
+      output_contract: string;
+      blocks_final_score: boolean;
+    }>;
+  }>;
+}
+
+export interface AdminAIModelProbe {
+  ok: boolean;
+  checked_at: number;
+  probes: Array<{
+    name: string;
+    provider: string;
+    model: string;
+    ok: boolean;
+    latency_ms: number;
+    detail?: string;
+    error?: string;
+  }>;
 }
 
 export interface SellerAsinScore {
@@ -126,6 +151,11 @@ export async function getAdminOverview(): Promise<AdminOverview> {
 
 export async function getAdminAIModels(): Promise<AdminAIModelStatus> {
   const res = await axios.get("/api/v1/admin/ai-models", { headers: headers() });
+  return res.data;
+}
+
+export async function probeAdminAIModels(): Promise<AdminAIModelProbe> {
+  const res = await axios.post("/api/v1/admin/ai-models/probe", {}, { headers: headers() });
   return res.data;
 }
 

@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { getAdminAIModels, type AdminAIModelStatus } from "@/lib/admin-api";
-import { AlertTriangle, CheckCircle2, Cpu, Server } from "lucide-react";
+import { getAdminAIModels, probeAdminAIModels, type AdminAIModelProbe, type AdminAIModelStatus } from "@/lib/admin-api";
+import { AlertTriangle, CheckCircle2, Cpu, Server, Zap } from "lucide-react";
 import { toast } from "sonner";
 
 export function AIModelStatusPanel() {
   const [aiModels, setAIModels] = useState<AdminAIModelStatus | null>(null);
+  const [probe, setProbe] = useState<AdminAIModelProbe | null>(null);
+  const [probing, setProbing] = useState(false);
 
   const loadAIModels = async () => {
     try {
@@ -22,6 +24,24 @@ export function AIModelStatusPanel() {
     void loadAIModels();
   }, []);
 
+  const runProbe = async () => {
+    setProbing(true);
+    try {
+      const data = await probeAdminAIModels();
+      setProbe(data);
+      if (data.ok) {
+        toast.success("所有AI模型真实调用通过");
+      } else {
+        toast.warning("部分AI模型真实调用失败，请查看探针结果");
+      }
+    } catch (e) {
+      console.error(e);
+      toast.error("AI模型真实调用检测失败");
+    } finally {
+      setProbing(false);
+    }
+  };
+
   return (
     <Card className="p-4 mb-5">
       <div className="flex items-start justify-between gap-3 mb-4">
@@ -34,9 +54,15 @@ export function AIModelStatusPanel() {
             只读配置面板，仅超级管理员可见。展示当前生产环境模型、token消耗、估算成本和充值入口。
           </p>
         </div>
-        <Button size="sm" variant="outline" onClick={loadAIModels}>
-          刷新
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button size="sm" variant="outline" onClick={loadAIModels}>
+            刷新
+          </Button>
+          <Button size="sm" onClick={runProbe} disabled={probing}>
+            <Zap className="w-3.5 h-3.5 mr-1" />
+            {probing ? "检测中" : "真实调用检测"}
+          </Button>
+        </div>
       </div>
 
       {aiModels ? (
@@ -134,6 +160,36 @@ export function AIModelStatusPanel() {
               </tbody>
             </table>
           </div>
+
+          {probe && (
+            <div className="mt-4 rounded-lg border border-gray-100 bg-gray-50 p-3">
+              <div className="flex items-center justify-between gap-3 mb-2">
+                <p className="text-xs font-semibold text-gray-900">真实调用探针</p>
+                <span className={`text-xs font-semibold ${probe.ok ? "text-emerald-700" : "text-red-700"}`}>
+                  {probe.ok ? "全部通过" : "存在失败"}
+                </span>
+              </div>
+              <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                {probe.probes.map((item) => (
+                  <div key={item.name} className="rounded-lg border border-white bg-white p-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <p className="text-xs font-semibold text-gray-900">{item.name}</p>
+                        <p className="text-[11px] text-gray-400 font-mono mt-0.5">{item.model}</p>
+                      </div>
+                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${item.ok ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>
+                        {item.ok ? "成功" : "失败"}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-gray-500 mt-2">{item.provider} · {item.latency_ms}ms</p>
+                    <p className={`text-[11px] mt-1 ${item.ok ? "text-gray-500" : "text-red-600"}`}>
+                      {item.detail || item.error || "无返回详情"}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           <p className="text-xs text-gray-500 mt-3">
             {aiModels.legacy_alias_policy} 成本为系统按环境变量价格估算，需定期和各平台账单核对。

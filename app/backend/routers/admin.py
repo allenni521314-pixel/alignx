@@ -25,6 +25,7 @@ from schemas.auth import UserResponse
 from services.ai_usage import get_ai_usage_summary, get_model_price_cny
 from services.ai_gateway import AIGatewayService
 from services.model_invocation_contract import workflow_summary
+from services.model_probe import probe_ai_models
 
 logger = logging.getLogger(__name__)
 
@@ -314,6 +315,14 @@ async def get_admin_ai_models(
         if embedding_model and "siliconflow" in embedding_base_url.lower()
         else ("OpenAI-compatible" if embedding_model else "local-fallback")
     )
+
+
+@router.post("/ai-models/probe")
+async def probe_admin_ai_models(
+    _: UserResponse = Depends(get_super_admin_user),
+):
+    """Run tiny real calls against every configured model family."""
+    return await probe_ai_models()
     rerank_provider = (
         "SiliconFlow"
         if rerank_model and "siliconflow" in rerank_base_url.lower()
