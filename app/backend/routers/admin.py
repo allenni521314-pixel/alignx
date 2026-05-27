@@ -22,6 +22,7 @@ from models.products import Products
 from models.asin_analyses import Asin_analyses
 from models.listings import Listings
 from schemas.auth import UserResponse
+from services.ai_usage import get_ai_usage_summary, get_model_price_cny
 from services.ai_gateway import AIGatewayService
 
 logger = logging.getLogger(__name__)
@@ -52,6 +53,8 @@ class AdminAIModelItem(BaseModel):
     endpoint: str
     purpose: str
     source: str = "environment"
+    input_cost_per_1m_cny: float = 0.0
+    output_cost_per_1m_cny: float = 0.0
 
 
 class AdminAIModelStatus(BaseModel):
@@ -64,6 +67,8 @@ class AdminAIModelStatus(BaseModel):
     embedding_configured: bool
     rerank_configured: bool
     models: List[AdminAIModelItem]
+    usage_7d: dict
+    recharge_links: List[dict]
     legacy_alias_policy: str
 
 
@@ -350,6 +355,10 @@ async def get_admin_ai_models(
             source="environment" if rerank_model else "disabled",
         ),
     ]
+    for item in models:
+        input_price, output_price = get_model_price_cny(item.model)
+        item.input_cost_per_1m_cny = input_price
+        item.output_cost_per_1m_cny = output_price
 
     return AdminAIModelStatus(
         provider=gateway_status.provider,
@@ -361,6 +370,12 @@ async def get_admin_ai_models(
         embedding_configured=bool(embedding_model and text_api_key),
         rerank_configured=bool(rerank_model and text_api_key),
         models=models,
+        usage_7d=await get_ai_usage_summary(days=7),
+        recharge_links=[
+            {"provider": "DeepSeek", "url": "https://platform.deepseek.com/usage"},
+            {"provider": "SiliconFlow", "url": "https://cloud.siliconflow.cn/account/bill"},
+            {"provider": "阿里云百炼 DashScope", "url": "https://bailian.console.aliyun.com/"},
+        ],
         legacy_alias_policy="gemini-*、gpt-4*、gpt-5*、claude-* 会映射到 AI_DEFAULT_MODEL，不作为当前生产模型直接调用。",
     )
 

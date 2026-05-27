@@ -13,6 +13,7 @@ import httpx
 from core.config import settings
 from openai import AsyncOpenAI
 from schemas.aihub import GenImgRequest, GenImgResponse, GenTxtRequest, GenTxtResponse
+from services.ai_usage import record_ai_usage
 
 logger = logging.getLogger(__name__)
 
@@ -156,6 +157,14 @@ class AIHubService:
                         "completion_tokens": response.usage.completion_tokens,
                         "total_tokens": response.usage.total_tokens,
                     }
+
+            await record_ai_usage(
+                provider=(os.getenv("VISION_PROVIDER") or "qwen") if self._is_vision_request(request.model) else os.getenv("AI_PROVIDER", "openai-compatible"),
+                model=model,
+                module="aihub.gentxt",
+                endpoint="chat/completions",
+                usage=usage,
+            )
 
             return GenTxtResponse(
                 content=content,

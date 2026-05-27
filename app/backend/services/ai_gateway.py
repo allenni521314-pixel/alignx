@@ -16,6 +16,7 @@ from typing import Any, Literal, Optional
 import httpx
 from openai import AsyncOpenAI
 from pydantic import BaseModel, Field
+from services.ai_usage import record_ai_usage
 
 logger = logging.getLogger(__name__)
 
@@ -404,6 +405,13 @@ class AIGatewayService:
             if not isinstance(raw_result, dict):
                 raw_result = {"problems": [{"title": str(raw_result)}]}
             result = self._normalize_agent_result(raw_result)
+            await record_ai_usage(
+                provider=self.provider,
+                model=model,
+                module=f"ai_gateway.{request.agent}",
+                endpoint="chat/completions",
+                usage=usage,
+            )
             return AgentResponse(
                 agent=request.agent,
                 provider=self.provider,

@@ -505,7 +505,7 @@ export default function SuperAdmin() {
 
             {aiModels ? (
               <>
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+                <div className="grid grid-cols-2 lg:grid-cols-6 gap-3 mb-4">
                   <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
                     <p className="text-xs text-gray-500">主Provider</p>
                     <p className="text-sm font-semibold text-gray-900 mt-1">
@@ -530,6 +530,32 @@ export default function SuperAdmin() {
                       {aiModels.vision_configured ? "已配置" : "未配置"}
                     </p>
                   </div>
+                  <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
+                    <p className="text-xs text-gray-500">7日调用</p>
+                    <p className="text-sm font-semibold text-gray-900 mt-1">
+                      {aiModels.usage_7d?.calls || 0} 次
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
+                    <p className="text-xs text-gray-500">7日成本</p>
+                    <p className="text-sm font-semibold text-gold-700 mt-1">
+                      ¥{Number(aiModels.usage_7d?.estimated_cost_cny || 0).toFixed(4)}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2 mb-4">
+                  {aiModels.recharge_links.map((link) => (
+                    <a
+                      key={link.provider}
+                      href={link.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                    >
+                      {link.provider} 充值/账单
+                    </a>
+                  ))}
                 </div>
 
                 <div className="overflow-x-auto rounded-lg border border-gray-100">
@@ -539,7 +565,7 @@ export default function SuperAdmin() {
                         <th className="text-left font-medium px-3 py-2">模块</th>
                         <th className="text-left font-medium px-3 py-2">变量</th>
                         <th className="text-left font-medium px-3 py-2">模型</th>
-                        <th className="text-left font-medium px-3 py-2">状态</th>
+                        <th className="text-left font-medium px-3 py-2">状态/成本</th>
                         <th className="text-left font-medium px-3 py-2">用途</th>
                       </tr>
                     </thead>
@@ -576,6 +602,9 @@ export default function SuperAdmin() {
                               )}
                               {item.configured ? "已启用" : item.source === "local fallback" ? "本地兜底" : "未启用"}
                             </span>
+                            <div className="text-[11px] text-gray-400 mt-1 whitespace-nowrap">
+                              入 ¥{Number(item.input_cost_per_1m_cny || 0).toFixed(2)} / 出 ¥{Number(item.output_cost_per_1m_cny || 0).toFixed(2)} 每百万token
+                            </div>
                           </td>
                           <td className="px-3 py-2 text-xs text-gray-600 min-w-[240px]">
                             {item.purpose}
@@ -587,7 +616,7 @@ export default function SuperAdmin() {
                 </div>
 
                 <p className="text-xs text-gray-500 mt-3">
-                  {aiModels.legacy_alias_policy}
+                  {aiModels.legacy_alias_policy} 成本为系统按环境变量价格估算，需定期和各平台账单核对。
                 </p>
               </>
             ) : (

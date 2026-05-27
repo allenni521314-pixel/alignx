@@ -39,6 +39,8 @@ export interface AdminAIModelItem {
   endpoint: string;
   purpose: string;
   source: string;
+  input_cost_per_1m_cny: number;
+  output_cost_per_1m_cny: number;
 }
 
 export interface AdminAIModelStatus {
@@ -51,6 +53,24 @@ export interface AdminAIModelStatus {
   embedding_configured: boolean;
   rerank_configured: boolean;
   models: AdminAIModelItem[];
+  usage_7d: {
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+    estimated_cost_cny: number;
+    calls: number;
+    by_model: Array<{
+      provider: string;
+      model: string;
+      module: string;
+      prompt_tokens: number;
+      completion_tokens: number;
+      total_tokens: number;
+      estimated_cost_cny: number;
+      calls: number;
+    }>;
+  };
+  recharge_links: Array<{ provider: string; url: string }>;
   legacy_alias_policy: string;
 }
 
