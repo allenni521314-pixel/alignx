@@ -256,6 +256,52 @@ def _extract_deal_status(soup: BeautifulSoup) -> str:
     return _clean_text(match.group(1))[:180] if match else ""
 
 
+def _extract_availability(soup: BeautifulSoup) -> str:
+    selectors = [
+        "#availability",
+        "#availabilityInsideBuyBox_feature_div",
+        "#outOfStock",
+        "#buybox-see-all-buying-choices",
+        "#merchant-info",
+    ]
+    for sel in selectors:
+        el = soup.select_one(sel)
+        if not el:
+            continue
+        text = _clean_text(el.get_text(" ", strip=True))
+        if text:
+            return text[:220]
+    page_text = _clean_text(soup.get_text(" ", strip=True))
+    match = re.search(
+        r"(currently unavailable|temporarily out of stock|out of stock|in stock|only \d+ left|available from|无货|暂时缺货|目前无货|有货)",
+        page_text,
+        flags=re.I,
+    )
+    return _clean_text(match.group(1))[:220] if match else ""
+
+
+def _stock_status_from_availability(availability: str) -> str:
+    text = (availability or "").lower()
+    if not text:
+        return "unknown"
+    unavailable_terms = [
+        "currently unavailable",
+        "temporarily out of stock",
+        "out of stock",
+        "see all buying options",
+        "currently not available",
+        "无货",
+        "暂时缺货",
+        "目前无货",
+        "不可用",
+    ]
+    if any(term in text for term in unavailable_terms):
+        return "unavailable"
+    if "in stock" in text or "有货" in text or "only " in text:
+        return "in_stock"
+    return "unknown"
+
+
 def _extract_product_details(soup: BeautifulSoup) -> dict:
     details: dict[str, str] = {}
 
@@ -708,6 +754,7 @@ def _parse_product_page(html: str, marketplace: str = "US") -> Optional[dict]:
     aplus_content = _extract_aplus_content(soup) if has_aplus else ""
     aplus_image_urls = _extract_aplus_image_urls(soup) if has_aplus else []
     bought_count = _extract_bought_count(soup)
+    availability = _extract_availability(soup)
     symbol, code = MARKETPLACE_CURRENCIES.get(marketplace, ("$", "USD"))
     return {
         "title": title,
@@ -719,6 +766,8 @@ def _parse_product_page(html: str, marketplace: str = "US") -> Optional[dict]:
         "review_count": _extract_review_count(soup),
         "coupon": _extract_coupon(soup),
         "deal_status": _extract_deal_status(soup),
+        "availability": availability,
+        "stock_status": _stock_status_from_availability(availability),
         "rating_histogram": _extract_rating_histogram(soup),
         "product_details": details,
         "date_first_available": _extract_date_first_available(details),
