@@ -73,9 +73,18 @@ def derive_name_from_email(email: str) -> str:
     return email.split("@", 1)[0] if email else ""
 
 
+def _ensure_legacy_oidc_enabled() -> None:
+    if not bool(getattr(settings, "enable_legacy_oidc_auth", False)):
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail="旧版 OIDC 登录已停用。请使用邮箱验证码登录，以保证用户数据按邮箱租户隔离。",
+        )
+
+
 @router.get("/login")
 async def login(request: Request, db: AsyncSession = Depends(get_db)):
     """Start OIDC login flow with PKCE."""
+    _ensure_legacy_oidc_enabled()
     state = generate_state()
     nonce = generate_nonce()
     code_verifier = generate_code_verifier()
@@ -107,6 +116,7 @@ async def callback(
     db: AsyncSession = Depends(get_db),
 ):
     """Handle OIDC callback."""
+    _ensure_legacy_oidc_enabled()
     backend_url = get_dynamic_backend_url(request)
 
     def redirect_with_error(message: str) -> RedirectResponse:
@@ -231,6 +241,7 @@ async def exchange_platform_token(
     db: AsyncSession = Depends(get_db),
 ):
     """Exchange Platform token for app token, restricted to admin user."""
+    _ensure_legacy_oidc_enabled()
     logger.info("[token/exchange] Received platform token exchange request")
 
     verify_url = f"{settings.oidc_issuer_url}/platform/tokens/verify"
@@ -322,5 +333,6 @@ async def get_current_user_info(current_user: UserResponse = Depends(get_current
 @router.get("/logout")
 async def logout():
     """Logout user."""
+    _ensure_legacy_oidc_enabled()
     logout_url = build_logout_url()
     return {"redirect_url": logout_url}
