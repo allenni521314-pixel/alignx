@@ -12,6 +12,8 @@ import {
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { AlignXLogo } from "@/components/AlignXLogo";
+import { FeedbackDialog } from "@/components/FeedbackDialog";
+import { versionLabel } from "@/lib/version";
 
 const valueCards = [
   {
@@ -54,6 +56,7 @@ export default function Landing() {
           <div className="hidden md:flex items-center gap-7 text-sm text-gray-500">
             <a href="#capabilities" className="hover:text-gray-900">产品能力</a>
             <a href="#pricing" className="hover:text-gray-900">定价</a>
+            <button onClick={() => navigate("/terms")} className="hover:text-gray-900">用户协议</button>
             <button onClick={() => navigate("/login")} className="hover:text-gray-900">登录</button>
           </div>
           <Button onClick={() => navigate("/register")} className="bg-brand-600 hover:bg-brand-500 text-white">
@@ -149,6 +152,17 @@ export default function Landing() {
           </div>
         </section>
       </main>
+
+      <footer className="border-t border-gray-100 py-6">
+        <div className="max-w-7xl mx-auto px-5 sm:px-8 flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between text-xs text-gray-400">
+          <span>© 2026 深圳灵曦智感科技有限公司. {versionLabel()}</span>
+          <div className="flex items-center gap-4">
+            <button onClick={() => navigate("/terms")} className="hover:text-gray-700">用户协议</button>
+            <button onClick={() => navigate("/privacy")} className="hover:text-gray-700">隐私政策</button>
+            <FeedbackDialog variant="ghost" triggerClassName="h-auto p-0 text-xs text-gray-400 hover:text-gray-700" />
+          </div>
+        </div>
+      </footer>
     </div>
   );
 }
