@@ -1865,6 +1865,7 @@ async def diagnose_listing(
             "diagnosis_id": result.get("id"),
             "cache_hit": result.get("_cache_hit") or "",
             "ai_called": bool(result.get("_ai_called", not result.get("_cache_hit"))),
+            "diagnosis_meta": result.get("diagnosis_meta", {}),
             "content_fingerprint": content_fingerprint,
             "content_fingerprint_short": content_fingerprint[:8],
             "generated_at": datetime.now(timezone.utc).isoformat(),
