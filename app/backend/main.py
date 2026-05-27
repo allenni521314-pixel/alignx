@@ -192,12 +192,24 @@ async def general_exception_handler(request: Request, exc: Exception):
 
 @app.get("/")
 def root():
-    return {"message": "FastAPI Modular Template is running"}
+    return {"message": "AlignX API is running"}
 
 
 @app.get("/health")
 def health_check():
-    return {"status": "healthy"}
+    return {
+        "status": "healthy",
+        "service": "alignx-api",
+        "version": settings.version,
+        "auth": {
+            "email_code": True,
+            "legacy_oidc": bool(getattr(settings, "enable_legacy_oidc_auth", False)),
+        },
+        "diagnosis": {
+            "cache_policy": "exact_content_only",
+            "snapshot_meta": "enabled",
+        },
+    }
 
 
 def run_in_debug_mode(app: FastAPI):
