@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
+import { AIModelStatusPanel } from "@/components/admin/AIModelStatusPanel";
 import {
   getAdminOverview,
   listAllSellers,
@@ -386,6 +387,8 @@ export default function AdminPanel() {
           </Card>
         ))}
       </div>
+
+      <AIModelStatusPanel />
 
       {/* Search */}
       <Card className="p-3 sm:p-4 mb-4">
