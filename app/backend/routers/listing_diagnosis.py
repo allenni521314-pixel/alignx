@@ -271,7 +271,11 @@ async def _evaluate_listing_compliance(listing: ListingInput, db: AsyncSession) 
     return evaluate_amazon_compliance(payload, rules)
 
 
-async def _get_cached_listing_diagnosis(listing: ListingInput, db: AsyncSession, user_id: str) -> dict | None:
+def _user_filter(column, user_id: str | list[str]):
+    return column.in_(user_id) if isinstance(user_id, list) else column == user_id
+
+
+async def _get_cached_listing_diagnosis(listing: ListingInput, db: AsyncSession, user_id: str | list[str]) -> dict | None:
     """Return the user's latest saved diagnosis only for explicit history/latest loads."""
     if not listing.title:
         return None
@@ -280,7 +284,7 @@ async def _get_cached_listing_diagnosis(listing: ListingInput, db: AsyncSession,
 
     result = await db.execute(
         select(LD)
-        .where(LD.user_id == user_id, LD.listing_title == listing.title[:500], LD.marketplace == listing.marketplace)
+        .where(_user_filter(LD.user_id, user_id), LD.listing_title == listing.title[:500], LD.marketplace == listing.marketplace)
         .where(LD.diagnosis_report.isnot(None), LD.score_function_expression > 0)
         .order_by(LD.id.desc())
         .limit(1)
@@ -313,7 +317,7 @@ async def _get_cached_listing_diagnosis(listing: ListingInput, db: AsyncSession,
     return data
 
 
-async def _get_exact_cached_listing_diagnosis(listing: ListingInput, db: AsyncSession, user_id: str) -> dict | None:
+async def _get_exact_cached_listing_diagnosis(listing: ListingInput, db: AsyncSession, user_id: str | list[str]) -> dict | None:
     """Return a saved diagnosis only when the current Listing content is identical."""
     if not listing.title:
         return None
@@ -323,7 +327,7 @@ async def _get_exact_cached_listing_diagnosis(listing: ListingInput, db: AsyncSe
     current_fingerprint = _listing_content_fingerprint(_sanitize_listing_for_ai(listing))
     result = await db.execute(
         select(LD)
-        .where(LD.user_id == user_id, LD.listing_title == listing.title[:500], LD.marketplace == listing.marketplace)
+        .where(_user_filter(LD.user_id, user_id), LD.listing_title == listing.title[:500], LD.marketplace == listing.marketplace)
         .where(LD.diagnosis_report.isnot(None), LD.input_data.isnot(None), LD.score_function_expression > 0)
         .order_by(LD.id.desc())
         .limit(20)
@@ -358,6 +362,15 @@ async def _get_exact_cached_listing_diagnosis(listing: ListingInput, db: AsyncSe
         })
         data["scores"] = scores
         data["id"] = record.id
+        data.setdefault(
+            "diagnosis_meta",
+            {
+                "schema_version": "legacy-or-imported",
+                "content_fingerprint": current_fingerprint,
+                "content_fingerprint_short": current_fingerprint[:8],
+                "cache_policy": "exact_content_only",
+            },
+        )
         data["_cache_hit"] = "exact_content"
         data["_ai_called"] = False
         return data
@@ -1460,6 +1473,16 @@ async def _diagnose_single(
 
     amazon_compliance = await _evaluate_listing_compliance(listing, db)
     data["amazon_compliance"] = amazon_compliance
+    sanitized_listing = _sanitize_listing_for_ai(listing)
+    content_fingerprint = _listing_content_fingerprint(sanitized_listing)
+    data["diagnosis_meta"] = {
+        "schema_version": "listing-diagnosis-v3",
+        "rules_version": "cosmo-rufus-8d2-v2",
+        "content_fingerprint": content_fingerprint,
+        "content_fingerprint_short": content_fingerprint[:8],
+        "cache_policy": "exact_content_only",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    }
 
     if save:
         svc = Listing_diagnosesService(db)
@@ -1827,7 +1850,8 @@ async def diagnose_listing(
 
         result = None
         if not request.force_refresh:
-            result = await _get_exact_cached_listing_diagnosis(listing, db, str(current_user.id))
+            scope_user_ids = await get_user_scope_ids(current_user, db)
+            result = await _get_exact_cached_listing_diagnosis(listing, db, scope_user_ids)
         if not result:
             result = await _diagnose_single(
                 listing=listing,
