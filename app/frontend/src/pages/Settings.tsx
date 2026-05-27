@@ -2,8 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AppSidebar } from "@/components/AppSidebar";
 import AdminPanel from "@/components/admin/AdminPanel";
+import { FeedbackDialog } from "@/components/FeedbackDialog";
 import { getAuthHeaders } from "@/lib/auth-headers";
 import { getAPIBaseURL } from "@/lib/config";
+import { versionLabel } from "@/lib/version";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -188,7 +190,7 @@ export default function Settings() {
         <div className="p-4 sm:p-8 max-w-6xl mx-auto pt-14 md:pt-8">
           <div className="mb-6">
             <h1 className="text-2xl font-bold">系统设置</h1>
-            <p className="text-sm text-gray-500 mt-1">管理账号、套餐、用量和账单。</p>
+            <p className="text-sm text-gray-500 mt-1">管理账号、套餐、用量和账单。当前版本：{versionLabel()}</p>
           </div>
 
           <div className="flex gap-2 overflow-x-auto mb-6">
@@ -237,6 +239,7 @@ export default function Settings() {
                 <Button onClick={() => navigate("/pricing")} className="w-full mt-5 bg-brand-600 hover:bg-brand-500 text-white">
                   查看套餐
                 </Button>
+                <FeedbackDialog triggerClassName="w-full mt-3 bg-white" />
               </Card>
               <Card className="bg-white border-gray-200 p-5 lg:col-span-3">
                 <h2 className="text-sm font-semibold flex items-center gap-2">
