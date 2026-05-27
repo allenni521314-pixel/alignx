@@ -380,6 +380,13 @@ export default function AsinManager() {
   const [keywordValidationResults, setKeywordValidationResults] = useState<Record<string, KeywordSalesValidationReport>>({});
   const [validatingKeywordAsin, setValidatingKeywordAsin] = useState<string | null>(null);
   const [expandedKeywordAsin, setExpandedKeywordAsin] = useState<string | null>(null);
+  const [outOfStockAsins, setOutOfStockAsins] = useState<Record<string, boolean>>(() => {
+    try {
+      return JSON.parse(localStorage.getItem("alignx_out_of_stock_asins") || "{}");
+    } catch {
+      return {};
+    }
+  });
 
   const { loading: authLoading } = useRequireAuth();
 
@@ -390,6 +397,15 @@ export default function AsinManager() {
       "US",
     [asinMarketplaceMap]
   );
+
+  const markOutOfStock = (asin: string, value: boolean) => {
+    setOutOfStockAsins((prev) => {
+      const next = { ...prev, [asin]: value };
+      if (!value) delete next[asin];
+      localStorage.setItem("alignx_out_of_stock_asins", JSON.stringify(next));
+      return next;
+    });
+  };
 
   const top40AnalysisByAsin = useMemo(() => {
     const map: Record<string, Top40AnalysisRow> = {};
@@ -757,6 +773,8 @@ export default function AsinManager() {
           category: product.category || "",
           target_keywords: targetKeywords,
           days_range: 30,
+          inventory_status: outOfStockAsins[product.asin] ? "out_of_stock" : "",
+          is_own_product: Boolean(outOfStockAsins[product.asin]),
         },
         { headers: getAuthHeaders(), timeout: 180000 }
       );
@@ -789,6 +807,8 @@ export default function AsinManager() {
         category: productData.category || "",
         target_keywords: targetKeywords,
         days_range: 30,
+        inventory_status: outOfStockAsins[productData.asin] ? "out_of_stock" : "",
+        is_own_product: Boolean(outOfStockAsins[productData.asin]),
       },
       { headers: getAuthHeaders(), timeout: 180000 }
     );
@@ -2622,6 +2642,19 @@ export default function AsinManager() {
                               <span className="hidden sm:inline ml-1.5 text-xs font-semibold">关键词验证</span>
                             )}
                           </Button>
+                          {keywordReport && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleKeywordSalesValidation(product)}
+                              disabled={isKeywordValidating}
+                              className="text-gray-500 hover:text-emerald-700 h-8 px-2"
+                              title="重新抓取并验证关键词销量"
+                            >
+                              {isKeywordValidating ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                              <span className="hidden sm:inline ml-1.5 text-xs font-semibold">重新验证</span>
+                            </Button>
+                          )}
                           <Button
                             variant="ghost"
                             size="sm"
@@ -2692,10 +2725,20 @@ export default function AsinManager() {
                                 <h3 className="font-bold text-gray-900">关键词销量验证</h3>
                               </div>
                               <p className="text-xs text-gray-500 mt-1">销量来源风险雷达：交叉查看库存可售、BSR、评论、自然排名、广告位与促销信号。</p>
-                              <p className="text-[11px] text-gray-400 mt-1">
-                                数据来源：{keywordReport.keyword_rank_summary?.rank_data_source === "scrapling_top40_search" ? "Scrapling核心词Top40搜索快照" : "规则估算快照"}
-                              </p>
-                            </div>
+	                              <p className="text-[11px] text-gray-400 mt-1">
+	                                数据来源：{keywordReport.keyword_rank_summary?.rank_data_source === "scrapling_top40_search" ? "Scrapling核心词Top40搜索快照" : "规则估算快照"}
+	                              </p>
+                              <label className="mt-2 inline-flex items-center gap-2 text-xs text-red-700">
+                                <Checkbox
+                                  checked={Boolean(outOfStockAsins[product.asin])}
+                                  onCheckedChange={(checked) => {
+                                    markOutOfStock(product.asin, checked === true);
+                                    if (checked === true) toast.info("已标记为自有无库存，请点击重新验证");
+                                  }}
+                                />
+                                自有ASIN当前库存为0/不可售
+                              </label>
+	                            </div>
                             <div className="text-right">
                               <div className="text-2xl font-bold text-emerald-700">{Math.round(keywordReport.keyword_sales_score)}</div>
                               <div className="text-xs text-gray-500">健康分</div>
