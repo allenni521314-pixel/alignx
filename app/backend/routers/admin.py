@@ -276,6 +276,26 @@ async def get_admin_ai_models(
     vision_api_key = (os.getenv("VISION_API_KEY") or os.getenv("QWEN_API_KEY") or "").strip()
     embedding_model = (os.getenv("AI_EMBEDDING_MODEL") or os.getenv("EMBEDDING_MODEL") or "").strip()
     rerank_model = (os.getenv("RERANK_MODEL") or os.getenv("AI_RERANK_MODEL") or "").strip()
+    embedding_api_key = (
+        os.getenv("EMBEDDING_API_KEY")
+        or os.getenv("SILICONFLOW_API_KEY")
+        or ""
+    ).strip()
+    rerank_api_key = (
+        os.getenv("RERANK_API_KEY")
+        or os.getenv("SILICONFLOW_API_KEY")
+        or ""
+    ).strip()
+    embedding_base_url = (
+        os.getenv("EMBEDDING_BASE_URL")
+        or os.getenv("SILICONFLOW_BASE_URL")
+        or gateway_status.base_url
+    ).strip().rstrip("/")
+    rerank_base_url = (
+        os.getenv("RERANK_BASE_URL")
+        or os.getenv("SILICONFLOW_BASE_URL")
+        or gateway_status.base_url
+    ).strip().rstrip("/")
     vision_base_url = (
         os.getenv("VISION_BASE_URL")
         or os.getenv("QWEN_BASE_URL")
@@ -285,8 +305,20 @@ async def get_admin_ai_models(
 
     text_endpoint = f"{gateway_status.base_url.rstrip('/')}/chat/completions"
     vision_endpoint = f"{vision_base_url}/chat/completions"
-    embedding_endpoint = f"{gateway_status.base_url.rstrip('/')}/embeddings"
-    rerank_endpoint = f"{gateway_status.base_url.rstrip('/')}/rerank"
+    embedding_endpoint = f"{embedding_base_url}/embeddings"
+    rerank_endpoint = f"{rerank_base_url}/rerank"
+    embedding_provider = (
+        "SiliconFlow"
+        if embedding_model and "siliconflow" in embedding_base_url.lower()
+        else ("OpenAI-compatible" if embedding_model else "local-fallback")
+    )
+    rerank_provider = (
+        "SiliconFlow"
+        if rerank_model and "siliconflow" in rerank_base_url.lower()
+        else ("OpenAI-compatible" if rerank_model else "disabled")
+    )
+    embedding_configured = bool(embedding_model and embedding_api_key and embedding_base_url)
+    rerank_configured = bool(rerank_model and rerank_api_key and rerank_base_url)
 
     models = [
         AdminAIModelItem(
@@ -338,8 +370,8 @@ async def get_admin_ai_models(
             module="语义向量召回",
             env_key="AI_EMBEDDING_MODEL",
             model=embedding_model or "deterministic_hash_embedding_384d",
-            provider=gateway_status.provider if embedding_model else "local-fallback",
-            configured=bool(embedding_model and text_api_key),
+            provider=embedding_provider,
+            configured=embedding_configured,
             endpoint=embedding_endpoint if embedding_model else "local deterministic fallback",
             purpose="历史诊断、COSMO语义映射和相似证据召回。",
             source="environment" if embedding_model else "local fallback",
@@ -348,8 +380,8 @@ async def get_admin_ai_models(
             module="语义精排",
             env_key="RERANK_MODEL",
             model=rerank_model or "未启用",
-            provider=gateway_status.provider if rerank_model else "disabled",
-            configured=bool(rerank_model and text_api_key),
+            provider=rerank_provider,
+            configured=rerank_configured,
             endpoint=rerank_endpoint if rerank_model else "disabled",
             purpose="过滤低相关召回结果，提升历史证据进入Prompt的准确度。",
             source="environment" if rerank_model else "disabled",
@@ -367,8 +399,8 @@ async def get_admin_ai_models(
         vision_base_url=vision_base_url,
         gateway_configured=gateway_status.configured,
         vision_configured=bool(vision_api_key),
-        embedding_configured=bool(embedding_model and text_api_key),
-        rerank_configured=bool(rerank_model and text_api_key),
+        embedding_configured=embedding_configured,
+        rerank_configured=rerank_configured,
         models=models,
         usage_7d=await get_ai_usage_summary(days=7),
         recharge_links=[
