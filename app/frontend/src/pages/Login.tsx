@@ -15,6 +15,7 @@ export default function Login() {
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
   const [remember, setRemember] = useState(true);
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [codeSent, setCodeSent] = useState(false);
@@ -39,6 +40,10 @@ export default function Login() {
     }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
       setError("请输入正确的邮箱地址");
+      return null;
+    }
+    if (!acceptedTerms) {
+      setError("请先阅读并同意用户协议和隐私政策");
       return null;
     }
 
@@ -174,7 +179,7 @@ export default function Login() {
                 <Button
                   type="button"
                   variant="outline"
-                  disabled={sendingCode}
+                  disabled={sendingCode || !acceptedTerms}
                   onClick={handleSendCode}
                   className="h-12 min-w-[112px]"
                 >
@@ -194,6 +199,20 @@ export default function Login() {
               </span>
             </div>
 
+            <label className="flex items-start gap-2 text-xs text-gray-500 leading-5">
+              <Checkbox checked={acceptedTerms} onCheckedChange={(v) => setAcceptedTerms(v === true)} className="mt-0.5" />
+              <span>
+                我已阅读并同意
+                <button type="button" onClick={() => navigate("/terms")} className="mx-1 text-brand-700 hover:text-brand-900 underline underline-offset-2">
+                  用户协议
+                </button>
+                和
+                <button type="button" onClick={() => navigate("/privacy")} className="mx-1 text-brand-700 hover:text-brand-900 underline underline-offset-2">
+                  隐私政策
+                </button>
+              </span>
+            </label>
+
             {error && (
               <div className="text-red-600 text-sm bg-red-50 border border-red-100 rounded-lg px-4 py-3">
                 {error}
@@ -207,7 +226,7 @@ export default function Login() {
 
             <Button
               type="submit"
-              disabled={loading}
+              disabled={loading || !acceptedTerms}
               className="w-full h-12 bg-brand-600 hover:bg-brand-500 text-white"
             >
               {loading ? (
