@@ -30,6 +30,30 @@ export interface AdminOverview {
   total_listings: number;
 }
 
+export interface AdminAIModelItem {
+  module: string;
+  env_key: string;
+  model: string;
+  provider: string;
+  configured: boolean;
+  endpoint: string;
+  purpose: string;
+  source: string;
+}
+
+export interface AdminAIModelStatus {
+  provider: string;
+  api_mode: string;
+  text_base_url: string;
+  vision_base_url: string;
+  gateway_configured: boolean;
+  vision_configured: boolean;
+  embedding_configured: boolean;
+  rerank_configured: boolean;
+  models: AdminAIModelItem[];
+  legacy_alias_policy: string;
+}
+
 export interface SellerAsinScore {
   id: number;
   asin: string;
@@ -77,6 +101,11 @@ export async function getAdminMe(): Promise<AdminMe | null> {
 
 export async function getAdminOverview(): Promise<AdminOverview> {
   const res = await axios.get("/api/v1/admin/overview", { headers: headers() });
+  return res.data;
+}
+
+export async function getAdminAIModels(): Promise<AdminAIModelStatus> {
+  const res = await axios.get("/api/v1/admin/ai-models", { headers: headers() });
   return res.data;
 }
 

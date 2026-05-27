@@ -22,6 +22,8 @@ services:
         sync: false
       - key: MGX_IGNORE_INIT_DATA
         value: "true"
+      - key: SUPER_ADMIN_EMAILS
+        value: allenni521314@gmail.com
       - key: OPENAI_BASE_URL
         value: https://api.deepseek.com
       - key: OPENAI_API_KEY
