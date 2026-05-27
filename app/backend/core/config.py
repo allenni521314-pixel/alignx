@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     jwt_secret_key: str = ""
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 1440
+    enable_legacy_oidc_auth: bool = False
 
     @property
     def backend_url(self) -> str:
