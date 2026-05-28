@@ -112,6 +112,18 @@ const emptyPlan: ABTestPlan = {
   evidence: [],
 };
 
+const getLongRunningApiBase = () => {
+  if (import.meta.env.VITE_API_BASE_URL) return import.meta.env.VITE_API_BASE_URL;
+  if (
+    typeof window !== "undefined" &&
+    window.location.hostname !== "localhost" &&
+    window.location.hostname !== "127.0.0.1"
+  ) {
+    return "https://alignxagent-api.onrender.com";
+  }
+  return "";
+};
+
 const SCORE_LABELS: Record<string, string> = {
   function_expression: "功能表达",
   scenario_expression: "场景表达",
@@ -360,7 +372,7 @@ export default function ABTestComparison() {
     setResult(null);
     try {
       const res = await axios.post(
-        "/api/v1/causal/ab-comparison",
+        `${getLongRunningApiBase()}/api/v1/causal/ab-comparison`,
         {
           variant_a: toVariantPayload(variantA),
           variant_b: toVariantPayload(variantB),
