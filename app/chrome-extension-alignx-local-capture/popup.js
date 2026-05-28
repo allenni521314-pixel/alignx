@@ -20,8 +20,21 @@ function marketplaceFromHost(hostname) {
 function captureAmazonPage() {
   const clean = (value) => String(value || "").replace(/\s+/g, " ").trim();
   const url = location.href;
-  const asinMatch = url.match(/\/(?:dp|gp\/product)\/([A-Z0-9]{10})/i) || document.body.innerText.match(/\bB0[A-Z0-9]{8}\b/);
-  const title = clean(document.querySelector("#productTitle")?.textContent || document.querySelector("h1")?.textContent || document.title);
+  const safeText = clean(document.body?.innerText || "");
+  const asinMatch =
+    url.match(/\/(?:dp|gp\/product|product)\/([A-Z0-9]{10})/i) ||
+    url.match(/[?&]asin=([A-Z0-9]{10})/i) ||
+    safeText.match(/\bB0[A-Z0-9]{8}\b/);
+  const urlTitle = decodeURIComponent(url.split("/dp/")[0].split("/").pop() || "").replace(/-/g, " ");
+  const title = clean(
+    document.querySelector("#productTitle")?.textContent ||
+      document.querySelector("[data-automation-id='product-title']")?.textContent ||
+      document.querySelector("meta[property='og:title']")?.getAttribute("content") ||
+      document.querySelector("meta[name='title']")?.getAttribute("content") ||
+      document.querySelector("h1")?.textContent ||
+      document.title ||
+      urlTitle
+  );
   const bullets = Array.from(document.querySelectorAll("#feature-bullets li span, #featurebullets_feature_div li span"))
     .map((node) => clean(node.textContent))
     .filter((text) => text && !/^$/.test(text))
@@ -45,7 +58,15 @@ function captureAmazonPage() {
     bullets,
     imageCount: images.length,
     html,
-    text: clean(document.body.innerText).slice(0, 20000),
+    text: safeText.slice(0, 20000),
+    debug: {
+      hasBody: Boolean(document.body),
+      titleLength: title.length,
+      textLength: safeText.length,
+      htmlLength: html.length,
+      productTitleFound: Boolean(document.querySelector("#productTitle")),
+      h1Found: Boolean(document.querySelector("h1")),
+    },
   };
 }
 
@@ -65,6 +86,7 @@ function renderCapture(capture) {
     ["五点", String(capture.bullets?.length || 0)],
     ["图片", String(capture.imageCount || 0)],
     ["HTML", `${Math.round((capture.html?.length || 0) / 1024)} KB`],
+    ["文本", `${Math.round((capture.text?.length || 0) / 1024)} KB`],
   ].forEach(([label, value]) => {
     const row = document.createElement("div");
     row.className = "row";
@@ -92,8 +114,9 @@ async function captureCurrentPage() {
     func: captureAmazonPage,
   });
   const capture = result?.result;
-  if (!capture?.html || !capture?.title) {
-    setStatus("未读取到有效商品页内容，请确认当前页面是 Amazon 商品详情页。");
+  if (!capture?.html || (!capture?.asin && !/\/(?:dp|gp\/product|product)\//i.test(capture?.url || ""))) {
+    const debug = capture?.debug ? ` 调试：${JSON.stringify(capture.debug)}` : "";
+    setStatus(`未读取到有效商品页内容，请确认当前页面是 Amazon 商品详情页。${debug}`);
     return;
   }
 
