@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AppSidebar } from "@/components/AppSidebar";
 import { PageHeader } from "@/components/PageHeader";
 import { NextStepActions } from "@/components/NextStepActions";
@@ -16,6 +16,8 @@ import {
   BarChart3,
   CheckCircle2,
   Loader2,
+  RefreshCw,
+  Target,
   Trophy,
 } from "lucide-react";
 
@@ -40,44 +42,182 @@ interface ABResult {
   text_report?: string;
 }
 
-const demoVariantA: VariantForm = {
-  label: "A 原版本",
-  asin: "当前ASIN",
-  title: "Large Enclosed Cat Litter Box with Filter for Indoor Cats",
-  bullets:
-    "Extra large enclosed cat litter box for indoor cats\nCarbon filter helps reduce everyday litter smell\nEasy pull-out tray for quick cleaning\nHigh wall design helps reduce tracking\nModern white design fits home corners",
-  description: "Original listing focuses on enclosed size and basic filter function.",
-  conversion: "7.4",
+interface ListingDiagnosisDetail {
+  id: number;
+  listing_title: string;
+  marketplace?: string;
+  input_data?: {
+    title?: string;
+    bullet_points?: string;
+    description?: string;
+    a_plus_content?: string;
+    backend_keywords?: string;
+    asin?: string;
+    price?: string;
+    marketplace?: string;
+  };
+  scores?: Record<string, number>;
+  diagnosis_report?: {
+    suggestions?: {
+      title_rewrite?: string;
+      bullet_points_optimization?: string[];
+      backend_keywords_addition?: string[];
+      image_suggestions?: string[];
+      a_plus_suggestions?: string;
+    };
+    keyword_coverage?: {
+      missing_categories?: Record<string, string[]>;
+    };
+    ad_keywords?: {
+      high_conversion?: Array<{ keyword?: string; keyword_type?: string; intent?: string }>;
+      traffic?: Array<{ keyword?: string; keyword_type?: string; intent?: string }>;
+      long_tail?: Array<{ keyword?: string; keyword_type?: string; intent?: string }>;
+    };
+    overall_summary?: string;
+    ad_validation_plan?: Record<string, unknown>;
+  };
+}
+
+interface ABTestPlan {
+  source: string;
+  variable: string;
+  hypothesis: string;
+  metrics: string[];
+  evidence: string[];
+}
+
+const emptyVariantA: VariantForm = {
+  label: "A 原诊断版本",
+  asin: "",
+  title: "",
+  bullets: "",
+  description: "",
+  conversion: "",
 };
 
-const demoVariantB: VariantForm = {
-  label: "B 除味强化版",
-  asin: "当前ASIN",
-  title: "Odor Control Cat Litter Box with Activated Carbon Filter, Extra Large Enclosed Design for Indoor Cats",
-  bullets:
-    "Targets ammonia odor with replaceable activated carbon filter\nExtra large enclosed design gives adult cats room to turn\nPull-out tray and scoop slot simplify daily cleaning\nHigh splash guard and sealed entrance reduce litter tracking\nBuilt for apartments, bedrooms, and multi-cat odor control",
-  description: "New version strengthens odor control, ammonia risk explanation, and apartment use scenarios.",
-  conversion: "10.2",
+const emptyVariantB: VariantForm = {
+  label: "B 单变量优化版",
+  asin: "",
+  title: "",
+  bullets: "",
+  description: "",
+  conversion: "",
 };
 
-const demoABResult: ABResult = {
-  winner: "B",
-  win_margin: 12.5,
-  confidence_score: 76,
-  dimension_comparison: {
-    "点击相关性": { A: 72, B: 86, delta: 14, winner: "B" },
-    "需求承接": { A: 68, B: 88, delta: 20, winner: "B" },
-    "信任解释": { A: 70, B: 81, delta: 11, winner: "B" },
-    "转化链条": { A: 73, B: 84, delta: 11, winner: "B" },
-  },
-  recommendations: [
-    "保留B版本标题前半段的 Odor Control 和 Activated Carbon Filter。",
-    "广告测试优先使用 cat litter box odor eliminator、ammonia odor remover、cat litter deodorizer。",
-    "若CTR提升但CVR未提升，下一轮补充滤芯更换周期和清洁成本说明。",
-  ],
-  text_report:
-    "当前ASIN的A/B结论：B版本对评论高频需求「氨气除味」「公寓使用」「清洁便利」承接更完整，适合进入小预算广告验证。验证重点看CTR、CVR和ACOS是否同步改善。",
+const emptyPlan: ABTestPlan = {
+  source: "未连接诊断",
+  variable: "待生成",
+  hypothesis: "先从上一轮本品诊断生成单变量测试，再进入广告验证。",
+  metrics: ["CTR", "CVR", "CPC", "ACOS", "关键词订单"],
+  evidence: [],
 };
+
+const SCORE_LABELS: Record<string, string> = {
+  function_expression: "功能表达",
+  scenario_expression: "场景表达",
+  identity_fit: "身份适配",
+  psychology_benefit: "心理利益",
+  risk_elimination: "风险消除",
+  product_identity: "产品身份",
+  compatibility: "兼容搭配",
+  subjective_properties: "主观属性",
+  differentiation: "差异化",
+  market_trend: "市场趋势",
+};
+
+function normalizeBullets(value: unknown): string {
+  if (Array.isArray(value)) return value.map(String).filter(Boolean).join("\n");
+  return String(value || "");
+}
+
+function pickWeakestDimension(scores?: Record<string, number>) {
+  const entries = Object.entries(scores || {}).filter(([, value]) => Number.isFinite(Number(value)));
+  if (!entries.length) return "risk_elimination";
+  return entries.sort((a, b) => Number(a[1]) - Number(b[1]))[0][0];
+}
+
+function keywordCandidates(report?: ListingDiagnosisDetail["diagnosis_report"]) {
+  const buckets = [
+    ...(report?.ad_keywords?.high_conversion || []),
+    ...(report?.ad_keywords?.long_tail || []),
+    ...(report?.ad_keywords?.traffic || []),
+  ];
+  return buckets
+    .filter((item) => ["relationship", "state_trigger"].includes(String(item.keyword_type || "")))
+    .map((item) => String(item.keyword || "").trim())
+    .filter(Boolean)
+    .slice(0, 5);
+}
+
+function buildAutoABFromDiagnosis(detail: ListingDiagnosisDetail): { a: VariantForm; b: VariantForm; plan: ABTestPlan } {
+  const input = detail.input_data || {};
+  const report = detail.diagnosis_report || {};
+  const weakest = pickWeakestDimension(detail.scores);
+  const weakestLabel = SCORE_LABELS[weakest] || "诊断低分项";
+  const keywords = keywordCandidates(report);
+  const title = input.title || detail.listing_title || "";
+  const originalBullets = normalizeBullets(input.bullet_points);
+  const optimizedBullets = normalizeBullets(report.suggestions?.bullet_points_optimization);
+  const fallbackKeyword = keywords[0] || "odor control";
+
+  const variableByDimension: Record<string, string> = {
+    risk_elimination: "状态触发词与风险消除承接",
+    scenario_expression: "使用场景表达",
+    function_expression: "功能机制表达",
+    differentiation: "差异化承诺",
+    compatibility: "兼容/搭配对象表达",
+    product_identity: "产品身份清晰度",
+    psychology_benefit: "心理利益表达",
+    identity_fit: "目标人群身份表达",
+    subjective_properties: "主观属性可信表达",
+    market_trend: "趋势词与市场入口",
+  };
+  const variable = variableByDimension[weakest] || `${weakestLabel}补强`;
+
+  const bTitle = report.suggestions?.title_rewrite?.trim()
+    || (title.toLowerCase().includes(fallbackKeyword.toLowerCase()) ? title : `${fallbackKeyword.replace(/\b\w/g, (m) => m.toUpperCase())} - ${title}`.slice(0, 190));
+
+  const bBullets = optimizedBullets || [
+    `${fallbackKeyword.replace(/\b\w/g, (m) => m.toUpperCase())}: clarify the exact user problem this product solves`,
+    "Explain the mechanism with concrete material, structure, compatibility, or use condition",
+    "Connect the benefit to a real scenario instead of a generic feature claim",
+    "Remove ambiguity that could create wasted clicks, returns, or low conversion",
+    "Keep this round focused on one test variable so ad results can be attributed",
+  ].join("\n");
+
+  const source = `来自最近本品诊断 #${detail.id}`;
+  const evidence = [
+    `${weakestLabel}分数最低，适合作为本轮单变量优化入口`,
+    report.overall_summary || "",
+    keywords.length ? `优先测试关系/状态词：${keywords.join(", ")}` : "",
+  ].filter(Boolean);
+
+  return {
+    a: {
+      label: "A 原诊断版本",
+      asin: input.asin || "当前ASIN",
+      title,
+      bullets: originalBullets,
+      description: input.a_plus_content || input.description || "A版保留上一轮本品诊断输入内容。",
+      conversion: "",
+    },
+    b: {
+      label: `B ${variable}`,
+      asin: input.asin || "当前ASIN",
+      title: bTitle,
+      bullets: bBullets,
+      description: `本轮只测试：${variable}。不同时改价格、图片数量、评价承诺或多个卖点，避免归因混乱。`,
+      conversion: "",
+    },
+    plan: {
+      source,
+      variable,
+      hypothesis: `如果B版补强「${variable}」成立，广告应表现为CTR或CVR提升，同时CPC/ACOS不恶化；若只提升CTR不提升CVR，说明承接页或价格/信任不足。`,
+      metrics: ["CTR", "CVR", "CPC", "ACOS", "关键词订单", "无效点击率"],
+      evidence,
+    },
+  };
+}
 
 function toVariantPayload(v: VariantForm) {
   return {
@@ -158,10 +298,43 @@ function buildLocalABResult(a: VariantForm, b: VariantForm, reason = "后端AI�
 
 export default function ABTestComparison() {
   const { loading: authLoading } = useRequireAuth();
-  const [variantA, setVariantA] = useState<VariantForm>(demoVariantA);
-  const [variantB, setVariantB] = useState<VariantForm>(demoVariantB);
+  const [variantA, setVariantA] = useState<VariantForm>(emptyVariantA);
+  const [variantB, setVariantB] = useState<VariantForm>(emptyVariantB);
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<ABResult | null>(demoABResult);
+  const [loadingDiagnosis, setLoadingDiagnosis] = useState(false);
+  const [result, setResult] = useState<ABResult | null>(null);
+  const [testPlan, setTestPlan] = useState<ABTestPlan>(emptyPlan);
+  const [sourceDiagnosisId, setSourceDiagnosisId] = useState<number | null>(null);
+
+  const loadLatestDiagnosis = async (showToast = false) => {
+    setLoadingDiagnosis(true);
+    try {
+      const historyRes = await axios.get("/api/v1/listing-diagnosis/history?limit=1", { headers: getAuthHeaders() });
+      const latest = historyRes.data?.items?.[0];
+      if (!latest?.id) {
+        if (showToast) toast.warning("还没有本品诊断记录，请先完成一次本品诊断");
+        return;
+      }
+      const detailRes = await axios.get<ListingDiagnosisDetail>(`/api/v1/listing-diagnosis/history/${latest.id}`, {
+        headers: getAuthHeaders(),
+      });
+      const generated = buildAutoABFromDiagnosis(detailRes.data);
+      setVariantA(generated.a);
+      setVariantB(generated.b);
+      setTestPlan(generated.plan);
+      setSourceDiagnosisId(detailRes.data.id);
+      setResult(null);
+      if (showToast) toast.success(`已接入真实本品诊断 #${detailRes.data.id}`);
+    } catch (e) {
+      toast.error(axios.isAxiosError(e) ? e.response?.data?.detail || "读取最近诊断失败" : "读取最近诊断失败");
+    } finally {
+      setLoadingDiagnosis(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadLatestDiagnosis(false);
+  }, []);
 
   if (authLoading) return null;
 
@@ -206,7 +379,7 @@ export default function ABTestComparison() {
         action_name: "A/B测试结果对比",
         asin: variantA.asin || variantB.asin,
         title: `${variantA.label} vs ${variantB.label}`,
-        input_snapshot: { variant_a: variantA, variant_b: variantB },
+        input_snapshot: { variant_a: variantA, variant_b: variantB, test_plan: testPlan, source_diagnosis_id: sourceDiagnosisId },
         output_snapshot: res.data,
         data_source: "ai_ab_comparison",
         confidence: String(res.data?.confidence_score || ""),
@@ -229,7 +402,7 @@ export default function ABTestComparison() {
         action_name: "A/B测试结果对比",
         asin: variantA.asin || variantB.asin,
         title: `${variantA.label} vs ${variantB.label}`,
-        input_snapshot: { variant_a: variantA, variant_b: variantB },
+        input_snapshot: { variant_a: variantA, variant_b: variantB, test_plan: testPlan, source_diagnosis_id: sourceDiagnosisId },
         output_snapshot: fallback,
         data_source: "local_fallback",
         confidence: String(fallback.confidence_score || ""),
@@ -265,14 +438,57 @@ export default function ABTestComparison() {
           </div>
 
           <PageHeader
-            objective="制定A/B测试并对比两个Listing版本的预期转化表现"
-            inputSource="A/B两个Listing版本、历史CVR、标题、五点、描述"
-            process="比较因果转化链条、状态差距覆盖、机制清晰度和副作用透明度"
-            outputTarget="胜出版本、维度差距、预测转化影响、测试建议"
+            objective="承接上一轮本品诊断，把低分问题转成单变量A/B测试"
+            inputSource={sourceDiagnosisId ? `真实本品诊断 #${sourceDiagnosisId}` : "最近一次本品诊断"}
+            process="A版保留原始诊断输入，B版只改一个诊断变量，避免广告归因混乱"
+            outputTarget="测试变量、广告验证指标、胜出版本、下一轮优化依据"
             action="将胜出版本进入广告执行记录"
             feedback="真实广告结果回流到效果验证和数据回流"
             tone="amber"
           />
+
+          <Card className="bg-white border-amber-100 p-4 sm:p-5 mb-5">
+            <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <Target className="w-4 h-4 text-amber-600" />
+                  <h2 className="text-sm font-semibold text-gray-900">本轮A/B测试计划</h2>
+                  <span className="text-xs rounded-full bg-amber-50 text-amber-700 border border-amber-200 px-2 py-0.5">
+                    {testPlan.source}
+                  </span>
+                </div>
+                <div className="grid md:grid-cols-2 gap-3 text-sm">
+                  <div className="rounded-lg bg-gray-50 border border-gray-100 p-3">
+                    <p className="text-xs text-gray-500 mb-1">只测试一个变量</p>
+                    <p className="font-semibold text-gray-900">{testPlan.variable}</p>
+                  </div>
+                  <div className="rounded-lg bg-gray-50 border border-gray-100 p-3">
+                    <p className="text-xs text-gray-500 mb-1">验证指标</p>
+                    <p className="font-semibold text-gray-900">{testPlan.metrics.join(" / ")}</p>
+                  </div>
+                </div>
+                <p className="text-sm text-gray-600 leading-relaxed">{testPlan.hypothesis}</p>
+                {testPlan.evidence.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {testPlan.evidence.map((item, idx) => (
+                      <span key={idx} className="text-xs rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-100 px-2.5 py-1">
+                        {item}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <Button
+                variant="outline"
+                onClick={() => loadLatestDiagnosis(true)}
+                disabled={loadingDiagnosis}
+                className="bg-white shrink-0"
+              >
+                {loadingDiagnosis ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-1.5" />}
+                接入最新本品诊断
+              </Button>
+            </div>
+          </Card>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-5">
             {[
@@ -309,7 +525,7 @@ export default function ABTestComparison() {
                 <Textarea
                   value={item.form.description}
                   onChange={(e) => item.update("description", e.target.value)}
-                  placeholder="描述 / A+摘要"
+                  placeholder={item.title === "B版本" ? "本轮测试变量说明，不要同时改多个变量" : "描述 / A+摘要"}
                   className="bg-gray-50 border-gray-200 min-h-[80px]"
                 />
                 <Input
@@ -324,7 +540,7 @@ export default function ABTestComparison() {
 
           <Button
             onClick={runComparison}
-            disabled={loading}
+            disabled={loading || loadingDiagnosis || !sourceDiagnosisId}
             className="bg-amber-600 hover:bg-amber-500 text-white mb-6"
           >
             {loading ? (
