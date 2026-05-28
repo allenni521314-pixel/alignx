@@ -417,6 +417,8 @@ class ParseHtmlRequest(BaseModel):
     marketplace: str = "US"
     asin: str = ""
     source: str = "server_proxy_fetch"
+    captured_title: str = ""
+    captured_bullets: List[str] = Field(default_factory=list)
 
 
 class ParseHtmlResponse(BaseModel):
@@ -1936,6 +1938,17 @@ async def parse_html_content(
             )
 
         marketplace = request.marketplace
+        captured_bullets = [
+            str(item).strip()
+            for item in (request.captured_bullets or [])
+            if str(item).strip()
+        ][:5]
+        parsed_bullets = parsed.get("bullet_points") or []
+        if request.source == "local_browser_capture" and len(captured_bullets) > len(parsed_bullets):
+            parsed["bullet_points"] = captured_bullets
+        if request.source == "local_browser_capture" and request.captured_title and len(request.captured_title.strip()) > len(str(parsed.get("title", "")).strip()):
+            parsed["title"] = request.captured_title.strip()
+
         aplus_text_parsed = parsed.get("aplus_content", "")
         if parsed.get("has_a_plus"):
             if aplus_text_parsed and len(aplus_text_parsed) > 20:

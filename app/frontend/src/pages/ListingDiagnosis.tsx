@@ -2341,6 +2341,8 @@ export default function ListingDiagnosis() {
       marketplace?: string;
       url?: string;
       source?: string;
+      title?: string;
+      bullets?: string[];
     };
     try {
       capture = JSON.parse(raw);
@@ -2368,6 +2370,8 @@ export default function ListingDiagnosis() {
           marketplace: capture.marketplace || marketplace,
           asin: capture.asin,
           source: "local_browser_capture",
+          captured_title: capture.title || "",
+          captured_bullets: capture.bullets || [],
         },
         { headers: getAuthHeaders(), timeout: 90000 }
       );
