@@ -144,21 +144,9 @@ async function openAlignX() {
     return;
   }
 
-  const tab = await chrome.tabs.create({ url: `${ALIGNX_URL}?localCapture=1&asin=${encodeURIComponent(alignxLastCapture.asin || "")}` });
-  setStatus("正在打开 AlignX...");
-  const listener = async (tabId, changeInfo) => {
-    if (tabId !== tab.id || changeInfo.status !== "complete") return;
-    chrome.tabs.onUpdated.removeListener(listener);
-    await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      args: [alignxLastCapture],
-      func: (capture) => {
-        localStorage.setItem("alignx_local_browser_capture", JSON.stringify(capture));
-        window.dispatchEvent(new Event("alignx-local-browser-capture"));
-      },
-    });
-  };
-  chrome.tabs.onUpdated.addListener(listener);
+  await chrome.storage.local.set({ alignxPendingCapture: alignxLastCapture });
+  await chrome.tabs.create({ url: `${ALIGNX_URL}?localCapture=1&asin=${encodeURIComponent(alignxLastCapture.asin || "")}` });
+  setStatus("正在打开 AlignX，本地采集结果会由内容脚本自动送达。");
 }
 
 document.getElementById("capture").addEventListener("click", () => {
