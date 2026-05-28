@@ -116,6 +116,20 @@ const emptyPlan: ABTestPlan = {
   evidence: [],
 };
 
+const TEST_VARIABLE_OPTIONS = [
+  "使用场景表达",
+  "功能机制表达",
+  "状态触发词与风险消除承接",
+  "差异化承诺",
+  "产品身份清晰度",
+  "目标人群身份表达",
+  "兼容/搭配对象表达",
+  "心理利益表达",
+  "主观属性可信表达",
+  "趋势词与市场入口",
+  "自定义变量",
+];
+
 const getLongRunningApiBase = () => {
   if (import.meta.env.VITE_API_BASE_URL) return import.meta.env.VITE_API_BASE_URL;
   if (
@@ -366,6 +380,30 @@ export default function ABTestComparison() {
     setVariantB((prev) => ({ ...prev, [key]: value }));
   };
 
+  const updateTestVariable = (value: string) => {
+    setTestPlan((prev) => ({
+      ...prev,
+      variable: value,
+      hypothesis: `如果B版补强「${value}」成立，广告应表现为CTR或CVR提升，同时CPC/ACOS不恶化；若只提升CTR不提升CVR，说明承接页或价格/信任不足。`,
+    }));
+    setVariantB((prev) => ({
+      ...prev,
+      label: value && value !== "待生成" ? `B ${value}` : prev.label,
+      description: `本轮只测试：${value}。不同时改价格、主图、A+、评价承诺或多个卖点，避免广告归因混乱。`,
+    }));
+    setResult(null);
+  };
+
+  const updateMetrics = (value: string) => {
+    setTestPlan((prev) => ({
+      ...prev,
+      metrics: value
+        .split(/[\/,，、\s]+/)
+        .map((item) => item.trim())
+        .filter(Boolean),
+    }));
+  };
+
   const runComparison = async () => {
     if (!variantA.title.trim() && !variantA.bullets.trim()) {
       toast.error("请填写A版本标题或五点");
@@ -492,15 +530,42 @@ export default function ABTestComparison() {
                 </div>
                 <div className="grid md:grid-cols-2 gap-3 text-sm">
                   <div className="rounded-lg bg-gray-50 border border-gray-100 p-3">
-                    <p className="text-xs text-gray-500 mb-1">只测试一个变量</p>
-                    <p className="font-semibold text-gray-900">{testPlan.variable}</p>
+                    <label className="text-xs text-gray-500 mb-1 block">本轮只测试一个变量</label>
+                    <select
+                      value={TEST_VARIABLE_OPTIONS.includes(testPlan.variable) ? testPlan.variable : "自定义变量"}
+                      onChange={(e) => updateTestVariable(e.target.value === "自定义变量" ? "" : e.target.value)}
+                      className="w-full h-10 rounded-md border border-gray-200 bg-white px-3 text-sm font-semibold text-gray-900 outline-none focus:border-amber-400"
+                    >
+                      {TEST_VARIABLE_OPTIONS.map((item) => (
+                        <option key={item} value={item}>{item}</option>
+                      ))}
+                    </select>
+                    <Input
+                      value={testPlan.variable}
+                      onChange={(e) => updateTestVariable(e.target.value)}
+                      placeholder="也可以手动输入本轮测试变量"
+                      className="mt-2 bg-white border-gray-200"
+                    />
                   </div>
                   <div className="rounded-lg bg-gray-50 border border-gray-100 p-3">
-                    <p className="text-xs text-gray-500 mb-1">验证指标</p>
-                    <p className="font-semibold text-gray-900">{testPlan.metrics.join(" / ")}</p>
+                    <label className="text-xs text-gray-500 mb-1 block">验证指标</label>
+                    <Input
+                      value={testPlan.metrics.join(" / ")}
+                      onChange={(e) => updateMetrics(e.target.value)}
+                      placeholder="CTR / CVR / CPC / ACOS / 关键词订单"
+                      className="bg-white border-gray-200 font-semibold"
+                    />
                   </div>
                 </div>
-                <p className="text-sm text-gray-600 leading-relaxed">{testPlan.hypothesis}</p>
+                <Textarea
+                  value={testPlan.hypothesis}
+                  onChange={(e) => setTestPlan((prev) => ({ ...prev, hypothesis: e.target.value }))}
+                  className="bg-gray-50 border-gray-100 min-h-[78px] text-sm text-gray-700 leading-relaxed"
+                  placeholder="填写本轮A/B假设：如果B版变量成立，广告指标应该怎样变化？"
+                />
+                <p className="text-xs text-amber-700">
+                  原则：每轮只改一个主要变量；可以自由选择变量，但不要把多个改动混在同一轮测试里。
+                </p>
                 {testPlan.evidence.length > 0 && (
                   <div className="flex flex-wrap gap-2">
                     {testPlan.evidence.map((item, idx) => (
