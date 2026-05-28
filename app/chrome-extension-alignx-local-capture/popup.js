@@ -19,6 +19,18 @@ function marketplaceFromHost(hostname) {
 
 function captureAmazonPage() {
   const clean = (value) => String(value || "").replace(/\s+/g, " ").trim();
+  const marketplaceFromCurrentHost = (hostname) => {
+    const host = String(hostname || "").toLowerCase();
+    if (host.includes("amazon.co.uk")) return "UK";
+    if (host.includes("amazon.de")) return "DE";
+    if (host.includes("amazon.co.jp")) return "JP";
+    if (host.includes("amazon.ca")) return "CA";
+    if (host.includes("amazon.fr")) return "FR";
+    if (host.includes("amazon.it")) return "IT";
+    if (host.includes("amazon.es")) return "ES";
+    if (host.includes("amazon.com.au")) return "AU";
+    return "US";
+  };
   const url = location.href;
   const safeText = clean(document.body?.innerText || "");
   const asinMatch =
@@ -52,7 +64,7 @@ function captureAmazonPage() {
     capturedAt: new Date().toISOString(),
     url,
     hostname: location.hostname,
-    marketplace: marketplaceFromHost(location.hostname),
+    marketplace: marketplaceFromCurrentHost(location.hostname),
     asin: asinMatch ? String(asinMatch[1] || asinMatch[0]).toUpperCase() : "",
     title,
     bullets,
