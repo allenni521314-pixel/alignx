@@ -45,7 +45,10 @@ def _present(value: Any) -> bool:
     if value is None:
         return False
     if isinstance(value, str):
-        return bool(value.strip())
+        text = value.strip()
+        if not text or text in {"-", "—", "N/A", "n/a", "NA", "待确认", "未提供", "未知"}:
+            return False
+        return True
     if isinstance(value, (list, tuple, set, dict)):
         return len(value) > 0
     return True

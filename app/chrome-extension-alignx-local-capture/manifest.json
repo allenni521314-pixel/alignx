@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "AlignX Local Amazon Capture",
   "description": "读取当前用户已打开的 Amazon 商品页，作为 AlignX 本地浏览器页面采集体验版。",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "action": {
     "default_title": "AlignX Capture",
     "default_popup": "popup.html"

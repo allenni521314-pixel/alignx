@@ -1,4 +1,9 @@
-const ALIGNX_URL = "https://alignxagent.netlify.app/listing-diagnosis";
+const ALIGNX_ORIGIN = "https://alignxagent.netlify.app";
+const ALIGNX_TARGETS = {
+  listing: { path: "/listing-diagnosis", label: "本品诊断" },
+  competitor: { path: "/competitor-analysis", label: "竞品诊断" },
+  asin: { path: "/asin-manager", label: "ASIN选品" },
+};
 
 function setStatus(message) {
   document.getElementById("status").textContent = message || "";
@@ -19,6 +24,90 @@ function marketplaceFromHost(hostname) {
 
 function captureAmazonPage() {
   const clean = (value) => String(value || "").replace(/\s+/g, " ").trim();
+  const pickText = (selectors) => {
+    for (const selector of selectors) {
+      const node = document.querySelector(selector);
+      const text = clean(node?.textContent || node?.getAttribute?.("content") || "");
+      if (text) return text;
+    }
+    return "";
+  };
+  const parsePrice = (value) => {
+    const text = clean(value).replace(/(\d)\s+(\d{2})(\D|$)/, "$1.$2$3");
+    if (!text || /list price|was:|save |coupon|monthly|payment plan/i.test(text)) return "";
+    const match =
+      text.match(/[$€£¥₹]\s*\d{1,4}(?:[,.]\s*\d{2})?/) ||
+      text.match(/\b\d{1,4}(?:[,.]\s*\d{2})?\s*(?:USD|EUR|GBP|JPY|CAD|AUD)\b/i);
+    return match ? clean(match[0].replace(/\s+/g, "")) : "";
+  };
+  const pickPrice = () => {
+    const selectors = [
+      "#corePriceDisplay_desktop_feature_div .priceToPay .a-offscreen",
+      "#corePrice_feature_div .priceToPay .a-offscreen",
+      "#corePriceDisplay_desktop_feature_div .apexPriceToPay .a-offscreen",
+      "#corePrice_feature_div .apexPriceToPay .a-offscreen",
+      "#apex_desktop .a-price .a-offscreen",
+      "#centerCol .a-price .a-offscreen",
+      "#buybox .a-price .a-offscreen",
+      "#newBuyBoxPrice",
+      "#priceblock_ourprice",
+      "#priceblock_dealprice",
+      "#priceblock_saleprice",
+      "#price_inside_buybox",
+      ".priceToPay .a-offscreen",
+      ".apexPriceToPay .a-offscreen",
+    ];
+    for (const selector of selectors) {
+      const price = parsePrice(document.querySelector(selector)?.textContent || "");
+      if (price) return price;
+    }
+    for (const blockSelector of ["#corePriceDisplay_desktop_feature_div", "#corePrice_feature_div", "#apex_desktop", "#buybox", "#centerCol"]) {
+      const block = document.querySelector(blockSelector);
+      if (!block) continue;
+      for (const node of block.querySelectorAll(".a-price")) {
+        const offscreen = parsePrice(node.querySelector(".a-offscreen")?.textContent || "");
+        if (offscreen) return offscreen;
+        const symbol = clean(node.querySelector(".a-price-symbol")?.textContent || "$");
+        const whole = clean(node.querySelector(".a-price-whole")?.textContent || "");
+        const fraction = clean(node.querySelector(".a-price-fraction")?.textContent || "");
+        const combined = parsePrice(`${symbol}${whole}${fraction ? `.${fraction}` : ""}`);
+        if (combined) return combined;
+      }
+    }
+    return "";
+  };
+  const pickBullets = () => {
+    const selectors = [
+      "#feature-bullets li span.a-list-item",
+      "#feature-bullets li",
+      "#featurebullets_feature_div li span",
+      "#featurebullets_feature_div li",
+      "#feature-bullets-btf li span",
+      "#productFactsDesktop_feature_div li",
+      "#productFacts_feature_div li",
+      "[data-feature-name='featurebullets'] li span",
+    ];
+    const seen = new Set();
+    const bullets = [];
+    for (const selector of selectors) {
+      for (const node of document.querySelectorAll(selector)) {
+        const text = clean(node.textContent)
+          .replace(/^[-•\s]+/, "")
+          .replace(/^About this item\s*/i, "");
+        if (
+          text.length > 8 &&
+          text.length < 700 &&
+          !/see more|show more|make sure this fits|customer reviews|product information/i.test(text) &&
+          !seen.has(text)
+        ) {
+          seen.add(text);
+          bullets.push(text);
+        }
+        if (bullets.length >= 8) return bullets;
+      }
+    }
+    return bullets;
+  };
   const marketplaceFromCurrentHost = (hostname) => {
     const host = String(hostname || "").toLowerCase();
     if (host.includes("amazon.co.uk")) return "UK";
@@ -47,10 +136,12 @@ function captureAmazonPage() {
       document.title ||
       urlTitle
   );
-  const bullets = Array.from(document.querySelectorAll("#feature-bullets li span, #featurebullets_feature_div li span"))
-    .map((node) => clean(node.textContent))
-    .filter((text) => text && !/^$/.test(text))
-    .slice(0, 8);
+  const bullets = pickBullets();
+  const price = pickPrice();
+  const rating = pickText(["#acrPopover span.a-icon-alt", "#averageCustomerReviews span.a-icon-alt", "span[data-hook='rating-out-of-text']"]);
+  const reviewCount = pickText(["#acrCustomerReviewText", "[data-hook='total-review-count']"]);
+  const bsrMatch = safeText.match(/#\s*[\d,]+\s+in\s+[^\n\r]{3,120}/i);
+  const bsrRank = bsrMatch ? clean(bsrMatch[0]) : "";
   const images = Array.from(document.querySelectorAll("#altImages img, img"))
     .map((img) => img.currentSrc || img.src || "")
     .filter(Boolean)
@@ -67,6 +158,10 @@ function captureAmazonPage() {
     marketplace: marketplaceFromCurrentHost(location.hostname),
     asin: asinMatch ? String(asinMatch[1] || asinMatch[0]).toUpperCase() : "",
     title,
+    price,
+    rating,
+    reviewCount,
+    bsrRank,
     bullets,
     imageCount: images.length,
     html,
@@ -95,6 +190,10 @@ function renderCapture(capture) {
     ["ASIN", capture.asin || "未识别"],
     ["站点", capture.marketplace || "未识别"],
     ["标题", capture.title || "未识别"],
+    ["价格", capture.price || "未识别"],
+    ["评分", capture.rating || "未识别"],
+    ["评论数", capture.reviewCount || "未识别"],
+    ["BSR", capture.bsrRank || "未识别"],
     ["五点", String(capture.bullets?.length || 0)],
     ["图片", String(capture.imageCount || 0)],
     ["HTML", `${Math.round((capture.html?.length || 0) / 1024)} KB`],
@@ -144,9 +243,19 @@ async function openAlignX() {
     return;
   }
 
-  await chrome.storage.local.set({ alignxPendingCapture: alignxLastCapture });
-  await chrome.tabs.create({ url: `${ALIGNX_URL}?localCapture=1&asin=${encodeURIComponent(alignxLastCapture.asin || "")}` });
-  setStatus("正在打开 AlignX，本地采集结果会由内容脚本自动送达。");
+  const targetKey = document.getElementById("target")?.value || "listing";
+  const target = ALIGNX_TARGETS[targetKey] || ALIGNX_TARGETS.listing;
+  const capture = { ...alignxLastCapture, destination: targetKey };
+  const url = `${ALIGNX_ORIGIN}${target.path}?localCapture=1&asin=${encodeURIComponent(capture.asin || "")}`;
+  await chrome.storage.local.set({ alignxPendingCapture: capture });
+  const tabs = await chrome.tabs.query({ url: `${ALIGNX_ORIGIN}/*` });
+  if (tabs[0]?.id) {
+    await chrome.tabs.update(tabs[0].id, { url, active: true });
+    if (tabs[0].windowId) await chrome.windows.update(tabs[0].windowId, { focused: true });
+  } else {
+    await chrome.tabs.create({ url });
+  }
+  setStatus(`正在发送到 AlignX ${target.label}，会复用已有 AlignX 标签页。`);
 }
 
 document.getElementById("capture").addEventListener("click", () => {

@@ -18,6 +18,7 @@ from routers.listing_diagnosis import (
     DiagnoseRequest,
     _diagnose_single,
     _fallback_listing_diagnosis,
+    _has_required_price,
     _normalize_diagnosis_result,
 )
 
@@ -114,6 +115,11 @@ async def _run_listing_task(task_id: str, user_id: str, payload: dict[str, Any])
         try:
             await _set_task_status(db, task_id, "running", 12)
             request = DiagnoseRequest.model_validate(payload)
+            if not _has_required_price(request.listing.price):
+                raise HTTPException(
+                    status_code=400,
+                    detail="缺少价格，不能生成正式诊断报告。请补充价格或价格区间后再诊断。",
+                )
             result = await _diagnose_single(
                 listing=request.listing,
                 user_id=user_id,
@@ -131,6 +137,9 @@ async def _run_listing_task(task_id: str, user_id: str, payload: dict[str, Any])
                 source_record_table="listing_diagnoses",
                 source_record_id=normalized.get("id"),
             )
+        except HTTPException as exc:
+            logger.warning("Listing diagnosis task rejected: %s", task_id)
+            await _set_task_status(db, task_id, "failed", 100, error=str(exc.detail))
         except Exception as exc:
             logger.exception("Listing diagnosis task failed: %s", task_id)
             if request is not None:
@@ -191,6 +200,8 @@ async def create_listing_task(
     listing = request.listing
     if not listing.title and not listing.bullet_points:
         raise HTTPException(status_code=400, detail="请至少输入标题或五点描述")
+    if not _has_required_price(listing.price):
+        raise HTTPException(status_code=400, detail="缺少价格，不能生成正式诊断报告。请补充价格或价格区间后再诊断。")
     task_id = f"lst_{uuid4().hex}"
     payload = request.model_dump()
     task = DiagnosisTask(

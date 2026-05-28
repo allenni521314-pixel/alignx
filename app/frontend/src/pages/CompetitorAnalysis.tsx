@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useEffect, useState, useCallback } from "react";
 
 import { AppSidebar } from "@/components/AppSidebar";
 import { PageHeader } from "@/components/PageHeader";
@@ -879,6 +879,88 @@ export default function CompetitorAnalysis() {
       return null;
     }
   }, []);
+
+  const consumeLocalBrowserCapture = useCallback(async () => {
+    if (authLoading) return;
+    const raw = localStorage.getItem("alignx_local_browser_capture");
+    if (!raw) return;
+    let capture: {
+      html?: string;
+      asin?: string;
+      marketplace?: string;
+      title?: string;
+      price?: string;
+      rating?: string;
+      reviewCount?: string;
+      bsrRank?: string;
+      imageCount?: number;
+      bullets?: string[];
+      destination?: string;
+    };
+    try {
+      capture = JSON.parse(raw);
+    } catch {
+      localStorage.removeItem("alignx_local_browser_capture");
+      return;
+    }
+    if (capture.destination && capture.destination !== "competitor") return;
+    if (!capture.html || !capture.asin) return;
+
+    localStorage.removeItem("alignx_local_browser_capture");
+    setSingleAsin(capture.asin);
+    setMarketplace(capture.marketplace || marketplace);
+    setAnalyzing(true);
+    setSingleResult(null);
+    setAnalyzeProgress("正在解析本地浏览器采集证据并生成竞品诊断...");
+    try {
+      const res = await axios.post(
+        `${getLongRunningApiBase()}/api/v1/asin-analysis/parse-html-analyze`,
+        {
+          asin: capture.asin,
+          marketplace: capture.marketplace || marketplace,
+          html: capture.html,
+          source: "local_browser_capture",
+          captured_title: capture.title || "",
+          captured_price: capture.price || "",
+          captured_rating: capture.rating || "",
+          captured_review_count: capture.reviewCount || "",
+          captured_bsr_rank: capture.bsrRank || "",
+          captured_image_count: capture.imageCount ? String(capture.imageCount) : "",
+          captured_bullets: capture.bullets || [],
+        },
+        { headers: getAuthHeaders(), timeout: 180000 }
+      );
+      const data = res.data;
+      if (data?.success && data.scores) {
+        setSingleResult(sanitizeAnalysisKeywords({
+          asin: data.asin,
+          marketplace: capture.marketplace || marketplace,
+          product_title: data.product_title,
+          product_data: data.product_data,
+          scores: data.scores,
+          analysis_report: data.analysis_report,
+          data_source: data.data_source || "local_browser_capture",
+          id: data.id,
+        } as AnalysisResult));
+        toast.success("已用本地浏览器采集证据完成竞品诊断");
+      } else {
+        toast.error(data?.error || "本地采集解析失败");
+      }
+    } catch (err) {
+      const msg = axios.isAxiosError(err) ? err.response?.data?.detail || err.message : "本地采集分析失败";
+      toast.error(msg);
+    } finally {
+      setAnalyzing(false);
+      setAnalyzeProgress("");
+    }
+  }, [authLoading, marketplace]);
+
+  useEffect(() => {
+    consumeLocalBrowserCapture();
+    const onCapture = () => consumeLocalBrowserCapture();
+    window.addEventListener("alignx-local-browser-capture", onCapture);
+    return () => window.removeEventListener("alignx-local-browser-capture", onCapture);
+  }, [consumeLocalBrowserCapture]);
 
   const handleAnalyze = async () => {
     if (!singleAsin.trim()) {

@@ -107,7 +107,8 @@ def _extract_title(soup: BeautifulSoup) -> str:
 
 
 def _parse_price_text(text: str, marketplace: str = "US") -> str:
-    text = _clean_text(text)
+    text = _clean_text(text).replace("\xa0", " ")
+    text = re.sub(r"(?<=\d)\s+(?=\d{2}\b)", ".", text)
     if not text:
         return ""
     lowered = text.lower()
@@ -119,10 +120,10 @@ def _parse_price_text(text: str, marketplace: str = "US") -> str:
     if marketplace in {"UK", "DE", "FR", "IT", "ES", "JP", "IN"} and symbol not in text and code not in text.upper():
         return ""
     # Avoid picking rating percentages, coupon amounts, or unrelated range text.
-    match = re.search(r"(?:[$€£¥₹]\s*|USD\s*)?(\d{1,4}(?:[,.]\d{2})?)", text, flags=re.I)
+    match = re.search(r"(?:[$€£¥₹]\s*|USD\s*)?(\d{1,4}(?:[,.]\s*\d{2})?)", text, flags=re.I)
     if not match:
         return ""
-    price = match.group(1).replace(",", ".")
+    price = re.sub(r"\s+", "", match.group(1).replace(",", "."))
     try:
         value = float(price)
     except ValueError:
@@ -141,6 +142,16 @@ def _extract_price(soup: BeautifulSoup, marketplace: str = "US") -> str:
         "#corePrice_feature_div .apexPriceToPay .a-offscreen",
         "#corePriceDisplay_desktop_feature_div [data-a-color='price'] .a-offscreen",
         "#corePrice_feature_div [data-a-color='price'] .a-offscreen",
+        "#apex_desktop .a-price .a-offscreen",
+        "#centerCol .a-price .a-offscreen",
+        "#buybox .a-price .a-offscreen",
+        "#newBuyBoxPrice",
+        "#priceblock_ourprice",
+        "#priceblock_dealprice",
+        "#priceblock_saleprice",
+        "#price_inside_buybox",
+        ".priceToPay .a-offscreen",
+        ".apexPriceToPay .a-offscreen",
     ]
     for sel in primary_selectors:
         el = soup.select_one(sel)
@@ -427,14 +438,57 @@ def _extract_image_urls(soup: BeautifulSoup, limit: int = 12) -> list[str]:
 
 
 def _extract_bullet_points(soup: BeautifulSoup) -> list:
-    bullets = []
-    feature_div = soup.select_one("#feature-bullets")
-    if feature_div:
-        items = feature_div.select("li span.a-list-item")
-        for item in items:
-            text = _clean_text(item.get_text())
-            if text and len(text) > 5 and "see more" not in text.lower():
-                bullets.append(text)
+    bullets: list[str] = []
+    seen: set[str] = set()
+
+    def add(text: str) -> None:
+        text = _clean_text(text)
+        text = re.sub(r"^(?:[-•]\s*)?(?:About this item\s*)", "", text, flags=re.I).strip()
+        lowered = text.lower()
+        if (
+            not text
+            or len(text) <= 8
+            or len(text) > 700
+            or "see more" in lowered
+            or "show more" in lowered
+            or "make sure this fits" in lowered
+            or "customer reviews" in lowered
+            or "product information" in lowered
+            or text in seen
+        ):
+            return
+        seen.add(text)
+        bullets.append(text)
+
+    selectors = [
+        "#feature-bullets li span.a-list-item",
+        "#feature-bullets li",
+        "#featurebullets_feature_div li span",
+        "#featurebullets_feature_div li",
+        "#feature-bullets-btf li span",
+        "#feature-bullets-btf li",
+        "#productFactsDesktop_feature_div li",
+        "#productFacts_feature_div li",
+        "[data-feature-name='featurebullets'] li span",
+    ]
+    for sel in selectors:
+        for item in soup.select(sel):
+            add(item.get_text(" ", strip=True))
+            if len(bullets) >= 5:
+                return bullets[:5]
+
+    page_lines = [_clean_text(line) for line in soup.get_text("\n", strip=True).splitlines()]
+    in_about = False
+    for line in page_lines:
+        if re.search(r"^about this item$", line, flags=re.I):
+            in_about = True
+            continue
+        if in_about and re.search(r"^(product information|from the manufacturer|customer reviews|compare with similar items)", line, flags=re.I):
+            break
+        if in_about:
+            add(line)
+            if len(bullets) >= 5:
+                break
     return bullets[:5]
 
 

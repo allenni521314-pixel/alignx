@@ -206,6 +206,13 @@ class DiagnoseRequest(BaseModel):
     force_refresh: bool = False
 
 
+def _has_required_price(value: str | None) -> bool:
+    text = str(value or "").strip()
+    if not text or text in {"-", "—", "N/A", "n/a", "NA", "待确认", "未提供", "未知"}:
+        return False
+    return bool(re.search(r"\d", text))
+
+
 class DiagnoseResponse(BaseModel):
     scores: dict
     analysis: dict
@@ -418,6 +425,11 @@ class ParseHtmlRequest(BaseModel):
     asin: str = ""
     source: str = "server_proxy_fetch"
     captured_title: str = ""
+    captured_price: str = ""
+    captured_rating: str = ""
+    captured_review_count: str = ""
+    captured_bsr_rank: str = ""
+    captured_image_count: str = ""
     captured_bullets: List[str] = Field(default_factory=list)
 
 
@@ -2062,6 +2074,17 @@ async def parse_html_content(
             parsed["bullet_points"] = captured_bullets
         if request.source == "local_browser_capture" and request.captured_title and len(request.captured_title.strip()) > len(str(parsed.get("title", "")).strip()):
             parsed["title"] = request.captured_title.strip()
+        if request.source == "local_browser_capture":
+            if request.captured_price.strip():
+                parsed["price"] = request.captured_price.strip()
+            if request.captured_rating.strip():
+                parsed["rating"] = request.captured_rating.strip()
+            if request.captured_review_count.strip():
+                parsed["review_count"] = request.captured_review_count.strip()
+            if request.captured_bsr_rank.strip() and not parsed.get("bsr_rank"):
+                parsed["bsr_rank"] = request.captured_bsr_rank.strip()
+            if request.captured_image_count.strip():
+                parsed["image_count"] = request.captured_image_count.strip()
 
         aplus_text_parsed = parsed.get("aplus_content", "")
         if parsed.get("has_a_plus"):
@@ -2127,6 +2150,8 @@ async def diagnose_listing(
         listing = request.listing
         if not listing.title and not listing.bullet_points:
             raise HTTPException(status_code=400, detail="请至少输入标题或五点描述")
+        if not _has_required_price(listing.price):
+            raise HTTPException(status_code=400, detail="缺少价格，不能生成正式诊断报告。请补充价格或价格区间后再诊断。")
 
         result = None
         if not request.force_refresh:

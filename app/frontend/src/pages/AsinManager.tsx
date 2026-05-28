@@ -700,6 +700,119 @@ export default function AsinManager() {
     return { product: created as Product, mode: "created" as const };
   };
 
+  useEffect(() => {
+    if (authLoading) return;
+    const consumeLocalBrowserCapture = async () => {
+      const raw = localStorage.getItem("alignx_local_browser_capture");
+      if (!raw) return;
+      let capture: {
+        html?: string;
+        asin?: string;
+        marketplace?: string;
+        title?: string;
+        price?: string;
+        rating?: string;
+        reviewCount?: string;
+        bsrRank?: string;
+        imageCount?: number;
+        bullets?: string[];
+        destination?: string;
+      };
+      try {
+        capture = JSON.parse(raw);
+      } catch {
+        localStorage.removeItem("alignx_local_browser_capture");
+        return;
+      }
+      if (capture.destination && capture.destination !== "asin") return;
+      if (!capture.html || !capture.asin) return;
+
+      localStorage.removeItem("alignx_local_browser_capture");
+      const mp = capture.marketplace || autoImportMarketplace || "US";
+      setAutoImportAsin(capture.asin);
+      setAutoImportMarketplace(mp);
+      setAutoImportLoading(true);
+      setAutoImportProgress(45);
+      setAutoImportMessage("正在用本地浏览器采集证据写入ASIN选品库");
+      try {
+        const res = await axios.post(
+          `${getLongRunningApiBase()}/api/v1/asin-analysis/parse-html-analyze`,
+          {
+            asin: capture.asin,
+            marketplace: mp,
+            html: capture.html,
+            source: "local_browser_capture",
+            captured_title: capture.title || "",
+            captured_price: capture.price || "",
+            captured_rating: capture.rating || "",
+            captured_review_count: capture.reviewCount || "",
+            captured_bsr_rank: capture.bsrRank || "",
+            captured_image_count: capture.imageCount ? String(capture.imageCount) : "",
+            captured_bullets: capture.bullets || [],
+          },
+          { headers: getAuthHeaders(), timeout: 180000 }
+        );
+        const d = res.data;
+        if (!d?.success || !d.product_data) {
+          toast.error(d?.error || "本地采集解析失败");
+          return;
+        }
+        const pd = d.product_data || {};
+        const productData: Omit<Product, "id" | "created_at" | "marketplace"> = {
+          asin: d.asin || capture.asin,
+          title: pd.title || d.product_title || capture.title || capture.asin,
+          bullet_points: Array.isArray(pd.bullet_points) ? pd.bullet_points.join("\n") : pd.bullet_points || "",
+          a_plus_content: pd.description_summary || pd.aplus_content || "",
+          search_keywords: Array.isArray(pd.main_keywords) ? pd.main_keywords.join(", ") : pd.main_keywords || "",
+          price: parseFloat(String(pd.price || capture.price || "").replace(/[^0-9.]/g, "")) || 0,
+          review_count: parseInt(String(pd.review_count || capture.reviewCount || "").replace(/[^0-9]/g, ""), 10) || 0,
+          rating: parseFloat(String(pd.rating || capture.rating || "")) || 0,
+          category: pd.category || "",
+        };
+        const saved = await saveProductToLibrary(productData);
+        const savedProduct = { ...saved.product, marketplace: mp };
+        setAsinMarketplaceMap((prev) => ({ ...prev, [productData.asin]: mp }));
+        setProducts((prev) => {
+          const existingIndex = prev.findIndex((product) => product.asin === productData.asin);
+          if (existingIndex >= 0) {
+            const next = [...prev];
+            next[existingIndex] = savedProduct;
+            return next;
+          }
+          return [savedProduct, ...prev];
+        });
+        saveActionSnapshot({
+          module_key: "asin_selection",
+          module_name: "ASIN选品",
+          action_key: "local_browser_capture_import",
+          action_name: "本地浏览器采集写入ASIN库",
+          asin: productData.asin,
+          title: productData.title,
+          input_snapshot: { asin: capture.asin, marketplace: mp },
+          output_snapshot: { ...productData, marketplace: mp, capture_quality: pd.capture_quality },
+          data_source: "本地浏览器页面采集",
+          confidence: "high",
+          ai_called: true,
+          source_record_table: "products",
+        }).catch(() => {});
+        setAutoImportProgress(100);
+        toast.success(`已用本地浏览器采集${saved.mode === "updated" ? "更新" : "保存"} ${productData.asin}`);
+      } catch (err) {
+        const msg = axios.isAxiosError(err) ? err.response?.data?.detail || err.message : "本地采集写入失败";
+        toast.error(msg);
+      } finally {
+        setAutoImportLoading(false);
+        setAutoImportMessage("");
+      }
+    };
+
+    consumeLocalBrowserCapture();
+    const onCapture = () => consumeLocalBrowserCapture();
+    window.addEventListener("alignx-local-browser-capture", onCapture);
+    return () => window.removeEventListener("alignx-local-browser-capture", onCapture);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authLoading]);
+
   const handleTop40DeepDive = async (item: ScraplingTop40Item) => {
     if (!item.asin) {
       toast.error("这条样本缺少ASIN，无法进入单品分析");

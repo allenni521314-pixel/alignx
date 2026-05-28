@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from typing import Any, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import get_db
@@ -470,6 +470,13 @@ class ParseHtmlAnalyzeRequest(BaseModel):
     marketplace: str = "US"
     html: str
     source: str = "server_proxy_fetch"
+    captured_title: str = ""
+    captured_price: str = ""
+    captured_rating: str = ""
+    captured_review_count: str = ""
+    captured_bsr_rank: str = ""
+    captured_image_count: str = ""
+    captured_bullets: list[str] = Field(default_factory=list)
 
 
 class ParseHtmlAnalyzeResponse(BaseModel):
@@ -1310,6 +1317,22 @@ async def parse_html_and_analyze(
         parsed = _parse_product_page(html, request.marketplace)
         if not parsed or not parsed.get("title"):
             return ParseHtmlAnalyzeResponse(success=False, asin=asin, error="无法从HTML中解析出产品信息")
+        if request.source == "local_browser_capture":
+            captured_bullets = [str(item).strip() for item in (request.captured_bullets or []) if str(item).strip()][:5]
+            if request.captured_title.strip() and len(request.captured_title.strip()) > len(str(parsed.get("title", "")).strip()):
+                parsed["title"] = request.captured_title.strip()
+            if captured_bullets and len(captured_bullets) > len(parsed.get("bullet_points") or []):
+                parsed["bullet_points"] = captured_bullets
+            if request.captured_price.strip():
+                parsed["price"] = request.captured_price.strip()
+            if request.captured_rating.strip():
+                parsed["rating"] = request.captured_rating.strip()
+            if request.captured_review_count.strip():
+                parsed["review_count"] = request.captured_review_count.strip()
+            if request.captured_bsr_rank.strip() and not parsed.get("bsr_rank"):
+                parsed["bsr_rank"] = request.captured_bsr_rank.strip()
+            if request.captured_image_count.strip():
+                parsed["image_count"] = request.captured_image_count.strip()
         if not parsed.get("low_star_reviews"):
             parsed["low_star_reviews"] = await fetch_low_star_reviews(asin, request.marketplace)
 

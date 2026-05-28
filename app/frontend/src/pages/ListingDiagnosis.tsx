@@ -1049,7 +1049,7 @@ function buildManualCaptureQuality(parsed: {
   const bulletCount = (parsed.bullet_points || []).filter((item) => String(item).trim()).length;
 
   if (!parsed.title?.trim()) missingCore.push("标题");
-  if (!parsed.price?.trim()) missingCore.push("价格");
+  if (!hasRequiredPrice(parsed.price || "")) missingCore.push("价格");
   if (!parsed.rating?.trim()) missingCore.push("评分");
   if (!parsed.review_count?.trim()) missingCore.push("评论数");
   missingCore.push("主图/图片");
@@ -1077,6 +1077,40 @@ function buildManualCaptureQuality(parsed: {
     confidence_level: allowFormalDiagnosis ? "medium" : "low",
     rule: "复制文本同样使用证据完整性闸门；缺失字段不得自动猜测。",
   };
+}
+
+function hasRequiredText(value?: string | number | null): boolean {
+  const text = String(value ?? "").trim();
+  if (!text || ["-", "—", "N/A", "n/a", "NA", "待确认", "未提供", "未知"].includes(text)) return false;
+  return true;
+}
+
+function hasRequiredPrice(value?: string | null): boolean {
+  const text = String(value ?? "").trim();
+  return hasRequiredText(text) && /\d/.test(text);
+}
+
+function resolveFormalGateMissing(listing: ListingInput, meta?: FetchMeta | null): string[] {
+  const missing = new Set<string>(meta?.capture_quality?.missing_core || []);
+  const rating = meta?.rating || listing.rating;
+  const reviewCount = meta?.review_count || listing.review_count;
+  const imageCount = getListingImageCount(listing, meta);
+  const bulletCount = splitBullets(listing.bullet_points).length;
+
+  const sync = (label: string, present: boolean) => {
+    if (present) missing.delete(label);
+    else missing.add(label);
+  };
+
+  sync("标题", hasRequiredText(listing.title));
+  sync("价格", hasRequiredPrice(listing.price));
+  sync("评分", hasRequiredText(rating));
+  sync("评论数", hasRequiredText(reviewCount));
+  sync("主图/图片", imageCount > 0 || Boolean(listing.image_urls?.length));
+  if (bulletCount < 3) missing.add("五点描述不足3条");
+  else missing.delete("五点描述不足3条");
+
+  return Array.from(missing).filter(Boolean);
 }
 
 /* ------------------------------------------------------------------ */
@@ -1955,8 +1989,15 @@ export default function ListingDiagnosis() {
         if (task.result_payload) {
           const restoredListing = cleanListing(savedContext.listing || listing);
           const restoredMeta = savedContext.fetchMeta || fetchMeta;
+          const formalGateMissing = resolveFormalGateMissing(restoredListing, restoredMeta);
           setListing(restoredListing);
           setFetchMeta(restoredMeta || null);
+          if (formalGateMissing.length > 0) {
+            setDiagnosisPhase("fetch_success");
+            setShowAdvancedEditor(true);
+            toast.warning(`后台诊断结果已拦截：缺失 ${formalGateMissing.slice(0, 5).join("、")}，未恢复为正式报告。`);
+            return;
+          }
           applyDiagnosisResult(
             task.result_payload,
             restoredListing,
@@ -1968,6 +2009,7 @@ export default function ListingDiagnosis() {
       })
       .catch((err) => {
         if (cancelled) return;
+        localStorage.removeItem(LISTING_DIAGNOSIS_TASK_KEY);
         localStorage.removeItem(LISTING_DIAGNOSIS_TASK_CONTEXT_KEY);
         toast.error(err instanceof Error ? err.message : "后台诊断状态恢复失败");
         setDiagnosisPhase("error");
@@ -2001,11 +2043,27 @@ export default function ListingDiagnosis() {
       .trim();
   };
 
+  const cleanMultilineField = (val: string): string => {
+    if (!val) return "";
+    return val
+      .split("\u0000").join(" ")
+      .replace(/\uFFFC/g, " ")
+      .replace(/\uFE0F/g, " ")
+      .replace(/\[?\s*(?:🖼️\s*)?(?:图片|image|img)\s*[:：][^\]\n]{0,120}\]?/gi, " ")
+      .replace(/\[未确认\]\s*/g, "")
+      .replace(/\[unknown\]\s*/gi, "")
+      .replace(/\[unconfirmed\]\s*/gi, "")
+      .split(/\n|；|;/)
+      .map((item) => item.replace(/\s+/g, " ").trim())
+      .filter(Boolean)
+      .join("\n");
+  };
+
   // Clean all fields in a listing object
   const cleanListing = (l: ListingInput): ListingInput => ({
     ...l,
     title: cleanField(l.title),
-    bullet_points: cleanField(l.bullet_points),
+    bullet_points: cleanMultilineField(l.bullet_points),
     description: cleanField(l.description),
     a_plus_content: cleanField(l.a_plus_content).slice(0, 900),
     backend_keywords: cleanField(l.backend_keywords),
@@ -2432,7 +2490,13 @@ export default function ListingDiagnosis() {
       url?: string;
       source?: string;
       title?: string;
+      price?: string;
+      rating?: string;
+      reviewCount?: string;
+      bsrRank?: string;
+      imageCount?: number;
       bullets?: string[];
+      destination?: string;
     };
     try {
       capture = JSON.parse(raw);
@@ -2440,6 +2504,7 @@ export default function ListingDiagnosis() {
       localStorage.removeItem("alignx_local_browser_capture");
       return;
     }
+    if (capture.destination && capture.destination !== "listing") return;
 
     if (!capture?.html || !capture?.asin) {
       toast.error("本地浏览器采集数据不完整，请回到Amazon页面重新采集");
@@ -2461,6 +2526,11 @@ export default function ListingDiagnosis() {
           asin: capture.asin,
           source: "local_browser_capture",
           captured_title: capture.title || "",
+          captured_price: capture.price || "",
+          captured_rating: capture.rating || "",
+          captured_review_count: capture.reviewCount || "",
+          captured_bsr_rank: capture.bsrRank || "",
+          captured_image_count: capture.imageCount ? String(capture.imageCount) : "",
           captured_bullets: capture.bullets || [],
         },
         { headers: getAuthHeaders(), timeout: 90000 }
@@ -2476,7 +2546,11 @@ export default function ListingDiagnosis() {
         }
         setFetchUrl(capture.url || capture.asin || "");
         setMarketplace(parseRes.data.listing.marketplace || capture.marketplace || marketplace);
-        applyFetchResult(parseRes.data);
+        const applied = applyFetchResult(parseRes.data);
+        if (applied && resolveFormalGateMissing(applied.listing, applied.meta).length > 0) {
+          localStorage.removeItem(LISTING_DIAGNOSIS_TASK_KEY);
+          localStorage.removeItem(LISTING_DIAGNOSIS_TASK_CONTEXT_KEY);
+        }
         logScrapeAttempt(capture.asin, capture.marketplace || marketplace, "local_browser_capture", true, "local_browser_capture");
         toast.success("已接收Chrome插件采集的本地页面，请确认字段后生成诊断");
         localStorage.removeItem("alignx_local_browser_capture");
@@ -2510,14 +2584,16 @@ export default function ListingDiagnosis() {
       toast.error("请至少输入标题或五点描述");
       return;
     }
-    if (activeFetchMeta?.capture_quality && activeFetchMeta.capture_quality.allow_formal_diagnosis === false) {
+    const formalGateMissing = resolveFormalGateMissing(activeListing, activeFetchMeta);
+    if (formalGateMissing.length > 0) {
+      localStorage.removeItem(LISTING_DIAGNOSIS_TASK_KEY);
+      localStorage.removeItem(LISTING_DIAGNOSIS_TASK_CONTEXT_KEY);
+      const isMissingPrice = formalGateMissing.includes("价格");
       toast.warning(
-        `证据完整度 ${activeFetchMeta.capture_quality.completeness ?? 0}%，缺失：${[
-          ...(activeFetchMeta.capture_quality.missing_core || []),
-          ...(activeFetchMeta.capture_quality.missing_strategy || []),
-        ].slice(0, 4).join("、")}。请补齐核心字段后再生成正式诊断。`,
+        `${isMissingPrice ? "缺少价格，不能生成正式诊断报告。" : "核心字段不完整，不能生成正式诊断报告。"}请补齐：${formalGateMissing.slice(0, 5).join("、")}。`,
         { duration: 7000 }
       );
+      setDiagnosisPhase("fetch_success");
       setShowAdvancedEditor(true);
       return;
     }
@@ -2686,6 +2762,21 @@ export default function ListingDiagnosis() {
       });
       const data = res.data;
       const report = data.diagnosis_report || {};
+      const savedListing = cleanListing({
+        ...EMPTY_LISTING,
+        ...(data.input_data || {}),
+        marketplace: data.marketplace || data.input_data?.marketplace || marketplace,
+      });
+      const savedMeta: FetchMeta = {
+        asin: savedListing.asin || "",
+        source: report.trace?.data_source || "history",
+        rating: savedListing.rating || "",
+        review_count: savedListing.review_count || "",
+        bsr_rank: savedListing.bsr_rank || "",
+        image_count: savedListing.image_count || "",
+        has_video: savedListing.has_video || false,
+        has_a_plus: savedListing.has_a_plus || false,
+      };
       const result: DiagnosisResult = {
         scores: data.scores,
         analysis: report.analysis || {},
@@ -2832,6 +2923,19 @@ export default function ListingDiagnosis() {
 
   const radarScores = buildRadarScores();
   const elementsData = buildElements();
+  const formalGateMissing = resolveFormalGateMissing(listing, fetchMeta);
+  const canGenerateFormalDiagnosis = !diagnosing && formalGateMissing.length === 0;
+  const formalGateActionText = formalGateMissing.includes("价格")
+    ? "补齐价格后生成报告"
+    : formalGateMissing.length > 0
+      ? "补齐核心字段后生成报告"
+      : "确认并生成诊断报告";
+  const updateListingCoreField = (field: keyof ListingInput, value: string) => {
+    setListing((prev) => cleanListing({ ...prev, [field]: value }));
+  };
+  const updateMetaField = (field: keyof FetchMeta, value: string) => {
+    setFetchMeta((prev) => ({ ...(prev || {}), [field]: value }));
+  };
 
   return (
     <div className="flex h-screen bg-gray-50 text-gray-900">
@@ -3041,28 +3145,116 @@ export default function ListingDiagnosis() {
                   </CardHeader>
                   <CardContent className="space-y-4">
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-                      {[
-                        ["产品标题", listing.title || "待确认", "lg:col-span-2"],
-                        ["品牌", listing.brand || "待确认", ""],
-                        ["类目", listing.category || "待确认", ""],
-                        ["价格", listing.price || "—", ""],
-                        ["评分", fetchMeta?.rating || listing.rating || "—", ""],
-                        ["评论数", fetchMeta?.review_count || listing.review_count || "—", ""],
-                        ["BSR", fetchMeta?.bsr_rank ? `#${fetchMeta.bsr_rank}` : listing.bsr_rank || "—", ""],
-                        ["主图数量", getListingImageCount(listing, fetchMeta) ? "1" : "—", ""],
-                        ["副图数量", getListingImageCount(listing, fetchMeta) ? String(Math.max(getListingImageCount(listing, fetchMeta) - 1, 0)) : "—", ""],
-                        ["A+", fetchMeta?.has_a_plus || listing.has_a_plus ? "有" : "待确认", ""],
-                        ["视频", fetchMeta?.has_video || listing.has_video ? "有" : "无/待确认", ""],
-                        ["五点描述", splitBullets(listing.bullet_points).length >= 5 ? "完整" : `${splitBullets(listing.bullet_points).length}/5`, ""],
-                      ].map(([label, value, extra]) => (
-                        <div key={String(label)} className={`rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 ${extra}`}>
-                          <p className="text-[11px] text-gray-500">{label}</p>
-                          <p className="mt-1 text-sm font-medium text-gray-900 line-clamp-2">{value}</p>
-                        </div>
-                      ))}
+                      <div className="lg:col-span-2 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+                        <label className="text-[11px] text-gray-500">产品标题</label>
+                        <Input
+                          value={listing.title}
+                          onChange={(e) => updateListingCoreField("title", e.target.value)}
+                          placeholder="回查Amazon后补充产品标题"
+                          className="mt-1 h-9 bg-white border-gray-200 text-sm"
+                        />
+                      </div>
+                      <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+                        <label className="text-[11px] text-gray-500">品牌</label>
+                        <Input value={listing.brand} onChange={(e) => updateListingCoreField("brand", e.target.value)} placeholder="待确认" className="mt-1 h-9 bg-white border-gray-200 text-sm" />
+                      </div>
+                      <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+                        <label className="text-[11px] text-gray-500">类目</label>
+                        <Input value={listing.category} onChange={(e) => updateListingCoreField("category", e.target.value)} placeholder="待确认" className="mt-1 h-9 bg-white border-gray-200 text-sm" />
+                      </div>
+                      <div className={`rounded-lg border px-3 py-2 ${formalGateMissing.includes("价格") ? "border-amber-200 bg-amber-50" : "border-gray-100 bg-gray-50"}`}>
+                        <label className="text-[11px] text-gray-500">价格 *</label>
+                        <Input value={listing.price} onChange={(e) => updateListingCoreField("price", e.target.value)} placeholder="如 $39.99" className="mt-1 h-9 bg-white border-gray-200 text-sm" />
+                      </div>
+                      <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+                        <label className="text-[11px] text-gray-500">评分</label>
+                        <Input
+                          value={fetchMeta?.rating || listing.rating || ""}
+                          onChange={(e) => {
+                            updateMetaField("rating", e.target.value);
+                            updateListingCoreField("rating", e.target.value);
+                          }}
+                          placeholder="如 4.4"
+                          className="mt-1 h-9 bg-white border-gray-200 text-sm"
+                        />
+                      </div>
+                      <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+                        <label className="text-[11px] text-gray-500">评论数</label>
+                        <Input
+                          value={fetchMeta?.review_count || listing.review_count || ""}
+                          onChange={(e) => {
+                            updateMetaField("review_count", e.target.value);
+                            updateListingCoreField("review_count", e.target.value);
+                          }}
+                          placeholder="如 88"
+                          className="mt-1 h-9 bg-white border-gray-200 text-sm"
+                        />
+                      </div>
+                      <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+                        <label className="text-[11px] text-gray-500">BSR</label>
+                        <Input
+                          value={fetchMeta?.bsr_rank || listing.bsr_rank || ""}
+                          onChange={(e) => {
+                            updateMetaField("bsr_rank", e.target.value);
+                            updateListingCoreField("bsr_rank", e.target.value);
+                          }}
+                          placeholder="如 #10693"
+                          className="mt-1 h-9 bg-white border-gray-200 text-sm"
+                        />
+                      </div>
+                      <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+                        <label className="text-[11px] text-gray-500">图片总数</label>
+                        <Input
+                          value={fetchMeta?.image_count || listing.image_count || ""}
+                          onChange={(e) => {
+                            updateMetaField("image_count", e.target.value);
+                            updateListingCoreField("image_count", e.target.value);
+                          }}
+                          placeholder="如 7"
+                          className="mt-1 h-9 bg-white border-gray-200 text-sm"
+                        />
+                        <p className="mt-1 text-[10px] text-gray-500">主图1张，副图 {Math.max(getListingImageCount(listing, fetchMeta) - 1, 0)} 张</p>
+                      </div>
+                      <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+                        <label className="text-[11px] text-gray-500">A+</label>
+                        <Select value={listing.has_a_plus || fetchMeta?.has_a_plus ? "yes" : "unknown"} onValueChange={(value) => {
+                          const yes = value === "yes";
+                          setListing((prev) => ({ ...prev, has_a_plus: yes }));
+                          setFetchMeta((prev) => ({ ...(prev || {}), has_a_plus: yes }));
+                        }}>
+                          <SelectTrigger className="mt-1 h-9 bg-white border-gray-200 text-sm"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="yes">有</SelectItem>
+                            <SelectItem value="unknown">无/待确认</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+                        <label className="text-[11px] text-gray-500">视频</label>
+                        <Select value={listing.has_video || fetchMeta?.has_video ? "yes" : "unknown"} onValueChange={(value) => {
+                          const yes = value === "yes";
+                          setListing((prev) => ({ ...prev, has_video: yes }));
+                          setFetchMeta((prev) => ({ ...(prev || {}), has_video: yes }));
+                        }}>
+                          <SelectTrigger className="mt-1 h-9 bg-white border-gray-200 text-sm"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="yes">有</SelectItem>
+                            <SelectItem value="unknown">无/待确认</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className={`md:col-span-2 lg:col-span-4 rounded-lg border px-3 py-2 ${formalGateMissing.includes("五点描述不足3条") ? "border-amber-200 bg-amber-50" : "border-gray-100 bg-gray-50"}`}>
+                        <label className="text-[11px] text-gray-500">五点描述 · 当前 {splitBullets(listing.bullet_points).length}/5</label>
+                        <Textarea
+                          value={listing.bullet_points}
+                          onChange={(e) => updateListingCoreField("bullet_points", e.target.value)}
+                          placeholder="回查Amazon后补充五点描述，每条一行"
+                          className="mt-1 min-h-[128px] bg-white border-gray-200 text-sm"
+                        />
+                      </div>
                     </div>
                     {fetchMeta?.capture_quality && (
-                      <div className={`rounded-lg border p-3 ${fetchMeta.capture_quality.allow_formal_diagnosis ? "border-emerald-100 bg-emerald-50" : "border-amber-100 bg-amber-50"}`}>
+                      <div className={`rounded-lg border p-3 ${formalGateMissing.length === 0 ? "border-emerald-100 bg-emerald-50" : "border-amber-100 bg-amber-50"}`}>
                         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                           <div>
                             <p className="text-sm font-semibold text-gray-900">证据完整性闸门</p>
@@ -3070,17 +3262,24 @@ export default function ListingDiagnosis() {
                           </div>
                           <div className="flex gap-2">
                             <Badge variant="outline">完整度 {fetchMeta.capture_quality.completeness ?? 0}%</Badge>
-                            <Badge variant={fetchMeta.capture_quality.allow_formal_diagnosis ? "default" : "secondary"}>
-                              {fetchMeta.capture_quality.allow_formal_diagnosis ? "可正式诊断" : "仅低置信预检"}
+                            <Badge variant={formalGateMissing.length === 0 ? "default" : "secondary"}>
+                              {formalGateMissing.length === 0 ? "可正式诊断" : "仅低置信预检"}
                             </Badge>
                           </div>
                         </div>
-                        {Boolean(fetchMeta.capture_quality.missing_core?.length || fetchMeta.capture_quality.missing_strategy?.length) && (
+                        {Boolean(formalGateMissing.length || fetchMeta.capture_quality.missing_strategy?.length) && (
                           <p className="text-xs text-gray-600 mt-2">
                             缺失字段：
-                            {[...(fetchMeta.capture_quality.missing_core || []), ...(fetchMeta.capture_quality.missing_strategy || [])].join("、")}
+                            {[...formalGateMissing, ...(fetchMeta.capture_quality.missing_strategy || [])].join("、")}
                           </p>
                         )}
+                      </div>
+                    )}
+                    {formalGateMissing.length > 0 && (
+                      <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                        当前只能做低置信预检，不能生成正式诊断报告。请先回查 Amazon 补齐：
+                        <span className="font-semibold"> {formalGateMissing.join("、")} </span>
+                        后再生成。
                       </div>
                     )}
                     <div>
@@ -3104,13 +3303,13 @@ export default function ListingDiagnosis() {
                       ) : (
                         <Button
                           onClick={() => handleDiagnose()}
-                          disabled={diagnosing}
-                          className="bg-brand-600 hover:bg-brand-700 text-white min-w-[180px]"
+                          disabled={!canGenerateFormalDiagnosis}
+                          className={`text-white min-w-[180px] ${canGenerateFormalDiagnosis ? "bg-brand-600 hover:bg-brand-700" : "bg-gray-300 cursor-not-allowed"}`}
                         >
                           {diagnosing ? (
                             <><Loader2 className="w-4 h-4 mr-2 animate-spin" />生成中...</>
                           ) : (
-                            <><Zap className="w-4 h-4 mr-2" />确认并生成诊断报告</>
+                            <><Zap className="w-4 h-4 mr-2" />{formalGateActionText}</>
                           )}
                         </Button>
                       )}
