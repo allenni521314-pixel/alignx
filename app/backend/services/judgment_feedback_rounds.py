@@ -1,7 +1,7 @@
 import logging
 import json
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any, Optional, Sequence
 
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -54,7 +54,7 @@ class JudgmentFeedbackRoundService:
         logger.info("Created judgment feedback round id=%s", obj.id)
         return obj
 
-    async def update(self, obj_id: int, data: dict[str, Any], user_id: str | list[str]) -> Optional[JudgmentFeedbackRound]:
+    async def update(self, obj_id: int, data: dict[str, Any], user_id: str | Sequence[str]) -> Optional[JudgmentFeedbackRound]:
         query = select(JudgmentFeedbackRound).where(
             JudgmentFeedbackRound.id == obj_id,
         )
@@ -78,7 +78,7 @@ class JudgmentFeedbackRoundService:
     async def list(
         self,
         *,
-        user_id: str | list[str],
+        user_id: str | Sequence[str],
         asin: str | None = None,
         listing_diagnosis_id: int | None = None,
         product_id: int | None = None,
@@ -114,7 +114,7 @@ class JudgmentFeedbackRoundService:
     async def learning_memory(
         self,
         *,
-        user_id: str | list[str],
+        user_id: str | Sequence[str],
         asin: str | None = None,
         product_id: int | None = None,
         limit: int = 200,

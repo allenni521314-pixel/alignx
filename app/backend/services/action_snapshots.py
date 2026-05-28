@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Sequence
 
 from sqlalchemy import desc, select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -56,7 +56,7 @@ class ActionSnapshotsService:
         rows = await self.db.execute(query.order_by(desc(ActionSnapshot.id)).offset(skip).limit(limit))
         return list(rows.scalars().all()), total
 
-    async def get(self, snapshot_id: int, user_id: Optional[str | list[str]] = None) -> Optional[ActionSnapshot]:
+    async def get(self, snapshot_id: int, user_id: Optional[str | Sequence[str]] = None) -> Optional[ActionSnapshot]:
         query = select(ActionSnapshot).where(ActionSnapshot.id == snapshot_id)
         if isinstance(user_id, list):
             query = query.where(ActionSnapshot.user_id.in_(user_id))
