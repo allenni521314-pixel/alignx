@@ -1707,6 +1707,7 @@ export default function ListingDiagnosis() {
   const [selectedListingAsin, setSelectedListingAsin] = useState("");
   const [diagnosisPhase, setDiagnosisPhase] = useState<DiagnosisPhase>("idle");
   const [showAdvancedEditor, setShowAdvancedEditor] = useState(false);
+  const [localCaptureImporting, setLocalCaptureImporting] = useState(false);
 
   // Manual paste mode
   const [showManualPaste, setShowManualPaste] = useState(false);
@@ -2328,6 +2329,76 @@ export default function ListingDiagnosis() {
     setShowManualPaste(false);
     setManualPasteText("");
   };
+
+  const consumeLocalBrowserCapture = async () => {
+    if (authLoading || localCaptureImporting) return;
+    const raw = localStorage.getItem("alignx_local_browser_capture");
+    if (!raw) return;
+
+    let capture: {
+      html?: string;
+      asin?: string;
+      marketplace?: string;
+      url?: string;
+      source?: string;
+    };
+    try {
+      capture = JSON.parse(raw);
+    } catch {
+      localStorage.removeItem("alignx_local_browser_capture");
+      return;
+    }
+
+    if (!capture?.html || !capture?.asin) {
+      toast.error("本地浏览器采集数据不完整，请回到Amazon页面重新采集");
+      localStorage.removeItem("alignx_local_browser_capture");
+      return;
+    }
+
+    setLocalCaptureImporting(true);
+    setFetching(true);
+    setDiagnosisPhase("fetching");
+    setFetchProgress("正在解析本地浏览器采集的Amazon页面...");
+    setFetchProgressValue(35);
+    try {
+      const parseRes = await axios.post(
+        "/api/v1/listing-diagnosis/parse-html",
+        {
+          html: capture.html,
+          marketplace: capture.marketplace || marketplace,
+          asin: capture.asin,
+          source: "local_browser_capture",
+        },
+        { headers: getAuthHeaders(), timeout: 90000 }
+      );
+      if (parseRes.data?.success && parseRes.data.listing?.title) {
+        setFetchUrl(capture.url || capture.asin || "");
+        setMarketplace(parseRes.data.listing.marketplace || capture.marketplace || marketplace);
+        applyFetchResult(parseRes.data);
+        logScrapeAttempt(capture.asin, capture.marketplace || marketplace, "local_browser_capture", true, "local_browser_capture");
+        toast.success("已接收Chrome插件采集的本地页面，请确认字段后生成诊断");
+        localStorage.removeItem("alignx_local_browser_capture");
+      } else {
+        toast.error(parseRes.data?.error || "本地浏览器采集解析失败");
+      }
+    } catch {
+      toast.error("本地浏览器采集解析失败，请确认已登录AlignX后重试");
+    } finally {
+      setFetching(false);
+      setFetchProgress("");
+      setFetchProgressValue(0);
+      setFetchElapsed(0);
+      setLocalCaptureImporting(false);
+    }
+  };
+
+  useEffect(() => {
+    consumeLocalBrowserCapture();
+    const onCapture = () => consumeLocalBrowserCapture();
+    window.addEventListener("alignx-local-browser-capture", onCapture);
+    return () => window.removeEventListener("alignx-local-browser-capture", onCapture);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authLoading, localCaptureImporting]);
 
   const handleDiagnose = async (listingOverride?: ListingInput, fetchMetaOverride?: FetchMeta | null) => {
     const activeListing = listingOverride || listing;
