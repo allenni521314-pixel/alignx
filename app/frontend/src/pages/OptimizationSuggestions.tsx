@@ -18,6 +18,8 @@ import {
   Database,
   ClipboardCheck,
   BarChart3,
+  XCircle,
+  ShieldCheck,
 } from "lucide-react";
 import { useLocation } from "react-router-dom";
 
@@ -481,6 +483,44 @@ export default function OptimizationSuggestions() {
     ];
   }, [feedbackQuality.bindingReady, feedbackQuality.sampleReady, hypothesisValidations.length]);
 
+  const conclusionQuality = useMemo(() => {
+    const hitStatus = normalizeStatus(hitLearning?.status);
+    const canFinalize = feedbackQuality.canConclude;
+    const hasMiss = hypothesisValidations.some((item) => normalizeStatus(item.hit_status) === "未命中");
+    const hasHit = hypothesisValidations.some((item) => normalizeStatus(item.hit_status) === "命中");
+    const title = canFinalize
+      ? hasMiss && !hasHit
+        ? "本轮未成立，需要先复盘失败原因"
+        : "本轮可形成复盘结论"
+      : "暂不能形成最终复盘结论";
+    const reason = canFinalize
+      ? hitLearning?.basis || "广告样本、假设绑定和命中判断已满足复盘条件。"
+      : feedbackQuality.reason;
+    const nextAction = canFinalize
+      ? hitLearning?.next_iteration || agentDecision?.chief_decision?.next_action || "沉淀结论后进入下一轮优化。"
+      : "先补齐广告样本、假设绑定或效果验证结论，再生成下一轮优化。";
+    return {
+      title,
+      reason,
+      nextAction,
+      canFinalize,
+      status: canFinalize ? hitStatus : "暂不判定",
+    };
+  }, [agentDecision?.chief_decision?.next_action, feedbackQuality.canConclude, feedbackQuality.reason, hitLearning, hypothesisValidations]);
+
+  const conclusionActions = useMemo(() => {
+    if (!conclusionQuality.canFinalize) {
+      return [
+        { label: "回到数据回流", path: "/optimization-suggestions?view=data-feedback", variant: "default" as const },
+        { label: "补录广告记录", path: "/ad-analytics?view=records", variant: "outline" as const },
+      ];
+    }
+    return [
+      { label: "生成下一轮优化", path: "/optimization-suggestions?view=next-round", variant: "default" as const },
+      { label: "查看效果验证", path: "/ad-analytics?view=validation", variant: "outline" as const },
+    ];
+  }, [conclusionQuality.canFinalize]);
+
   const liveReviewConclusions = useMemo(() => {
     if (!agentDecision) return reviewConclusions;
     const failure = failureTaxonomy.find((item) => item.key === hitLearning?.likely_failure_reason);
@@ -749,18 +789,106 @@ export default function OptimizationSuggestions() {
           )}
 
           {view === "conclusion" && (
-            <Card className="bg-white border-gray-200 p-5 mb-6">
-              <h2 className="text-sm font-semibold text-gray-900 mb-3">本轮复盘结论</h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {liveReviewConclusions.map((item) => (
-                  <div key={item.label} className="rounded-lg bg-gray-50 border border-gray-100 p-3">
-                    <p className="text-[11px] font-semibold text-gray-500 mb-1">{item.label}</p>
-                    <p className="text-sm text-gray-700">{item.text}</p>
-                    <p className="text-xs text-brand-600 mt-2">{item.action}</p>
+            <>
+              <Card className="bg-white border-gray-200 p-5 mb-6">
+                <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-5">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Badge
+                        className={
+                          conclusionQuality.canFinalize
+                            ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                            : "bg-amber-50 text-amber-700 border-amber-200"
+                        }
+                      >
+                        {conclusionQuality.status}
+                      </Badge>
+                      <span className="text-xs text-gray-500">
+                        复盘只使用已绑定假设且样本达标的数据
+                      </span>
+                    </div>
+                    <h2 className="text-lg font-semibold text-gray-900 mt-3">{conclusionQuality.title}</h2>
+                    <p className="text-sm text-gray-600 mt-2">{conclusionQuality.reason}</p>
+                    <p className="text-sm text-brand-700 mt-3">下一步：{conclusionQuality.nextAction}</p>
                   </div>
-                ))}
+                  <div className="flex flex-wrap gap-2 shrink-0">
+                    {conclusionActions.map((action) => (
+                      <Button
+                        key={action.label}
+                        asChild
+                        variant={action.variant === "outline" ? "outline" : "default"}
+                        className={action.variant === "outline" ? "border-gray-200 text-brand-700 hover:bg-brand-50" : "bg-brand-700 hover:bg-brand-800"}
+                      >
+                        <a href={action.path}>
+                          {action.label}
+                          <ArrowRight className="w-3.5 h-3.5 ml-1" />
+                        </a>
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-5">
+                  {[
+                    { label: "广告点击", value: formatNumber(feedbackQuality.totalClicks), desc: feedbackQuality.sampleReady ? "样本达标" : "样本不足" },
+                    { label: "假设绑定", value: `${feedbackQuality.assignedCount}/${hypothesisValidations.length || 0}`, desc: feedbackQuality.bindingReady ? "完整" : "未完整" },
+                    { label: "完成判断", value: String(feedbackQuality.completedCount), desc: "命中/未命中" },
+                    { label: "可沉淀", value: conclusionQuality.canFinalize ? "是" : "否", desc: "是否写入经验库" },
+                  ].map((item) => (
+                    <div key={item.label} className="rounded-lg bg-gray-50 border border-gray-100 p-3">
+                      <p className="text-[11px] text-gray-500">{item.label}</p>
+                      <p className="text-xl font-bold text-gray-900 mt-1">{item.value}</p>
+                      <p className="text-[11px] text-gray-400 mt-1">{item.desc}</p>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+                {liveReviewConclusions.map((item) => {
+                  const isFailure = item.label.includes("未成立") || item.label.includes("修正");
+                  const isPositive = item.label.includes("命中") || item.label.includes("判断") || item.label.includes("保留");
+                  return (
+                    <Card key={item.label} className="bg-white border-gray-200 p-5">
+                      <div className="flex items-start gap-3">
+                        <div
+                          className={
+                            isFailure
+                              ? "w-9 h-9 rounded-lg bg-red-50 text-red-600 flex items-center justify-center shrink-0"
+                              : isPositive
+                                ? "w-9 h-9 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0"
+                                : "w-9 h-9 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center shrink-0"
+                          }
+                        >
+                          {isFailure ? <XCircle className="w-4 h-4" /> : isPositive ? <ShieldCheck className="w-4 h-4" /> : <AlertTriangle className="w-4 h-4" />}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-gray-900">{item.label}</p>
+                          <p className="text-sm text-gray-700 mt-2">{item.text}</p>
+                          <p className="text-xs text-brand-600 mt-3">{item.action}</p>
+                        </div>
+                      </div>
+                    </Card>
+                  );
+                })}
               </div>
-            </Card>
+
+              <Card className="bg-white border-gray-200 p-5 mb-6">
+                <h2 className="text-sm font-semibold text-gray-900 mb-3">复盘写入规则</h2>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  {[
+                    { title: "成立项", text: "只有点击样本达标且CTR/CVR/ACOS表现一致改善，才进入可复用经验。" },
+                    { title: "未成立项", text: "先归因到点击、承接、价格信任、关键词意图或样本不足，不能直接推翻诊断模型。" },
+                    { title: "下一轮", text: "每轮只改变一个核心变量，并把广告组、关键词组和Listing版本绑定到同一个假设ID。" },
+                  ].map((item) => (
+                    <div key={item.title} className="rounded-lg bg-gray-50 border border-gray-100 p-3">
+                      <p className="text-sm font-semibold text-gray-900">{item.title}</p>
+                      <p className="text-xs text-gray-600 mt-2 leading-relaxed">{item.text}</p>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+            </>
           )}
 
           {view === "data-feedback" && (
