@@ -503,6 +503,8 @@ class ABComparisonRequest(BaseModel):
     variant_b_label: str = "Optimized"
     historical_conversion_a: Optional[float] = None
     historical_conversion_b: Optional[float] = None
+    test_plan: Optional[dict] = None
+    source_diagnosis_id: Optional[int] = None
 
 
 @router.post("/ab-comparison")
@@ -528,6 +530,20 @@ async def compare_listings_ab(
     """
     try:
         service = CausalABComparisonService(db)
+        try:
+            return await service.compare_listings_ai(
+                variant_a=request.variant_a,
+                variant_b=request.variant_b,
+                variant_a_id=request.variant_a_label,
+                variant_b_id=request.variant_b_label,
+                historical_conversion_a=request.historical_conversion_a,
+                historical_conversion_b=request.historical_conversion_b,
+                test_plan=request.test_plan or {},
+                source_diagnosis_id=request.source_diagnosis_id,
+            )
+        except Exception as ai_error:
+            logger.warning(f"DeepSeek A/B comparison failed, using backend rules fallback: {ai_error}")
+
         result = await service.compare_listings(
             variant_a=request.variant_a,
             variant_b=request.variant_b,
@@ -555,7 +571,10 @@ async def compare_listings_ab(
             },
             "predicted_conversion_impact": result.predicted_conversion_impact,
             "recommendations": result.actionable_recommendations,
-            "text_report": text_report
+            "text_report": f"DeepSeek A/B推理不可用，已使用后端规则兜底。\n\n{text_report}",
+            "model_used": "backend_rules_fallback",
+            "judgment_source": "backend_rules_fallback",
+            "data_source": "backend_rules_fallback"
         }
 
     except HTTPException:

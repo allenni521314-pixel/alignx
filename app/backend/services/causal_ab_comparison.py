@@ -12,11 +12,14 @@ Phase 3 核心功能：
 
 import json
 import logging
+import re
 from typing import Dict, Any, List, Optional, Tuple
 from dataclasses import dataclass
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from schemas.aihub import ChatMessage, GenTxtRequest
+from services.aihub import AIHubService
 from services.causal_diagnosis import CausalDiagnosisService
 from services.review_causal_validation import ReviewCausalValidationService
 from services.causal_service_base import CausalServiceBase, with_cache
@@ -48,6 +51,7 @@ class CausalABComparisonService(CausalServiceBase):
         super().__init__(db)
         self.causal_diagnosis = CausalDiagnosisService(db)
         self.review_validation = ReviewCausalValidationService(db)
+        self.ai_service = AIHubService()
 
         # 历史基准数据（生产环境应该从数据库加载）
         # 基于历史分析得出的"因果得分 vs 转化率提升"的关系
@@ -57,6 +61,104 @@ class CausalABComparisonService(CausalServiceBase):
             "side_effect_transparency": 0.2,  # 每10分提升2%转化率
             "honesty_score": 0.35,       # 每10分诚信度提升3.5%转化率
         }
+
+    @staticmethod
+    def _extract_json(content: str) -> Dict[str, Any]:
+        text = (content or "").strip()
+        text = re.sub(r"^```(?:json)?\s*", "", text)
+        text = re.sub(r"\s*```$", "", text)
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            match = re.search(r"\{[\s\S]*\}", text)
+            if not match:
+                raise
+            return json.loads(match.group(0))
+
+    async def compare_listings_ai(
+        self,
+        variant_a: Dict[str, Any],
+        variant_b: Dict[str, Any],
+        variant_a_id: str = "A",
+        variant_b_id: str = "B",
+        historical_conversion_a: Optional[float] = None,
+        historical_conversion_b: Optional[float] = None,
+        test_plan: Optional[Dict[str, Any]] = None,
+        source_diagnosis_id: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Single-call DeepSeek A/B reasoning for Listing hypothesis validation.
+
+        This is the primary production path. Static rules are only fallback.
+        """
+        prompt = f"""
+你是 AlignX 的 Amazon Listing A/B 测试判断模型。请用 COSMO/Rufus × 顶级亚马逊运营操盘手逻辑，对两个版本做广告验证前判断。
+
+重要边界：
+1. A/B 不是文案审美比较，而是 Listing 假设验证。
+2. 必须围绕本轮单变量，不要鼓励同时改多个变量。
+3. 判断要落到广告指标：CTR、CVR、CPC、ACOS、关键词订单、无效点击率。
+4. 不能把规则分当作最终结论；规则只做一致性校验。你需要做语义推理。
+5. 真实广告数据最高优先级；当前没有真实广告结果时，只能输出“预测/建议验证”，不能说已验证。
+
+来源诊断ID：{source_diagnosis_id or ""}
+本轮测试计划：
+{json.dumps(test_plan or {}, ensure_ascii=False)}
+
+A版本（{variant_a_id}）：
+{json.dumps(variant_a, ensure_ascii=False)}
+历史CVR A：{historical_conversion_a if historical_conversion_a is not None else "未提供"}
+
+B版本（{variant_b_id}）：
+{json.dumps(variant_b, ensure_ascii=False)}
+历史CVR B：{historical_conversion_b if historical_conversion_b is not None else "未提供"}
+
+请只输出 JSON，结构必须如下：
+{{
+  "winner": "A | B | tie",
+  "win_margin": 0-100,
+  "confidence_score": 0-100,
+  "model_used": "AI_DEEP_MODEL",
+  "judgment_source": "deepseek_v4_reasoning",
+  "dimension_comparison": {{
+    "语义相关性": {{"A": 0-100, "B": 0-100, "delta": B-A, "winner": "A|B|tie"}},
+    "点击吸引": {{"A": 0-100, "B": 0-100, "delta": B-A, "winner": "A|B|tie"}},
+    "转化承接": {{"A": 0-100, "B": 0-100, "delta": B-A, "winner": "A|B|tie"}},
+    "机制可信": {{"A": 0-100, "B": 0-100, "delta": B-A, "winner": "A|B|tie"}},
+    "风险控制": {{"A": 0-100, "B": 0-100, "delta": B-A, "winner": "A|B|tie"}},
+    "广告归因清晰": {{"A": 0-100, "B": 0-100, "delta": B-A, "winner": "A|B|tie"}}
+  }},
+  "key_strengths": {{"variant_a": ["..."], "variant_b": ["..."]}},
+  "key_weaknesses": {{"variant_a": ["..."], "variant_b": ["..."]}},
+  "predicted_conversion_impact": {{
+    "variant_a_impact_pct": 0,
+    "variant_b_impact_pct": 0,
+    "delta_pct": 0
+  }},
+  "recommendations": [
+    "必须包含小预算广告验证建议",
+    "必须说明看哪些指标，以及如果CTR升CVR不升代表什么"
+  ],
+  "text_report": "中文完整判断，说明为什么这样判断，以及下一轮怎么验证"
+}}
+"""
+        response = await self.ai_service.gentxt(
+            GenTxtRequest(
+                messages=[ChatMessage(role="user", content=prompt)],
+                model="AI_DEEP_MODEL",
+                temperature=0,
+                max_tokens=2600,
+            )
+        )
+        data = self._extract_json(response.content)
+        winner = str(data.get("winner") or "tie").strip().upper()
+        data["winner"] = winner if winner in {"A", "B"} else "tie"
+        data["win_margin"] = float(data.get("win_margin") or 0)
+        data["confidence_score"] = float(data.get("confidence_score") or 0)
+        data["model_used"] = response.model
+        data["judgment_source"] = "deepseek_v4_reasoning"
+        data["data_source"] = "deepseek_v4_reasoning"
+        data["usage"] = response.usage or {}
+        return data
 
     async def compare_listings(
         self,

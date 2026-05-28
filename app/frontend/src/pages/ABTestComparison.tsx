@@ -40,6 +40,10 @@ interface ABResult {
   predicted_conversion_impact?: Record<string, number>;
   recommendations?: string[];
   text_report?: string;
+  model_used?: string;
+  judgment_source?: string;
+  data_source?: string;
+  fallback_reason?: string;
 }
 
 interface ListingDiagnosisDetail {
@@ -305,6 +309,10 @@ function buildLocalABResult(a: VariantForm, b: VariantForm, reason = "后端AI�
       "若CTR提升但CVR不升，说明主图/标题吸引成立，但详情页承接或价格信任不足。",
     ],
     text_report: `${reason}\n\nA均分：${avgA.toFixed(1)}，B均分：${avgB.toFixed(1)}。${winner === "tie" ? "两版差距较小，建议真实流量验证。" : `${winner}版本在需求承接、因果解释或历史CVR上更强。`} 下一步进入执行记录，建立广告验证任务。`,
+    model_used: "frontend_local_rules",
+    judgment_source: "frontend_local_fallback",
+    data_source: "frontend_local_fallback",
+    fallback_reason: reason,
   };
 }
 
@@ -380,10 +388,13 @@ export default function ABTestComparison() {
           variant_b_label: variantB.label || "B",
           historical_conversion_a: safeNum(variantA.conversion),
           historical_conversion_b: safeNum(variantB.conversion),
+          test_plan: testPlan,
+          source_diagnosis_id: sourceDiagnosisId,
         },
         { headers: getAuthHeaders(), timeout: 180000 }
       );
       setResult(res.data);
+      const source = res.data?.judgment_source || res.data?.data_source || "deepseek_v4_reasoning";
       saveActionSnapshot({
         module_key: "ab_test",
         module_name: "A/B测试",
@@ -393,18 +404,18 @@ export default function ABTestComparison() {
         title: `${variantA.label} vs ${variantB.label}`,
         input_snapshot: { variant_a: variantA, variant_b: variantB, test_plan: testPlan, source_diagnosis_id: sourceDiagnosisId },
         output_snapshot: res.data,
-        data_source: "ai_ab_comparison",
+        data_source: source,
         confidence: String(res.data?.confidence_score || ""),
-        ai_called: true,
+        ai_called: source !== "backend_rules_fallback",
         source_record_table: "action_snapshots",
       }).catch(() => {});
-      toast.success("A/B测试对比完成");
+      toast.success(source === "backend_rules_fallback" ? "A/B测试已用后台规则兜底" : "DeepSeek-V4 A/B推理完成");
     } catch (e) {
       const reason = axios.isAxiosError(e)
         ? e.code === "ECONNABORTED"
-          ? "后端A/B对比超过180秒，已使用本地规则兜底。"
-          : e.response?.data?.detail || "后端A/B对比不可用，已使用本地规则兜底。"
-        : "后端A/B对比不可用，已使用本地规则兜底。";
+          ? "后端A/B对比超过180秒，本地兜底仅作临时参考。"
+          : e.response?.data?.detail || "后端A/B对比网络失败，本地兜底仅作临时参考。"
+        : "后端A/B对比网络失败，本地兜底仅作临时参考。";
       const fallback = buildLocalABResult(variantA, variantB, reason);
       setResult(fallback);
       saveActionSnapshot({
@@ -421,7 +432,7 @@ export default function ABTestComparison() {
         ai_called: false,
         source_record_table: "action_snapshots",
       }).catch(() => {});
-      toast.warning("已生成本地兜底A/B对比结果");
+      toast.warning("后端未返回结果，已生成临时本地兜底");
     } finally {
       setLoading(false);
     }
@@ -433,6 +444,16 @@ export default function ABTestComparison() {
       : result?.winner === "B"
         ? variantB.label
         : "两版接近";
+
+  const resultSource = result?.judgment_source || result?.data_source || "";
+  const resultSourceLabel =
+    resultSource === "deepseek_v4_reasoning"
+      ? `DeepSeek-V4 推理${result?.model_used ? ` · ${result.model_used}` : ""}`
+      : resultSource === "backend_rules_fallback"
+        ? "后台规则兜底"
+        : resultSource === "frontend_local_fallback"
+          ? "前端本地兜底"
+          : "判断来源待确认";
 
   return (
     <div className="flex h-screen bg-white text-gray-900">
@@ -576,6 +597,17 @@ export default function ABTestComparison() {
                     </div>
                   </div>
                   <div className="flex gap-2 text-sm">
+                    <span
+                      className={`px-3 py-1.5 rounded-lg border ${
+                        resultSource === "deepseek_v4_reasoning"
+                          ? "bg-emerald-50 border-emerald-200 text-emerald-700"
+                          : resultSource === "backend_rules_fallback"
+                            ? "bg-amber-50 border-amber-200 text-amber-700"
+                            : "bg-red-50 border-red-200 text-red-700"
+                      }`}
+                    >
+                      {resultSourceLabel}
+                    </span>
                     <span className="px-3 py-1.5 rounded-lg bg-gray-50 border border-gray-200">
                       优势 {Math.round(result.win_margin || 0)}分
                     </span>
