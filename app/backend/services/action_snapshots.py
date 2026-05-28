@@ -56,9 +56,11 @@ class ActionSnapshotsService:
         rows = await self.db.execute(query.order_by(desc(ActionSnapshot.id)).offset(skip).limit(limit))
         return list(rows.scalars().all()), total
 
-    async def get(self, snapshot_id: int, user_id: Optional[str] = None) -> Optional[ActionSnapshot]:
+    async def get(self, snapshot_id: int, user_id: Optional[str | list[str]] = None) -> Optional[ActionSnapshot]:
         query = select(ActionSnapshot).where(ActionSnapshot.id == snapshot_id)
-        if user_id:
+        if isinstance(user_id, list):
+            query = query.where(ActionSnapshot.user_id.in_(user_id))
+        elif user_id:
             query = query.where(ActionSnapshot.user_id == user_id)
         res = await self.db.execute(query)
         return res.scalar_one_or_none()

@@ -30,10 +30,12 @@ class Optimization_timelineService:
             logger.error(f"Error creating optimization_timeline: {str(e)}")
             raise
 
-    async def get_by_id(self, obj_id: int, user_id: Optional[str] = None) -> Optional[OptimizationTimeline]:
+    async def get_by_id(self, obj_id: int, user_id: Optional[str | list[str]] = None) -> Optional[OptimizationTimeline]:
         try:
             query = select(OptimizationTimeline).where(OptimizationTimeline.id == obj_id)
-            if user_id:
+            if isinstance(user_id, list):
+                query = query.where(OptimizationTimeline.user_id.in_(user_id))
+            elif user_id:
                 query = query.where(OptimizationTimeline.user_id == user_id)
             result = await self.db.execute(query)
             return result.scalar_one_or_none()
@@ -89,7 +91,7 @@ class Optimization_timelineService:
             logger.error(f"Error listing optimization_timeline: {str(e)}")
             raise
 
-    async def delete(self, obj_id: int, user_id: Optional[str] = None) -> bool:
+    async def delete(self, obj_id: int, user_id: Optional[str | list[str]] = None) -> bool:
         try:
             obj = await self.get_by_id(obj_id, user_id=user_id)
             if not obj:

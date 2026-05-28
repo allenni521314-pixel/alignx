@@ -1245,6 +1245,7 @@ export default function OptimizationSuggestions() {
           </Card>
 
           <NextStepActions
+            currentStep={view === "data-feedback" ? "验证回流" : view === "conclusion" ? "复盘结论" : "下一轮优化"}
             actions={[
               view === "data-feedback"
                 ? { label: "查看复盘结论", path: "/optimization-suggestions?view=conclusion", variant: "default" }

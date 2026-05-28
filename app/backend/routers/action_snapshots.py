@@ -133,7 +133,8 @@ async def get_snapshot(
     db: AsyncSession = Depends(get_db),
 ):
     svc = ActionSnapshotsService(db)
-    row = await svc.get(snapshot_id, user_id=str(current_user.id))
+    scope_user_ids = await get_user_scope_ids(current_user, db)
+    row = await svc.get(snapshot_id, user_id=scope_user_ids)
     if not row:
         raise HTTPException(status_code=404, detail="快照不存在")
     return _row_to_dict(row)

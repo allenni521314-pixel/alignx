@@ -1989,6 +1989,7 @@ export default function PreLaunchTest() {
           )}
 
           <NextStepActions
+            currentStep="上新检测"
             actions={[
               { label: "进入本品诊断", path: "/listing-diagnosis", variant: "default" },
             ]}

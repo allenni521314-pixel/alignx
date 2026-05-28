@@ -54,11 +54,14 @@ class JudgmentFeedbackRoundService:
         logger.info("Created judgment feedback round id=%s", obj.id)
         return obj
 
-    async def update(self, obj_id: int, data: dict[str, Any], user_id: str) -> Optional[JudgmentFeedbackRound]:
+    async def update(self, obj_id: int, data: dict[str, Any], user_id: str | list[str]) -> Optional[JudgmentFeedbackRound]:
         query = select(JudgmentFeedbackRound).where(
             JudgmentFeedbackRound.id == obj_id,
-            JudgmentFeedbackRound.user_id == user_id,
         )
+        if isinstance(user_id, list):
+            query = query.where(JudgmentFeedbackRound.user_id.in_(user_id))
+        else:
+            query = query.where(JudgmentFeedbackRound.user_id == user_id)
         result = await self.db.execute(query)
         obj = result.scalar_one_or_none()
         if not obj:
@@ -75,15 +78,21 @@ class JudgmentFeedbackRoundService:
     async def list(
         self,
         *,
-        user_id: str,
+        user_id: str | list[str],
         asin: str | None = None,
         listing_diagnosis_id: int | None = None,
         product_id: int | None = None,
         limit: int = 100,
         skip: int = 0,
     ) -> tuple[list[JudgmentFeedbackRound], int]:
-        base = select(JudgmentFeedbackRound).where(JudgmentFeedbackRound.user_id == user_id)
-        count = select(func.count(JudgmentFeedbackRound.id)).where(JudgmentFeedbackRound.user_id == user_id)
+        base = select(JudgmentFeedbackRound)
+        count = select(func.count(JudgmentFeedbackRound.id))
+        if isinstance(user_id, list):
+            base = base.where(JudgmentFeedbackRound.user_id.in_(user_id))
+            count = count.where(JudgmentFeedbackRound.user_id.in_(user_id))
+        else:
+            base = base.where(JudgmentFeedbackRound.user_id == user_id)
+            count = count.where(JudgmentFeedbackRound.user_id == user_id)
         for field, value in {
             "asin": asin,
             "listing_diagnosis_id": listing_diagnosis_id,
@@ -105,7 +114,7 @@ class JudgmentFeedbackRoundService:
     async def learning_memory(
         self,
         *,
-        user_id: str,
+        user_id: str | list[str],
         asin: str | None = None,
         product_id: int | None = None,
         limit: int = 200,

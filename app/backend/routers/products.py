@@ -198,7 +198,8 @@ async def get_products(
     
     service = ProductsService(db)
     try:
-        result = await service.get_by_id(id, user_id=str(current_user.id))
+        scope_user_ids = await get_user_scope_ids(current_user, db)
+        result = await service.get_by_id(id, user_id=scope_user_ids)
         if not result:
             logger.warning(f"Products with id {id} not found")
             raise HTTPException(status_code=404, detail="Products not found")
@@ -278,7 +279,8 @@ async def update_productss_batch(
         for item in request.items:
             # Only include non-None values for partial updates
             update_dict = {k: v for k, v in item.updates.model_dump().items() if v is not None}
-            result = await service.update(item.id, update_dict, user_id=str(current_user.id))
+            scope_user_ids = await get_user_scope_ids(current_user, db)
+            result = await service.update(item.id, update_dict, user_id=scope_user_ids)
             if result:
                 results.append(result)
         
@@ -304,7 +306,8 @@ async def update_products(
     try:
         # Only include non-None values for partial updates
         update_dict = {k: v for k, v in data.model_dump().items() if v is not None}
-        result = await service.update(id, update_dict, user_id=str(current_user.id))
+        scope_user_ids = await get_user_scope_ids(current_user, db)
+        result = await service.update(id, update_dict, user_id=scope_user_ids)
         if not result:
             logger.warning(f"Products with id {id} not found for update")
             raise HTTPException(status_code=404, detail="Products not found")
@@ -335,7 +338,8 @@ async def delete_productss_batch(
     
     try:
         for item_id in request.ids:
-            success = await service.delete(item_id, user_id=str(current_user.id))
+            scope_user_ids = await get_user_scope_ids(current_user, db)
+            success = await service.delete(item_id, user_id=scope_user_ids)
             if success:
                 deleted_count += 1
         
@@ -358,7 +362,8 @@ async def delete_products(
     
     service = ProductsService(db)
     try:
-        success = await service.delete(id, user_id=str(current_user.id))
+        scope_user_ids = await get_user_scope_ids(current_user, db)
+        success = await service.delete(id, user_id=scope_user_ids)
         if not success:
             logger.warning(f"Products with id {id} not found for deletion")
             raise HTTPException(status_code=404, detail="Products not found")

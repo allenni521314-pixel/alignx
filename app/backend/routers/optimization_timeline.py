@@ -54,7 +54,6 @@ async def create_optimization_timeline(
     current_user: UserResponse = Depends(get_current_user),
 ):
     service = Optimization_timelineService(db)
-    scope_user_ids = await get_user_scope_ids(current_user, db)
     obj = await service.create(data.model_dump(exclude_unset=True), user_id=str(current_user.id))
     if not obj:
         raise HTTPException(status_code=500, detail="Failed to create optimization_timeline")
@@ -71,6 +70,7 @@ async def list_optimization_timeline(
     current_user: UserResponse = Depends(get_current_user),
 ):
     service = Optimization_timelineService(db)
+    scope_user_ids = await get_user_scope_ids(current_user, db)
     query_filter = {}
     if product_id is not None:
         query_filter["product_id"] = product_id
@@ -91,7 +91,8 @@ async def get_optimization_timeline(
     current_user: UserResponse = Depends(get_current_user),
 ):
     service = Optimization_timelineService(db)
-    obj = await service.get_by_id(item_id, user_id=str(current_user.id))
+    scope_user_ids = await get_user_scope_ids(current_user, db)
+    obj = await service.get_by_id(item_id, user_id=scope_user_ids)
     if not obj:
         raise HTTPException(status_code=404, detail="optimization_timeline not found")
     return obj
@@ -104,7 +105,8 @@ async def delete_optimization_timeline(
     current_user: UserResponse = Depends(get_current_user),
 ):
     service = Optimization_timelineService(db)
-    success = await service.delete(item_id, user_id=str(current_user.id))
+    scope_user_ids = await get_user_scope_ids(current_user, db)
+    success = await service.delete(item_id, user_id=scope_user_ids)
     if not success:
         raise HTTPException(status_code=404, detail="optimization_timeline not found")
     return {"message": "Deleted successfully"}

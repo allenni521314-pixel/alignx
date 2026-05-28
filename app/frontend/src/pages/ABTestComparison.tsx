@@ -725,6 +725,7 @@ export default function ABTestComparison() {
           )}
 
           <NextStepActions
+            currentStep="测试计划"
             actions={[
               { label: "进入执行记录", path: "/ad-analytics?view=records", variant: "default" },
             ]}

@@ -2508,8 +2508,9 @@ async def delete_diagnosis_record(
     db: AsyncSession = Depends(get_db),
 ):
     """Delete a diagnosis record by ID."""
+    scope_user_ids = await get_user_scope_ids(current_user, db)
     svc = Listing_diagnosesService(db)
-    deleted = await svc.delete(diagnosis_id, user_id=str(current_user.id))
+    deleted = await svc.delete(diagnosis_id, user_id=scope_user_ids)
     if not deleted:
         raise HTTPException(status_code=404, detail="诊断记录不存在或无权删除")
     return {"success": True, "message": "已删除"}

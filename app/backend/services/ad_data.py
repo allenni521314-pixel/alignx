@@ -41,11 +41,13 @@ class Ad_dataService:
             logger.error(f"Error checking ownership for ad_data {obj_id}: {str(e)}")
             return False
 
-    async def get_by_id(self, obj_id: int, user_id: Optional[str] = None) -> Optional[Ad_data]:
+    async def get_by_id(self, obj_id: int, user_id: Optional[str | list[str]] = None) -> Optional[Ad_data]:
         """Get ad_data by ID (user can only see their own records)"""
         try:
             query = select(Ad_data).where(Ad_data.id == obj_id)
-            if user_id:
+            if isinstance(user_id, list):
+                query = query.where(Ad_data.user_id.in_(user_id))
+            elif user_id:
                 query = query.where(Ad_data.user_id == user_id)
             result = await self.db.execute(query)
             return result.scalar_one_or_none()
@@ -106,7 +108,7 @@ class Ad_dataService:
             logger.error(f"Error fetching ad_data list: {str(e)}")
             raise
 
-    async def update(self, obj_id: int, update_data: Dict[str, Any], user_id: Optional[str] = None) -> Optional[Ad_data]:
+    async def update(self, obj_id: int, update_data: Dict[str, Any], user_id: Optional[str | list[str]] = None) -> Optional[Ad_data]:
         """Update ad_data (requires ownership)"""
         try:
             obj = await self.get_by_id(obj_id, user_id=user_id)
@@ -126,7 +128,7 @@ class Ad_dataService:
             logger.error(f"Error updating ad_data {obj_id}: {str(e)}")
             raise
 
-    async def delete(self, obj_id: int, user_id: Optional[str] = None) -> bool:
+    async def delete(self, obj_id: int, user_id: Optional[str | list[str]] = None) -> bool:
         """Delete ad_data (requires ownership)"""
         try:
             obj = await self.get_by_id(obj_id, user_id=user_id)

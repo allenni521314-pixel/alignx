@@ -2867,6 +2867,7 @@ export default function AsinManager() {
           )}
 
           <NextStepActions
+            currentStep="ASIN选品"
             actions={[
               { label: "进入上新检测", path: "/listing-launch-check", variant: "default" },
             ]}

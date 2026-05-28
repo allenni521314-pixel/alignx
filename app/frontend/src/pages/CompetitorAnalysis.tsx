@@ -1325,6 +1325,7 @@ export default function CompetitorAnalysis() {
           </Tabs>
 
           <NextStepActions
+            currentStep="竞品诊断"
             actions={[
               { label: "进入本品诊断", path: "/listing-diagnosis", variant: "default" },
             ]}

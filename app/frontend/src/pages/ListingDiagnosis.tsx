@@ -3610,6 +3610,7 @@ export default function ListingDiagnosis() {
           </Tabs>
 
           <NextStepActions
+            currentStep="本品诊断"
             actions={[
               { label: "生成A/B测试", path: "/ab-test-comparison", variant: "default" },
             ]}

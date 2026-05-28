@@ -389,7 +389,9 @@ def build_agent_decision_system(product: dict, stages: list[dict]) -> dict:
         },
     ]
 
-    primary_failure_reason = primary_validation.get("failure_reason") if isinstance(primary_validation, dict) else None
+    primary_failure_reason = None
+    if isinstance(primary_validation, dict):
+        primary_failure_reason = primary_validation.get("failure_reason") or primary_validation.get("miss_reason")
     if primary_failure_reason:
         likely_failure_reason = primary_failure_reason
     elif ad_clicks < 100:
@@ -431,7 +433,7 @@ def build_agent_decision_system(product: dict, stages: list[dict]) -> dict:
             "pre_metrics",
             "post_metrics",
             "hit_status",
-            "failure_reason",
+            "miss_reason",
         ],
         "current_round": product.get("optimization_round") or 1,
         "next_snapshot_timing": "执行Listing修改前先保存before，修改后保存after，广告验证完成后补充post_metrics",
@@ -439,7 +441,7 @@ def build_agent_decision_system(product: dict, stages: list[dict]) -> dict:
             "每次Listing修改必须绑定至少1个source_evidence_id",
             "每个广告验证记录必须绑定validation_hypothesis_id",
             "点击样本不足时只能输出待验证，不能输出未命中",
-            "复盘结论必须写入hit_status和failure_reason",
+            "复盘结论必须写入hit_status和miss_reason",
         ],
         "current_gaps": [
             gap

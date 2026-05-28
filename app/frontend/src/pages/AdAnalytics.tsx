@@ -1211,6 +1211,7 @@ export default function AdAnalytics() {
           </Card>
 
           <NextStepActions
+            currentStep={isValidationView ? "效果验证" : "执行记录"}
             actions={[
               isValidationView
                 ? { label: "进入数据回流", path: "/optimization-suggestions?view=data-feedback", variant: "default" }

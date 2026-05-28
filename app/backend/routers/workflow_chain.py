@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import Any, Optional
 
 from core.database import get_db
-from dependencies.auth import get_current_user
+from dependencies.auth import get_current_user, get_user_scope_ids
 from fastapi import APIRouter, Depends, HTTPException
 from models.ad_data import Ad_data
 from models.asin_analyses import Asin_analyses
@@ -174,6 +174,59 @@ async def _all(db: AsyncSession, stmt):
     return result.scalars().all()
 
 
+def _text_similarity(a: str | None, b: str | None) -> float:
+    """Small deterministic guardrail to avoid joining another ASIN's records."""
+    left = {part for part in (a or "").lower().replace("-", " ").split() if len(part) >= 3}
+    right = {part for part in (b or "").lower().replace("-", " ").split() if len(part) >= 3}
+    if not left or not right:
+        return 0
+    return len(left & right) / max(len(left), len(right))
+
+
+def _record_matches_product(row: Any, product: Products) -> bool:
+    if not row or not product:
+        return False
+    asin = (product.asin or "").strip().lower()
+    product_title = product.title or ""
+    text_parts = [
+        getattr(row, "title", None),
+        getattr(row, "listing_title", None),
+        getattr(row, "input_data", None),
+        getattr(row, "text_report", None),
+    ]
+    for key in ("variant_a_info", "variant_b_info", "full_diagnosis_a"):
+        value = getattr(row, key, None)
+        if isinstance(value, dict):
+            text_parts.extend(str(value.get(field, "")) for field in ("asin", "title", "listing_title"))
+        elif value:
+            text_parts.append(str(value))
+    joined = " ".join(str(part or "") for part in text_parts).lower()
+    if asin and asin in joined:
+        return True
+    return _text_similarity(product_title, joined) >= 0.25
+
+
+async def _first_matching_product(
+    db: AsyncSession,
+    stmt,
+    product: Products,
+    *,
+    allow_latest_bridge: bool = False,
+):
+    """Pick the latest record that belongs to the active product.
+
+    Some legacy tables do not have product_id/asin columns yet. Returning the
+    latest account record would contaminate the workflow chain when a seller
+    tests multiple ASINs, so we only bridge records with matching ASIN/title.
+    """
+    result = await db.execute(stmt)
+    rows = list(result.scalars().all())
+    for row in rows:
+        if _record_matches_product(row, product):
+            return row
+    return rows[0] if allow_latest_bridge and len(rows) == 1 else None
+
+
 def _ad_metrics(records: list[Ad_data]) -> dict:
     metrics = {
         "impressions": sum(a.impressions or 0 for a in records),
@@ -248,44 +301,45 @@ def _hypothesis_validations(ads: list[Ad_data]) -> list[dict]:
     )
 
 
-async def _build_chain(product: Products, user_id: str, db: AsyncSession) -> dict:
+async def _build_chain(product: Products, user_ids: list[str], db: AsyncSession) -> dict:
     asin_analysis = await _first(
         db,
         select(Asin_analyses)
-        .where(Asin_analyses.user_id == user_id, Asin_analyses.asin == product.asin)
+        .where(Asin_analyses.user_id.in_(user_ids), Asin_analyses.asin == product.asin)
         .order_by(desc(Asin_analyses.created_at), desc(Asin_analyses.id)),
     )
 
-    # These legacy tables do not carry product_id yet, so the chain uses the
-    # latest same-user record as a bridge until the write path stores product_id.
-    prelaunch = await _first(
+    prelaunch = await _first_matching_product(
         db,
         select(Prelaunch_test_results)
-        .where(Prelaunch_test_results.user_id == user_id)
+        .where(Prelaunch_test_results.user_id.in_(user_ids))
         .order_by(desc(Prelaunch_test_results.created_at), desc(Prelaunch_test_results.id)),
+        product,
     )
-    diagnosis = await _first(
+    diagnosis = await _first_matching_product(
         db,
         select(Listing_diagnoses)
-        .where(Listing_diagnoses.user_id == user_id)
+        .where(Listing_diagnoses.user_id.in_(user_ids))
         .order_by(desc(Listing_diagnoses.created_at), desc(Listing_diagnoses.id)),
+        product,
     )
-    ab = await _first(
+    ab = await _first_matching_product(
         db,
         select(CausalABComparison)
-        .where(CausalABComparison.user_id == user_id)
+        .where(CausalABComparison.user_id.in_(user_ids))
         .order_by(desc(CausalABComparison.created_at), desc(CausalABComparison.id)),
+        product,
     )
     ads = await _all(
         db,
         select(Ad_data)
-        .where(Ad_data.user_id == user_id, Ad_data.product_id == product.id)
+        .where(Ad_data.user_id.in_(user_ids), Ad_data.product_id == product.id)
         .order_by(desc(Ad_data.date), desc(Ad_data.id)),
     )
     timeline = await _all(
         db,
         select(OptimizationTimeline)
-        .where(OptimizationTimeline.user_id == user_id, OptimizationTimeline.product_id == product.id)
+        .where(OptimizationTimeline.user_id.in_(user_ids), OptimizationTimeline.product_id == product.id)
         .order_by(desc(OptimizationTimeline.created_at), desc(OptimizationTimeline.id)),
     )
 
@@ -424,7 +478,7 @@ async def _build_chain(product: Products, user_id: str, db: AsyncSession) -> dic
         "optimization_round": product.optimization_round,
     }
     learning_memory = await JudgmentFeedbackRoundService(db).learning_memory(
-        user_id=user_id,
+        user_id=user_ids,
         asin=product.asin,
         product_id=product.id,
         limit=200,
@@ -446,10 +500,11 @@ async def get_current_workflow_chain(
     current_user: UserResponse = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    scope_user_ids = await get_user_scope_ids(current_user, db)
     product = await _first(
         db,
         select(Products)
-        .where(Products.user_id == str(current_user.id))
+        .where(Products.user_id.in_(scope_user_ids))
         .order_by(desc(Products.updated_at), desc(Products.created_at), desc(Products.id)),
     )
     if not product:
@@ -463,7 +518,7 @@ async def get_current_workflow_chain(
             "agent_decision": None,
             "agent_nodes": [],
         }
-    chain = await _build_chain(product, str(current_user.id), db)
+    chain = await _build_chain(product, scope_user_ids, db)
     chain["agent_nodes"] = get_agent_node_status(chain)
     return chain
 
@@ -474,13 +529,14 @@ async def get_product_workflow_chain(
     current_user: UserResponse = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    scope_user_ids = await get_user_scope_ids(current_user, db)
     product = await _first(
         db,
-        select(Products).where(Products.id == product_id, Products.user_id == str(current_user.id)),
+        select(Products).where(Products.id == product_id, Products.user_id.in_(scope_user_ids)),
     )
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
-    chain = await _build_chain(product, str(current_user.id), db)
+    chain = await _build_chain(product, scope_user_ids, db)
     chain["agent_nodes"] = get_agent_node_status(chain)
     return chain
 
@@ -491,15 +547,16 @@ async def run_current_agent_node(
     current_user: UserResponse = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    scope_user_ids = await get_user_scope_ids(current_user, db)
     product = await _first(
         db,
         select(Products)
-        .where(Products.user_id == str(current_user.id))
+        .where(Products.user_id.in_(scope_user_ids))
         .order_by(desc(Products.updated_at), desc(Products.created_at), desc(Products.id)),
     )
     if not product:
         raise HTTPException(status_code=404, detail="No product found for workflow chain")
-    chain = await _build_chain(product, str(current_user.id), db)
+    chain = await _build_chain(product, scope_user_ids, db)
     return await run_agent_node(chain, request)
 
 
@@ -509,15 +566,16 @@ async def run_current_agent_nodes(
     current_user: UserResponse = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    scope_user_ids = await get_user_scope_ids(current_user, db)
     product = await _first(
         db,
         select(Products)
-        .where(Products.user_id == str(current_user.id))
+        .where(Products.user_id.in_(scope_user_ids))
         .order_by(desc(Products.updated_at), desc(Products.created_at), desc(Products.id)),
     )
     if not product:
         raise HTTPException(status_code=404, detail="No product found for workflow chain")
     if depth not in {"light", "standard", "deep"}:
         raise HTTPException(status_code=400, detail="depth must be light, standard, or deep")
-    chain = await _build_chain(product, str(current_user.id), db)
+    chain = await _build_chain(product, scope_user_ids, db)
     return await run_all_agent_nodes(chain, depth=depth)  # type: ignore[arg-type]

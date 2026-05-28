@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import get_db
-from dependencies.auth import get_current_user
+from dependencies.auth import get_current_user, get_user_scope_ids
 from schemas.auth import UserResponse
 from services.judgment_feedback_rounds import JudgmentFeedbackRoundService
 from services.judgment_system import JudgmentSystemService
@@ -208,8 +208,9 @@ async def list_feedback_rounds(
 ):
     """Read saved judgment feedback rounds for a Listing/ASIN/product."""
     service = JudgmentFeedbackRoundService(db)
+    scope_user_ids = await get_user_scope_ids(current_user, db)
     items, total = await service.list(
-        user_id=str(current_user.id),
+        user_id=scope_user_ids,
         asin=asin.strip().upper() or None,
         listing_diagnosis_id=listing_diagnosis_id,
         product_id=product_id,
@@ -229,8 +230,9 @@ async def get_learning_memory(
 ):
     """Aggregate historical feedback rounds into reusable judgment memory."""
     service = JudgmentFeedbackRoundService(db)
+    scope_user_ids = await get_user_scope_ids(current_user, db)
     return await service.learning_memory(
-        user_id=str(current_user.id),
+        user_id=scope_user_ids,
         asin=asin.strip().upper() or None,
         product_id=product_id,
         limit=limit,
@@ -246,10 +248,11 @@ async def update_feedback_round(
 ):
     """Update execution/ad result/next-iteration fields for a saved feedback round."""
     service = JudgmentFeedbackRoundService(db)
+    scope_user_ids = await get_user_scope_ids(current_user, db)
     row = await service.update(
         round_id,
         _feedback_payload(request.model_dump(exclude_unset=True)),
-        user_id=str(current_user.id),
+        user_id=scope_user_ids,
     )
     if not row:
         raise HTTPException(status_code=404, detail="反馈记录不存在")

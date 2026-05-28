@@ -108,7 +108,7 @@ class Listing_diagnosesService:
             logger.error(f"Error fetching listing_diagnoses list: {str(e)}")
             raise
 
-    async def update(self, obj_id: int, update_data: Dict[str, Any], user_id: Optional[str] = None) -> Optional[Listing_diagnoses]:
+    async def update(self, obj_id: int, update_data: Dict[str, Any], user_id: Optional[str | list[str]] = None) -> Optional[Listing_diagnoses]:
         """Update listing_diagnoses (requires ownership)"""
         try:
             obj = await self.get_by_id(obj_id, user_id=user_id)
@@ -128,7 +128,7 @@ class Listing_diagnosesService:
             logger.error(f"Error updating listing_diagnoses {obj_id}: {str(e)}")
             raise
 
-    async def delete(self, obj_id: int, user_id: Optional[str] = None) -> bool:
+    async def delete(self, obj_id: int, user_id: Optional[str | list[str]] = None) -> bool:
         """Delete listing_diagnoses (requires ownership)"""
         try:
             obj = await self.get_by_id(obj_id, user_id=user_id)
