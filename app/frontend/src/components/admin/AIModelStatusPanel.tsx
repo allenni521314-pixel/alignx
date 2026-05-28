@@ -12,12 +12,14 @@ function formatNumber(value: number | undefined) {
 function formatDateTime(value: string | null | undefined) {
   if (!value) return "从未调用";
   try {
-    return new Date(value).toLocaleString("zh-CN", {
+    return `${new Date(value).toLocaleString("zh-CN", {
+      timeZone: "Asia/Shanghai",
       month: "2-digit",
       day: "2-digit",
       hour: "2-digit",
       minute: "2-digit",
-    });
+      hour12: false,
+    })} 北京时间`;
   } catch {
     return value;
   }

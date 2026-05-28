@@ -264,6 +264,17 @@ interface DiagnosisResult {
   };
 }
 
+interface DiagnosisTaskResponse {
+  task_id: string;
+  task_type: string;
+  status: "pending" | "running" | "completed" | "failed" | string;
+  progress_percent?: number;
+  result_payload?: DiagnosisResult;
+  error_message?: string;
+}
+
+const LISTING_DIAGNOSIS_TASK_KEY = "alignx_active_listing_diagnosis_task_id";
+
 interface ConfidenceItem {
   score: number;
   level: "high" | "medium" | "low" | string;
@@ -1748,6 +1759,110 @@ export default function ListingDiagnosis() {
       .catch(() => setLatestDiagnosis(null));
   }, []);
 
+  const pollDiagnosisTask = async (taskId: string): Promise<DiagnosisTaskResponse> => {
+    for (let attempt = 0; attempt < 180; attempt += 1) {
+      const res = await axios.get<DiagnosisTaskResponse>(
+        `${getLongRunningApiBase()}/api/v1/diagnosis-tasks/${taskId}`,
+        { headers: getAuthHeaders(), timeout: 30000 }
+      );
+      const task = res.data;
+      if (task.status === "completed") return task;
+      if (task.status === "failed") {
+        throw new Error(task.error_message || "诊断任务失败");
+      }
+      await new Promise((resolve) => window.setTimeout(resolve, 2000));
+    }
+    throw new Error("诊断任务仍在后台运行，请稍后从最新诊断查看");
+  };
+
+  const applyDiagnosisResult = async (
+    result: DiagnosisResult,
+    activeListing: ListingInput,
+    activeFetchMeta: FetchMeta | null,
+    diagPayload: Record<string, unknown>
+  ) => {
+    setDiagResult(result);
+    setResultTab("overview");
+    setDiagnosisPhase("analyzed");
+
+    const me = result.market_estimates;
+    if (me) {
+      const priceNum = parseFloat(activeListing.price.replace(/[^0-9.]/g, "")) || 0;
+      const estSales = me.estimated_monthly_sales || 0;
+      const estBsr = me.estimated_bsr_rank || 0;
+      const reviewCount = estSales > 0 ? Math.round(estSales * 3) : (priceNum > 0 ? Math.round(priceNum * 10) : 0);
+      const rating = 4.0;
+      const mv = calcMarketValidation({
+        review_count: reviewCount,
+        rating,
+        estimated_monthly_sales: estSales,
+        bsr_rank: estBsr,
+      });
+      setMarketValidation(mv);
+    }
+
+    toast.success("诊断完成！");
+    const scores = result.scores || {};
+    updateProductLifecycle(0, "strategy").catch(() => {});
+    const totalScore = Object.values(scores).reduce((s: number, v) => s + (Number(v) || 0), 0);
+    const avgScore = Math.round(totalScore / Math.max(Object.keys(scores).length, 1));
+    saveTimelineEvent({
+      product_id: 0,
+      step_name: "Listing诊断",
+      action_timestamp: new Date().toISOString(),
+      listing_score: avgScore,
+      score_details: JSON.stringify(scores),
+      optimization_round: 1,
+    }).catch(() => {});
+    saveActionSnapshot({
+      module_key: "listing_diagnosis",
+      module_name: "本品诊断",
+      action_key: "diagnose_listing",
+      action_name: "本品Listing诊断",
+      product_id: 0,
+      asin: activeFetchMeta?.asin || selectedListingAsin || activeListing.asin || "",
+      title: activeListing.title,
+      input_snapshot: diagPayload,
+      output_snapshot: result,
+      data_source: activeFetchMeta?.source || fetchSource || "listing_diagnosis_task",
+      confidence: result.diagnosis_confidence?.overall?.level || "",
+      ai_called: true,
+      source_record_table: "listing_diagnoses",
+      source_record_id: result.id || null,
+    }).catch(() => {});
+    loadHistory(historySearch, historyMpFilter).catch(() => {});
+  };
+
+  useEffect(() => {
+    const taskId = localStorage.getItem(LISTING_DIAGNOSIS_TASK_KEY);
+    if (!taskId) return;
+    let cancelled = false;
+    setDiagnosing(true);
+    setDiagnosisPhase("analyzing");
+    pollDiagnosisTask(taskId)
+      .then((task) => {
+        if (cancelled) return;
+        localStorage.removeItem(LISTING_DIAGNOSIS_TASK_KEY);
+        if (task.result_payload) {
+          setDiagResult(task.result_payload);
+          setResultTab("overview");
+          setDiagnosisPhase("analyzed");
+          toast.success("后台诊断已完成，结果已恢复");
+        }
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        toast.error(err instanceof Error ? err.message : "后台诊断状态恢复失败");
+        setDiagnosisPhase("error");
+      })
+      .finally(() => {
+        if (!cancelled) setDiagnosing(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // Update marketplace on listing
   const updateListingMarketplace = (mp: string) => {
     setMarketplace(mp);
@@ -2222,67 +2337,17 @@ export default function ListingDiagnosis() {
         diagPayload.competitor_context = competitorContext;
       }
 
-      const res = await axios.post(
-        `${getLongRunningApiBase()}/api/v1/listing-diagnosis/diagnose`,
+      const taskRes = await axios.post<DiagnosisTaskResponse>(
+        `${getLongRunningApiBase()}/api/v1/diagnosis-tasks/listing`,
         diagPayload,
-        { headers: getAuthHeaders(), timeout: 240000 }
+        { headers: getAuthHeaders(), timeout: 30000 }
       );
-      const result: DiagnosisResult = res.data;
-      setDiagResult(result);
-      setResultTab("overview");
-      setDiagnosisPhase("analyzed");
-
-      // Compute market validation from market_estimates
-      const me = result.market_estimates;
-      if (me) {
-        const priceNum = parseFloat(activeListing.price.replace(/[^0-9.]/g, "")) || 0;
-        const estSales = me.estimated_monthly_sales || 0;
-        const estBsr = me.estimated_bsr_rank || 0;
-        const reviewCount = estSales > 0 ? Math.round(estSales * 3) : (priceNum > 0 ? Math.round(priceNum * 10) : 0);
-        const rating = 4.0;
-        const mv = calcMarketValidation({
-          review_count: reviewCount,
-          rating,
-          estimated_monthly_sales: estSales,
-          bsr_rank: estBsr,
-        });
-        setMarketValidation(mv);
-      }
-
-      toast.success("诊断完成！");
-      const scores = result.scores || {};
-
-      // The backend /diagnose endpoint is the authoritative auto-save path.
-      // Avoid a second frontend entity write, otherwise history shows duplicate or partial snapshots.
-      // Update lifecycle stage to strategy after diagnosis
-      updateProductLifecycle(0, "strategy").catch(() => {});
-      // Save timeline event with listing score
-      const totalScore = Object.values(scores).reduce((s: number, v) => s + (Number(v) || 0), 0);
-      const avgScore = Math.round(totalScore / Math.max(Object.keys(scores).length, 1));
-      saveTimelineEvent({
-        product_id: 0,
-        step_name: "Listing诊断",
-        action_timestamp: new Date().toISOString(),
-        listing_score: avgScore,
-        score_details: JSON.stringify(scores),
-        optimization_round: 1,
-      }).catch(() => {});
-      saveActionSnapshot({
-        module_key: "listing_diagnosis",
-        module_name: "本品诊断",
-        action_key: "diagnose_listing",
-        action_name: "本品Listing诊断",
-        product_id: 0,
-        asin: activeFetchMeta?.asin || selectedListingAsin || activeListing.asin || "",
-        title: activeListing.title,
-        input_snapshot: diagPayload,
-        output_snapshot: result,
-        data_source: activeFetchMeta?.source || fetchSource || "listing_diagnosis",
-        confidence: result.diagnosis_confidence?.overall?.level || "",
-        ai_called: true,
-        source_record_table: "listing_diagnoses",
-        source_record_id: result.id || null,
-      }).catch(() => {});
+      localStorage.setItem(LISTING_DIAGNOSIS_TASK_KEY, taskRes.data.task_id);
+      toast.success("诊断任务已启动，可先查看其它页面，完成后会自动恢复");
+      const task = await pollDiagnosisTask(taskRes.data.task_id);
+      localStorage.removeItem(LISTING_DIAGNOSIS_TASK_KEY);
+      if (!task.result_payload) throw new Error("诊断完成但未返回结果，请从历史诊断查看");
+      await applyDiagnosisResult(task.result_payload, activeListing, activeFetchMeta, diagPayload);
     } catch (err: unknown) {
       // Robust error handling - never let errors propagate to cause page navigation
       try {

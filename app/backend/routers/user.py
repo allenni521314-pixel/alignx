@@ -19,6 +19,7 @@ from models.asin_keyword_sales_validation import (
 from models.batch_causal_tasks import BatchCausalTask
 from models.causal_ab_comparison import CausalABComparison
 from models.auth import User
+from models.diagnosis_tasks import DiagnosisTask
 from models.competitor_insights import Competitor_insights
 from models.consumer_intent_results import Consumer_intent_results
 from models.cosmo_results import Cosmo_results
@@ -68,6 +69,7 @@ USER_DATA_TABLES = [
     ("causal_ab_comparisons", CausalABComparison),
     ("review_causal_validations", ReviewCausalValidation),
     ("batch_causal_tasks", BatchCausalTask),
+    ("diagnosis_tasks", DiagnosisTask),
     ("human_state_bodies", HumanStateBody),
     ("scrape_logs", Scrape_logs),
     ("optimization_timeline", OptimizationTimeline),

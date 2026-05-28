@@ -29,6 +29,7 @@ from models.competitor_insights import Competitor_insights
 from models.consumer_intent_results import Consumer_intent_results
 from models.cosmo_results import Cosmo_results
 from models.causal_ab_comparison import CausalABComparison
+from models.diagnosis_tasks import DiagnosisTask
 from models.email_verification_codes import EmailVerificationCode
 from models.fetch_history import Fetch_history
 from models.health_reports import Health_reports
@@ -82,6 +83,7 @@ EMAIL_OWNED_MODELS = [
     CausalABComparison,
     ReviewCausalValidation,
     BatchCausalTask,
+    DiagnosisTask,
     HumanStateBody,
 ]
 

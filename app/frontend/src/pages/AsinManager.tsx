@@ -268,6 +268,15 @@ interface Top40Usage {
   windowHours: number;
 }
 
+interface AsinDiagnosisTaskResponse {
+  task_id: string;
+  status: "pending" | "running" | "completed" | "failed" | string;
+  result_payload?: Record<string, unknown>;
+  error_message?: string;
+}
+
+const ASIN_DIAGNOSIS_TASK_KEY = "alignx_active_asin_diagnosis_task_id";
+
 const emptyProduct = {
   asin: "",
   title: "",
@@ -952,12 +961,28 @@ export default function AsinManager() {
     source?: string;
   }> => {
     const apiBase = getLongRunningApiBase();
-    const res = await axios.post(
-      `${apiBase}/api/v1/asin-analysis/analyze`,
+    const taskRes = await axios.post<AsinDiagnosisTaskResponse>(
+      `${apiBase}/api/v1/diagnosis-tasks/asin`,
       { asin, marketplace },
-      { headers: getAuthHeaders(), timeout: 240000 }
+      { headers: getAuthHeaders(), timeout: 30000 }
     );
-    const d = res.data;
+    localStorage.setItem(ASIN_DIAGNOSIS_TASK_KEY, taskRes.data.task_id);
+    let task = taskRes.data;
+    for (let attempt = 0; attempt < 180; attempt += 1) {
+      const statusRes = await axios.get<AsinDiagnosisTaskResponse>(
+        `${apiBase}/api/v1/diagnosis-tasks/${taskRes.data.task_id}`,
+        { headers: getAuthHeaders(), timeout: 30000 }
+      );
+      task = statusRes.data;
+      if (task.status === "completed") break;
+      if (task.status === "failed") throw new Error(task.error_message || "ASIN分析任务失败");
+      await new Promise((resolve) => window.setTimeout(resolve, 2000));
+    }
+    if (task.status !== "completed" || !task.result_payload) {
+      throw new Error("ASIN分析仍在后台运行，请稍后刷新查看");
+    }
+    localStorage.removeItem(ASIN_DIAGNOSIS_TASK_KEY);
+    const d = task.result_payload as Record<string, any>;
     const pd = d.product_data || {};
     const source = d.data_source || pd._data_source || "server_analysis";
     return {
