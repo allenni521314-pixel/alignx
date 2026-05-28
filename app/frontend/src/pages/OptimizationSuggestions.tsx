@@ -17,6 +17,7 @@ import {
   Target,
   Database,
   ClipboardCheck,
+  BarChart3,
 } from "lucide-react";
 import { useLocation } from "react-router-dom";
 
@@ -236,6 +237,40 @@ const nextRoundActions = [
   },
 ];
 
+const formatPercent = (value?: number) => {
+  if (typeof value !== "number" || Number.isNaN(value)) return "0%";
+  return `${value.toFixed(value % 1 === 0 ? 0 : 1)}%`;
+};
+
+const formatNumber = (value?: number) => {
+  if (typeof value !== "number" || Number.isNaN(value)) return "0";
+  return value.toLocaleString("en-US", { maximumFractionDigits: 2 });
+};
+
+const normalizeStatus = (status?: string) => {
+  if (!status) return "待验证";
+  if (["hit", "命中", "已命中", "成立"].includes(status)) return "命中";
+  if (["miss", "未命中", "不成立"].includes(status)) return "未命中";
+  if (["pending", "待验证", "样本不足"].includes(status)) return "待验证";
+  return status;
+};
+
+const failureReasonLabel = (reason?: string) => {
+  const map: Record<string, string> = {
+    none: "暂无失败归因",
+    sample_not_enough: "样本不足，暂不判定",
+    unassigned: "广告数据未绑定诊断假设",
+    keyword_mismatch: "关键词意图错配",
+    low_ctr: "点击吸引不足",
+    low_cvr: "详情页承接不足",
+    high_acos: "广告成本承压",
+    price_trust_gap: "价格/信任承接不足",
+    review_trust_gap: "评论信任不足",
+  };
+  if (!reason) return "等待样本验证";
+  return map[reason] || reason;
+};
+
 export default function OptimizationSuggestions() {
   useRequireAuth();
   const location = useLocation();
@@ -366,16 +401,85 @@ export default function OptimizationSuggestions() {
     return hypothesisValidations.map((item) => {
       const metrics = item.metrics || {};
       const keywords = item.keywords?.length ? item.keywords.join("、") : item.keyword_group_id || "未命名词组";
+      const status = normalizeStatus(item.hit_status);
+      const clicks = metrics.clicks || 0;
+      const orders = metrics.orders || 0;
+      const cvr = typeof metrics.cvr === "number" ? metrics.cvr : clicks ? (orders / clicks) * 100 : 0;
+      const acos = typeof metrics.acos === "number" ? metrics.acos : 0;
+      const isUnassigned = item.hypothesis_id === "unassigned";
       return {
-        source: item.hypothesis_id === "unassigned" ? "未绑定广告记录" : "假设级广告验证",
-        item: `${item.hypothesis_id} / ${item.keyword_group_id || "default"}`,
+        source: isUnassigned ? "待绑定广告数据" : "假设级广告验证",
+        item: isUnassigned ? "尚未绑定具体诊断假设" : `${item.hypothesis_id} / ${item.keyword_group_id || "default"}`,
         before: `验证词组：${keywords}`,
-        after: `失败归因：${item.failure_reason || "none"}；置信度：${item.confidence || "低"}`,
-        metric: `曝光${metrics.impressions || 0}，点击${metrics.clicks || 0}，订单${metrics.orders || 0}，CVR ${(metrics.cvr || 0).toFixed(2)}%，ACOS ${(metrics.acos || 0).toFixed(2)}%`,
-        status: item.hit_status || "待验证",
+        after: isUnassigned
+          ? "先在广告执行记录中补充 hypothesis_id 与 keyword_group_id，避免数据污染命中率。"
+          : `${failureReasonLabel(item.failure_reason)}；置信度：${item.confidence || "低"}`,
+        metric: `曝光${formatNumber(metrics.impressions)}，点击${formatNumber(clicks)}，订单${formatNumber(orders)}，CVR ${formatPercent(cvr)}，ACOS ${formatPercent(acos)}`,
+        status,
       };
     });
   }, [hypothesisValidations]);
+
+  const feedbackQuality = useMemo(() => {
+    const validations = hypothesisValidations;
+    const totalClicks = validations.reduce((sum, item) => sum + (item.metrics?.clicks || 0), 0);
+    const assignedCount = validations.filter((item) => item.hypothesis_id && item.hypothesis_id !== "unassigned").length;
+    const completedCount = validations.filter((item) => ["命中", "已命中", "未命中", "hit", "miss"].includes(item.hit_status || "")).length;
+    const hitCount = validations.filter((item) => ["命中", "已命中", "hit"].includes(item.hit_status || "")).length;
+    const sampleReady = totalClicks >= 100;
+    const bindingReady = assignedCount > 0 && assignedCount === validations.length;
+    const canConclude = sampleReady && bindingReady && completedCount > 0;
+    const hitRate = completedCount ? Math.round((hitCount / completedCount) * 100) : 0;
+    const status = canConclude ? (hitRate >= 60 ? "可以沉淀经验" : "需要复盘归因") : "暂不判定";
+    const reason = !validations.length
+      ? "还没有广告验证记录进入回流。"
+      : !bindingReady
+        ? "存在广告记录未绑定诊断假设，不能直接用于校准模型。"
+        : !sampleReady
+          ? "广告点击样本不足100次，容易把偶然波动误判成结论。"
+          : completedCount === 0
+            ? "广告样本已有，但还没有形成命中/未命中的验证结论。"
+            : hitRate >= 60
+              ? "广告样本、假设绑定和验证结论已形成闭环，可以沉淀可复用经验。"
+              : "已有验证结论但命中率偏低，需要先复盘失败原因再进入下一轮。";
+    return {
+      totalClicks,
+      assignedCount,
+      completedCount,
+      hitCount,
+      hitRate,
+      sampleReady,
+      bindingReady,
+      canConclude,
+      status,
+      reason,
+    };
+  }, [hypothesisValidations]);
+
+  const feedbackActions = useMemo(() => {
+    if (!hypothesisValidations.length) {
+      return [
+        { label: "补录广告数据", path: "/ad-analytics?view=records", variant: "default" as const },
+        { label: "查看效果验证", path: "/ad-analytics?view=validation", variant: "outline" as const },
+      ];
+    }
+    if (!feedbackQuality.bindingReady) {
+      return [
+        { label: "绑定假设ID", path: "/ad-analytics?view=records", variant: "default" as const },
+        { label: "查看测试计划", path: "/ab-test-comparison", variant: "outline" as const },
+      ];
+    }
+    if (!feedbackQuality.sampleReady) {
+      return [
+        { label: "继续跑量记录", path: "/ad-analytics?view=records", variant: "default" as const },
+        { label: "查看效果验证", path: "/ad-analytics?view=validation", variant: "outline" as const },
+      ];
+    }
+    return [
+      { label: "查看复盘结论", path: "/optimization-suggestions?view=conclusion", variant: "default" as const },
+      { label: "生成下一轮优化", path: "/optimization-suggestions?view=next-round", variant: "outline" as const },
+    ];
+  }, [feedbackQuality.bindingReady, feedbackQuality.sampleReady, hypothesisValidations.length]);
 
   const liveReviewConclusions = useMemo(() => {
     if (!agentDecision) return reviewConclusions;
@@ -557,19 +661,91 @@ export default function OptimizationSuggestions() {
           )}
 
           {view === "data-feedback" && (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-              {[
-                { label: "已回流轮次", value: String(liveFeedbackStats.rounds), desc: "来自执行记录与优化时间线" },
-                { label: "判断命中率", value: liveFeedbackStats.hitRate, desc: "按广告点击和CVR验证判断是否成立" },
-                { label: "可复用经验", value: `${liveFeedbackStats.learnings}条`, desc: "按类目、价格带、关键词沉淀" },
-              ].map((item) => (
-                <Card key={item.label} className="bg-white border-gray-200 p-5">
-                  <p className="text-xs text-gray-500">{item.label}</p>
-                  <p className="text-xl font-bold text-gray-900 mt-1">{item.value}</p>
-                  <p className="text-xs text-gray-500 mt-2">{item.desc}</p>
+            <>
+              <Card className="bg-white border-gray-200 p-5 mb-6">
+                <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-5">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Badge
+                        className={
+                          feedbackQuality.canConclude
+                            ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                            : "bg-amber-50 text-amber-700 border-amber-200"
+                        }
+                      >
+                        {feedbackQuality.status}
+                      </Badge>
+                      <span className="text-xs text-gray-500">
+                        样本门槛：广告点击达到100次后再判定
+                      </span>
+                    </div>
+                    <h2 className="text-lg font-semibold text-gray-900 mt-3">本轮数据回流质检</h2>
+                    <p className="text-sm text-gray-600 mt-2">{feedbackQuality.reason}</p>
+                  </div>
+                  <div className="flex flex-wrap gap-2 shrink-0">
+                    {feedbackActions.map((action) => (
+                      <Button
+                        key={action.label}
+                        asChild
+                        variant={action.variant === "outline" ? "outline" : "default"}
+                        className={action.variant === "outline" ? "border-gray-200 text-brand-700 hover:bg-brand-50" : "bg-brand-700 hover:bg-brand-800"}
+                      >
+                        <a href={action.path}>
+                          {action.label}
+                          <ArrowRight className="w-3.5 h-3.5 ml-1" />
+                        </a>
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mt-5">
+                  {[
+                    { label: "回流轮次", value: String(liveFeedbackStats.rounds), desc: "当前版本链路" },
+                    { label: "广告点击", value: formatNumber(feedbackQuality.totalClicks), desc: feedbackQuality.sampleReady ? "样本已达标" : "未满100次" },
+                    { label: "绑定假设", value: `${feedbackQuality.assignedCount}/${hypothesisValidations.length || 0}`, desc: feedbackQuality.bindingReady ? "绑定完整" : "需要补齐" },
+                    { label: "完成判断", value: String(feedbackQuality.completedCount), desc: "命中/未命中" },
+                    { label: "命中率", value: feedbackQuality.completedCount ? `${feedbackQuality.hitRate}%` : liveFeedbackStats.hitRate, desc: "仅统计已完成假设" },
+                  ].map((item) => (
+                    <div key={item.label} className="rounded-lg bg-gray-50 border border-gray-100 p-3">
+                      <p className="text-[11px] text-gray-500">{item.label}</p>
+                      <p className="text-xl font-bold text-gray-900 mt-1">{item.value}</p>
+                      <p className="text-[11px] text-gray-400 mt-1">{item.desc}</p>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
+                <Card className="bg-white border-gray-200 p-5">
+                  <div className="flex items-center gap-2">
+                    <ClipboardCheck className="w-4 h-4 text-emerald-600" />
+                    <p className="text-sm font-semibold text-gray-900">验证对象</p>
+                  </div>
+                  <p className="text-sm text-gray-600 mt-3">
+                    {workflowChain?.product?.asin || "当前产品"} 的 Listing 修改、广告关键词组和 A/B 变量必须绑定同一个假设ID。
+                  </p>
                 </Card>
-              ))}
-            </div>
+                <Card className="bg-white border-gray-200 p-5">
+                  <div className="flex items-center gap-2">
+                    <BarChart3 className="w-4 h-4 text-amber-600" />
+                    <p className="text-sm font-semibold text-gray-900">判定口径</p>
+                  </div>
+                  <p className="text-sm text-gray-600 mt-3">
+                    先看点击样本，再看 CTR、CVR、ACOS、订单贡献；未满样本只记录趋势，不沉淀结论。
+                  </p>
+                </Card>
+                <Card className="bg-white border-gray-200 p-5">
+                  <div className="flex items-center gap-2">
+                    <Database className="w-4 h-4 text-brand-600" />
+                    <p className="text-sm font-semibold text-gray-900">沉淀规则</p>
+                  </div>
+                  <p className="text-sm text-gray-600 mt-3">
+                    只有“假设已绑定 + 样本达标 + 结论已完成”的记录，才会写入可复用经验并校准下一轮诊断。
+                  </p>
+                </Card>
+              </div>
+            </>
           )}
 
           {view === "conclusion" && (
@@ -591,10 +767,10 @@ export default function OptimizationSuggestions() {
             <Card className="bg-white border-gray-200 mb-6 overflow-hidden">
               <div className="p-5 border-b border-gray-100">
                 <h2 className="text-sm font-semibold text-gray-900">回流记录</h2>
-                <p className="text-xs text-gray-500 mt-1">保存每一轮输入、修改、验证结果和命中状态，供下一次判断校准。</p>
+                <p className="text-xs text-gray-500 mt-1">按假设ID追踪每一轮修改前后、广告指标、命中状态和下一步校准方向。</p>
               </div>
               <div className="divide-y divide-gray-100">
-                {liveFeedbackRecords.map((record) => (
+                {liveFeedbackRecords.length ? liveFeedbackRecords.map((record) => (
                   <div key={`${record.source}-${record.item}`} className="p-4 grid lg:grid-cols-[0.9fr_1.1fr_1.1fr_1fr_auto] gap-3 items-start">
                     <div>
                       <p className="text-[11px] text-gray-400">来源</p>
@@ -613,11 +789,23 @@ export default function OptimizationSuggestions() {
                       <p className="text-[11px] text-gray-400">验证指标</p>
                       <p className="text-sm text-gray-700">{record.metric}</p>
                     </div>
-                    <Badge className={record.status === "命中" || record.status === "已命中" ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-amber-50 text-amber-700 border-amber-200"}>
+                    <Badge
+                      className={
+                        record.status === "命中" || record.status === "已命中"
+                          ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                          : record.status === "未命中"
+                            ? "bg-red-50 text-red-700 border-red-200"
+                            : "bg-amber-50 text-amber-700 border-amber-200"
+                      }
+                    >
                       {record.status}
                     </Badge>
                   </div>
-                ))}
+                )) : (
+                  <div className="p-6 text-sm text-gray-500">
+                    暂无可回流记录。先到广告执行记录粘贴或上传Amazon广告报表，再到效果验证绑定假设后回流。
+                  </div>
+                )}
               </div>
             </Card>
           )}

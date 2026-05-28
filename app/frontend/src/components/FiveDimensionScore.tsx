@@ -456,7 +456,7 @@ export function FiveDimensionScoreCard({
         )
       );
     }) ||
-      (Boolean(result.dimension_scores?.scenario) && !Boolean(result.dimension_scores?.search_entry))
+      (Boolean(result.dimension_scores?.scenario) && !result.dimension_scores?.search_entry)
   );
   const isLegacyScore = Boolean(
     result.is_legacy_score ||

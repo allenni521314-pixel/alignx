@@ -398,7 +398,7 @@ export default function ABTestComparison() {
     setTestPlan((prev) => ({
       ...prev,
       metrics: value
-        .split(/[\/,，、\s]+/)
+        .split(/[/,，、\s]+/)
         .map((item) => item.trim())
         .filter(Boolean),
     }));
