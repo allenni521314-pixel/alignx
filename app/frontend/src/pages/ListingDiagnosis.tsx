@@ -295,6 +295,7 @@ interface DiagnosisTaskResponse {
 }
 
 const LISTING_DIAGNOSIS_TASK_KEY = "alignx_active_listing_diagnosis_task_id";
+const LISTING_DIAGNOSIS_TASK_CONTEXT_KEY = "alignx_active_listing_diagnosis_task_context";
 
 interface ConfidenceItem {
   score: number;
@@ -982,6 +983,99 @@ function calcMarketValidation(data: {
     estimated_monthly_sales: data.estimated_monthly_sales,
     bsr_rank: data.bsr_rank,
     analysis,
+  };
+}
+
+function parseMetricInt(value?: string | number | null): number {
+  if (value === undefined || value === null) return 0;
+  const match = String(value).replace(/,/g, "").match(/\d+/);
+  return match ? Number(match[0]) || 0 : 0;
+}
+
+function parseMetricFloat(value?: string | number | null): number {
+  if (value === undefined || value === null) return 0;
+  const match = String(value).replace(/,/g, "").match(/\d+(?:\.\d+)?/);
+  return match ? Number(match[0]) || 0 : 0;
+}
+
+function deriveMarketValidationFromEvidence(
+  listing: ListingInput,
+  meta?: FetchMeta | null,
+  estimates?: MarketEstimates
+): MarketValidation {
+  const reviewCount = parseMetricInt(meta?.review_count || listing.review_count);
+  const rating = parseMetricFloat(meta?.rating || listing.rating);
+  const bsrRank = parseMetricInt(meta?.bsr_rank || listing.bsr_rank);
+  const hasRealMarketEvidence = reviewCount > 0 || rating > 0 || bsrRank > 0;
+
+  if (hasRealMarketEvidence) {
+    const estimatedSales = reviewCount > 0 ? Math.round(reviewCount * 0.15) : 0;
+    return calcMarketValidation({
+      review_count: reviewCount,
+      rating,
+      estimated_monthly_sales: estimatedSales,
+      bsr_rank: bsrRank,
+    });
+  }
+
+  const estimatedSales = Number(estimates?.estimated_monthly_sales || 0);
+  const estimatedBsr = Number(estimates?.estimated_bsr_rank || 0);
+  if (estimatedSales > 0 || estimatedBsr > 0) {
+    return calcMarketValidation({
+      review_count: estimatedSales > 0 ? Math.round(estimatedSales * 3) : 0,
+      rating,
+      estimated_monthly_sales: estimatedSales,
+      bsr_rank: estimatedBsr,
+    });
+  }
+
+  return calcMarketValidation({
+    review_count: 0,
+    rating: 0,
+    estimated_monthly_sales: 0,
+    bsr_rank: 0,
+  });
+}
+
+function buildManualCaptureQuality(parsed: {
+  title?: string;
+  price?: string;
+  rating?: string;
+  review_count?: string;
+  bullet_points?: string[];
+}): FetchMeta["capture_quality"] {
+  const missingCore: string[] = [];
+  const missingStrategy: string[] = [];
+  const bulletCount = (parsed.bullet_points || []).filter((item) => String(item).trim()).length;
+
+  if (!parsed.title?.trim()) missingCore.push("标题");
+  if (!parsed.price?.trim()) missingCore.push("价格");
+  if (!parsed.rating?.trim()) missingCore.push("评分");
+  if (!parsed.review_count?.trim()) missingCore.push("评论数");
+  missingCore.push("主图/图片");
+  if (bulletCount < 3) missingCore.push("五点描述不足3条");
+  else if (bulletCount < 5) missingStrategy.push("五点描述不足5条");
+
+  missingStrategy.push("BSR排名", "低星评论", "评分分布", "A+内容", "库存/可售状态");
+
+  const coreTotal = 6;
+  const coreScore = Math.max(0, Math.round(((coreTotal - missingCore.length) / coreTotal) * 100));
+  const strategyTotal = 5;
+  const strategyScore = Math.max(0, Math.round(((strategyTotal - missingStrategy.length) / strategyTotal) * 100));
+  const completeness = Math.round(coreScore * 0.7 + strategyScore * 0.3);
+  const allowFormalDiagnosis = missingCore.length === 0 && Boolean(parsed.title?.trim());
+
+  return {
+    source_confidence: "medium",
+    completeness,
+    core_score: coreScore,
+    strategy_score: strategyScore,
+    missing_core: missingCore,
+    missing_strategy: missingStrategy,
+    allow_formal_diagnosis: allowFormalDiagnosis,
+    allow_strategy_diagnosis: allowFormalDiagnosis && strategyScore >= 60,
+    confidence_level: allowFormalDiagnosis ? "medium" : "low",
+    rule: "复制文本同样使用证据完整性闸门；缺失字段不得自动猜测。",
   };
 }
 
@@ -1807,21 +1901,7 @@ export default function ListingDiagnosis() {
     setResultTab("overview");
     setDiagnosisPhase("analyzed");
 
-    const me = result.market_estimates;
-    if (me) {
-      const priceNum = parseFloat(activeListing.price.replace(/[^0-9.]/g, "")) || 0;
-      const estSales = me.estimated_monthly_sales || 0;
-      const estBsr = me.estimated_bsr_rank || 0;
-      const reviewCount = estSales > 0 ? Math.round(estSales * 3) : (priceNum > 0 ? Math.round(priceNum * 10) : 0);
-      const rating = 4.0;
-      const mv = calcMarketValidation({
-        review_count: reviewCount,
-        rating,
-        estimated_monthly_sales: estSales,
-        bsr_rank: estBsr,
-      });
-      setMarketValidation(mv);
-    }
+    setMarketValidation(deriveMarketValidationFromEvidence(activeListing, activeFetchMeta, result.market_estimates));
 
     toast.success("诊断完成！");
     const scores = result.scores || {};
@@ -1858,6 +1938,12 @@ export default function ListingDiagnosis() {
   useEffect(() => {
     const taskId = localStorage.getItem(LISTING_DIAGNOSIS_TASK_KEY);
     if (!taskId) return;
+    let savedContext: { listing?: ListingInput; fetchMeta?: FetchMeta | null; diagPayload?: Record<string, unknown> } = {};
+    try {
+      savedContext = JSON.parse(localStorage.getItem(LISTING_DIAGNOSIS_TASK_CONTEXT_KEY) || "{}");
+    } catch {
+      savedContext = {};
+    }
     let cancelled = false;
     setDiagnosing(true);
     setDiagnosisPhase("analyzing");
@@ -1865,15 +1951,24 @@ export default function ListingDiagnosis() {
       .then((task) => {
         if (cancelled) return;
         localStorage.removeItem(LISTING_DIAGNOSIS_TASK_KEY);
+        localStorage.removeItem(LISTING_DIAGNOSIS_TASK_CONTEXT_KEY);
         if (task.result_payload) {
-          setDiagResult(task.result_payload);
-          setResultTab("overview");
-          setDiagnosisPhase("analyzed");
+          const restoredListing = cleanListing(savedContext.listing || listing);
+          const restoredMeta = savedContext.fetchMeta || fetchMeta;
+          setListing(restoredListing);
+          setFetchMeta(restoredMeta || null);
+          applyDiagnosisResult(
+            task.result_payload,
+            restoredListing,
+            restoredMeta || null,
+            savedContext.diagPayload || { listing: restoredListing }
+          );
           toast.success("后台诊断已完成，结果已恢复");
         }
       })
       .catch((err) => {
         if (cancelled) return;
+        localStorage.removeItem(LISTING_DIAGNOSIS_TASK_CONTEXT_KEY);
         toast.error(err instanceof Error ? err.message : "后台诊断状态恢复失败");
         setDiagnosisPhase("error");
       })
@@ -1981,6 +2076,12 @@ export default function ListingDiagnosis() {
     if (!data.listing) return null;
     const cleaned = cleanListing({
       ...data.listing,
+      rating: data.rating || data.listing.rating || "",
+      review_count: data.review_count || data.listing.review_count || "",
+      bsr_rank: data.bsr_rank || data.listing.bsr_rank || "",
+      image_count: data.image_count || data.listing.image_count || "",
+      has_video: data.has_video || data.listing.has_video || false,
+      has_a_plus: data.has_a_plus || data.listing.has_a_plus || false,
       marketplace: data.listing.marketplace || marketplace,
     });
 
@@ -2010,21 +2111,9 @@ export default function ListingDiagnosis() {
     };
     setFetchMeta(meta);
 
-    // Update market validation
+    // Update market validation with the same evidence that will be sent to diagnosis.
     const isReliable = ["local_browser_capture", "server_proxy_fetch", "scraped", "amazon_scrape", "amazon_scrape_httpx", "amazon_scrape_mobile", "amazon_scrape_browser", "amazon_scrape_uc", "ai_search"].includes(source);
-    if (isReliable && (data.review_count || data.rating)) {
-      const reviewCount = parseInt(data.review_count || "0", 10) || 0;
-      const ratingVal = parseFloat(data.rating || "0") || 0;
-      const bsrRank = parseInt(data.bsr_rank || "0", 10) || 0;
-      const estMonthlySales = Math.round(reviewCount * 0.15);
-      const mv = calcMarketValidation({
-        review_count: reviewCount,
-        rating: ratingVal,
-        estimated_monthly_sales: estMonthlySales,
-        bsr_rank: bsrRank,
-      });
-      setMarketValidation(mv);
-    }
+    setMarketValidation(isReliable ? deriveMarketValidationFromEvidence(cleaned, meta) : null);
 
     // Immediately save fetched listing to database
     saveFetchedListing(
@@ -2323,6 +2412,7 @@ export default function ListingDiagnosis() {
       source: "manual_paste",
       rating: parsed.rating,
       review_count: parsed.review_count,
+      capture_quality: buildManualCaptureQuality(parsed),
     });
     logScrapeAttempt(asin || "unknown", marketplace, "manual_paste", true, "manual_paste");
 
@@ -2376,6 +2466,14 @@ export default function ListingDiagnosis() {
         { headers: getAuthHeaders(), timeout: 90000 }
       );
       if (parseRes.data?.success && parseRes.data.listing?.title) {
+        const capturedBullets = (capture.bullets || []).map((item) => String(item).trim()).filter(Boolean).slice(0, 5);
+        const parsedBulletCount = splitBullets(parseRes.data.listing.bullet_points).length;
+        if (capturedBullets.length > parsedBulletCount) {
+          parseRes.data.listing = {
+            ...parseRes.data.listing,
+            bullet_points: capturedBullets.join("\n"),
+          };
+        }
         setFetchUrl(capture.url || capture.asin || "");
         setMarketplace(parseRes.data.listing.marketplace || capture.marketplace || marketplace);
         applyFetchResult(parseRes.data);
@@ -2476,9 +2574,14 @@ export default function ListingDiagnosis() {
         { headers: getAuthHeaders(), timeout: 30000 }
       );
       localStorage.setItem(LISTING_DIAGNOSIS_TASK_KEY, taskRes.data.task_id);
+      localStorage.setItem(
+        LISTING_DIAGNOSIS_TASK_CONTEXT_KEY,
+        JSON.stringify({ listing: diagPayload.listing, fetchMeta: activeFetchMeta, diagPayload })
+      );
       toast.success("诊断任务已启动，可先查看其它页面，完成后会自动恢复");
       const task = await pollDiagnosisTask(taskRes.data.task_id);
       localStorage.removeItem(LISTING_DIAGNOSIS_TASK_KEY);
+      localStorage.removeItem(LISTING_DIAGNOSIS_TASK_CONTEXT_KEY);
       if (!task.result_payload) throw new Error("诊断完成但未返回结果，请从历史诊断查看");
       await applyDiagnosisResult(task.result_payload, activeListing, activeFetchMeta, diagPayload);
     } catch (err: unknown) {
@@ -2486,6 +2589,8 @@ export default function ListingDiagnosis() {
       try {
         const msg = axios.isAxiosError(err)
           ? err.response?.data?.detail || (err.code === "ECONNABORTED" ? "诊断超过180秒，请稍后重试" : "诊断失败，请重试")
+          : err instanceof Error
+            ? err.message
           : "诊断失败，请重试";
         toast.error(msg);
       } catch {
@@ -2533,6 +2638,21 @@ export default function ListingDiagnosis() {
       });
       const data = res.data;
       const report = data.diagnosis_report || {};
+      const savedListing = cleanListing({
+        ...EMPTY_LISTING,
+        ...(data.input_data || {}),
+        marketplace: data.marketplace || data.input_data?.marketplace || marketplace,
+      });
+      const savedMeta: FetchMeta = {
+        asin: savedListing.asin || "",
+        source: report.trace?.data_source || "history",
+        rating: savedListing.rating || "",
+        review_count: savedListing.review_count || "",
+        bsr_rank: savedListing.bsr_rank || "",
+        image_count: savedListing.image_count || "",
+        has_video: savedListing.has_video || false,
+        has_a_plus: savedListing.has_a_plus || false,
+      };
       const result: DiagnosisResult = {
         scores: data.scores,
         analysis: report.analysis || {},
@@ -2584,6 +2704,10 @@ export default function ListingDiagnosis() {
         data_integrity: report.data_integrity,
         diagnosis_confidence: report.diagnosis_confidence,
       };
+      setListing(savedListing);
+      setFetchMeta(savedMeta);
+      setSelectedListingAsin(savedMeta.asin || "");
+      setMarketValidation(deriveMarketValidationFromEvidence(savedListing, savedMeta, result.market_estimates));
       setDiagResult(result);
       setResultTab("overview");
       setActiveTab("diagnose");

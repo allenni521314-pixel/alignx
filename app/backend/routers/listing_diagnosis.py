@@ -1035,6 +1035,118 @@ def _normalize_diagnosis_result(result: dict, listing: ListingInput) -> dict:
         data["overall_summary"] = f"系统已完成Listing诊断归一化。当前需优先检查{weak_text}，并结合模块归因图定位标题、五点、图片、A+或后台词的责任。"
     if not data.get("analyzed_product_name"):
         data["analyzed_product_name"] = listing.title or ""
+    data = _apply_market_reality_caps(data, listing)
+    return data
+
+
+def _parse_metric_int(value: str | int | float | None) -> int:
+    if value is None:
+        return 0
+    match = re.search(r"\d+", str(value).replace(",", ""))
+    return int(match.group(0)) if match else 0
+
+
+def _count_listing_bullets(value: str | None) -> int:
+    if not value:
+        return 0
+    return len([item for item in re.split(r"[\n;；]+", value) if item.strip()])
+
+
+def _cap_score_map(scores: dict, caps: dict[str, int], reasons: list[str]) -> None:
+    for key, cap in caps.items():
+        current = scores.get(key)
+        if isinstance(current, (int, float)) and current > cap:
+            scores[key] = cap
+    reasons[:] = [reason for reason in reasons if reason]
+
+
+def _apply_market_reality_caps(data: dict, listing: ListingInput) -> dict:
+    """Keep content scores from drifting into market-proof claims.
+
+    Local browser capture improves evidence completeness, but the 8D+2 score is
+    a sell-through hypothesis. It must be capped by review, BSR, bullet quality
+    and backend/ad validation evidence so a complete page is not mistaken for a
+    proven high-conversion listing.
+    """
+    cap_meta = data.get("market_reality_caps")
+    if isinstance(cap_meta, dict) and cap_meta.get("applied"):
+        return data
+
+    scores = data.get("scores") if isinstance(data.get("scores"), dict) else {}
+    if not scores:
+        return data
+
+    review_count = _parse_metric_int(listing.review_count)
+    bsr_rank = _parse_metric_int(listing.bsr_rank)
+    bullet_count = _count_listing_bullets(listing.bullet_points)
+    has_backend = bool((listing.backend_keywords or "").strip())
+    reasons: list[str] = []
+
+    if bullet_count < 3:
+        _cap_score_map(
+            scores,
+            {
+                "function_expression": 70,
+                "scenario_expression": 68,
+                "psychology_benefit": 68,
+                "risk_elimination": 70,
+                "differentiation": 68,
+            },
+            reasons,
+        )
+        reasons.append(f"五点仅识别 {bullet_count}/5，不能按完整购买理由承接评分。")
+    elif bullet_count < 5:
+        _cap_score_map(scores, {"psychology_benefit": 78, "risk_elimination": 78, "differentiation": 76}, reasons)
+        reasons.append(f"五点仅识别 {bullet_count}/5，转化承接仍需补齐。")
+
+    if 0 < review_count < 100:
+        _cap_score_map(
+            scores,
+            {
+                "psychology_benefit": 78,
+                "risk_elimination": 76,
+                "differentiation": 76,
+                "market_trend": 74,
+            },
+            reasons,
+        )
+        reasons.append(f"评论数 {review_count} 低于100，信任和趋势不能按成熟大卖家评分。")
+    elif review_count == 0:
+        _cap_score_map(scores, {"psychology_benefit": 72, "risk_elimination": 70, "market_trend": 68}, reasons)
+        reasons.append("缺少评论数，不能证明信任承接和市场趋势。")
+
+    if bsr_rank > 10000:
+        _cap_score_map(
+            scores,
+            {
+                "market_trend": 72,
+                "differentiation": 74,
+                "scenario_expression": 82,
+                "psychology_benefit": 78,
+            },
+            reasons,
+        )
+        reasons.append(f"BSR #{bsr_rank} 不属于强势销量段，市场趋势和差异化需保守。")
+    elif bsr_rank == 0:
+        _cap_score_map(scores, {"market_trend": 72, "differentiation": 76}, reasons)
+        reasons.append("缺少BSR，不能直接证明自然销量和市场趋势。")
+
+    if not has_backend:
+        _cap_score_map(scores, {"compatibility": 82, "product_identity": 86, "market_trend": 78}, reasons)
+        reasons.append("后台Search Terms未提供，平台语义对齐不能按满链路确认。")
+
+    if reasons:
+        data["scores"] = scores
+        data["market_reality_caps"] = {
+            "applied": True,
+            "review_count": review_count,
+            "bsr_rank": bsr_rank,
+            "bullet_count": bullet_count,
+            "has_backend_keywords": has_backend,
+            "reasons": reasons,
+        }
+        prefix = "市场现实闸门已校准评分：" + "；".join(reasons[:3])
+        data["overall_summary"] = f"{prefix}。{data.get('overall_summary', '')}".strip()
     return data
 
 
@@ -1611,6 +1723,8 @@ async def _diagnose_single(
     cosmo_rufus_analysis["evidence_chain"] = evidence_chain
     cosmo_rufus_analysis["rule_track_role"] = "fallback_consistency_check_only"
     data = merge_cosmo_rufus_into_legacy(data, cosmo_rufus_analysis)
+    data = _apply_market_reality_caps(data, listing)
+    scores = data.get("scores", {})
     ad_validation_plan = data.get("ad_validation_plan", ad_validation_plan)
 
     amazon_compliance = await _evaluate_listing_compliance(listing, db)
@@ -2316,23 +2430,32 @@ async def get_diagnosis_detail(
     except (json.JSONDecodeError, TypeError):
         pass
 
+    scores = {
+        "function_expression": record.score_function_expression,
+        "scenario_expression": record.score_scenario_expression,
+        "identity_fit": record.score_identity_fit,
+        "psychology_benefit": record.score_psychology_benefit,
+        "risk_elimination": record.score_risk_elimination,
+        "product_identity": record.score_product_identity,
+        "compatibility": record.score_compatibility,
+        "subjective_properties": record.score_subjective_properties,
+        "differentiation": record.score_differentiation,
+        "market_trend": record.score_market_trend,
+    }
+    if input_data:
+        try:
+            saved_listing = ListingInput(**input_data)
+            diagnosis_report = _normalize_diagnosis_result({**diagnosis_report, "scores": scores}, saved_listing)
+            scores = diagnosis_report.get("scores", scores)
+        except Exception:
+            pass
+
     return {
         "id": record.id,
         "listing_title": record.listing_title,
         "marketplace": record.marketplace,
         "input_data": input_data,
-        "scores": {
-            "function_expression": record.score_function_expression,
-            "scenario_expression": record.score_scenario_expression,
-            "identity_fit": record.score_identity_fit,
-            "psychology_benefit": record.score_psychology_benefit,
-            "risk_elimination": record.score_risk_elimination,
-            "product_identity": record.score_product_identity,
-            "compatibility": record.score_compatibility,
-            "subjective_properties": record.score_subjective_properties,
-            "differentiation": record.score_differentiation,
-            "market_trend": record.score_market_trend,
-        },
+        "scores": scores,
         "diagnosis_report": diagnosis_report,
         "keyword_report": keyword_report,
         "created_at": record.created_at.isoformat() if record.created_at else None,

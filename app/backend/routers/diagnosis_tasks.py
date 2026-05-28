@@ -17,6 +17,7 @@ from routers.asin_analysis import AnalyzeAsinRequest, _analyze_single_asin
 from routers.listing_diagnosis import (
     DiagnoseRequest,
     _diagnose_single,
+    _fallback_listing_diagnosis,
     _normalize_diagnosis_result,
 )
 
@@ -109,6 +110,7 @@ async def _run_listing_task(task_id: str, user_id: str, payload: dict[str, Any])
     if not db_manager.async_session_maker:
         await db_manager.ensure_initialized()
     async with db_manager.async_session_maker() as db:
+        request: DiagnoseRequest | None = None
         try:
             await _set_task_status(db, task_id, "running", 12)
             request = DiagnoseRequest.model_validate(payload)
@@ -131,6 +133,23 @@ async def _run_listing_task(task_id: str, user_id: str, payload: dict[str, Any])
             )
         except Exception as exc:
             logger.exception("Listing diagnosis task failed: %s", task_id)
+            if request is not None:
+                fallback = _fallback_listing_diagnosis(
+                    request.listing,
+                    reason=f"后台诊断任务异常，已返回保守兜底结果。错误：{str(exc)[:300]}",
+                )
+                normalized = _normalize_diagnosis_result(fallback, request.listing)
+                normalized.setdefault("trace", {})
+                normalized["trace"]["task_recovered_from_error"] = str(exc)[:500]
+                await _set_task_status(
+                    db,
+                    task_id,
+                    "completed",
+                    100,
+                    result=normalized,
+                    source_record_table="listing_diagnoses",
+                )
+                return
             await _set_task_status(db, task_id, "failed", 100, error=str(exc))
 
 

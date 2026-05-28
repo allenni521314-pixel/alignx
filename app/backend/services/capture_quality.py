@@ -8,7 +8,6 @@ CORE_FIELDS = {
     "price": "价格",
     "rating": "评分",
     "review_count": "评论数",
-    "bullet_points": "五点描述",
     "image_urls": "主图/图片",
 }
 
@@ -31,6 +30,17 @@ SOURCE_CONFIDENCE = {
 }
 
 
+def _bullet_count(value: Any) -> int:
+    if value is None:
+        return 0
+    if isinstance(value, (list, tuple, set)):
+        return len([item for item in value if str(item).strip()])
+    if isinstance(value, str):
+        parts = [item.strip() for item in value.replace("；", "\n").replace(";", "\n").split("\n")]
+        return len([item for item in parts if item])
+    return 1
+
+
 def _present(value: Any) -> bool:
     if value is None:
         return False
@@ -44,8 +54,15 @@ def _present(value: Any) -> bool:
 def capture_quality(parsed: dict[str, Any], source: str = "server_proxy_fetch") -> dict[str, Any]:
     missing_core = [label for key, label in CORE_FIELDS.items() if not _present(parsed.get(key))]
     missing_strategy = [label for key, label in STRATEGY_FIELDS.items() if not _present(parsed.get(key))]
-    core_score = round((len(CORE_FIELDS) - len(missing_core)) / len(CORE_FIELDS) * 100)
-    strategy_score = round((len(STRATEGY_FIELDS) - len(missing_strategy)) / len(STRATEGY_FIELDS) * 100)
+    bullet_count = _bullet_count(parsed.get("bullet_points"))
+    if bullet_count < 3:
+        missing_core.append("五点描述不足3条")
+    elif bullet_count < 5:
+        missing_strategy.append("五点描述不足5条")
+
+    core_total = len(CORE_FIELDS) + 1
+    core_score = max(0, round((core_total - len(missing_core)) / core_total * 100))
+    strategy_score = max(0, round((len(STRATEGY_FIELDS) - len(missing_strategy)) / len(STRATEGY_FIELDS) * 100))
     completeness = round(core_score * 0.7 + strategy_score * 0.3)
     source_confidence = SOURCE_CONFIDENCE.get(source, "medium")
     allow_formal_diagnosis = not missing_core and bool(parsed.get("title"))
