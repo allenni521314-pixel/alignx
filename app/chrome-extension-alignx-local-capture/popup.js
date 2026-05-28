@@ -233,7 +233,7 @@ async function captureCurrentPage() {
 
   await chrome.storage.local.set({ alignxLastCapture: capture });
   renderCapture(capture);
-  setStatus("已采集到本地页面。下一步点击“打开 AlignX 本品诊断”，插件会把采集结果交给 AlignX。");
+  setStatus("已采集到本地页面。请选择发送目标后点击“发送到 AlignX”，插件会把采集结果交给对应模块。");
 }
 
 async function openAlignX() {

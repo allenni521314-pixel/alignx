@@ -14,8 +14,9 @@
 1. 用 Chrome 打开 Amazon 商品详情页
 2. 点击浏览器右上角的 AlignX Capture 插件
 3. 点击“采集当前 Amazon 页面”
-4. 点击“打开 AlignX 本品诊断”
-5. AlignX 会自动识别为 `local_browser_capture`，显示证据完整性闸门
+4. 选择发送目标：本品诊断、竞品诊断或 ASIN 选品
+5. 点击“发送到 AlignX”
+6. AlignX 会自动识别为 `local_browser_capture`，显示证据完整性闸门
 
 ## 边界
 
