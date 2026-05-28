@@ -572,6 +572,69 @@ export default function OptimizationSuggestions() {
     });
   }, [actionPriority]);
 
+  const nextRoundQuality = useMemo(() => {
+    const ready = conclusionQuality.canFinalize;
+    const highestPriority = liveNextRoundActions[0]?.priority || "P1";
+    const primaryOwner = liveNextRoundActions[0]?.owner || "本品诊断";
+    const blockedReason = !feedbackQuality.bindingReady
+      ? "广告记录还没有完整绑定诊断假设，下一轮会失去归因依据。"
+      : !feedbackQuality.sampleReady
+        ? "广告点击样本未满100次，下一轮优先继续跑量而不是改Listing。"
+        : !feedbackQuality.completedCount
+          ? "还没有完成命中/未命中判断，不能把动作写入下一轮。"
+          : "复盘结论尚未满足沉淀条件。";
+    return {
+      ready,
+      title: ready ? "可以生成下一轮优化任务" : "下一轮暂不应直接执行",
+      reason: ready
+        ? `优先从 ${primaryOwner} 开始，最高优先级为 ${highestPriority}；执行时只改一个核心变量并绑定同一假设ID。`
+        : blockedReason,
+      nextAction: ready
+        ? "按优先级执行第一项，完成修改后回到广告验证跑小预算测试。"
+        : "先补齐数据回流和复盘判定，再生成下一轮动作。",
+    };
+  }, [
+    conclusionQuality.canFinalize,
+    feedbackQuality.bindingReady,
+    feedbackQuality.completedCount,
+    feedbackQuality.sampleReady,
+    liveNextRoundActions,
+  ]);
+
+  const nextRoundBuckets = useMemo(() => {
+    const buckets = [
+      {
+        key: "listing",
+        title: "Listing修改",
+        desc: "标题、五点、主图、副图、A+ 的表达和承接问题。",
+        actions: liveNextRoundActions.filter((item) => ["本品诊断", "上新检测"].includes(item.owner)),
+      },
+      {
+        key: "ad",
+        title: "广告验证",
+        desc: "关键词分组、预算、匹配方式和A/B测试变量。",
+        actions: liveNextRoundActions.filter((item) => item.owner === "广告验证" || item.path.includes("ab-test")),
+      },
+      {
+        key: "market",
+        title: "市场复查",
+        desc: "竞品变化、价格带变化和类目环境变化。",
+        actions: liveNextRoundActions.filter((item) => item.owner === "竞品诊断" || item.path.includes("competitor")),
+      },
+    ];
+    const assigned = new Set(buckets.flatMap((bucket) => bucket.actions.map((item) => item.rank)));
+    const unassigned = liveNextRoundActions.filter((item) => !assigned.has(item.rank));
+    if (unassigned.length) {
+      buckets.push({
+        key: "other",
+        title: "其他动作",
+        desc: "需要人工确认归属的下一轮任务。",
+        actions: unassigned,
+      });
+    }
+    return buckets.filter((bucket) => bucket.actions.length);
+  }, [liveNextRoundActions]);
+
   const summaryChips = useMemo(() => {
     if (!agentDecision) {
       return [
@@ -938,6 +1001,71 @@ export default function OptimizationSuggestions() {
             </Card>
           )}
 
+          {view === "next-round" && (
+            <Card className="bg-white border-gray-200 p-5 mb-6">
+              <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-5">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Badge
+                      className={
+                        nextRoundQuality.ready
+                          ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                          : "bg-amber-50 text-amber-700 border-amber-200"
+                      }
+                    >
+                      {nextRoundQuality.ready ? "可执行" : "先补齐"}
+                    </Badge>
+                    <span className="text-xs text-gray-500">
+                      下一轮只允许一个核心变量进入验证
+                    </span>
+                  </div>
+                  <h2 className="text-lg font-semibold text-gray-900 mt-3">{nextRoundQuality.title}</h2>
+                  <p className="text-sm text-gray-600 mt-2">{nextRoundQuality.reason}</p>
+                  <p className="text-sm text-brand-700 mt-3">下一步：{nextRoundQuality.nextAction}</p>
+                </div>
+                <div className="flex flex-wrap gap-2 shrink-0">
+                  {(nextRoundQuality.ready
+                    ? [
+                        { label: "进入第一项任务", path: liveNextRoundActions[0]?.path || "/listing-diagnosis", variant: "default" as const },
+                        { label: "建立广告验证", path: "/ab-test-comparison", variant: "outline" as const },
+                      ]
+                    : [
+                        { label: "回到复盘结论", path: "/optimization-suggestions?view=conclusion", variant: "default" as const },
+                        { label: "补录广告数据", path: "/ad-analytics?view=records", variant: "outline" as const },
+                      ]).map((action) => (
+                    <Button
+                      key={action.label}
+                      asChild
+                      variant={action.variant === "outline" ? "outline" : "default"}
+                      className={action.variant === "outline" ? "border-gray-200 text-brand-700 hover:bg-brand-50" : "bg-brand-700 hover:bg-brand-800"}
+                    >
+                      <a href={action.path}>
+                        {action.label}
+                        <ArrowRight className="w-3.5 h-3.5 ml-1" />
+                      </a>
+                    </Button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mt-5">
+                {[
+                  { label: "动作数量", value: String(liveNextRoundActions.length), desc: "按复盘生成" },
+                  { label: "最高优先级", value: liveNextRoundActions[0]?.priority || "P1", desc: liveNextRoundActions[0]?.owner || "待确认" },
+                  { label: "版本轮次", value: String(listingContract?.current_round || 1), desc: "修改前后留快照" },
+                  { label: "假设绑定", value: `${feedbackQuality.assignedCount}/${hypothesisValidations.length || 0}`, desc: feedbackQuality.bindingReady ? "完整" : "需补齐" },
+                  { label: "样本状态", value: feedbackQuality.sampleReady ? "达标" : "不足", desc: `${formatNumber(feedbackQuality.totalClicks)} 次点击` },
+                ].map((item) => (
+                  <div key={item.label} className="rounded-lg bg-gray-50 border border-gray-100 p-3">
+                    <p className="text-[11px] text-gray-500">{item.label}</p>
+                    <p className="text-xl font-bold text-gray-900 mt-1">{item.value}</p>
+                    <p className="text-[11px] text-gray-400 mt-1">{item.desc}</p>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
+
           {learningMemory && (
             <Card className="bg-white border-gray-200 p-5 mb-6">
               <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4 mb-4">
@@ -999,39 +1127,80 @@ export default function OptimizationSuggestions() {
           )}
 
           {view === "next-round" && (
-            <div className="space-y-4">
-              {liveNextRoundActions.map((item) => (
-                <Card key={item.rank} className="bg-white border-gray-200 p-5">
-                  <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
-                    <div className="flex items-start gap-3">
-                      <div className="w-9 h-9 rounded-lg bg-brand-50 text-brand-700 flex items-center justify-center font-bold text-sm">
-                        {item.rank}
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <h3 className="text-sm font-semibold text-gray-900">{item.title}</h3>
-                          <Badge className="bg-red-50 text-red-600 border-red-200">{item.priority}</Badge>
-                          <span className="text-[11px] text-gray-400">{item.owner}</span>
-                        </div>
-                        <p className="text-[11px] font-semibold text-brand-600 mt-2">{item.problemType}</p>
-                        <p className="text-sm text-gray-600 mt-2">{item.reason}</p>
-                        <p className="text-xs text-gray-500 mt-2">分流依据：{item.decisionBasis}</p>
-                      </div>
+            <div className="space-y-5">
+              {nextRoundBuckets.map((bucket) => (
+                <Card key={bucket.key} className="bg-white border-gray-200 overflow-hidden">
+                  <div className="p-5 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                    <div>
+                      <h2 className="text-sm font-semibold text-gray-900">{bucket.title}</h2>
+                      <p className="text-xs text-gray-500 mt-1">{bucket.desc}</p>
                     </div>
-                    <Button
-                      asChild
-                      size="sm"
-                      variant="outline"
-                      className="border-gray-200 text-brand-600 hover:bg-brand-50 shrink-0"
-                    >
-                      <a href={item.path}>
-                        {item.cta}
-                        <ArrowRight className="w-3 h-3 ml-1" />
-                      </a>
-                    </Button>
+                    <Badge className="bg-gray-50 text-gray-600 border-gray-200">{bucket.actions.length} 项</Badge>
+                  </div>
+                  <div className="divide-y divide-gray-100">
+                    {bucket.actions.map((item) => (
+                      <div key={item.rank} className="p-5">
+                        <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
+                          <div className="flex items-start gap-3">
+                            <div className="w-9 h-9 rounded-lg bg-brand-50 text-brand-700 flex items-center justify-center font-bold text-sm shrink-0">
+                              {item.rank}
+                            </div>
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <h3 className="text-sm font-semibold text-gray-900">{item.title}</h3>
+                                <Badge className="bg-red-50 text-red-600 border-red-200">{item.priority}</Badge>
+                                <span className="text-[11px] text-gray-400">{item.owner}</span>
+                              </div>
+                              <p className="text-[11px] font-semibold text-brand-600 mt-2">{item.problemType}</p>
+                              <p className="text-sm text-gray-600 mt-2">{item.reason}</p>
+                              <div className="mt-3 grid grid-cols-1 lg:grid-cols-3 gap-2">
+                                {[
+                                  { label: "分流依据", value: item.decisionBasis },
+                                  { label: "执行约束", value: "只改变一个核心变量，价格/主图/评价承诺保持稳定。" },
+                                  { label: "验证方式", value: "下一轮广告记录必须绑定同一假设ID后回流。" },
+                                ].map((detail) => (
+                                  <div key={detail.label} className="rounded-lg bg-gray-50 border border-gray-100 p-3">
+                                    <p className="text-[11px] font-semibold text-gray-500">{detail.label}</p>
+                                    <p className="text-xs text-gray-600 mt-1 leading-relaxed">{detail.value}</p>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                          <Button
+                            asChild
+                            size="sm"
+                            variant="outline"
+                            className="border-gray-200 text-brand-600 hover:bg-brand-50 shrink-0"
+                          >
+                            <a href={item.path}>
+                              {item.cta}
+                              <ArrowRight className="w-3 h-3 ml-1" />
+                            </a>
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </Card>
               ))}
+
+              <Card className="bg-white border-gray-200 p-5">
+                <h2 className="text-sm font-semibold text-gray-900 mb-3">下一轮执行规则</h2>
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                  {[
+                    { title: "先改高置信项", text: "优先执行P0/P1，不同时改多个卖点。" },
+                    { title: "保留对照组", text: "A版本保留原Listing，B版本只改一个变量。" },
+                    { title: "广告小预算验证", text: "固定竞价和关键词组，观察CTR、CVR、ACOS。" },
+                    { title: "结果回流", text: "点击满100后回到效果验证和数据回流。" },
+                  ].map((item) => (
+                    <div key={item.title} className="rounded-lg bg-gray-50 border border-gray-100 p-3">
+                      <p className="text-sm font-semibold text-gray-900">{item.title}</p>
+                      <p className="text-xs text-gray-600 mt-2 leading-relaxed">{item.text}</p>
+                    </div>
+                  ))}
+                </div>
+              </Card>
             </div>
           )}
 
