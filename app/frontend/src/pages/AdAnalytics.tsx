@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { client } from "@/lib/api";
 import { useRequireAuth } from "@/hooks/useRequireAuth";
@@ -157,6 +158,68 @@ const demoAdRecords: AdRecord[] = [
   },
 ];
 
+type ImportMode = "paste" | "upload" | "manual" | null;
+type ImportAdRow = typeof emptyAd;
+
+function normalizeHeader(value: string) {
+  return value.toLowerCase().replace(/[%$()]/g, "").replace(/[^a-z0-9\u4e00-\u9fa5]+/g, "");
+}
+
+function parseNumber(value: string | undefined) {
+  const num = Number(String(value || "").replace(/[$,%\s,]/g, ""));
+  return Number.isFinite(num) ? num : 0;
+}
+
+function parseReportLine(line: string, delimiter: string) {
+  if (delimiter === "\t") return line.split("\t").map((cell) => cell.trim());
+  const cells: string[] = [];
+  let current = "";
+  let quoted = false;
+  for (let i = 0; i < line.length; i += 1) {
+    const char = line[i];
+    if (char === '"') {
+      quoted = !quoted;
+    } else if (char === "," && !quoted) {
+      cells.push(current.trim());
+      current = "";
+    } else {
+      current += char;
+    }
+  }
+  cells.push(current.trim());
+  return cells;
+}
+
+function parseAdReport(text: string): ImportAdRow[] {
+  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  if (lines.length < 2) return [];
+  const delimiter = lines[0].includes("\t") ? "\t" : ",";
+  const headers = parseReportLine(lines[0], delimiter).map(normalizeHeader);
+  const pick = (row: string[], names: string[]) => {
+    const index = headers.findIndex((header) => names.some((name) => header.includes(name)));
+    return index >= 0 ? row[index] : "";
+  };
+  return lines.slice(1).map((line) => {
+    const row = parseReportLine(line, delimiter);
+    const adGroup = pick(row, ["adgroup", "广告组", "campaign", "广告活动"]) || "导入广告组";
+    const keyword = pick(row, ["customersearchterm", "searchterm", "keyword", "targeting", "搜索词", "关键词"]) || "未识别关键词";
+    const date = pick(row, ["date", "startdate", "enddate", "日期"]) || new Date().toISOString().split("T")[0];
+    const matchType = (pick(row, ["matchtype", "匹配类型"]) || "exact").toLowerCase();
+    return {
+      ...emptyAd,
+      ad_group_name: adGroup,
+      keyword,
+      match_type: matchType.includes("broad") || matchType.includes("广泛") ? "broad" : matchType.includes("phrase") || matchType.includes("词组") ? "phrase" : "exact",
+      impressions: parseNumber(pick(row, ["impressions", "曝光"])),
+      clicks: parseNumber(pick(row, ["clicks", "点击"])),
+      spend: parseNumber(pick(row, ["spend", "cost", "花费"])),
+      orders: parseNumber(pick(row, ["orders", "purchases", "订单"])),
+      sales: parseNumber(pick(row, ["sales", "revenue", "销售额", "销售"])),
+      date: /^\d{4}-\d{2}-\d{2}/.test(date) ? date.slice(0, 10) : new Date().toISOString().split("T")[0],
+    };
+  }).filter((row) => row.keyword && (row.impressions || row.clicks || row.spend || row.orders || row.sales));
+}
+
 export default function AdAnalytics() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -167,12 +230,16 @@ export default function AdAnalytics() {
   const [adRecords, setAdRecords] = useState<AdRecord[]>(demoAdRecords);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(emptyAd);
+  const [importMode, setImportMode] = useState<ImportMode>(null);
+  const [importText, setImportText] = useState("");
+  const [importing, setImporting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [asinQuery, setAsinQuery] = useState("");
   const validationSnapshotKeyRef = useRef("");
 
   const { loading: authLoading } = useRequireAuth();
+  const parsedImportRows = parseAdReport(importText);
 
   const goTo = (path: string) => {
     if (path.includes("?")) {
@@ -397,6 +464,68 @@ export default function AdAnalytics() {
     finally { setSaving(false); }
   };
 
+  const openImportMode = (mode: ImportMode) => {
+    setImportMode(mode);
+    setShowForm(mode === "manual");
+  };
+
+  const handleFileImport = async (file?: File) => {
+    if (!file) return;
+    const text = await file.text();
+    setImportText(text);
+    setImportMode("upload");
+    setShowForm(false);
+    toast.success("文件已读取，请确认解析结果后导入");
+  };
+
+  const saveImportedRows = async () => {
+    if (!selectedProductId || selectedProductId === "all") {
+      toast.error("请先选择一个产品，再导入广告报表");
+      return;
+    }
+    if (parsedImportRows.length === 0) {
+      toast.error("未解析到有效广告数据，请检查表头和内容");
+      return;
+    }
+    setImporting(true);
+    try {
+      await Promise.all(parsedImportRows.map((row) => client.entities.ad_data.create({
+        data: {
+          product_id: Number(selectedProductId),
+          ...row,
+          impressions: Number(row.impressions),
+          clicks: Number(row.clicks),
+          spend: Number(row.spend),
+          orders: Number(row.orders),
+          sales: Number(row.sales),
+          date: row.date + " 00:00:00",
+        },
+      })));
+      saveActionSnapshot({
+        module_key: "ad_analytics",
+        module_name: "广告验证",
+        action_key: "import_ad_report",
+        action_name: "导入广告报表",
+        product_id: Number(selectedProductId),
+        title: `导入 ${parsedImportRows.length} 条广告数据`,
+        input_snapshot: { mode: importMode, rows: parsedImportRows.slice(0, 20) },
+        output_snapshot: { imported_count: parsedImportRows.length },
+        data_source: importMode === "upload" ? "report_upload" : "report_paste",
+        confidence: "user_report",
+        ai_called: false,
+        source_record_table: "ad_data",
+      }).catch(() => {});
+      toast.success(`已导入 ${parsedImportRows.length} 条广告数据`);
+      setImportText("");
+      setImportMode(null);
+      await loadAdData();
+    } catch (e: any) {
+      toast.error(e?.message || "导入失败");
+    } finally {
+      setImporting(false);
+    }
+  };
+
   const kpiCards = [
     { label: "总曝光", value: totalImpressions.toLocaleString(), icon: Eye, color: "text-teal-600" },
     { label: "总点击", value: totalClicks.toLocaleString(), icon: MousePointerClick, color: "text-brand-600" },
@@ -556,9 +685,9 @@ export default function AdAnalytics() {
                 查看执行记录
               </Button>
             ) : (
-              <Button className="bg-brand-600 hover:bg-brand-500 text-white" onClick={() => setShowForm(!showForm)}>
-                {showForm ? <X className="w-4 h-4 mr-1" /> : <Plus className="w-4 h-4 mr-1" />}
-                {showForm ? "取消" : "录入数据"}
+              <Button className="bg-brand-600 hover:bg-brand-500 text-white" onClick={() => openImportMode(showForm || importMode ? null : "paste")}>
+                {showForm || importMode ? <X className="w-4 h-4 mr-1" /> : <Plus className="w-4 h-4 mr-1" />}
+                {showForm || importMode ? "取消" : "录入数据"}
               </Button>
             )}
           </div>
@@ -597,6 +726,9 @@ export default function AdAnalytics() {
                     <p className="text-xs text-gray-600 mt-1 leading-relaxed">
                       用户从Amazon广告后台下载报表，复制表格后粘贴到系统，自动解析字段并入库。
                     </p>
+                    <Button size="sm" className="mt-3 bg-emerald-700 hover:bg-emerald-600 text-white" onClick={() => openImportMode("paste")}>
+                      打开粘贴入口
+                    </Button>
                   </div>
                 </div>
               </Card>
@@ -610,6 +742,17 @@ export default function AdAnalytics() {
                     <p className="text-xs text-gray-600 mt-1 leading-relaxed">
                       支持CSV/Excel广告报表上传，字段映射后进入同一套验证和数据回流逻辑。
                     </p>
+                    <label className="inline-flex mt-3">
+                      <input
+                        type="file"
+                        accept=".csv,.txt,.tsv"
+                        className="hidden"
+                        onChange={(e) => handleFileImport(e.target.files?.[0])}
+                      />
+                      <span className="inline-flex h-9 items-center rounded-md bg-amber-600 px-3 text-sm font-medium text-white hover:bg-amber-500 cursor-pointer">
+                        选择报表文件
+                      </span>
+                    </label>
                   </div>
                 </div>
               </Card>
@@ -627,6 +770,68 @@ export default function AdAnalytics() {
                 </div>
               </Card>
             </div>
+          )}
+
+          {!isValidationView && importMode && importMode !== "manual" && (
+            <Card className="bg-white border-gray-200 p-4 sm:p-6 mb-6">
+              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-4">
+                <div>
+                  <h3 className="text-lg font-semibold">
+                    {importMode === "upload" ? "上传报表解析" : "粘贴广告报表"}
+                  </h3>
+                  <p className="text-sm text-gray-500 mt-1">
+                    先选择产品，再粘贴 Amazon Ads 报表表格；系统会按表头识别曝光、点击、花费、订单和销售额。
+                  </p>
+                </div>
+                <Button variant="outline" onClick={() => { setImportMode(null); setImportText(""); }}>
+                  关闭
+                </Button>
+              </div>
+              <Textarea
+                value={importText}
+                onChange={(e) => setImportText(e.target.value)}
+                placeholder={"从Excel或CSV复制后粘贴到这里，第一行需要包含表头，例如：\nAd Group\tKeyword\tMatch Type\tImpressions\tClicks\tSpend\tOrders\tSales\tDate"}
+                className="min-h-[180px] bg-gray-50 border-gray-200 font-mono text-xs"
+              />
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mt-4">
+                <p className="text-sm text-gray-500">
+                  已解析 {parsedImportRows.length} 条。{selectedProductId && selectedProductId !== "all" ? "将导入到当前选中产品。" : "请先在上方选择一个产品。"}
+                </p>
+                <Button onClick={saveImportedRows} disabled={importing || parsedImportRows.length === 0} className="bg-brand-600 hover:bg-brand-500 text-white">
+                  <Save className="w-4 h-4 mr-1" /> {importing ? "导入中..." : "导入解析结果"}
+                </Button>
+              </div>
+              {parsedImportRows.length > 0 && (
+                <div className="overflow-x-auto mt-4 rounded-lg border border-gray-100">
+                  <table className="w-full text-xs">
+                    <thead className="bg-gray-50 text-gray-500">
+                      <tr>
+                        <th className="text-left p-2">广告组</th>
+                        <th className="text-left p-2">关键词/搜索词</th>
+                        <th className="text-right p-2">曝光</th>
+                        <th className="text-right p-2">点击</th>
+                        <th className="text-right p-2">花费</th>
+                        <th className="text-right p-2">订单</th>
+                        <th className="text-right p-2">销售额</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {parsedImportRows.slice(0, 8).map((row, idx) => (
+                        <tr key={`${row.keyword}-${idx}`} className="border-t border-gray-100">
+                          <td className="p-2">{row.ad_group_name}</td>
+                          <td className="p-2">{row.keyword}</td>
+                          <td className="p-2 text-right">{row.impressions}</td>
+                          <td className="p-2 text-right">{row.clicks}</td>
+                          <td className="p-2 text-right">${Number(row.spend).toFixed(2)}</td>
+                          <td className="p-2 text-right">{row.orders}</td>
+                          <td className="p-2 text-right">${Number(row.sales).toFixed(2)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </Card>
           )}
 
           {/* Product Filter */}
