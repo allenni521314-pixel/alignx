@@ -26,9 +26,9 @@ import {
   CheckCircle2,
   AlertTriangle,
   Database,
-  KeyRound,
   Search,
   UploadCloud,
+  ClipboardPaste,
 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RTooltip, ResponsiveContainer } from "recharts";
 
@@ -576,7 +576,7 @@ export default function AdAnalytics() {
           ) : (
             <PageHeader
               objective="保存每一轮广告执行数据"
-              inputSource="Amazon Ads授权同步为主；CSV上传/手动录入兜底"
+              inputSource="粘贴/上传Amazon广告报表为主；API授权同步为正式版能力"
               process="结构化记录投放动作和实际指标"
               outputTarget="可追溯的执行记录、关键词表现明细"
               action="进入效果验证判断测试是否成立"
@@ -590,12 +590,12 @@ export default function AdAnalytics() {
               <Card className="bg-emerald-50 border-emerald-100 p-4">
                 <div className="flex items-start gap-3">
                   <div className="w-9 h-9 rounded-lg bg-white border border-emerald-100 flex items-center justify-center">
-                    <KeyRound className="w-4 h-4 text-emerald-700" />
+                    <ClipboardPaste className="w-4 h-4 text-emerald-700" />
                   </div>
                   <div>
-                    <p className="text-sm font-semibold text-gray-900">推荐：授权同步</p>
+                    <p className="text-sm font-semibold text-gray-900">推荐：粘贴报表</p>
                     <p className="text-xs text-gray-600 mt-1 leading-relaxed">
-                      用户通过 Amazon Ads / SP-API OAuth 授权后，系统自动同步广告报表和店铺ASIN池。
+                      用户从Amazon广告后台下载报表，复制表格后粘贴到系统，自动解析字段并入库。
                     </p>
                   </div>
                 </div>
@@ -606,9 +606,9 @@ export default function AdAnalytics() {
                     <UploadCloud className="w-4 h-4 text-amber-700" />
                   </div>
                   <div>
-                    <p className="text-sm font-semibold text-gray-900">过渡：CSV上传</p>
+                    <p className="text-sm font-semibold text-gray-900">同样支持：上传文件</p>
                     <p className="text-xs text-gray-600 mt-1 leading-relaxed">
-                      内测阶段可上传广告报表，字段映射后进入同一套验证和数据回流逻辑。
+                      支持CSV/Excel广告报表上传，字段映射后进入同一套验证和数据回流逻辑。
                     </p>
                   </div>
                 </div>
@@ -619,9 +619,9 @@ export default function AdAnalytics() {
                     <Database className="w-4 h-4 text-gray-600" />
                   </div>
                   <div>
-                    <p className="text-sm font-semibold text-gray-900">兜底：手动录入</p>
+                    <p className="text-sm font-semibold text-gray-900">未来：API授权同步</p>
                     <p className="text-xs text-gray-600 mt-1 leading-relaxed">
-                      只用于小样本验证或授权前测试，不作为长期生产级数据入口。
+                      不让AI代替用户登录后台抓数据；接入Amazon Ads API后再做自动同步。
                     </p>
                   </div>
                 </div>
