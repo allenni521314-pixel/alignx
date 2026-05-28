@@ -397,6 +397,9 @@ export default function AdAnalytics() {
     sales: totalSales,
     assigned: false,
   };
+  const validationHypothesisLabel = validationMetrics.assigned ? validationMetrics.hypothesis_id : "未绑定具体假设";
+  const validationKeywordGroupLabel = validationMetrics.assigned ? validationMetrics.keyword_group_id : "全部广告数据";
+  const sampleProgress = Math.min(100, Math.round((Number(validationMetrics.clicks || 0) / 100) * 100));
 
   const chartData = keywordRanking.slice(0, 8).map((kw) => ({
     name: kw.keyword.length > 8 ? kw.keyword.substring(0, 8) + "..." : kw.keyword,
@@ -547,8 +550,8 @@ export default function AdAnalytics() {
         level: "数据不足",
         color: "text-amber-700 bg-amber-50 border-amber-200",
         icon: AlertTriangle,
-        summary: `当前主验证假设 ${validationMetrics.hypothesis_id} 点击量不足100，暂不建议判定测试是否成立。`,
-        actions: ["继续跑量到100次点击以上", "保持预算和Listing版本稳定", "不要提前扩大或暂停测试"],
+        summary: `当前验证对象「${validationHypothesisLabel}」点击量为 ${validationClicks}，未达到100次点击的最低判定样本，暂不建议判断测试是否成立。`,
+        actions: ["继续跑量到100次点击以上", "保持预算、Listing版本和关键词结构稳定", "不要提前扩大预算或暂停测试"],
       };
     }
     if (cvrNum >= 8 && (acosNum <= 35 || Number(validationMetrics.sales || 0) === 0)) {
@@ -556,7 +559,7 @@ export default function AdAnalytics() {
         level: "测试成立",
         color: "text-emerald-700 bg-emerald-50 border-emerald-200",
         icon: CheckCircle2,
-        summary: `假设 ${validationMetrics.hypothesis_id} 的关键词组 ${validationMetrics.keyword_group_id} 转化承接表现较好，可沉淀为有效假设。`,
+        summary: `验证对象「${validationHypothesisLabel}」在「${validationKeywordGroupLabel}」中的转化承接表现较好，可沉淀为有效假设。`,
         actions: ["扩大高转化关键词预算", "保留当前Listing承诺表达", "将结论回流到数据回流模块"],
       };
     }
@@ -565,7 +568,7 @@ export default function AdAnalytics() {
         level: "点击成立，转化未成立",
         color: "text-teal-700 bg-teal-50 border-teal-200",
         icon: AlertTriangle,
-        summary: `假设 ${validationMetrics.hypothesis_id} 点击入口成立，但详情页、价格、评价或承诺可信度没有承接。`,
+        summary: `验证对象「${validationHypothesisLabel}」点击入口成立，但详情页、价格、评价或承诺可信度没有承接。`,
         actions: ["回到本品诊断检查详情页承接", "复核价格和评价信任", "保留点击词但调整Listing表达"],
       };
     }
@@ -951,13 +954,37 @@ export default function AdAnalytics() {
                     <p className="text-sm text-gray-600 mt-1">{validationConclusion.summary}</p>
                   </div>
                 </div>
-                <Button asChild className="bg-emerald-600 hover:bg-emerald-500 text-white">
-                  <a href="/optimization-suggestions?view=data-feedback">
-                    进入数据回流
-                  </a>
-                </Button>
+                <div className="flex gap-2">
+                  <Button variant="outline" className="bg-white" onClick={() => goTo("/ad-analytics?view=records")}>
+                    补录广告数据
+                  </Button>
+                  <Button asChild className="bg-emerald-600 hover:bg-emerald-500 text-white">
+                    <a href="/optimization-suggestions?view=data-feedback">
+                      进入数据回流
+                    </a>
+                  </Button>
+                </div>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-4">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mt-4">
+                <div className="rounded-lg bg-gray-50 border border-gray-100 p-3">
+                  <p className="text-xs text-gray-500">验证对象</p>
+                  <p className="text-sm font-semibold text-gray-900 mt-1">{validationHypothesisLabel}</p>
+                  <p className="text-[11px] text-gray-400 mt-1">{validationKeywordGroupLabel}</p>
+                </div>
+                <div className="rounded-lg bg-gray-50 border border-gray-100 p-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs text-gray-500">样本进度</p>
+                    <span className="text-xs font-semibold text-gray-700">{Number(validationMetrics.clicks || 0)}/100 点击</span>
+                  </div>
+                  <div className="h-2 bg-white rounded-full overflow-hidden mt-2">
+                    <div className="h-full bg-amber-500 rounded-full" style={{ width: `${sampleProgress}%` }} />
+                  </div>
+                </div>
+                <div className="rounded-lg bg-gray-50 border border-gray-100 p-3">
+                  <p className="text-xs text-gray-500">当前指标</p>
+                  <p className="text-sm font-semibold text-gray-900 mt-1">CTR {validationMetrics.ctr}% · CVR {validationMetrics.cvr}%</p>
+                  <p className="text-[11px] text-gray-400 mt-1">ACoS {validationMetrics.acos}%</p>
+                </div>
                 {validationConclusion.actions.map((action) => (
                   <div key={action} className="rounded-lg bg-gray-50 border border-gray-100 p-3 text-sm text-gray-700">
                     {action}
@@ -972,7 +999,7 @@ export default function AdAnalytics() {
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
                 <div>
                   <h3 className="text-sm font-semibold text-gray-900">假设级验证结果</h3>
-                  <p className="text-xs text-gray-500 mt-1">优先按 hypothesis_id + keyword_group_id + 轮次判断，避免多个实验混在一起。</p>
+                  <p className="text-xs text-gray-500 mt-1">优先按“验证假设 + 关键词组 + 轮次”判断，避免多个实验混在一起。</p>
                 </div>
                 <span className="text-xs text-gray-400">
                   已绑定 {validationGroups.filter((group) => group.assigned).length} 组
@@ -1001,11 +1028,11 @@ export default function AdAnalytics() {
                       return (
                         <tr key={`${group.hypothesis_id}-${group.keyword_group_id}-${group.optimization_round}`} className="border-b border-gray-100 hover:bg-gray-50">
                           <td className="p-3">
-                            <p className="font-medium text-gray-900">{group.hypothesis_id}</p>
+                            <p className="font-medium text-gray-900">{group.assigned ? group.hypothesis_id : "未绑定具体假设"}</p>
                             <p className="text-[11px] text-gray-400">第 {group.optimization_round} 轮 · {group.record_count} 条记录</p>
                           </td>
                           <td className="p-3 text-gray-600">
-                            <p>{group.keyword_group_id}</p>
+                            <p>{group.assigned ? group.keyword_group_id : "全部广告数据"}</p>
                             <p className="text-[11px] text-gray-400 truncate max-w-[260px]">{group.keywords.join(", ")}</p>
                           </td>
                           <td className="p-3 text-right text-gray-600">{group.clicks}</td>
