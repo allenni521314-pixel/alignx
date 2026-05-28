@@ -409,7 +409,7 @@ export default function ABTestComparison() {
         ai_called: source !== "backend_rules_fallback",
         source_record_table: "action_snapshots",
       }).catch(() => {});
-      toast.success(source === "backend_rules_fallback" ? "A/B测试已用后台规则兜底" : "DeepSeek-V4 A/B推理完成");
+      toast.success(source === "backend_rules_fallback" ? "A/B测试已用后台规则兜底" : "AI A/B推理完成");
     } catch (e) {
       const reason = axios.isAxiosError(e)
         ? e.code === "ECONNABORTED"
@@ -448,7 +448,7 @@ export default function ABTestComparison() {
   const resultSource = result?.judgment_source || result?.data_source || "";
   const resultSourceLabel =
     resultSource === "deepseek_v4_reasoning"
-      ? `DeepSeek-V4 推理${result?.model_used ? ` · ${result.model_used}` : ""}`
+      ? "AI 推理"
       : resultSource === "backend_rules_fallback"
         ? "后台规则兜底"
         : resultSource === "frontend_local_fallback"
