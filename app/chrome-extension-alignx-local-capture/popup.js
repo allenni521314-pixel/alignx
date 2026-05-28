@@ -32,23 +32,91 @@ function captureAmazonPage() {
     }
     return "";
   };
-  const parsePrice = (value) => {
-    const text = clean(value).replace(/(\d)\s+(\d{2})(\D|$)/, "$1.$2$3");
-    if (!text || /list price|was:|save |coupon|monthly|payment plan/i.test(text)) return "";
-    const match =
-      text.match(/[$€£¥₹]\s*\d{1,4}(?:[,.]\s*\d{2})?/) ||
-      text.match(/\b\d{1,4}(?:[,.]\s*\d{2})?\s*(?:USD|EUR|GBP|JPY|CAD|AUD)\b/i);
-    return match ? clean(match[0].replace(/\s+/g, "")) : "";
+  const normalizePriceNumber = (value) => {
+    const normalized = clean(value)
+      .replace(/,/g, ".")
+      .replace(/[^\d.]/g, "")
+      .replace(/^\./, "")
+      .replace(/\.(?=.*\.)/g, "");
+    if (!normalized) return "";
+    const amount = Number(normalized);
+    if (!Number.isFinite(amount) || amount <= 0 || amount > 9999) return "";
+    return amount.toFixed(2).replace(/\.00$/, "");
+  };
+  const parsePrice = (value, options = {}) => {
+    const { allowNumberOnly = false, defaultSymbol = "$" } = options;
+    const text = clean(value)
+      .replace(/\u00a0/g, " ")
+      .replace(/(\d)\s+(\d{2})(\D|$)/, "$1.$2$3")
+      .replace(/(\d)\s*\.\s*(\d{2})(\D|$)/, "$1.$2$3");
+    if (!text) return "";
+
+    const badSinglePriceContext = /list price|was:|typical price|save\s+\d|coupon|monthly|payment plan|per month|delivery|shipping/i;
+    const candidates = [];
+    for (const match of text.matchAll(/([$€£¥₹])\s*(\d{1,4}(?:[,.]\s*\d{2})?)/g)) {
+      const amount = normalizePriceNumber(match[2]);
+      if (amount) candidates.push(`${match[1]}${amount}`);
+    }
+    for (const match of text.matchAll(/\b(\d{1,4}(?:[,.]\s*\d{2})?)\s*(USD|EUR|GBP|JPY|CAD|AUD)\b/gi)) {
+      const amount = normalizePriceNumber(match[1]);
+      if (amount) candidates.push(`${amount} ${match[2].toUpperCase()}`);
+    }
+    if (allowNumberOnly && candidates.length === 0) {
+      const match = text.match(/\b\d{1,4}(?:[,.]\s*\d{2})?\b/);
+      const amount = normalizePriceNumber(match?.[0] || "");
+      if (amount) candidates.push(`${defaultSymbol}${amount}`);
+    }
+    if (candidates.length === 0) return "";
+    if (candidates.length === 1 && badSinglePriceContext.test(text)) return "";
+    return candidates[candidates.length - 1];
+  };
+  const readNodePrice = (node, options = {}) => {
+    if (!node) return "";
+    return (
+      parsePrice(node.getAttribute?.("content") || "", { ...options, allowNumberOnly: true }) ||
+      parsePrice(node.getAttribute?.("value") || "", { ...options, allowNumberOnly: true }) ||
+      parsePrice(node.getAttribute?.("data-price") || "", { ...options, allowNumberOnly: true }) ||
+      parsePrice(node.getAttribute?.("aria-label") || "", options) ||
+      parsePrice(node.textContent || "", options)
+    );
+  };
+  const priceFromParts = (node) => {
+    const symbol = clean(node.querySelector(".a-price-symbol")?.textContent || "$") || "$";
+    const whole = clean(node.querySelector(".a-price-whole")?.textContent || "").replace(/[^\d]/g, "");
+    const fraction = clean(node.querySelector(".a-price-fraction")?.textContent || "").replace(/[^\d]/g, "").slice(0, 2);
+    if (!whole) return "";
+    return parsePrice(`${symbol}${whole}${fraction ? `.${fraction}` : ""}`, { allowNumberOnly: true, defaultSymbol: symbol });
   };
   const pickPrice = () => {
+    const metadataSelectors = [
+      "meta[itemprop='price']",
+      "meta[property='product:price:amount']",
+      "input#attach-base-product-price",
+      "input#twister-plus-price-data-price",
+      "#twister-plus-price-data-price",
+      "#sns-base-price",
+      "[data-price]",
+    ];
+    for (const selector of metadataSelectors) {
+      const price = readNodePrice(document.querySelector(selector), { allowNumberOnly: true });
+      if (price) return price;
+    }
     const selectors = [
       "#corePriceDisplay_desktop_feature_div .priceToPay .a-offscreen",
       "#corePrice_feature_div .priceToPay .a-offscreen",
       "#corePriceDisplay_desktop_feature_div .apexPriceToPay .a-offscreen",
       "#corePrice_feature_div .apexPriceToPay .a-offscreen",
+      "#corePriceDisplay_desktop_feature_div [data-a-color='price'] .a-offscreen",
+      "#corePrice_feature_div [data-a-color='price'] .a-offscreen",
+      "#corePriceDisplay_desktop_feature_div .reinventPricePriceToPayMargin .a-offscreen",
+      "#corePrice_feature_div .reinventPricePriceToPayMargin .a-offscreen",
+      "#corePriceDisplay_desktop_feature_div .a-price[data-a-color='price'] .a-offscreen",
+      "#corePrice_feature_div .a-price[data-a-color='price'] .a-offscreen",
       "#apex_desktop .a-price .a-offscreen",
       "#centerCol .a-price .a-offscreen",
       "#buybox .a-price .a-offscreen",
+      "#desktop_buybox .a-price .a-offscreen",
+      "#ppd .a-price .a-offscreen",
       "#newBuyBoxPrice",
       "#priceblock_ourprice",
       "#priceblock_dealprice",
@@ -58,20 +126,19 @@ function captureAmazonPage() {
       ".apexPriceToPay .a-offscreen",
     ];
     for (const selector of selectors) {
-      const price = parsePrice(document.querySelector(selector)?.textContent || "");
+      const price = readNodePrice(document.querySelector(selector));
       if (price) return price;
     }
-    for (const blockSelector of ["#corePriceDisplay_desktop_feature_div", "#corePrice_feature_div", "#apex_desktop", "#buybox", "#centerCol"]) {
+    for (const blockSelector of ["#corePriceDisplay_desktop_feature_div", "#corePrice_feature_div", "#apex_desktop", "#buybox", "#desktop_buybox", "#centerCol", "#ppd"]) {
       const block = document.querySelector(blockSelector);
       if (!block) continue;
+      const blockDirect = parsePrice(block.textContent || "");
+      if (blockDirect) return blockDirect;
       for (const node of block.querySelectorAll(".a-price")) {
-        const offscreen = parsePrice(node.querySelector(".a-offscreen")?.textContent || "");
+        const offscreen = readNodePrice(node.querySelector(".a-offscreen"));
         if (offscreen) return offscreen;
-        const symbol = clean(node.querySelector(".a-price-symbol")?.textContent || "$");
-        const whole = clean(node.querySelector(".a-price-whole")?.textContent || "");
-        const fraction = clean(node.querySelector(".a-price-fraction")?.textContent || "");
-        const combined = parsePrice(`${symbol}${whole}${fraction ? `.${fraction}` : ""}`);
-        if (combined) return combined;
+        const fromParts = priceFromParts(node);
+        if (fromParts) return fromParts;
       }
     }
     return "";
@@ -233,7 +300,7 @@ async function captureCurrentPage() {
 
   await chrome.storage.local.set({ alignxLastCapture: capture });
   renderCapture(capture);
-  setStatus("已采集到本地页面。请选择发送目标后点击“发送到 AlignX”，插件会把采集结果交给对应模块。");
+  setStatus("已采集到本地页面。请选择分析模块后点击“发送并开始分析”。AlignX会显示分析过程，不会静默写入历史。");
 }
 
 async function openAlignX() {
@@ -255,7 +322,7 @@ async function openAlignX() {
   } else {
     await chrome.tabs.create({ url });
   }
-  setStatus(`正在发送到 AlignX ${target.label}，会复用已有 AlignX 标签页。`);
+  setStatus(`正在进入 AlignX ${target.label}并开始分析；会复用已有 AlignX 标签页。`);
 }
 
 document.getElementById("capture").addEventListener("click", () => {

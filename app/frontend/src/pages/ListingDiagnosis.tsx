@@ -2173,21 +2173,25 @@ export default function ListingDiagnosis() {
     const isReliable = ["local_browser_capture", "server_proxy_fetch", "scraped", "amazon_scrape", "amazon_scrape_httpx", "amazon_scrape_mobile", "amazon_scrape_browser", "amazon_scrape_uc", "ai_search"].includes(source);
     setMarketValidation(isReliable ? deriveMarketValidationFromEvidence(cleaned, meta) : null);
 
-    // Immediately save fetched listing to database
-    saveFetchedListing(
-      cleaned,
-      source,
-      data.asin || "",
-      data.rating || "",
-      data.review_count || "",
-      data.bsr_rank || "",
-    );
+    // Local browser capture should be visible first, then saved as a real
+    // diagnosis after analysis. Do not create a raw history row just from
+    // receiving the plugin payload.
+    if (source !== "local_browser_capture") {
+      saveFetchedListing(
+        cleaned,
+        source,
+        data.asin || "",
+        data.rating || "",
+        data.review_count || "",
+        data.bsr_rank || "",
+      );
+    }
 
     // Toast
     if (!cleaned.title || cleaned.title.length < 3) {
       toast.warning("未能获取到该ASIN的产品标题，请手动填写产品信息后再进行诊断", { duration: 6000 });
     } else if (source === "local_browser_capture") {
-      toast.success(`🌐 已从本地浏览器页面解析 ASIN: ${data.asin}，完整度 ${data.capture_quality?.completeness ?? "待确认"}%，已自动保存`, { duration: 5000 });
+      toast.success(`🌐 已从本地浏览器页面解析 ASIN: ${data.asin}，完整度 ${data.capture_quality?.completeness ?? "待确认"}%`, { duration: 5000 });
     } else if (source === "server_proxy_fetch") {
       toast.success(`✅ 已通过服务器代理兜底抓取 ASIN: ${data.asin}，已自动保存`, { duration: 5000 });
     } else if (source === "manual_paste") {
@@ -2547,13 +2551,23 @@ export default function ListingDiagnosis() {
         setFetchUrl(capture.url || capture.asin || "");
         setMarketplace(parseRes.data.listing.marketplace || capture.marketplace || marketplace);
         const applied = applyFetchResult(parseRes.data);
-        if (applied && resolveFormalGateMissing(applied.listing, applied.meta).length > 0) {
+        const missing = applied ? resolveFormalGateMissing(applied.listing, applied.meta) : [];
+        if (applied && missing.length > 0) {
           localStorage.removeItem(LISTING_DIAGNOSIS_TASK_KEY);
           localStorage.removeItem(LISTING_DIAGNOSIS_TASK_CONTEXT_KEY);
         }
         logScrapeAttempt(capture.asin, capture.marketplace || marketplace, "local_browser_capture", true, "local_browser_capture");
-        toast.success("已接收Chrome插件采集的本地页面，请确认字段后生成诊断");
         localStorage.removeItem("alignx_local_browser_capture");
+        if (applied && missing.length === 0) {
+          toast.success("已接收Chrome插件采集的本地页面，正在自动生成本品诊断");
+          setFetching(false);
+          setFetchProgress("");
+          setFetchProgressValue(0);
+          setFetchElapsed(0);
+          await handleDiagnose(applied.listing, applied.meta);
+        } else {
+          toast.warning(`已接收Chrome插件采集的本地页面，请补齐/确认字段后生成诊断${missing.length ? `：${missing.slice(0, 5).join("、")}` : ""}`);
+        }
       } else {
         toast.error(parseRes.data?.error || "本地浏览器采集解析失败");
       }
@@ -2620,7 +2634,7 @@ export default function ListingDiagnosis() {
         force_refresh: false,
         listing: {
           ...activeListing,
-          marketplace,
+          marketplace: activeListing.marketplace || marketplace,
           rating: activeFetchMeta?.rating || activeListing.rating || "",
           review_count: activeFetchMeta?.review_count || activeListing.review_count || "",
           bsr_rank: activeFetchMeta?.bsr_rank || activeListing.bsr_rank || "",

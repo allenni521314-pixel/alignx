@@ -106,24 +106,33 @@ def _extract_title(soup: BeautifulSoup) -> str:
     return ""
 
 
-def _parse_price_text(text: str, marketplace: str = "US") -> str:
+def _parse_price_text(text: str, marketplace: str = "US", allow_number_only: bool = False) -> str:
     text = _clean_text(text).replace("\xa0", " ")
     text = re.sub(r"(?<=\d)\s+(?=\d{2}\b)", ".", text)
+    text = re.sub(r"(?<=\d)\s*\.\s*(?=\d{2}\b)", ".", text)
     if not text:
         return ""
     lowered = text.lower()
-    if any(token in lowered for token in ["list price", "was:", "save ", "/2 weeks", "/ 2 weeks", "per month", "select from", "payment plan", "monthly payment"]):
-        return ""
     symbol, code = MARKETPLACE_CURRENCIES.get(marketplace, ("$", "USD"))
-    if marketplace == "US" and "$" not in text and "USD" not in text.upper():
+    candidates: list[str] = []
+    for match in re.finditer(r"([$€£¥₹])\s*(\d{1,4}(?:[,.]\s*\d{2})?)", text):
+        candidates.append(match.group(2))
+    for match in re.finditer(r"\b(\d{1,4}(?:[,.]\s*\d{2})?)\s*(USD|EUR|GBP|JPY|CAD|AUD)\b", text, flags=re.I):
+        candidates.append(match.group(1))
+    if allow_number_only and not candidates:
+        match = re.search(r"\b(\d{1,4}(?:[,.]\s*\d{2})?)\b", text)
+        if match:
+            candidates.append(match.group(1))
+    if not candidates:
         return ""
-    if marketplace in {"UK", "DE", "FR", "IT", "ES", "JP", "IN"} and symbol not in text and code not in text.upper():
+
+    # Skip lone crossed-out/list/coupon/payment numbers, but if the block has
+    # multiple prices prefer the last visible value, which is usually deal/buy-box.
+    bad_context = ["list price", "was:", "typical price", "save ", "/2 weeks", "/ 2 weeks", "per month", "select from", "payment plan", "monthly payment", "coupon", "delivery", "shipping"]
+    if len(candidates) == 1 and any(token in lowered for token in bad_context):
         return ""
-    # Avoid picking rating percentages, coupon amounts, or unrelated range text.
-    match = re.search(r"(?:[$€£¥₹]\s*|USD\s*)?(\d{1,4}(?:[,.]\s*\d{2})?)", text, flags=re.I)
-    if not match:
-        return ""
-    price = re.sub(r"\s+", "", match.group(1).replace(",", "."))
+
+    price = re.sub(r"\s+", "", candidates[-1].replace(",", "."))
     try:
         value = float(price)
     except ValueError:
@@ -133,8 +142,38 @@ def _parse_price_text(text: str, marketplace: str = "US") -> str:
     return f"{value:.2f}".rstrip("0").rstrip(".") if "." in f"{value:.2f}" else str(value)
 
 
+def _price_from_parts(price_el, marketplace: str = "US") -> str:
+    symbol, _ = MARKETPLACE_CURRENCIES.get(marketplace, ("$", "USD"))
+    whole = _clean_text(price_el.select_one(".a-price-whole").get_text() if price_el.select_one(".a-price-whole") else "")
+    fraction = _clean_text(price_el.select_one(".a-price-fraction").get_text() if price_el.select_one(".a-price-fraction") else "")
+    visible_symbol = _clean_text(price_el.select_one(".a-price-symbol").get_text() if price_el.select_one(".a-price-symbol") else "") or symbol
+    whole = re.sub(r"\D", "", whole)
+    fraction = re.sub(r"\D", "", fraction)[:2]
+    if not whole:
+        return ""
+    return _parse_price_text(f"{visible_symbol}{whole}.{fraction or '00'}", marketplace, allow_number_only=True)
+
+
 def _extract_price(soup: BeautifulSoup, marketplace: str = "US") -> str:
     """Extract the PDP buy-box/core price only, avoiding unrelated offer widgets."""
+    metadata_selectors = [
+        "meta[itemprop='price']",
+        "meta[property='product:price:amount']",
+        "input#attach-base-product-price",
+        "input#twister-plus-price-data-price",
+        "#twister-plus-price-data-price",
+        "#sns-base-price",
+        "[data-price]",
+    ]
+    for sel in metadata_selectors:
+        el = soup.select_one(sel)
+        if not el:
+            continue
+        value = el.get("content") or el.get("value") or el.get("data-price") or el.get_text(" ", strip=True)
+        price = _parse_price_text(value, marketplace, allow_number_only=True)
+        if price:
+            return price
+
     primary_selectors = [
         "#corePriceDisplay_desktop_feature_div .priceToPay .a-offscreen",
         "#corePrice_feature_div .priceToPay .a-offscreen",
@@ -142,9 +181,15 @@ def _extract_price(soup: BeautifulSoup, marketplace: str = "US") -> str:
         "#corePrice_feature_div .apexPriceToPay .a-offscreen",
         "#corePriceDisplay_desktop_feature_div [data-a-color='price'] .a-offscreen",
         "#corePrice_feature_div [data-a-color='price'] .a-offscreen",
+        "#corePriceDisplay_desktop_feature_div .reinventPricePriceToPayMargin .a-offscreen",
+        "#corePrice_feature_div .reinventPricePriceToPayMargin .a-offscreen",
+        "#corePriceDisplay_desktop_feature_div .a-price[data-a-color='price'] .a-offscreen",
+        "#corePrice_feature_div .a-price[data-a-color='price'] .a-offscreen",
         "#apex_desktop .a-price .a-offscreen",
         "#centerCol .a-price .a-offscreen",
         "#buybox .a-price .a-offscreen",
+        "#desktop_buybox .a-price .a-offscreen",
+        "#ppd .a-price .a-offscreen",
         "#newBuyBoxPrice",
         "#priceblock_ourprice",
         "#priceblock_dealprice",
@@ -171,6 +216,9 @@ def _extract_price(soup: BeautifulSoup, marketplace: str = "US") -> str:
         block = soup.select_one(block_sel)
         if not block:
             continue
+        price = _parse_price_text(block.get_text(" ", strip=True), marketplace)
+        if price:
+            return price
         for el in block.select(".a-price .a-offscreen, #priceblock_ourprice, #priceblock_dealprice, #priceblock_saleprice, #price_inside_buybox"):
             context = _clean_text(el.parent.get_text(" ", strip=True) if el.parent else el.get_text(" ", strip=True))
             price = _parse_price_text(context, marketplace)
@@ -182,13 +230,9 @@ def _extract_price(soup: BeautifulSoup, marketplace: str = "US") -> str:
                 price = _parse_price_text(offscreen.get_text(), marketplace)
                 if price:
                     return price
-            whole = _clean_text(price_el.select_one(".a-price-whole").get_text() if price_el.select_one(".a-price-whole") else "")
-            fraction = _clean_text(price_el.select_one(".a-price-fraction").get_text() if price_el.select_one(".a-price-fraction") else "")
-            symbol = _clean_text(price_el.select_one(".a-price-symbol").get_text() if price_el.select_one(".a-price-symbol") else "")
-            if whole:
-                price = _parse_price_text(f"{symbol}{whole}.{fraction or '00'}", marketplace)
-                if price:
-                    return price
+            price = _price_from_parts(price_el, marketplace)
+            if price:
+                return price
     return ""
 
 
