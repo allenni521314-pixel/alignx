@@ -25,6 +25,10 @@ import {
   Eye,
   CheckCircle2,
   AlertTriangle,
+  Database,
+  KeyRound,
+  Search,
+  UploadCloud,
 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RTooltip, ResponsiveContainer } from "recharts";
 
@@ -165,6 +169,7 @@ export default function AdAnalytics() {
   const [form, setForm] = useState(emptyAd);
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [asinQuery, setAsinQuery] = useState("");
   const validationSnapshotKeyRef = useRef("");
 
   const { loading: authLoading } = useRequireAuth();
@@ -216,9 +221,20 @@ export default function AdAnalytics() {
     } finally { setLoading(false); }
   };
 
-  const filteredAds = selectedProductId && selectedProductId !== "all"
-    ? adRecords.filter((a) => a.product_id === Number(selectedProductId))
-    : adRecords;
+  const productIdsByAsinQuery = asinQuery.trim()
+    ? products
+      .filter((product) => product.asin.toLowerCase().includes(asinQuery.trim().toLowerCase()))
+      .map((product) => product.id)
+    : [];
+  const filteredAds = adRecords.filter((ad) => {
+    const matchesProduct = selectedProductId && selectedProductId !== "all"
+      ? ad.product_id === Number(selectedProductId)
+      : true;
+    const matchesAsinQuery = asinQuery.trim()
+      ? productIdsByAsinQuery.includes(ad.product_id)
+      : true;
+    return matchesProduct && matchesAsinQuery;
+  });
 
   const totalImpressions = filteredAds.reduce((s, a) => s + (a.impressions || 0), 0);
   const totalClicks = filteredAds.reduce((s, a) => s + (a.clicks || 0), 0);
@@ -560,7 +576,7 @@ export default function AdAnalytics() {
           ) : (
             <PageHeader
               objective="保存每一轮广告执行数据"
-              inputSource="Campaign、Ad Group、Keyword、Search Term、CTR、CVR、CPC、ACOS、ROAS、Spend、Orders"
+              inputSource="Amazon Ads授权同步为主；CSV上传/手动录入兜底"
               process="结构化记录投放动作和实际指标"
               outputTarget="可追溯的执行记录、关键词表现明细"
               action="进入效果验证判断测试是否成立"
@@ -569,23 +585,84 @@ export default function AdAnalytics() {
             />
           )}
 
+          {!isValidationView && (
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 mb-4 sm:mb-6">
+              <Card className="bg-emerald-50 border-emerald-100 p-4">
+                <div className="flex items-start gap-3">
+                  <div className="w-9 h-9 rounded-lg bg-white border border-emerald-100 flex items-center justify-center">
+                    <KeyRound className="w-4 h-4 text-emerald-700" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-gray-900">推荐：授权同步</p>
+                    <p className="text-xs text-gray-600 mt-1 leading-relaxed">
+                      用户通过 Amazon Ads / SP-API OAuth 授权后，系统自动同步广告报表和店铺ASIN池。
+                    </p>
+                  </div>
+                </div>
+              </Card>
+              <Card className="bg-amber-50 border-amber-100 p-4">
+                <div className="flex items-start gap-3">
+                  <div className="w-9 h-9 rounded-lg bg-white border border-amber-100 flex items-center justify-center">
+                    <UploadCloud className="w-4 h-4 text-amber-700" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-gray-900">过渡：CSV上传</p>
+                    <p className="text-xs text-gray-600 mt-1 leading-relaxed">
+                      内测阶段可上传广告报表，字段映射后进入同一套验证和数据回流逻辑。
+                    </p>
+                  </div>
+                </div>
+              </Card>
+              <Card className="bg-gray-50 border-gray-200 p-4">
+                <div className="flex items-start gap-3">
+                  <div className="w-9 h-9 rounded-lg bg-white border border-gray-100 flex items-center justify-center">
+                    <Database className="w-4 h-4 text-gray-600" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-gray-900">兜底：手动录入</p>
+                    <p className="text-xs text-gray-600 mt-1 leading-relaxed">
+                      只用于小样本验证或授权前测试，不作为长期生产级数据入口。
+                    </p>
+                  </div>
+                </div>
+              </Card>
+            </div>
+          )}
+
           {/* Product Filter */}
           <Card className="bg-white border-gray-200 p-3 sm:p-4 mb-4 sm:mb-6">
-            <div className="flex items-center gap-3 sm:gap-4">
-              <label className="text-sm text-gray-500 whitespace-nowrap">筛选产品</label>
-              <Select value={selectedProductId} onValueChange={setSelectedProductId}>
-                <SelectTrigger className="bg-gray-50 border-gray-200 text-gray-900 max-w-md">
-                  <SelectValue placeholder="全部产品" />
-                </SelectTrigger>
-                <SelectContent className="bg-white border-gray-200">
-                  <SelectItem value="all" className="text-gray-900 hover:bg-brand-50">全部产品</SelectItem>
-                  {products.map((p) => (
-                    <SelectItem key={p.id} value={String(p.id)} className="text-gray-900 hover:bg-brand-50">
-                      {p.asin} - {p.title.substring(0, 40)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            <div className="grid grid-cols-1 lg:grid-cols-[1fr_1fr_auto] gap-3 items-end">
+              <div>
+                <label className="text-xs text-gray-500 mb-1 block">产品范围</label>
+                <Select value={selectedProductId} onValueChange={setSelectedProductId}>
+                  <SelectTrigger className="bg-gray-50 border-gray-200 text-gray-900">
+                    <SelectValue placeholder="全部已同步产品" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-white border-gray-200">
+                    <SelectItem value="all" className="text-gray-900 hover:bg-brand-50">全部已同步产品</SelectItem>
+                    {products.map((p) => (
+                      <SelectItem key={p.id} value={String(p.id)} className="text-gray-900 hover:bg-brand-50">
+                        {p.asin} - {p.title.substring(0, 40)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 mb-1 block">手动输入ASIN快速筛选</label>
+                <div className="relative">
+                  <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <Input
+                    value={asinQuery}
+                    onChange={(e) => setAsinQuery(e.target.value.trim().toUpperCase())}
+                    placeholder="例如 B0XXXXXXXX"
+                    className="bg-gray-50 border-gray-200 pl-9"
+                  />
+                </div>
+              </div>
+              <div className="text-xs text-gray-500 lg:text-right">
+                当前 {filteredAds.length} 条记录 · {products.length} 个产品
+              </div>
             </div>
           </Card>
 
