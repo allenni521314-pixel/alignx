@@ -103,7 +103,28 @@ interface FetchMeta {
   image_count?: string;
   has_video?: boolean;
   has_a_plus?: boolean;
+  capture_quality?: {
+    completeness?: number;
+    core_score?: number;
+    strategy_score?: number;
+    missing_core?: string[];
+    missing_strategy?: string[];
+    allow_formal_diagnosis?: boolean;
+    allow_strategy_diagnosis?: boolean;
+    confidence_level?: string;
+    rule?: string;
+  };
 }
+
+const sourceLabel = (source?: string | null) => {
+  if (source === "local_browser_capture") return "本地浏览器页面采集";
+  if (source === "server_proxy_fetch") return "服务器代理兜底抓取";
+  if (source === "manual_paste") return "手动粘贴解析";
+  if (source === "ai_estimated" || source === "ai_estimated_low_confidence") return "AI低置信度兜底";
+  if (source?.includes("scrape") || source === "scraped") return "服务器真实抓取";
+  if (source === "ai_search") return "AI搜索验证";
+  return source || "未知来源";
+};
 
 const getLongRunningApiBase = () => {
   if (import.meta.env.VITE_API_BASE_URL) return import.meta.env.VITE_API_BASE_URL;
@@ -1954,6 +1975,7 @@ export default function ListingDiagnosis() {
     image_count?: string;
     has_video?: boolean;
     has_a_plus?: boolean;
+    capture_quality?: FetchMeta["capture_quality"];
   }): { listing: ListingInput; meta: FetchMeta } | null => {
     if (!data.listing) return null;
     const cleaned = cleanListing({
@@ -1983,11 +2005,12 @@ export default function ListingDiagnosis() {
       image_count: data.image_count || "",
       has_video: data.has_video || false,
       has_a_plus: data.has_a_plus || false,
+      capture_quality: data.capture_quality,
     };
     setFetchMeta(meta);
 
     // Update market validation
-    const isReliable = ["scraped", "amazon_scrape", "amazon_scrape_httpx", "amazon_scrape_mobile", "amazon_scrape_browser", "amazon_scrape_uc", "browser_proxy", "ai_search"].includes(source);
+    const isReliable = ["local_browser_capture", "server_proxy_fetch", "scraped", "amazon_scrape", "amazon_scrape_httpx", "amazon_scrape_mobile", "amazon_scrape_browser", "amazon_scrape_uc", "ai_search"].includes(source);
     if (isReliable && (data.review_count || data.rating)) {
       const reviewCount = parseInt(data.review_count || "0", 10) || 0;
       const ratingVal = parseFloat(data.rating || "0") || 0;
@@ -2015,8 +2038,10 @@ export default function ListingDiagnosis() {
     // Toast
     if (!cleaned.title || cleaned.title.length < 3) {
       toast.warning("未能获取到该ASIN的产品标题，请手动填写产品信息后再进行诊断", { duration: 6000 });
-    } else if (source === "browser_proxy") {
-      toast.success(`🌐 已通过浏览器代理抓取 ASIN: ${data.asin} 的Listing数据（高准确度），已自动保存`, { duration: 5000 });
+    } else if (source === "local_browser_capture") {
+      toast.success(`🌐 已从本地浏览器页面解析 ASIN: ${data.asin}，完整度 ${data.capture_quality?.completeness ?? "待确认"}%，已自动保存`, { duration: 5000 });
+    } else if (source === "server_proxy_fetch") {
+      toast.success(`✅ 已通过服务器代理兜底抓取 ASIN: ${data.asin}，已自动保存`, { duration: 5000 });
     } else if (source === "manual_paste") {
       toast.success(`📋 已从粘贴内容解析出产品数据，已自动保存`, { duration: 5000 });
     } else if (["scraped", "amazon_scrape", "amazon_scrape_httpx", "amazon_scrape_mobile", "amazon_scrape_browser", "amazon_scrape_uc"].includes(source)) {
@@ -2106,7 +2131,7 @@ export default function ListingDiagnosis() {
       }
 
       // ---- Phase 1: Backend proxy-fetch → get HTML → send to /parse-html ----
-      setFetchProgress("Phase 1/3：正在尝试真实 Amazon 页面抓取，若受限会自动切换兜底链路");
+      setFetchProgress("Phase 1/3：正在尝试服务器代理抓取，若受限会自动切换兜底链路");
       setFetchProgressValue(12);
       let phase1Success = false;
 
@@ -2124,13 +2149,13 @@ export default function ListingDiagnosis() {
           try {
             const parseRes = await axios.post(
               "/api/v1/listing-diagnosis/parse-html",
-              { html, marketplace: detectedMp, asin },
+              { html, marketplace: detectedMp, asin, source: "server_proxy_fetch" },
               { headers: getAuthHeaders(), timeout: 60000 }
             );
             if (parseRes.data.success && parseRes.data.listing?.title) {
               const applied = applyFetchResult(parseRes.data);
               phase1Success = true;
-              logScrapeAttempt(asin, detectedMp, "browser_proxy", true, "browser_proxy");
+              logScrapeAttempt(asin, detectedMp, "server_proxy_fetch", true, "server_proxy_fetch");
               if (applied?.listing.title) {
                 setFetchProgress("Phase 3/3：已抓取 Listing，正在生成诊断报告");
                 setFetchProgressValue(88);
@@ -2142,11 +2167,11 @@ export default function ListingDiagnosis() {
           }
         }
         if (!phase1Success) {
-          logScrapeAttempt(asin, detectedMp, "browser_proxy", false, "failed", "Browser proxy HTML invalid or parse failed");
+          logScrapeAttempt(asin, detectedMp, "server_proxy_fetch", false, "failed", "Server proxy HTML invalid or parse failed");
         }
       } catch {
-        // Browser proxy failed entirely, continue to Phase 2
-        logScrapeAttempt(asin, detectedMp, "browser_proxy", false, "failed", "Browser proxy request failed");
+        // Server proxy failed entirely, continue to Phase 2
+        logScrapeAttempt(asin, detectedMp, "server_proxy_fetch", false, "failed", "Server proxy request failed");
       }
 
       if (phase1Success) return;
@@ -2241,7 +2266,7 @@ export default function ListingDiagnosis() {
   };
 
   /** Handle manual paste text parsing */
-  const handleManualPaste = () => {
+  const handleManualPaste = async () => {
     const text = manualPasteText.trim();
     if (!text) {
       toast.error("请粘贴Amazon产品页面的内容");
@@ -2249,6 +2274,28 @@ export default function ListingDiagnosis() {
     }
 
     const asin = extractAsinFromUrl(fetchUrl) || "";
+    const looksLikeHtml = /<html|<body|id=["']productTitle|data-asin=|a-section/i.test(text);
+    if (looksLikeHtml && asin) {
+      try {
+        const parseRes = await axios.post(
+          "/api/v1/listing-diagnosis/parse-html",
+          { html: text, marketplace, asin, source: "local_browser_capture" },
+          { headers: getAuthHeaders(), timeout: 60000 }
+        );
+        if (parseRes.data?.success && parseRes.data.listing?.title) {
+          applyFetchResult(parseRes.data);
+          logScrapeAttempt(asin, marketplace, "local_browser_capture", true, "local_browser_capture");
+          setShowManualPaste(false);
+          setManualPasteText("");
+          return;
+        }
+        toast.error(parseRes.data?.error || "无法从本地浏览器HTML解析产品信息");
+      } catch {
+        toast.error("本地浏览器HTML解析失败，请改为粘贴页面可见文本");
+      }
+      return;
+    }
+
     const parsed = parseManualPasteText(text);
 
     if (!parsed.title && parsed.bullet_points.length === 0) {
@@ -2276,7 +2323,7 @@ export default function ListingDiagnosis() {
       rating: parsed.rating,
       review_count: parsed.review_count,
     });
-    logScrapeAttempt(asin || "unknown", marketplace, "manual_paste", true, "manual");
+    logScrapeAttempt(asin || "unknown", marketplace, "manual_paste", true, "manual_paste");
 
     setShowManualPaste(false);
     setManualPasteText("");
@@ -2288,6 +2335,17 @@ export default function ListingDiagnosis() {
 
     if (!activeListing.title.trim() && !activeListing.bullet_points.trim()) {
       toast.error("请至少输入标题或五点描述");
+      return;
+    }
+    if (activeFetchMeta?.capture_quality && activeFetchMeta.capture_quality.allow_formal_diagnosis === false) {
+      toast.warning(
+        `证据完整度 ${activeFetchMeta.capture_quality.completeness ?? 0}%，缺失：${[
+          ...(activeFetchMeta.capture_quality.missing_core || []),
+          ...(activeFetchMeta.capture_quality.missing_strategy || []),
+        ].slice(0, 4).join("、")}。请补齐核心字段后再生成正式诊断。`,
+        { duration: 7000 }
+      );
+      setShowAdvancedEditor(true);
       return;
     }
     setDiagnosing(true);
@@ -2777,7 +2835,7 @@ export default function ListingDiagnosis() {
                       </div>
                       {fetchSource && (
                         <Badge variant="outline" className="w-fit border-emerald-200 bg-emerald-50 text-emerald-700">
-                          数据来源：{fetchSource === "browser_proxy" ? "浏览器代理抓取" : fetchSource === "manual_paste" ? "手动粘贴解析" : fetchSource.includes("scrape") || fetchSource === "scraped" ? "服务器真实抓取" : fetchSource === "ai_estimated" ? "AI低置信度兜底" : fetchSource}
+                          数据来源：{sourceLabel(fetchSource)}
                         </Badge>
                       )}
                     </div>
@@ -2804,6 +2862,28 @@ export default function ListingDiagnosis() {
                         </div>
                       ))}
                     </div>
+                    {fetchMeta?.capture_quality && (
+                      <div className={`rounded-lg border p-3 ${fetchMeta.capture_quality.allow_formal_diagnosis ? "border-emerald-100 bg-emerald-50" : "border-amber-100 bg-amber-50"}`}>
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                          <div>
+                            <p className="text-sm font-semibold text-gray-900">证据完整性闸门</p>
+                            <p className="text-xs text-gray-600 mt-1">{fetchMeta.capture_quality.rule}</p>
+                          </div>
+                          <div className="flex gap-2">
+                            <Badge variant="outline">完整度 {fetchMeta.capture_quality.completeness ?? 0}%</Badge>
+                            <Badge variant={fetchMeta.capture_quality.allow_formal_diagnosis ? "default" : "secondary"}>
+                              {fetchMeta.capture_quality.allow_formal_diagnosis ? "可正式诊断" : "仅低置信预检"}
+                            </Badge>
+                          </div>
+                        </div>
+                        {Boolean(fetchMeta.capture_quality.missing_core?.length || fetchMeta.capture_quality.missing_strategy?.length) && (
+                          <p className="text-xs text-gray-600 mt-2">
+                            缺失字段：
+                            {[...(fetchMeta.capture_quality.missing_core || []), ...(fetchMeta.capture_quality.missing_strategy || [])].join("、")}
+                          </p>
+                        )}
+                      </div>
+                    )}
                     <div>
                       <label className="text-xs text-gray-500 mb-1 block">后台关键词（可选，抓取不到时可手动补充）</label>
                       <Input
@@ -2869,7 +2949,7 @@ export default function ListingDiagnosis() {
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           <ClipboardPaste className="w-4 h-4 text-gold-600" />
-                          <span className="text-sm font-medium text-gray-800">手动粘贴 Amazon 页面文本</span>
+                          <span className="text-sm font-medium text-gray-800">本地浏览器页面 / 手动文本采集</span>
                         </div>
                         <Button variant="ghost" size="sm" onClick={() => setShowManualPaste(!showManualPaste)} className="text-gold-700">
                           {showManualPaste ? "收起" : "展开"}
@@ -2878,14 +2958,14 @@ export default function ListingDiagnosis() {
                       {showManualPaste && (
                         <>
                           <Textarea
-                            placeholder="在此粘贴Amazon产品页面的全部内容..."
+                            placeholder="优先粘贴本地浏览器保存的Amazon页面HTML；也支持粘贴页面可见文本。系统会标记来源和完整度，不会用AI猜空字段。"
                             value={manualPasteText}
                             onChange={(e) => setManualPasteText(e.target.value)}
-                            className="bg-white border-gold-100 min-h-[120px] text-xs"
+                            className="bg-white border-gold-100 min-h-[160px] text-xs"
                           />
                           <Button onClick={handleManualPaste} disabled={!manualPasteText.trim()} className="bg-gold-600 hover:bg-gold-700 text-white">
                             <ClipboardPaste className="w-4 h-4 mr-1.5" />
-                            解析粘贴内容
+                            解析采集内容
                           </Button>
                         </>
                       )}
@@ -3423,7 +3503,8 @@ export default function ListingDiagnosis() {
                             {Object.entries(scrapeStats.method_stats).map(([method, stats]) => (
                               <div key={method} className="flex items-center gap-3">
                                 <span className="text-xs text-gray-500 w-28 truncate">{
-                                  method === "cors_proxy" || method === "backend_proxy" || method === "browser_proxy" ? "🌐 浏览器代理" :
+                                  method === "local_browser_capture" ? "🌐 本地浏览器" :
+                                  method === "server_proxy_fetch" || method === "cors_proxy" || method === "backend_proxy" || method === "browser_proxy" ? "🛰️ 服务器代理" :
                                   method === "server_scrape" ? "🔍 服务器抓取" :
                                   method === "manual_paste" ? "📋 手动粘贴" : method
                                 }</span>
@@ -3453,7 +3534,8 @@ export default function ListingDiagnosis() {
                                 <span className="text-gray-500 w-20 truncate font-mono">{log.asin}</span>
                                 <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 border-gray-200 text-gray-500">{log.marketplace}</Badge>
                                 <span className="text-gray-500 truncate flex-1">{
-                                  log.scrape_method === "cors_proxy" || log.scrape_method === "backend_proxy" || log.scrape_method === "browser_proxy" ? "浏览器代理" :
+                                  log.scrape_method === "local_browser_capture" ? "本地浏览器" :
+                                  log.scrape_method === "server_proxy_fetch" || log.scrape_method === "cors_proxy" || log.scrape_method === "backend_proxy" || log.scrape_method === "browser_proxy" ? "服务器代理" :
                                   log.scrape_method === "server_scrape" ? "服务器抓取" :
                                   log.scrape_method === "manual_paste" ? "手动粘贴" : log.scrape_method
                                 }</span>

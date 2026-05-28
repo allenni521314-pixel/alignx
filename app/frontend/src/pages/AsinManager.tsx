@@ -81,6 +81,14 @@ const getLongRunningApiBase = () => {
 const isPublicDeployment = () =>
   typeof window !== "undefined" && window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1";
 
+const productFetchSourceLabel = (source?: string) => {
+  if (source === "server_proxy_fetch") return "服务器代理兜底抓取";
+  if (source === "local_browser_capture") return "本地浏览器页面采集";
+  if (source === "ai_estimated_low_confidence" || source === "低置信度补充分析") return "低置信度补充分析";
+  if (source?.includes("scrape") || source === "scraped") return "服务器真实抓取";
+  return "商品信息提取";
+};
+
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
@@ -1007,7 +1015,7 @@ export default function AsinManager() {
     };
   };
 
-  /* ---- Smart fetch: Browser Proxy → Server Scrape → AI (three phases) ---- */
+  /* ---- Smart fetch: Server proxy → Server scrape → AI (three phases) ---- */
   const smartFetchAsin = async (
     asin: string,
     marketplace: string
@@ -1033,10 +1041,7 @@ export default function AsinManager() {
       try {
         const serverResult = await fetchAsinViaAI(asin, marketplace);
         setAutoImportProgress(100);
-        return {
-          ...serverResult,
-          source: serverResult.source === "ai_estimated_low_confidence" ? "低置信度补充分析" : "商品信息提取",
-        };
+        return serverResult;
       } catch (e: unknown) {
         const msg = axios.isAxiosError(e)
           ? e.code === "ECONNABORTED"
@@ -1049,8 +1054,8 @@ export default function AsinManager() {
       }
     }
 
-    // Phase 1: Browser proxy fetch. This is the primary path for AlignX:
-    // the user only enters an ASIN/link, and the local browser environment assists extraction.
+    // Phase 1: backend proxy fetch. True local-browser capture is handled by
+    // Listing diagnosis manual HTML capture; this source stays medium-confidence.
     setAutoImportMessage("正在提取Amazon商品页面信息，通常需要 20-30 秒");
     setAutoImportProgress(22);
     try {
@@ -1064,7 +1069,7 @@ export default function AsinManager() {
         try {
           const parseRes = await axios.post(
             "/api/v1/asin-analysis/parse-html-analyze",
-            { asin, marketplace, html },
+            { asin, marketplace, html, source: "server_proxy_fetch" },
             { headers: getAuthHeaders(), timeout: 120000 }
           );
           const d = parseRes.data;
@@ -1109,7 +1114,7 @@ export default function AsinManager() {
     try {
       const aiResult = await fetchAsinViaAI(asin, marketplace);
       setAutoImportProgress(100);
-      return { ...aiResult, source: aiResult.source === "ai_estimated_low_confidence" ? "低置信度补充分析" : "商品信息提取" };
+      return aiResult;
     } catch (e: unknown) {
       const msg = axios.isAxiosError(e)
         ? e.code === "ECONNABORTED"
@@ -1148,8 +1153,8 @@ export default function AsinManager() {
           category: result.data.category || "",
         };
 
-        const isLowConfidence = result.source === "低置信度补充分析";
-        const sourceLabel = isLowConfidence ? "低置信度补充分析" : "商品信息提取";
+        const sourceLabel = productFetchSourceLabel(result.source);
+        const isLowConfidence = sourceLabel === "低置信度补充分析";
         const snapshotProductData = { ...productData, marketplace: autoImportMarketplace };
 
         if (autoFetch) {
@@ -1319,9 +1324,9 @@ export default function AsinManager() {
                 title: result.data.title || asin,
                 input_snapshot: { asin, marketplace: autoImportMarketplace },
                 output_snapshot: { ...productData, marketplace: autoImportMarketplace },
-                data_source: result.source || "",
-                confidence: result.source === "低置信度补充分析" ? "low" : "high",
-                ai_called: result.source === "低置信度补充分析",
+                data_source: productFetchSourceLabel(result.source),
+                confidence: productFetchSourceLabel(result.source) === "低置信度补充分析" ? "low" : "high",
+                ai_called: productFetchSourceLabel(result.source) === "低置信度补充分析",
                 source_record_table: "products",
               }).catch(() => {});
               savedCount++;
@@ -1584,8 +1589,8 @@ export default function AsinManager() {
             category: result.data.category || product.category,
           },
         });
-        const isLowConfidence = result.source === "低置信度补充分析";
-        const sourceLabel = isLowConfidence ? "低置信度补充分析" : "商品信息提取";
+        const sourceLabel = productFetchSourceLabel(result.source);
+        const isLowConfidence = sourceLabel === "低置信度补充分析";
         saveActionSnapshot({
           module_key: "asin_selection",
           module_name: "6维选品",

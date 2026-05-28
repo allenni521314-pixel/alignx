@@ -28,7 +28,7 @@
         },
         "data_source": {
             "type": "string",
-            "description": "Actual data source: scraped, browser_proxy, ai_search, ai_estimated, manual, failed"
+            "description": "Actual data source: local_browser_capture, server_proxy_fetch, scraped, ai_search, ai_estimated, manual_paste, failed"
         },
         "error_message": {
             "type": "string",

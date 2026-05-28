@@ -416,12 +416,13 @@ class ParseHtmlRequest(BaseModel):
     html: str
     marketplace: str = "US"
     asin: str = ""
+    source: str = "server_proxy_fetch"
 
 
 class ParseHtmlResponse(BaseModel):
     listing: ListingInput
     asin: str = ""
-    source: str = "browser_proxy"
+    source: str = "server_proxy_fetch"
     rating: str = ""
     review_count: str = ""
     bsr_rank: str = ""
@@ -429,6 +430,7 @@ class ParseHtmlResponse(BaseModel):
     image_count: str = ""
     has_video: bool = False
     has_a_plus: bool = False
+    capture_quality: dict = {}
     success: bool = False
     error: str = ""
 
@@ -1900,8 +1902,8 @@ async def parse_html_content(
 ):
     """Parse raw HTML from an Amazon product page.
 
-    Used by the frontend browser-side CORS proxy fetch.
-    Reuses the same BeautifulSoup parsing logic from amazon_scraper.
+    Source is explicit so local-browser captures and backend proxy fetches
+    never get mixed into the same confidence bucket.
     """
     try:
         html = request.html
@@ -1914,6 +1916,7 @@ async def parse_html_content(
             )
 
         from services.amazon_scraper import _parse_product_page
+        from services.capture_quality import capture_quality
 
         parsed = _parse_product_page(html, request.marketplace)
         if not parsed or not parsed.get("title"):
@@ -1956,13 +1959,15 @@ async def parse_html_content(
 
         bsr = parsed.get("bsr_rank", "")
         bsr_cat = parsed.get("bsr_category", "")
+        source = request.source if request.source in {"local_browser_capture", "server_proxy_fetch", "manual_paste"} else "server_proxy_fetch"
+        quality = capture_quality(parsed, source)
 
         logger.info(f"parse-html succeeded for ASIN {request.asin}: {parsed['title'][:60]}")
 
         return ParseHtmlResponse(
             listing=listing,
             asin=request.asin,
-            source="browser_proxy",
+            source=source,
             rating=parsed.get("rating", ""),
             review_count=parsed.get("review_count", ""),
             bsr_rank=bsr,
@@ -1970,6 +1975,7 @@ async def parse_html_content(
             image_count=parsed.get("image_count", ""),
             has_video=parsed.get("has_video", False),
             has_a_plus=parsed.get("has_a_plus", False),
+            capture_quality=quality,
             success=True,
         )
 

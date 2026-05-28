@@ -465,10 +465,11 @@ async def _get_cached_asin_analysis(asin: str, marketplace: str, db: AsyncSessio
 
 
 class ParseHtmlAnalyzeRequest(BaseModel):
-    """Request to parse raw HTML from browser proxy and run full analysis."""
+    """Request to parse raw HTML from a trusted capture source and run full analysis."""
     asin: str
     marketplace: str = "US"
     html: str
+    source: str = "server_proxy_fetch"
 
 
 class ParseHtmlAnalyzeResponse(BaseModel):
@@ -479,7 +480,8 @@ class ParseHtmlAnalyzeResponse(BaseModel):
     scores: dict = {}
     analysis_report: dict = {}
     amazon_compliance: dict = {}
-    data_source: str = "browser_proxy"
+    data_source: str = "server_proxy_fetch"
+    capture_quality: dict = {}
     error: str = ""
     id: Optional[int] = None
 
@@ -613,14 +615,14 @@ ASIN: {asin}
 
 AI_FALLBACK_ANALYSIS_PROMPT = """你是AlignX亚马逊ASIN分析专家。
 
-当前系统无法通过本地浏览器代理或服务器抓取获得该ASIN的完整页面数据。
+当前系统无法通过本地浏览器页面采集或服务器抓取获得该ASIN的完整页面数据。
 请基于用户提供的ASIN、站点和你可推断的公开常识，生成一个低置信度的结构化分析结果。
 
 重要规则：
 1. 不要伪装成真实抓取数据。
 2. 不确定字段必须留空或标记“待确认”。
 3. data_confidence 必须为 low。
-4. data_notes 必须说明“AI兜底估算，需以浏览器代理抓取结果或人工核实为准”。
+4. data_notes 必须说明“AI兜底估算，需以本地浏览器页面采集、服务器抓取或人工核实为准”。
 5. 仍需给出可用于初步测试的8D+2评分，但分数要保守。
 
 ASIN: {asin}
@@ -650,7 +652,7 @@ ASIN: {asin}
     "has_a_plus": false,
     "variation_count": "",
     "data_confidence": "low",
-    "data_notes": "AI兜底估算，需以浏览器代理抓取结果或人工核实为准"
+    "data_notes": "AI兜底估算，需以本地浏览器页面采集、服务器抓取或人工核实为准"
   }},
   "scores": {{
     "functionality": 50,
@@ -1115,7 +1117,7 @@ async def _analyze_single_asin_with_scraped(
             product_data["image_count"] = scraped_data["image_count"]
         if scraped_data.get("bought_count"):
             product_data["bought_count"] = scraped_data["bought_count"]
-        for key in ["seller_type", "platform_ecosystem", "brand_monopoly_risk"]:
+        for key in ["seller_type", "platform_ecosystem", "brand_monopoly_risk", "capture_quality"]:
             if key in scraped_data:
                 product_data[key] = scraped_data[key]
         product_data["has_video"] = scraped_data.get("has_video", False)
@@ -1123,10 +1125,12 @@ async def _analyze_single_asin_with_scraped(
 
     product_data["_data_source"] = data_source
     product_data["_scrape_success"] = scrape_success
+    if isinstance(product_data.get("capture_quality"), dict):
+        product_data["data_confidence"] = product_data["capture_quality"].get("confidence_level", "medium")
     if data_source == "ai_estimated_low_confidence":
         product_data["asin"] = asin
         product_data["data_confidence"] = "low"
-        product_data["data_notes"] = "AI兜底估算，需以浏览器代理抓取结果或人工核实为准。"
+        product_data["data_notes"] = "AI兜底估算，需以本地浏览器页面采集、服务器抓取或人工核实为准。"
 
     product_data["main_keywords"] = _clean_original_english_keywords(product_data.get("main_keywords"), product_data, 10)
     scoring_data["listing_breakdown"] = _build_listing_breakdown(product_data, scoring_data)
@@ -1283,7 +1287,11 @@ async def parse_html_and_analyze(
     current_user: UserResponse = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Parse raw HTML from browser CORS proxy and run full 8D+2 analysis."""
+    """Parse raw Amazon HTML and run full 8D+2 analysis.
+
+    Source is explicit so local-browser captures and backend proxy fetches
+    never get mixed into the same confidence bucket.
+    """
     try:
         asin = request.asin.strip().upper()
         if not asin or len(asin) != 10:
@@ -1294,6 +1302,7 @@ async def parse_html_and_analyze(
             return ParseHtmlAnalyzeResponse(success=False, asin=asin, error="HTML内容过短")
 
         from services.amazon_scraper import _parse_product_page, _is_captcha_page, fetch_low_star_reviews
+        from services.capture_quality import capture_quality
 
         if _is_captcha_page(html):
             return ParseHtmlAnalyzeResponse(success=False, asin=asin, error="检测到CAPTCHA验证页面")
@@ -1312,11 +1321,14 @@ async def parse_html_and_analyze(
             "IT": "www.amazon.it", "ES": "www.amazon.es", "AU": "www.amazon.com.au",
         }
         domain = domain_map.get(request.marketplace, "www.amazon.com")
+        source = request.source if request.source in {"local_browser_capture", "server_proxy_fetch"} else "server_proxy_fetch"
+        quality = capture_quality(parsed, source)
         scraped_data = {
             "asin": asin,
             "url": f"https://{domain}/dp/{asin}",
             "scrape_success": True,
-            "data_source": "browser_proxy",
+            "data_source": source,
+            "capture_quality": quality,
             **parsed,
         }
 
@@ -1337,6 +1349,7 @@ async def parse_html_and_analyze(
             analysis_report=result.analysis_report,
             amazon_compliance=result.amazon_compliance,
             data_source=result.data_source,
+            capture_quality=quality,
             id=result.id,
         )
     except Exception as e:

@@ -793,7 +793,7 @@ export default function CompetitorAnalysis() {
 
     /* ---- Phase 1: Backend proxy-fetch → parse-html-analyze ---- */
     try {
-      setAnalyzeProgress("🌐 Phase 1: 正在通过本地浏览器代理获取Amazon真实页面数据，通常需要20-60秒...");
+      setAnalyzeProgress("🛰️ Phase 1: 正在通过服务器代理抓取Amazon页面，通常需要20-60秒...");
 
       const proxyRes = await axios.post(
         "/api/v1/asin-analysis/proxy-fetch",
@@ -808,7 +808,7 @@ export default function CompetitorAnalysis() {
         try {
           const res = await axios.post(
             "/api/v1/asin-analysis/parse-html-analyze",
-            { asin, marketplace: mp, html },
+            { asin, marketplace: mp, html, source: "server_proxy_fetch" },
             { headers: getAuthHeaders(), timeout: 180000 }
           );
           const data = res.data;
@@ -821,7 +821,7 @@ export default function CompetitorAnalysis() {
               product_data: data.product_data,
               scores: data.scores,
               analysis_report: data.analysis_report,
-              data_source: data.data_source || "browser_proxy",
+              data_source: data.data_source || "server_proxy_fetch",
               id: data.id,
             } as AnalysisResult);
           }
@@ -918,8 +918,10 @@ export default function CompetitorAnalysis() {
         const cleanResult = sanitizeAnalysisKeywords(result);
         setSingleResult(cleanResult);
         const source = cleanResult.data_source;
-        if (source === "browser_proxy") {
-          toast.success("✅ 已获取Amazon真实数据并完成分析！");
+        if (source === "server_proxy_fetch") {
+          toast.success("✅ 已通过服务器代理兜底抓取并完成分析！");
+        } else if (source === "local_browser_capture") {
+          toast.success("✅ 已通过本地浏览器页面采集并完成分析！");
         } else if (source === "amazon_scrape" || source === "amazon_scrape_httpx" || source === "amazon_scrape_browser") {
           toast.success("✅ 已从Amazon真实页面抓取数据并完成分析！");
         } else {
@@ -1346,10 +1348,17 @@ function DataSourceBadge({ source }: { source?: string; confidence?: string }) {
       </span>
     );
   }
-  if (source === "browser_proxy") {
+  if (source === "local_browser_capture") {
     return (
       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-500/15 text-emerald-600 border border-emerald-500/20">
-        <Globe className="w-3 h-3" /> 浏览器代理抓取（高准确度）
+        <Globe className="w-3 h-3" /> 本地浏览器页面采集
+      </span>
+    );
+  }
+  if (source === "server_proxy_fetch" || source === "browser_proxy") {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-blue-500/15 text-blue-700 border border-blue-500/20">
+        <Globe className="w-3 h-3" /> 服务器代理兜底
       </span>
     );
   }
@@ -1400,8 +1409,8 @@ function SingleResultView({
   const dataSource = result.data_source || (pd as Record<string, unknown>)._data_source as string || "unknown";
   const incompleteSnapshot = isIncompleteSavedResult(result);
   const effectiveDataSource = incompleteSnapshot ? "incomplete_saved_snapshot" : dataSource;
-  const isScraped = !incompleteSnapshot && (dataSource === "amazon_scrape" || dataSource === "amazon_scrape_httpx" || dataSource === "amazon_scrape_browser" || dataSource === "browser_proxy");
-  const dataConfidence = (pd as Record<string, unknown>).data_confidence as string || (isScraped ? "high" : "medium");
+  const isScraped = !incompleteSnapshot && (dataSource === "amazon_scrape" || dataSource === "amazon_scrape_httpx" || dataSource === "amazon_scrape_browser" || dataSource === "server_proxy_fetch" || dataSource === "local_browser_capture" || dataSource === "browser_proxy");
+  const dataConfidence = (pd as Record<string, unknown>).data_confidence as string || (dataSource === "local_browser_capture" ? "high" : isScraped ? "medium" : "low");
   const analysisMode = String((report as Record<string, unknown> | undefined)?.analysis_mode || "");
   const fallbackReason = String((report as Record<string, unknown> | undefined)?.fallback_reason || "");
   const isRuleFallback = analysisMode === "rule_fallback" || Boolean(fallbackReason);
@@ -1420,7 +1429,7 @@ function SingleResultView({
           <div>
             <p className="text-sm font-medium text-emerald-600">数据来源：Amazon真实页面数据</p>
             <p className="text-xs text-emerald-600/70 mt-0.5">
-              产品数据来自浏览器代理抓取Amazon真实页面，评分基于真实数据分析。
+              产品数据来自{dataSource === "local_browser_capture" ? "本地浏览器页面采集" : "服务器代理/抓取兜底"}，评分会按数据完整度降低或提高置信。
             </p>
           </div>
         </div>
