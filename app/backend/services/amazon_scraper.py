@@ -132,7 +132,10 @@ def _parse_price_text(text: str, marketplace: str = "US", allow_number_only: boo
     if len(candidates) == 1 and any(token in lowered for token in bad_context):
         return ""
 
-    price = re.sub(r"\s+", "", candidates[-1].replace(",", "."))
+    raw_price = candidates[-1].strip()
+    if "," in raw_price and not re.search(r"\.\d{2}\b", raw_price):
+        raw_price = re.sub(r",(\d{2})\b", r".\1", raw_price)
+    price = re.sub(r"\s+", "", raw_price.replace(",", ""))
     try:
         value = float(price)
     except ValueError:
@@ -140,6 +143,24 @@ def _parse_price_text(text: str, marketplace: str = "US", allow_number_only: boo
     if value <= 0 or value > 9999:
         return ""
     return f"{value:.2f}".rstrip("0").rstrip(".") if "." in f"{value:.2f}" else str(value)
+
+
+def _extract_price_from_json_text(raw_html: str, marketplace: str = "US") -> str:
+    """Best-effort fallback for Amazon pages that render price from embedded JSON."""
+    patterns = [
+        r'"priceToPay"[\s\S]{0,700}?"(?:amount|value)"\s*:\s*"?(\d{1,4}(?:\.\d{1,2})?)"?',
+        r'"buyingPrice"[\s\S]{0,500}?"(?:amount|value)"\s*:\s*"?(\d{1,4}(?:\.\d{1,2})?)"?',
+        r'"displayPrice"\s*:\s*"([$€£¥₹]?\s*\d{1,4}(?:[,.]\d{2})?)"',
+        r'"priceAmount"\s*:\s*"?(\d{1,4}(?:\.\d{1,2})?)"?',
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, raw_html or "", flags=re.I)
+        if not match:
+            continue
+        price = _parse_price_text(match.group(1), marketplace, allow_number_only=True)
+        if price:
+            return price
+    return ""
 
 
 def _price_from_parts(price_el, marketplace: str = "US") -> str:
@@ -185,6 +206,10 @@ def _extract_price(soup: BeautifulSoup, marketplace: str = "US") -> str:
         "#corePrice_feature_div .reinventPricePriceToPayMargin .a-offscreen",
         "#corePriceDisplay_desktop_feature_div .a-price[data-a-color='price'] .a-offscreen",
         "#corePrice_feature_div .a-price[data-a-color='price'] .a-offscreen",
+        "#corePriceDisplay_desktop_feature_div .a-price [aria-hidden='true']",
+        "#corePrice_feature_div .a-price [aria-hidden='true']",
+        "#corePrice_desktop .a-price .a-offscreen",
+        "#corePrice_desktop .a-price [aria-hidden='true']",
         "#apex_desktop .a-price .a-offscreen",
         "#centerCol .a-price .a-offscreen",
         "#buybox .a-price .a-offscreen",
@@ -208,6 +233,7 @@ def _extract_price(soup: BeautifulSoup, marketplace: str = "US") -> str:
     core_blocks = [
         "#corePriceDisplay_desktop_feature_div",
         "#corePrice_feature_div",
+        "#corePrice_desktop",
         "#apex_desktop",
         "#centerCol",
         "#buybox",
@@ -233,7 +259,7 @@ def _extract_price(soup: BeautifulSoup, marketplace: str = "US") -> str:
             price = _price_from_parts(price_el, marketplace)
             if price:
                 return price
-    return ""
+    return _extract_price_from_json_text(str(soup), marketplace)
 
 
 def _extract_rating(soup: BeautifulSoup) -> str:
@@ -511,8 +537,12 @@ def _extract_bullet_points(soup: BeautifulSoup) -> list:
         "#featurebullets_feature_div li",
         "#feature-bullets-btf li span",
         "#feature-bullets-btf li",
+        "[id*='featurebullets'] li span",
+        "[id*='featurebullets'] li",
         "#productFactsDesktop_feature_div li",
         "#productFacts_feature_div li",
+        "#productFactsDesktop_feature_div .a-fixed-left-grid-col.a-col-right",
+        "#productFacts_feature_div .a-fixed-left-grid-col.a-col-right",
         "[data-feature-name='featurebullets'] li span",
     ]
     for sel in selectors:

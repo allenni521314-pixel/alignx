@@ -33,8 +33,12 @@ function captureAmazonPage() {
     return "";
   };
   const normalizePriceNumber = (value) => {
-    const normalized = clean(value)
-      .replace(/,/g, ".")
+    let raw = clean(value);
+    if (/,/.test(raw) && !/\.\d{2}\b/.test(raw)) {
+      raw = raw.replace(/,(\d{2})\b/, ".$1");
+    }
+    const normalized = raw
+      .replace(/,/g, "")
       .replace(/[^\d.]/g, "")
       .replace(/^\./, "")
       .replace(/\.(?=.*\.)/g, "");
@@ -69,6 +73,24 @@ function captureAmazonPage() {
     if (candidates.length === 0) return "";
     if (candidates.length === 1 && badSinglePriceContext.test(text)) return "";
     return candidates[candidates.length - 1];
+  };
+  const pickPriceFromText = (text) => {
+    const lines = String(text || "")
+      .split(/\n+/)
+      .map(clean)
+      .filter(Boolean);
+    const badLine = /list price|was:|typical price|coupon|save\s+\d|delivery|shipping|prime|monthly|payment plan|per month|price history/i;
+    const goodLine = /price to pay|limited time deal|deal price|buy new|new from|amazon/i;
+    const candidates = [];
+    for (const line of lines.slice(0, 220)) {
+      if (!/[$€£¥₹]\s*\d{1,4}/.test(line)) continue;
+      const price = parsePrice(line);
+      if (!price) continue;
+      const score = (goodLine.test(line) ? 2 : 0) - (badLine.test(line) ? 1 : 0);
+      candidates.push({ price, score, line });
+    }
+    candidates.sort((a, b) => b.score - a.score);
+    return candidates[0]?.price || "";
   };
   const readNodePrice = (node, options = {}) => {
     if (!node) return "";
@@ -112,6 +134,10 @@ function captureAmazonPage() {
       "#corePrice_feature_div .reinventPricePriceToPayMargin .a-offscreen",
       "#corePriceDisplay_desktop_feature_div .a-price[data-a-color='price'] .a-offscreen",
       "#corePrice_feature_div .a-price[data-a-color='price'] .a-offscreen",
+      "#corePriceDisplay_desktop_feature_div .a-price [aria-hidden='true']",
+      "#corePrice_feature_div .a-price [aria-hidden='true']",
+      "#corePrice_desktop .a-price .a-offscreen",
+      "#corePrice_desktop .a-price [aria-hidden='true']",
       "#apex_desktop .a-price .a-offscreen",
       "#centerCol .a-price .a-offscreen",
       "#buybox .a-price .a-offscreen",
@@ -129,7 +155,7 @@ function captureAmazonPage() {
       const price = readNodePrice(document.querySelector(selector));
       if (price) return price;
     }
-    for (const blockSelector of ["#corePriceDisplay_desktop_feature_div", "#corePrice_feature_div", "#apex_desktop", "#buybox", "#desktop_buybox", "#centerCol", "#ppd"]) {
+    for (const blockSelector of ["#corePriceDisplay_desktop_feature_div", "#corePrice_feature_div", "#corePrice_desktop", "#apex_desktop", "#buybox", "#desktop_buybox", "#centerCol", "#ppd"]) {
       const block = document.querySelector(blockSelector);
       if (!block) continue;
       const blockDirect = parsePrice(block.textContent || "");
@@ -141,7 +167,7 @@ function captureAmazonPage() {
         if (fromParts) return fromParts;
       }
     }
-    return "";
+    return pickPriceFromText(document.body?.innerText || "");
   };
   const pickBullets = () => {
     const selectors = [
@@ -150,8 +176,12 @@ function captureAmazonPage() {
       "#featurebullets_feature_div li span",
       "#featurebullets_feature_div li",
       "#feature-bullets-btf li span",
+      "[id*='featurebullets'] li span",
+      "[id*='featurebullets'] li",
       "#productFactsDesktop_feature_div li",
       "#productFacts_feature_div li",
+      "#productFactsDesktop_feature_div .a-fixed-left-grid-col.a-col-right",
+      "#productFacts_feature_div .a-fixed-left-grid-col.a-col-right",
       "[data-feature-name='featurebullets'] li span",
     ];
     const seen = new Set();
@@ -172,6 +202,32 @@ function captureAmazonPage() {
         }
         if (bullets.length >= 8) return bullets;
       }
+    }
+    const lines = String(document.body?.innerText || "")
+      .split(/\n+/)
+      .map(clean)
+      .filter(Boolean);
+    let inAbout = false;
+    for (const line of lines) {
+      if (/^about this item$/i.test(line)) {
+        inAbout = true;
+        continue;
+      }
+      if (inAbout && /^(product information|from the manufacturer|customer reviews|compare with similar items|videos)$/i.test(line)) {
+        break;
+      }
+      if (!inAbout) continue;
+      const text = line.replace(/^[-•\s]+/, "");
+      if (
+        text.length > 20 &&
+        text.length < 700 &&
+        !/see more|show more|make sure this fits|customer reviews|product information/i.test(text) &&
+        !seen.has(text)
+      ) {
+        seen.add(text);
+        bullets.push(text);
+      }
+      if (bullets.length >= 8) return bullets;
     }
     return bullets;
   };

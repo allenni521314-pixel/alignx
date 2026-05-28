@@ -1994,7 +1994,7 @@ export default function ListingDiagnosis() {
           setFetchMeta(restoredMeta || null);
           if (formalGateMissing.length > 0) {
             setDiagnosisPhase("fetch_success");
-            setShowAdvancedEditor(true);
+            setShowAdvancedEditor(false);
             toast.warning(`后台诊断结果已拦截：缺失 ${formalGateMissing.slice(0, 5).join("、")}，未恢复为正式报告。`);
             return;
           }
@@ -2146,7 +2146,7 @@ export default function ListingDiagnosis() {
     setListing(cleaned);
     setDiagnosisPhase(cleaned.title && cleaned.title.length >= 3 ? "fetch_success" : "fetch_failed");
     if (!cleaned.title || cleaned.title.length < 3) {
-      setShowAdvancedEditor(true);
+      setShowAdvancedEditor(false);
     }
     if (data.listing.marketplace && data.listing.marketplace !== marketplace) {
       setMarketplace(data.listing.marketplace);
@@ -2266,7 +2266,7 @@ export default function ListingDiagnosis() {
           }
 
           setDiagnosisPhase("fetch_failed");
-          setShowAdvancedEditor(true);
+          setShowAdvancedEditor(false);
           logScrapeAttempt(asin, detectedMp, "server_scrape", false, data?.source || "failed", "No valid title returned");
           toast.error("服务器没有返回有效标题，请检查ASIN或稍后重试");
           return;
@@ -2276,7 +2276,7 @@ export default function ListingDiagnosis() {
             : "unknown";
           logScrapeAttempt(asin, detectedMp, "server_scrape", false, "failed", errMsg);
           setDiagnosisPhase("fetch_failed");
-          setShowAdvancedEditor(true);
+          setShowAdvancedEditor(false);
           toast.error("公网服务器抓取失败，请稍后重试");
           return;
         }
@@ -2348,7 +2348,7 @@ export default function ListingDiagnosis() {
             logScrapeAttempt(asin, detectedMp, "server_scrape", false, source, source === "ai_empty" ? "No data found" : "AI estimated only");
             if (source === "ai_empty") {
               setDiagnosisPhase("fetch_failed");
-              setShowAdvancedEditor(true);
+              setShowAdvancedEditor(false);
               toast.error("无法获取该ASIN的产品数据，请检查ASIN或稍后重试。");
             } else {
               toast.warning("服务器返回了AI低置信度估算数据，建议后续用真实抓取结果复核。");
@@ -2375,7 +2375,7 @@ export default function ListingDiagnosis() {
 
         // If we get here, server returned data but no valid title
         setDiagnosisPhase("fetch_failed");
-        setShowAdvancedEditor(true);
+        setShowAdvancedEditor(false);
         toast.error("无法获取该ASIN的产品信息，请检查ASIN或稍后重试");
         logScrapeAttempt(asin, detectedMp, "server_scrape", false, "failed", "No valid title returned");
       } catch (serverErr) {
@@ -2395,7 +2395,7 @@ export default function ListingDiagnosis() {
           toast.error("抓取失败，请稍后重试");
         }
         setDiagnosisPhase("fetch_failed");
-        setShowAdvancedEditor(true);
+        setShowAdvancedEditor(false);
       }
     } catch (err: unknown) {
       // Top-level catch - prevent any unhandled errors
@@ -2408,7 +2408,7 @@ export default function ListingDiagnosis() {
         toast.error("抓取失败，请稍后重试");
       }
       setDiagnosisPhase("fetch_failed");
-      setShowAdvancedEditor(true);
+      setShowAdvancedEditor(false);
     } finally {
       setFetching(false);
       setFetchProgress("");
@@ -2608,7 +2608,7 @@ export default function ListingDiagnosis() {
         { duration: 7000 }
       );
       setDiagnosisPhase("fetch_success");
-      setShowAdvancedEditor(true);
+      setShowAdvancedEditor(false);
       return;
     }
     setDiagnosing(true);
@@ -3053,7 +3053,7 @@ export default function ListingDiagnosis() {
                       setDiagnosisPhase("fetch_success");
                       toast.success(`已从历史诊断导入 ${product.asin}`);
                     }}
-                    buttonLabel="历史诊断"
+                    buttonLabel="导入历史"
                     snapshotModuleKeys={["listing_diagnosis"]}
                     onSnapshotLoad={(snapshot) => loadSnapshotAsCurrentDiagnosis(snapshot)}
                   />
@@ -3078,20 +3078,6 @@ export default function ListingDiagnosis() {
           </Card>
 
           <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList className="bg-gray-50 border border-gray-200 mb-6">
-              <TabsTrigger value="diagnose" className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600">
-                <ClipboardCheck className="w-4 h-4 mr-2" />
-                Listing诊断
-              </TabsTrigger>
-              <TabsTrigger
-                value="history"
-                className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600"
-                onClick={loadHistory}
-              >
-                <History className="w-4 h-4 mr-2" />
-                诊断历史
-              </TabsTrigger>
-            </TabsList>
 
             {/* ==================== DIAGNOSE TAB ==================== */}
             <TabsContent value="diagnose" className="space-y-6">
@@ -3133,22 +3119,31 @@ export default function ListingDiagnosis() {
                       <div>
                         <h3 className="text-sm font-semibold text-gray-900">未能自动抓取完整 Listing 数据，请手动补充核心内容。</h3>
                         <p className="text-xs text-gray-600 mt-1">补充标题和五点后仍可生成诊断，但置信度会低于真实页面抓取。</p>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setShowAdvancedEditor(true)}
+                          className="mt-3 border-amber-200 bg-white text-amber-700 hover:bg-amber-50"
+                        >
+                          补齐核心字段
+                        </Button>
                       </div>
                     </div>
                   </CardContent>
                 </Card>
               )}
 
-              {(diagnosisPhase === "fetch_success" || diagnosisPhase === "analyzing" || diagnosisPhase === "analyzed" || hasMeaningfulListingData(listing)) && (
+              {(diagnosisPhase === "fetch_success" || diagnosisPhase === "analyzing" || diagnosisPhase === "analyzed" || hasMeaningfulListingData(listing) || (diagnosisPhase === "fetch_failed" && showAdvancedEditor)) && (
                 <Card className="bg-white border-gray-200">
                   <CardHeader className="pb-3">
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                       <div>
                         <CardTitle className="text-base flex items-center gap-2">
                           <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-                          抓取结果确认
+                          正式诊断门槛
                         </CardTitle>
-                        <p className="text-xs text-gray-500 mt-1">确认系统抓取到的是正确 Listing，再生成诊断报告。</p>
+                        <p className="text-xs text-gray-500 mt-1">只展示完整度和缺失字段；需要人工补齐时再展开字段。</p>
                       </div>
                       {fetchSource && (
                         <Badge variant="outline" className="w-fit border-emerald-200 bg-emerald-50 text-emerald-700">
@@ -3158,13 +3153,14 @@ export default function ListingDiagnosis() {
                     </div>
                   </CardHeader>
                   <CardContent className="space-y-4">
+                    {showAdvancedEditor && (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
                       <div className="lg:col-span-2 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
                         <label className="text-[11px] text-gray-500">产品标题</label>
                         <Input
                           value={listing.title}
                           onChange={(e) => updateListingCoreField("title", e.target.value)}
-                          placeholder="回查Amazon后补充产品标题"
+                          placeholder="粘贴 Amazon 产品标题"
                           className="mt-1 h-9 bg-white border-gray-200 text-sm"
                         />
                       </div>
@@ -3262,40 +3258,50 @@ export default function ListingDiagnosis() {
                         <Textarea
                           value={listing.bullet_points}
                           onChange={(e) => updateListingCoreField("bullet_points", e.target.value)}
-                          placeholder="回查Amazon后补充五点描述，每条一行"
+                          placeholder="粘贴五点描述，每条一行"
                           className="mt-1 min-h-[128px] bg-white border-gray-200 text-sm"
                         />
                       </div>
                     </div>
+                    )}
                     {fetchMeta?.capture_quality && (
                       <div className={`rounded-lg border p-3 ${formalGateMissing.length === 0 ? "border-emerald-100 bg-emerald-50" : "border-amber-100 bg-amber-50"}`}>
                         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                           <div>
-                            <p className="text-sm font-semibold text-gray-900">证据完整性闸门</p>
+                            <p className="text-sm font-semibold text-gray-900">核心字段状态</p>
                             <p className="text-xs text-gray-600 mt-1">{fetchMeta.capture_quality.rule}</p>
                           </div>
-                          <div className="flex gap-2">
+                          <div className="flex flex-wrap gap-2">
                             <Badge variant="outline">完整度 {fetchMeta.capture_quality.completeness ?? 0}%</Badge>
                             <Badge variant={formalGateMissing.length === 0 ? "default" : "secondary"}>
                               {formalGateMissing.length === 0 ? "可正式诊断" : "仅低置信预检"}
                             </Badge>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setShowAdvancedEditor((prev) => !prev)}
+                              className="h-7 border-amber-200 bg-white text-amber-700 hover:bg-amber-50"
+                            >
+                              {showAdvancedEditor ? "收起字段" : formalGateMissing.length > 0 ? "补齐缺失字段" : "复核字段"}
+                            </Button>
                           </div>
                         </div>
                         {Boolean(formalGateMissing.length || fetchMeta.capture_quality.missing_strategy?.length) && (
                           <p className="text-xs text-gray-600 mt-2">
-                            缺失字段：
+                            还需补齐：
                             {[...formalGateMissing, ...(fetchMeta.capture_quality.missing_strategy || [])].join("、")}
                           </p>
                         )}
                       </div>
                     )}
-                    {formalGateMissing.length > 0 && (
+                    {formalGateMissing.length > 0 && !fetchMeta?.capture_quality && (
                       <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                        当前只能做低置信预检，不能生成正式诊断报告。请先回查 Amazon 补齐：
+                        不能生成正式诊断报告。请先补齐：
                         <span className="font-semibold"> {formalGateMissing.join("、")} </span>
-                        后再生成。
                       </div>
                     )}
+                    {showAdvancedEditor && (
                     <div>
                       <label className="text-xs text-gray-500 mb-1 block">后台关键词（可选，抓取不到时可手动补充）</label>
                       <Input
@@ -3305,6 +3311,7 @@ export default function ListingDiagnosis() {
                         className="bg-gray-50 border-gray-200"
                       />
                     </div>
+                    )}
                     <div className="flex flex-col sm:flex-row gap-2">
                       {diagResult ? (
                         <Button
@@ -3333,7 +3340,15 @@ export default function ListingDiagnosis() {
                         className="border-gray-200 text-gray-600 bg-white"
                       >
                         {showAdvancedEditor ? <EyeOff className="w-4 h-4 mr-1.5" /> : <Eye className="w-4 h-4 mr-1.5" />}
-                        手动编辑
+                        {showAdvancedEditor ? "收起字段" : "补齐/复核字段"}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        onClick={() => setShowManualPaste(!showManualPaste)}
+                        className="border-gray-200 text-gray-600 bg-white"
+                      >
+                        <ClipboardPaste className="w-4 h-4 mr-1.5" />
+                        {showManualPaste ? "收起文本" : "粘贴页面文本"}
                       </Button>
                       {diagnosing && (
                         <span className="text-sm text-brand-600 flex items-center gap-2 sm:ml-2">
@@ -3346,42 +3361,26 @@ export default function ListingDiagnosis() {
                 </Card>
               )}
 
-              {showAdvancedEditor && (
+              {showManualPaste && (
                 <Card className="bg-white border-gray-200">
                   <CardHeader className="pb-3">
                     <CardTitle className="text-sm flex items-center gap-2">
                       <ClipboardPaste className="w-4 h-4 text-brand-600" />
-                      高级模式：手动补充 Listing 内容
+                      文本采集兜底
                     </CardTitle>
-                    <p className="text-xs text-gray-500">仅在抓取失败、字段缺失或需要覆盖抓取内容时使用。</p>
+                    <p className="text-xs text-gray-500">仅在本地采集或服务器抓取字段缺失时使用，解析后仍会走同一套完整性门槛。</p>
                   </CardHeader>
                   <CardContent className="space-y-4">
-                    <ListingForm listing={listing} onChange={setListing} />
-                    <div className="rounded-xl bg-gold-50 border border-gold-100 p-4 space-y-3">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <ClipboardPaste className="w-4 h-4 text-gold-600" />
-                          <span className="text-sm font-medium text-gray-800">本地浏览器页面 / 手动文本采集</span>
-                        </div>
-                        <Button variant="ghost" size="sm" onClick={() => setShowManualPaste(!showManualPaste)} className="text-gold-700">
-                          {showManualPaste ? "收起" : "展开"}
-                        </Button>
-                      </div>
-                      {showManualPaste && (
-                        <>
-                          <Textarea
-                            placeholder="优先粘贴本地浏览器保存的Amazon页面HTML；也支持粘贴页面可见文本。系统会标记来源和完整度，不会用AI猜空字段。"
-                            value={manualPasteText}
-                            onChange={(e) => setManualPasteText(e.target.value)}
-                            className="bg-white border-gold-100 min-h-[160px] text-xs"
-                          />
-                          <Button onClick={handleManualPaste} disabled={!manualPasteText.trim()} className="bg-gold-600 hover:bg-gold-700 text-white">
-                            <ClipboardPaste className="w-4 h-4 mr-1.5" />
-                            解析采集内容
-                          </Button>
-                        </>
-                      )}
-                    </div>
+                    <Textarea
+                      placeholder="粘贴 Amazon 商品页 HTML 或页面可见文本。系统只解析证据字段，不用 AI 猜空字段。"
+                      value={manualPasteText}
+                      onChange={(e) => setManualPasteText(e.target.value)}
+                      className="bg-white border-gold-100 min-h-[160px] text-xs"
+                    />
+                    <Button onClick={handleManualPaste} disabled={!manualPasteText.trim()} className="bg-gold-600 hover:bg-gold-700 text-white">
+                      <ClipboardPaste className="w-4 h-4 mr-1.5" />
+                      解析采集内容
+                    </Button>
                   </CardContent>
                 </Card>
               )}
