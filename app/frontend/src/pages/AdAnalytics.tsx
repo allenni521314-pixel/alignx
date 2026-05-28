@@ -205,8 +205,14 @@ function parseAdReport(text: string): ImportAdRow[] {
     const keyword = pick(row, ["customersearchterm", "searchterm", "keyword", "targeting", "搜索词", "关键词"]) || "未识别关键词";
     const date = pick(row, ["date", "startdate", "enddate", "日期"]) || new Date().toISOString().split("T")[0];
     const matchType = (pick(row, ["matchtype", "匹配类型"]) || "exact").toLowerCase();
+    const hypothesisId = pick(row, ["hypothesisid", "validationhypothesis", "验证假设", "假设id"]);
+    const keywordGroupId = pick(row, ["keywordgroupid", "keywordgroup", "关键词组", "词组id"]);
+    const round = parseNumber(pick(row, ["optimizationround", "round", "轮次"]));
     return {
       ...emptyAd,
+      hypothesis_id: hypothesisId || "",
+      keyword_group_id: keywordGroupId || "",
+      optimization_round: round || 1,
       ad_group_name: adGroup,
       keyword,
       match_type: matchType.includes("broad") || matchType.includes("广泛") ? "broad" : matchType.includes("phrase") || matchType.includes("词组") ? "phrase" : "exact",
@@ -397,6 +403,7 @@ export default function AdAnalytics() {
     sales: totalSales,
     assigned: false,
   };
+  const hasSelectedProduct = Boolean(selectedProductId && selectedProductId !== "all");
   const validationHypothesisLabel = validationMetrics.assigned ? validationMetrics.hypothesis_id : "未绑定具体假设";
   const validationKeywordGroupLabel = validationMetrics.assigned ? validationMetrics.keyword_group_id : "全部广告数据";
   const sampleProgress = Math.min(100, Math.round((Number(validationMetrics.clicks || 0) / 100) * 100));
@@ -583,6 +590,8 @@ export default function AdAnalytics() {
 
   useEffect(() => {
     if (!isValidationView || loading) return;
+    if (!hasSelectedProduct) return;
+    if (!filteredAds.length) return;
     const key = `${selectedProductId || "all"}-${totalImpressions}-${totalClicks}-${totalSpend}-${totalOrders}-${totalSales}-${validationConclusion.level}`;
     if (validationSnapshotKeyRef.current === key) return;
     validationSnapshotKeyRef.current = key;
@@ -664,6 +673,8 @@ export default function AdAnalytics() {
     validationMetrics.hypothesis_id,
     validationMetrics.keyword_group_id,
     validationMetrics.optimization_round,
+    hasSelectedProduct,
+    filteredAds.length,
   ]);
 
   return (
@@ -941,7 +952,7 @@ export default function AdAnalytics() {
             </Card>
           )}
 
-          {isValidationView && (
+          {isValidationView && hasSelectedProduct && (
             <Card className="bg-white border-gray-200 p-5 mb-4 sm:mb-6">
               <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
                 <div className="flex items-start gap-3">
@@ -994,7 +1005,23 @@ export default function AdAnalytics() {
             </Card>
           )}
 
-          {isValidationView && validationGroups.length > 0 && (
+          {isValidationView && !hasSelectedProduct && (
+            <Card className="bg-amber-50 border-amber-100 p-5 mb-4 sm:mb-6">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-lg bg-white border border-amber-100 flex items-center justify-center">
+                  <AlertTriangle className="w-5 h-5 text-amber-700" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-900">请选择一个产品后再做效果验证</h3>
+                  <p className="text-sm text-gray-600 mt-1">
+                    广告验证必须按单个ASIN/产品对齐，否则不同产品的CTR、CVR、ACoS会混在一起，影响下一轮诊断回流。
+                  </p>
+                </div>
+              </div>
+            </Card>
+          )}
+
+          {isValidationView && hasSelectedProduct && validationGroups.length > 0 && (
             <Card className="bg-white border-gray-200 p-5 mb-4 sm:mb-6">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
                 <div>

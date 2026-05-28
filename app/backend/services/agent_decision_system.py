@@ -177,6 +177,11 @@ def build_agent_decision_system(product: dict, stages: list[dict]) -> dict:
         else {}
     )
     primary_metrics = primary_validation.get("metrics", {}) if isinstance(primary_validation, dict) else {}
+    primary_hypothesis_label = (
+        primary_validation.get("hypothesis_id")
+        if isinstance(primary_validation, dict) and primary_validation.get("hypothesis_id") != "unassigned"
+        else "未绑定具体假设"
+    )
 
     review_score = _num(alignment.get("review_demand_alignment"))
     platform_score = _num(alignment.get("platform_semantic_alignment"))
@@ -485,7 +490,7 @@ def build_agent_decision_system(product: dict, stages: list[dict]) -> dict:
             "status": hit_status,
             "hit_rate": hypothesis_hit_rate,
             "basis": (
-                f"主验证假设 {primary_validation.get('hypothesis_id', 'unassigned')}："
+                f"主验证对象 {primary_hypothesis_label}："
                 f"点击 {ad_clicks:.0f}，CVR {ad_cvr:.2f}%，ACOS {ad_acos:.2f}%；"
                 f"已绑定假设 {len(assigned_hypothesis_validations)} 个，复盘记录 {len(timeline_events)} 条"
             ),
