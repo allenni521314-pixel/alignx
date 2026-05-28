@@ -19,6 +19,7 @@ import httpx
 from openai import AsyncOpenAI
 
 from core.config import settings
+from services.ai_usage import record_ai_usage
 
 
 COSMO_CONFIDENCE_THRESHOLD = 0.85
@@ -54,6 +55,11 @@ COSMO_ANCHORS: list[CosmoAnchor] = [
 
 
 TOKEN_RE = re.compile(r"[a-z0-9][a-z0-9+\-/]*", re.IGNORECASE)
+
+
+def _estimate_tokens_from_texts(texts: list[str]) -> int:
+    total_chars = sum(len(item or "") for item in texts)
+    return max(1, math.ceil(total_chars / 4))
 
 
 def _stable_unit(seed: str) -> float:
@@ -138,6 +144,18 @@ async def _embed_texts_with_provider(texts: list[str]) -> tuple[list[list[float]
             http_client=httpx.AsyncClient(trust_env=False),
         )
         response = await client.embeddings.create(model=embedding_model, input=texts)
+        usage = getattr(response, "usage", None)
+        usage_dict = usage.model_dump() if hasattr(usage, "model_dump") else None
+        if not usage_dict:
+            estimated = _estimate_tokens_from_texts(texts)
+            usage_dict = {"prompt_tokens": estimated, "completion_tokens": 0, "total_tokens": estimated}
+        await record_ai_usage(
+            provider="SiliconFlow" if "siliconflow" in base_url.lower() else "OpenAI-compatible",
+            model=embedding_model,
+            module="cosmo_vector_mapping.embedding",
+            endpoint="embeddings",
+            usage=usage_dict,
+        )
         vectors = [_normalize([float(value) for value in item.embedding]) for item in response.data]
         return vectors, embedding_model
     except Exception:
@@ -186,6 +204,14 @@ async def _rerank_cosmo_anchors(query: str) -> tuple[dict[str, float], str] | No
             )
             response.raise_for_status()
             data = response.json()
+        estimated = _estimate_tokens_from_texts([query, *documents])
+        await record_ai_usage(
+            provider="SiliconFlow" if "siliconflow" in base_url.lower() else "OpenAI-compatible",
+            model=rerank_model,
+            module="cosmo_vector_mapping.rerank",
+            endpoint="rerank",
+            usage={"prompt_tokens": estimated, "completion_tokens": 0, "total_tokens": estimated},
+        )
         scores: dict[str, float] = {}
         for item in data.get("results", []) or []:
             index = item.get("index")

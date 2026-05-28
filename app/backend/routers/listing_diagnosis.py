@@ -28,7 +28,7 @@ from datetime import datetime, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import get_db
@@ -40,6 +40,7 @@ from services.judgment_feedback_rounds import JudgmentFeedbackRoundService
 from services.listing_diagnoses import Listing_diagnosesService
 from services.judgment_system import JudgmentSystemService
 from services.cosmo_rufus_rules import build_cosmo_rufus_analysis, merge_cosmo_rufus_into_legacy
+from services.cosmo_vector_mapping import evaluate_cosmo_vector_mapping_async
 
 logger = logging.getLogger(__name__)
 AI_DIAGNOSIS_TIMEOUT_SECONDS = int(os.getenv("AI_DIAGNOSIS_TIMEOUT_SECONDS", "180"))
@@ -195,11 +196,13 @@ class ListingInput(BaseModel):
     image_count: str = ""
     has_video: bool = False
     has_a_plus: bool = False
+    image_urls: List[str] = Field(default_factory=list)
+    aplus_image_urls: List[str] = Field(default_factory=list)
 
 
 class DiagnoseRequest(BaseModel):
     listing: ListingInput
-    precision_context: dict = {}
+    precision_context: dict = Field(default_factory=dict)
     force_refresh: bool = False
 
 
@@ -1273,8 +1276,11 @@ def _build_compact_diagnosis_prompt(listing: ListingInput) -> str:
 1. 按10个维度0-100打分：function_expression, scenario_expression, identity_fit, psychology_benefit, risk_elimination, product_identity, compatibility, subjective_properties, differentiation, market_trend。
 2. 关键词必须是自然美式英语，不能输出中文关键词。
 3. 广告关键词必须标记 keyword_type：attribute / relationship / state_trigger。
-4. 优先找 relationship 和 state_trigger，因为它们用于广告验证和避开纯属性词价格竞争。
-5. 输出要具体指出依据来源：标题、五点、图片/A+、价格、评分评论、缺失类目/后台词。
+4. 优先找 relationship 和 state_trigger，因为它们用于广告验证和避开纯属性词价格竞争；不能只给属性词。
+5. relationship 必须来自COSMO关系锚点：used_for_function / used_for_event / used_for_activity / used_when / used_where / used_with / used_for_audience / used_by。
+6. state_trigger 必须来自COSMO状态锚点：cause_positive / cause_negative / compared_to / requires，例如 odor control, reduce mess, low noise, safe for cats, no ozone, easy maintenance。
+7. 输出要具体指出依据来源：标题、五点、图片/A+、价格、评分评论、缺失类目/后台词。
+8. 后台COSMO/Rufus规则只是兜底和一致性校验；真实模型证据链优先。
 
 只返回有效JSON，结构如下：
 {{
@@ -1335,6 +1341,130 @@ def _build_compact_diagnosis_prompt(listing: ListingInput) -> str:
 }}"""
 
 
+def _listing_semantic_text(listing: ListingInput) -> str:
+    return "\n".join(
+        part
+        for part in [
+            f"Title: {listing.title}",
+            f"Bullets: {listing.bullet_points}",
+            f"Description: {listing.description}",
+            f"A+: {listing.a_plus_content}",
+            f"Backend keywords: {listing.backend_keywords}",
+            f"Main image description: {listing.main_image_description}",
+            f"Category: {listing.category}",
+            f"Brand: {listing.brand}",
+            f"Price: {listing.price}",
+            f"Rating reviews BSR: {listing.rating} {listing.review_count} {listing.bsr_rank}",
+        ]
+        if part and part.strip()
+    )[:12000]
+
+
+async def _build_listing_evidence_chain(listing: ListingInput, ai_service: AIHubService) -> dict:
+    """Run mandatory COSMO/Rufus evidence enhancement for every Listing diagnosis.
+
+    Hosted embedding/rerank/vision models are the primary evidence path. Local
+    COSMO/Rufus rules are only fallback and consistency checks.
+    """
+    semantic_text = _listing_semantic_text(listing)
+    evidence: dict = {
+        "required": True,
+        "priority": "hosted_models_primary_rules_fallback",
+        "semantic_vector": {},
+        "visual_ocr": {},
+        "model_chain": ["BAAI/bge-m3", "BAAI/bge-reranker-v2-m3", "qwen2.5-vl-72b-instruct"],
+        "task_boundaries": {
+            "AI_EMBEDDING_MODEL": "只做COSMO语义向量召回：把标题、五点、A+、后台词映射到isA、used_for_function、used_where、used_with、cause_positive、cause_negative等关系/状态锚点；不做最终评分。",
+            "RERANK_MODEL": "只做证据精排：过滤低相关COSMO锚点和历史语义证据，优先保留relationship与state_trigger；不生成Listing建议。",
+            "AI_VISION_MODEL": "只做图片/OCR事实提取：识别主图、副图、A+图里的产品、场景、文字、徽章、认证、风险承诺和合规风险；不做最终评分。",
+            "AI_DEEP_MODEL": "只做综合诊断：必须引用向量、精排、OCR事实和抓取字段，输出8D+2评分、关系词、状态词和广告验证假设。",
+            "rules": "后台COSMO/Rufus规则只做兜底和一致性校验，不能覆盖真实模型证据。",
+        },
+        "cosmo_reference": {
+            "relationship_anchors": ["used_for_function", "used_for_event", "used_for_activity", "used_when", "used_where", "used_with", "used_for_audience", "used_by"],
+            "state_anchors": ["cause_positive", "cause_negative", "compared_to", "requires"],
+            "keyword_priority": ["state_trigger", "relationship", "attribute"],
+        },
+    }
+
+    try:
+        vector_track = await evaluate_cosmo_vector_mapping_async(
+            semantic_text,
+            category_anchor_texts=[
+                listing.category or "",
+                listing.title or "",
+                listing.backend_keywords or "",
+            ],
+        )
+        evidence["semantic_vector"] = {
+            "ok": True,
+            "embedding_model": vector_track.get("embedding_model", ""),
+            "rerank_model": vector_track.get("rerank_model", ""),
+            "top_relation": vector_track.get("top_relation", ""),
+            "top_confidence": vector_track.get("top_confidence", 0),
+            "activated_relations": vector_track.get("activated_relations", [])[:5],
+            "fallback_to_prompt_track": vector_track.get("fallback_to_prompt_track", False),
+        }
+    except Exception as exc:
+        logger.warning("Listing semantic vector evidence failed: %s", exc)
+        evidence["semantic_vector"] = {"ok": False, "error": "semantic_vector_failed"}
+
+    image_urls = [
+        url
+        for url in [*(listing.image_urls or []), *(listing.aplus_image_urls or [])]
+        if isinstance(url, str) and url.startswith(("http://", "https://", "data:image/"))
+    ][:4]
+    try:
+        from schemas.aihub import (
+            ChatMessage,
+            ContentPartImage,
+            ContentPartText,
+            GenTxtRequest,
+            ImageUrl,
+        )
+
+        prompt = (
+            "你是AlignX视觉/OCR证据提取器。只提取事实，不做最终评分，不改写Listing。"
+            "请按COSMO证据边界识别图片或图片描述中的产品身份、使用场景、搭配对象、使用时机、状态承诺、图片内文字、徽章、认证、风险承诺、合规风险，输出JSON。"
+            "必须区分事实evidence与推断inference；不能凭空补图中不存在的信息。"
+            f"\nListing标题：{listing.title}"
+            f"\n主图描述：{listing.main_image_description or '未提供'}"
+            f"\nA+摘要：{listing.a_plus_content[:800] if listing.a_plus_content else '未提供'}"
+        )
+        content = [ContentPartText(type="text", text=prompt)]
+        for url in image_urls:
+            content.append(ContentPartImage(type="image_url", image_url=ImageUrl(url=url)))
+        vision_response = await asyncio.wait_for(
+            ai_service.gentxt(
+                GenTxtRequest(
+                    messages=[ChatMessage(role="user", content=content)],
+                    model="AI_VISION_MODEL",
+                    temperature=0,
+                    max_tokens=900,
+                )
+            ),
+            timeout=min(AI_DIAGNOSIS_TIMEOUT_SECONDS, 90),
+        )
+        evidence["visual_ocr"] = {
+            "ok": True,
+            "model": vision_response.model,
+            "image_count": len(image_urls),
+            "input_mode": "image_urls" if image_urls else "description_only",
+            "summary": (vision_response.content or "")[:1800],
+            "usage": vision_response.usage or {},
+        }
+    except Exception as exc:
+        logger.warning("Listing visual/OCR evidence failed: %s", exc)
+        evidence["visual_ocr"] = {
+            "ok": False,
+            "image_count": len(image_urls),
+            "input_mode": "image_urls" if image_urls else "description_only",
+            "error": "visual_ocr_failed",
+        }
+
+    return evidence
+
+
 async def _diagnose_single(
     listing: ListingInput,
     user_id: str,
@@ -1347,8 +1477,13 @@ async def _diagnose_single(
     listing = _sanitize_listing_for_ai(listing)
 
     product_title = listing.title or "未提供"
+    evidence_chain = await _build_listing_evidence_chain(listing, ai_service)
 
-    prompt = _build_compact_diagnosis_prompt(listing)
+    prompt = (
+        _build_compact_diagnosis_prompt(listing)
+        + "\n\n【强制证据链】以下证据来自COSMO/Rufus主链路，必须优先使用；后台规则只可作为兜底或一致性校验，不能替代主判断：\n"
+        + json.dumps(evidence_chain, ensure_ascii=False)[:6000]
+    )
 
     # Determine A+ content status for system message hint
     a_plus_hint = ""
@@ -1368,6 +1503,7 @@ async def _diagnose_single(
         f'{a_plus_hint}'
         f' 6.elements中每个要素的每个维度评分都必须是合理的非零值，绝对禁止全部给0分。'
         f' 7.本次诊断采用8D+2维度体系（COSMO核心8D + 卖家扩展2D），共10个维度。'
+        f' 8.判断优先级：BGE语义召回和rerank精排证据 > Qwen视觉/OCR事实 > DeepSeek综合推理；后台COSMO/Rufus规则只做兜底和一致性校验。'
         f'你是亚马逊Listing优化专家。只输出JSON。'
     )
 
@@ -1468,6 +1604,8 @@ async def _diagnose_single(
     ad_validation_plan = legacy_bridge.get("ad_validation_plan", data.get("ad_validation_plan", {}))
     # ========== 统一判断系统结束 ==========
     cosmo_rufus_analysis = build_cosmo_rufus_analysis(listing, data)
+    cosmo_rufus_analysis["evidence_chain"] = evidence_chain
+    cosmo_rufus_analysis["rule_track_role"] = "fallback_consistency_check_only"
     data = merge_cosmo_rufus_into_legacy(data, cosmo_rufus_analysis)
     ad_validation_plan = data.get("ad_validation_plan", ad_validation_plan)
 
@@ -1577,6 +1715,11 @@ async def _diagnose_single(
         "diagnosis_confidence": diagnosis_confidence,
         "cosmo_rufus_analysis": cosmo_rufus_analysis,
         "amazon_compliance": amazon_compliance,
+        "trace": {
+            "model_chain": evidence_chain.get("model_chain", []),
+            "cosmo_rufus_evidence_chain": evidence_chain,
+            "rule_track_role": "fallback_consistency_check_only",
+        },
     }
 
 
@@ -1635,6 +1778,8 @@ async def fetch_listing_from_url(
                 price=scraped.get("price", ""),
                 brand=scraped.get("brand", ""),
                 marketplace=marketplace,
+                image_urls=scraped.get("image_urls", []) or [],
+                aplus_image_urls=scraped.get("aplus_image_urls", []) or [],
             )
             return FetchUrlResponse(
                 listing=listing,
@@ -1805,6 +1950,8 @@ async def parse_html_content(
             price=parsed.get("price", ""),
             brand=parsed.get("brand", ""),
             marketplace=marketplace,
+            image_urls=parsed.get("image_urls", []) or [],
+            aplus_image_urls=parsed.get("aplus_image_urls", []) or [],
         )
 
         bsr = parsed.get("bsr_rank", "")

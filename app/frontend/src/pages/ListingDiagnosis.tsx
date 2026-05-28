@@ -89,6 +89,8 @@ interface ListingInput {
   image_count?: string;
   has_video?: boolean;
   has_a_plus?: boolean;
+  image_urls?: string[];
+  aplus_image_urls?: string[];
 }
 
 interface FetchMeta {

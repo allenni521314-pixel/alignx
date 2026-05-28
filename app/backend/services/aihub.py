@@ -23,6 +23,20 @@ class InvalidImageInputError(ValueError):
     """Raised when the provided image input cannot be parsed."""
 
 
+def _estimate_message_tokens(messages: list[dict]) -> int:
+    def size(value) -> int:
+        if isinstance(value, str):
+            return len(value)
+        if isinstance(value, list):
+            return sum(size(item) for item in value)
+        if isinstance(value, dict):
+            return sum(size(item) for item in value.values())
+        return len(str(value or ""))
+
+    chars = sum(size(message) for message in messages)
+    return max(1, chars // 4)
+
+
 class AIHubService:
     """AI Hub service class that wraps LLM calls based on the OpenAI SDK."""
 
@@ -164,6 +178,14 @@ class AIHubService:
                     data = response.json()
                 content = data["choices"][0]["message"].get("content") or ""
                 usage = data.get("usage")
+                if not usage:
+                    prompt_tokens = _estimate_message_tokens(messages)
+                    completion_tokens = max(1, len(content) // 4)
+                    usage = {
+                        "prompt_tokens": prompt_tokens,
+                        "completion_tokens": completion_tokens,
+                        "total_tokens": prompt_tokens + completion_tokens,
+                    }
             else:
                 response = await self.client.chat.completions.create(
                     model=model,
