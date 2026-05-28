@@ -57,6 +57,13 @@ class AdminAIModelItem(BaseModel):
     source: str = "environment"
     input_cost_per_1m_cny: float = 0.0
     output_cost_per_1m_cny: float = 0.0
+    calls_7d: int = 0
+    prompt_tokens_7d: int = 0
+    completion_tokens_7d: int = 0
+    total_tokens_7d: int = 0
+    estimated_cost_cny_7d: float = 0.0
+    last_called_at: Optional[str] = None
+    real_called: bool = False
 
 
 class AdminAIModelStatus(BaseModel):
@@ -315,14 +322,6 @@ async def get_admin_ai_models(
         if embedding_model and "siliconflow" in embedding_base_url.lower()
         else ("OpenAI-compatible" if embedding_model else "local-fallback")
     )
-
-
-@router.post("/ai-models/probe")
-async def probe_admin_ai_models(
-    _: UserResponse = Depends(get_super_admin_user),
-):
-    """Run tiny real calls against every configured model family."""
-    return await probe_ai_models()
     rerank_provider = (
         "SiliconFlow"
         if rerank_model and "siliconflow" in rerank_base_url.lower()
@@ -403,6 +402,44 @@ async def probe_admin_ai_models(
         item.input_cost_per_1m_cny = input_price
         item.output_cost_per_1m_cny = output_price
 
+    usage_7d = await get_ai_usage_summary(days=7)
+    usage_by_model: dict[str, dict] = {}
+    for row in usage_7d.get("by_model", []):
+        key = str(row.get("model") or "")
+        if not key:
+            continue
+        bucket = usage_by_model.setdefault(
+            key,
+            {
+                "calls": 0,
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "total_tokens": 0,
+                "estimated_cost_cny": 0.0,
+                "last_called_at": None,
+            },
+        )
+        bucket["calls"] += int(row.get("calls") or 0)
+        bucket["prompt_tokens"] += int(row.get("prompt_tokens") or 0)
+        bucket["completion_tokens"] += int(row.get("completion_tokens") or 0)
+        bucket["total_tokens"] += int(row.get("total_tokens") or 0)
+        bucket["estimated_cost_cny"] += float(row.get("estimated_cost_cny") or 0.0)
+        last_called_at = row.get("last_called_at")
+        if last_called_at and (
+            not bucket["last_called_at"] or str(last_called_at) > str(bucket["last_called_at"])
+        ):
+            bucket["last_called_at"] = last_called_at
+
+    for item in models:
+        usage = usage_by_model.get(item.model, {})
+        item.calls_7d = int(usage.get("calls") or 0)
+        item.prompt_tokens_7d = int(usage.get("prompt_tokens") or 0)
+        item.completion_tokens_7d = int(usage.get("completion_tokens") or 0)
+        item.total_tokens_7d = int(usage.get("total_tokens") or 0)
+        item.estimated_cost_cny_7d = round(float(usage.get("estimated_cost_cny") or 0.0), 6)
+        item.last_called_at = usage.get("last_called_at")
+        item.real_called = item.calls_7d > 0
+
     return AdminAIModelStatus(
         provider=gateway_status.provider,
         api_mode=gateway_status.api_mode,
@@ -413,7 +450,7 @@ async def probe_admin_ai_models(
         embedding_configured=embedding_configured,
         rerank_configured=rerank_configured,
         models=models,
-        usage_7d=await get_ai_usage_summary(days=7),
+        usage_7d=usage_7d,
         recharge_links=[
             {"provider": "DeepSeek", "url": "https://platform.deepseek.com/usage"},
             {"provider": "SiliconFlow", "url": "https://cloud.siliconflow.cn/account/bill"},
@@ -422,6 +459,14 @@ async def probe_admin_ai_models(
         legacy_alias_policy="业务代码只能使用职责别名：AI_LIGHT_MODEL、AI_REASONING_MODEL、AI_DEEP_MODEL、AI_VISION_MODEL、AI_EMBEDDING_MODEL、RERANK_MODEL；旧模型名前缀会映射到文本默认模型，不作为生产模型直接调用。",
         invocation_contract=workflow_summary(),
     )
+
+
+@router.post("/ai-models/probe")
+async def probe_admin_ai_models(
+    _: UserResponse = Depends(get_super_admin_user),
+):
+    """Run tiny real calls against every configured model family."""
+    return await probe_ai_models()
 
 
 @router.post("/users/{user_id}/role")

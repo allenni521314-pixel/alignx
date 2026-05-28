@@ -130,6 +130,7 @@ async def get_ai_usage_summary(days: int = 7) -> dict[str, Any]:
                     func.coalesce(func.sum(AIUsageLog.total_tokens), 0),
                     func.coalesce(func.sum(AIUsageLog.estimated_cost_cny), 0.0),
                     func.count(AIUsageLog.id),
+                    func.max(AIUsageLog.created_at),
                 )
                 .where(*filters)
                 .group_by(AIUsageLog.provider, AIUsageLog.model, AIUsageLog.module)
@@ -154,6 +155,7 @@ async def get_ai_usage_summary(days: int = 7) -> dict[str, Any]:
                 "total_tokens": int(row[5] or 0),
                 "estimated_cost_cny": round(float(row[6] or 0.0), 6),
                 "calls": int(row[7] or 0),
+                "last_called_at": row[8].isoformat() if row[8] else None,
             }
             for row in model_rows
         ],

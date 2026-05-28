@@ -5,6 +5,24 @@ import { getAdminAIModels, probeAdminAIModels, type AdminAIModelProbe, type Admi
 import { AlertTriangle, CheckCircle2, Cpu, Server, Zap } from "lucide-react";
 import { toast } from "sonner";
 
+function formatNumber(value: number | undefined) {
+  return Number(value || 0).toLocaleString("zh-CN");
+}
+
+function formatDateTime(value: string | null | undefined) {
+  if (!value) return "从未调用";
+  try {
+    return new Date(value).toLocaleString("zh-CN", {
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return value;
+  }
+}
+
 export function AIModelStatusPanel() {
   const [aiModels, setAIModels] = useState<AdminAIModelStatus | null>(null);
   const [probe, setProbe] = useState<AdminAIModelProbe | null>(null);
@@ -41,6 +59,8 @@ export function AIModelStatusPanel() {
       setProbing(false);
     }
   };
+
+  const probeByModel = new Map((probe?.probes || []).map((item) => [item.model, item]));
 
   return (
     <Card className="p-4 mb-5">
@@ -119,44 +139,68 @@ export function AIModelStatusPanel() {
               <thead className="bg-gray-50 text-xs text-gray-500">
                 <tr>
                   <th className="text-left font-medium px-3 py-2">模块</th>
-                  <th className="text-left font-medium px-3 py-2">变量</th>
-                  <th className="text-left font-medium px-3 py-2">模型</th>
-                  <th className="text-left font-medium px-3 py-2">状态/成本</th>
+                  <th className="text-left font-medium px-3 py-2">模型名称</th>
+                  <th className="text-left font-medium px-3 py-2">真实调用</th>
+                  <th className="text-right font-medium px-3 py-2">7日次数</th>
+                  <th className="text-right font-medium px-3 py-2">输入Token</th>
+                  <th className="text-right font-medium px-3 py-2">输出Token</th>
+                  <th className="text-right font-medium px-3 py-2">总Token</th>
+                  <th className="text-right font-medium px-3 py-2">估算金额</th>
+                  <th className="text-left font-medium px-3 py-2">最后调用</th>
                   <th className="text-left font-medium px-3 py-2">用途</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {aiModels.models.map((item) => (
-                  <tr key={item.env_key} className="bg-white">
-                    <td className="px-3 py-2 font-medium text-gray-900 whitespace-nowrap">{item.module}</td>
-                    <td className="px-3 py-2 font-mono text-xs text-gray-500 whitespace-nowrap">{item.env_key}</td>
-                    <td className="px-3 py-2">
-                      <div className="font-mono text-xs text-gray-900 whitespace-nowrap">{item.model}</div>
-                      <div className="text-[11px] text-gray-400 flex items-center gap-1 mt-0.5">
-                        <Server className="w-3 h-3" />
-                        {item.provider}
-                      </div>
-                    </td>
-                    <td className="px-3 py-2">
-                      <span
-                        className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium ${
-                          item.configured
-                            ? "bg-emerald-50 text-emerald-700"
-                            : item.source === "local fallback"
-                              ? "bg-amber-50 text-amber-700"
-                              : "bg-gray-100 text-gray-600"
-                        }`}
-                      >
-                        {item.configured ? <CheckCircle2 className="w-3 h-3" /> : <AlertTriangle className="w-3 h-3" />}
-                        {item.configured ? "已启用" : item.source === "local fallback" ? "本地兜底" : "未启用"}
-                      </span>
-                      <div className="text-[11px] text-gray-400 mt-1 whitespace-nowrap">
-                        入 ¥{Number(item.input_cost_per_1m_cny || 0).toFixed(2)} / 出 ¥{Number(item.output_cost_per_1m_cny || 0).toFixed(2)} 每百万token
-                      </div>
-                    </td>
-                    <td className="px-3 py-2 text-xs text-gray-600 min-w-[240px]">{item.purpose}</td>
-                  </tr>
-                ))}
+                {aiModels.models.map((item) => {
+                  const probeRow = probeByModel.get(item.model);
+                  const liveStatus = probeRow
+                    ? probeRow.ok
+                      ? { text: "探针成功", className: "bg-emerald-50 text-emerald-700" }
+                      : { text: "探针失败", className: "bg-red-50 text-red-700" }
+                    : item.real_called
+                      ? { text: "已调用", className: "bg-emerald-50 text-emerald-700" }
+                      : item.configured
+                        ? { text: "未见调用", className: "bg-amber-50 text-amber-700" }
+                        : { text: "未启用", className: "bg-gray-100 text-gray-600" };
+                  return (
+                    <tr key={item.env_key} className="bg-white align-top">
+                      <td className="px-3 py-3 font-medium text-gray-900 whitespace-nowrap">
+                        <div>{item.module}</div>
+                        <div className="mt-1 font-mono text-[11px] text-gray-400">{item.env_key}</div>
+                      </td>
+                      <td className="px-3 py-3">
+                        <div className="font-mono text-xs text-gray-900 whitespace-nowrap">{item.model}</div>
+                        <div className="text-[11px] text-gray-400 flex items-center gap-1 mt-0.5">
+                          <Server className="w-3 h-3" />
+                          {item.provider}
+                        </div>
+                      </td>
+                      <td className="px-3 py-3 whitespace-nowrap">
+                        <span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium ${liveStatus.className}`}>
+                          {probeRow?.ok || item.real_called ? <CheckCircle2 className="w-3 h-3" /> : <AlertTriangle className="w-3 h-3" />}
+                          {liveStatus.text}
+                        </span>
+                        <div className="text-[11px] text-gray-400 mt-1">
+                          {item.configured ? "配置已启用" : item.source === "local fallback" ? "本地兜底" : "未配置"}
+                        </div>
+                      </td>
+                      <td className="px-3 py-3 text-right font-semibold text-gray-900">{formatNumber(item.calls_7d)}</td>
+                      <td className="px-3 py-3 text-right font-mono text-xs text-gray-700">{formatNumber(item.prompt_tokens_7d)}</td>
+                      <td className="px-3 py-3 text-right font-mono text-xs text-gray-700">{formatNumber(item.completion_tokens_7d)}</td>
+                      <td className="px-3 py-3 text-right font-mono text-xs text-gray-900">{formatNumber(item.total_tokens_7d)}</td>
+                      <td className="px-3 py-3 text-right font-semibold text-gold-700 whitespace-nowrap">
+                        ¥{Number(item.estimated_cost_cny_7d || 0).toFixed(4)}
+                        <div className="text-[11px] font-normal text-gray-400 mt-1">
+                          入¥{Number(item.input_cost_per_1m_cny || 0).toFixed(2)} / 出¥{Number(item.output_cost_per_1m_cny || 0).toFixed(2)}
+                        </div>
+                      </td>
+                      <td className="px-3 py-3 text-xs text-gray-600 whitespace-nowrap">
+                        {probeRow ? `刚刚探针 ${probeRow.latency_ms}ms` : formatDateTime(item.last_called_at)}
+                      </td>
+                      <td className="px-3 py-3 text-xs text-gray-600 min-w-[260px]">{item.purpose}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

@@ -41,6 +41,13 @@ export interface AdminAIModelItem {
   source: string;
   input_cost_per_1m_cny: number;
   output_cost_per_1m_cny: number;
+  calls_7d: number;
+  prompt_tokens_7d: number;
+  completion_tokens_7d: number;
+  total_tokens_7d: number;
+  estimated_cost_cny_7d: number;
+  last_called_at: string | null;
+  real_called: boolean;
 }
 
 export interface AdminAIModelStatus {
@@ -68,6 +75,7 @@ export interface AdminAIModelStatus {
       total_tokens: number;
       estimated_cost_cny: number;
       calls: number;
+      last_called_at?: string | null;
     }>;
   };
   recharge_links: Array<{ provider: string; url: string }>;
