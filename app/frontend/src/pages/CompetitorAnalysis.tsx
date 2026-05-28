@@ -30,6 +30,7 @@ import {
 import { toast } from "sonner";
 import axios from "axios";
 import { getAuthHeaders } from "@/lib/auth-headers";
+import { captureAmazonProductPage, getCaptureHtml } from "@/lib/local-browser-capture";
 import { saveCompetitorInsight, updateProductLifecycle, saveTimelineEvent, saveActionSnapshot, getActionSnapshots, type ActionSnapshot } from "@/lib/workflow-api";
 
 /* ------------------------------------------------------------------ */
@@ -58,6 +59,21 @@ function detectMarketplaceFromUrl(url: string): string {
     if (lower.includes(domain)) return mp;
   }
   return "";
+}
+
+function amazonProductUrl(asin: string, marketplace: string): string {
+  const domains: Record<string, string> = {
+    US: "www.amazon.com",
+    UK: "www.amazon.co.uk",
+    DE: "www.amazon.de",
+    JP: "www.amazon.co.jp",
+    CA: "www.amazon.ca",
+    FR: "www.amazon.fr",
+    IT: "www.amazon.it",
+    ES: "www.amazon.es",
+    AU: "www.amazon.com.au",
+  };
+  return `https://${domains[marketplace] || domains.US}/dp/${asin}`;
 }
 
 /** Parse user input: could be a plain ASIN or a full Amazon URL */
@@ -147,6 +163,18 @@ interface Scores {
   risk_elimination: number;
 }
 
+interface DataReadiness {
+  grade?: string;
+  score?: number;
+  formal_analysis_allowed?: boolean;
+  ad_strategy_allowed?: boolean;
+  save_to_memory_allowed?: boolean;
+  source?: string;
+  source_trust?: string;
+  missing_fields?: string[];
+  warnings?: string[];
+}
+
 const SCORE_KEYS: Array<keyof Scores> = [
   "functionality",
   "emotional",
@@ -167,6 +195,7 @@ interface AnalysisReport {
   improvement_suggestions: string[];
   listing_breakdown?: ListingBreakdown;
   amazon_compliance?: ComplianceResult;
+  data_readiness?: DataReadiness;
 }
 
 interface ComplianceViolation {
@@ -223,6 +252,7 @@ interface AnalysisResult {
   analysis_report: AnalysisReport;
   amazon_compliance?: ComplianceResult;
   data_source?: string;
+  data_readiness?: DataReadiness;
   id?: number;
 }
 
@@ -496,6 +526,22 @@ function isIncompleteSavedResult(result: AnalysisResult): boolean {
   return source.includes("saved") && (lacksCoreData || title.includes("待确认"));
 }
 
+function getDataReadiness(result: AnalysisResult): DataReadiness | undefined {
+  const pd = result.product_data || {};
+  return result.data_readiness || result.analysis_report?.data_readiness || (pd.data_readiness as DataReadiness | undefined);
+}
+
+function canPersistFormalAnalysis(result: AnalysisResult): boolean {
+  const readiness = getDataReadiness(result);
+  const pd = result.product_data || {};
+  const source = result.data_source || String((pd as Record<string, unknown>)._data_source || "");
+  const blockedSources = ["ai", "ai_search", "ai_empty", "ai_estimated", "ai_estimated_low_confidence", "insufficient_real_data"];
+  if (blockedSources.includes(source)) return false;
+  if (readiness && readiness.save_to_memory_allowed === false) return false;
+  if (readiness && readiness.formal_analysis_allowed === false) return false;
+  return !isIncompleteSavedResult(result);
+}
+
 function hasPlatformEcoRisk(pd: ProductData): boolean {
   const seller = String(pd.seller_type || "");
   return Boolean(pd.platform_ecosystem || pd.brand_monopoly_risk || seller.includes("平台生态") || seller.includes("Amazon自营"));
@@ -670,117 +716,68 @@ export default function CompetitorAnalysis() {
 
   /* ---- Analysis helpers (no public CORS proxies) ---- */
 
-  /**
-   * Core analysis function. Use the backend's full ASIN analysis endpoint directly,
-   * because public Netlify function proxying can timeout on long Amazon/AI requests.
-   */
+  /** Core analysis function: local user browser first, server scraping fallback second. */
   const analyzeAsinWithProxy = useCallback(async (
     asin: string,
     mp: string,
   ): Promise<AnalysisResult | null> => {
     const apiBase = getLongRunningApiBase();
+    const targetUrl = amazonProductUrl(asin, mp);
+    let localCaptureError = "";
 
-    {
-      setAnalyzeProgress("服务器正在抓取Amazon页面并生成竞品诊断，通常需要 10-40 秒...");
-      try {
-        const res = await axios.post(
-          `${apiBase}/api/v1/asin-analysis/analyze`,
-          { asin, marketplace: mp, force_refresh: true },
-          { headers: getAuthHeaders(), timeout: 240000 }
-        );
-
-        if (res.data && ("product_title" in res.data || "scores" in res.data)) {
-          const serverDataSource = res.data.data_source || res.data.product_data?._data_source;
-          if (serverDataSource === "ai_estimated" || serverDataSource === "ai_estimated_low_confidence") {
-            toast.warning("未获取到真实页面数据，已返回AI低置信度兜底分析，建议后续复核。");
-          }
-          return sanitizeAnalysisKeywords(res.data as AnalysisResult);
-        }
-
-        toast.error("服务器返回了意外的数据格式，请重试");
-        return null;
-      } catch (err) {
-        if (axios.isAxiosError(err)) {
-          if (err.response?.status === 422) {
-            const detail = err.response?.data?.detail || "";
-            toast.error(typeof detail === "string" ? detail : "请求参数错误");
-            return null;
-          }
-          if (err.code === "ECONNABORTED" || err.message?.includes("timeout")) {
-            toast.error("分析超过240秒，请稍后重试。Amazon页面抓取或模型响应可能较慢。");
-            return null;
-          }
-          if (!err.response) {
-            toast.error("网络连接失败，请检查网络后重试");
-            return null;
-          }
-          const serverMsg = err.response?.data?.detail || err.response?.data?.error || `服务器错误 (${err.response?.status})`;
-          toast.error(typeof serverMsg === "string" ? serverMsg : "服务器内部错误，请稍后重试");
-          return null;
-        }
-
-        toast.error("分析过程中发生未知错误，请重试");
-        return null;
-      }
-    }
-
-    /* ---- Phase 1: Backend proxy-fetch → parse-html-analyze ---- */
+    /* ---- Phase 1: User-local browser capture -> parse-html-analyze ---- */
     try {
-      setAnalyzeProgress("🌐 Phase 1: 正在通过本地浏览器代理获取Amazon真实页面数据，通常需要20-60秒...");
-
-      const proxyRes = await axios.post(
-        "/api/v1/asin-analysis/proxy-fetch",
-        { asin, marketplace: mp },
-        { headers: getAuthHeaders(), timeout: 75000 }
-      );
-
-      if (proxyRes.data?.success && proxyRes.data?.html) {
-        const html = proxyRes.data.html;
-        setAnalyzeProgress("🔬 已获取到真实页面HTML，正在进行AI深度分析...");
-
-        try {
-          const res = await axios.post(
-            "/api/v1/asin-analysis/parse-html-analyze",
-            { asin, marketplace: mp, html },
-            { headers: getAuthHeaders(), timeout: 180000 }
-          );
-          const data = res.data;
-
-          if (data?.success && data.scores) {
-            return sanitizeAnalysisKeywords({
-              asin: data.asin,
-              marketplace: mp,
-              product_title: data.product_title,
-              product_data: data.product_data,
-              scores: data.scores,
-              analysis_report: data.analysis_report,
-              data_source: data.data_source || "browser_proxy",
-              id: data.id,
-            } as AnalysisResult);
-          }
-        } catch (parseErr) {
-          void parseErr;
-        }
-      } else {
-        void proxyRes;
+      setAnalyzeProgress("Phase 1/2：正在读取用户本地浏览器中的Amazon真实页面...");
+      const capture = await captureAmazonProductPage({ asin, marketplace: mp, url: targetUrl });
+      const html = getCaptureHtml(capture.record);
+      if (!html || html.length < 500) {
+        throw new Error("local_browser_empty_html");
       }
+
+      setAnalyzeProgress("Phase 1/2：已获取本地浏览器HTML，正在生成竞品诊断...");
+      const res = await axios.post(
+        `${apiBase}/api/v1/asin-analysis/parse-html-analyze`,
+        { asin, marketplace: mp, html },
+        { headers: getAuthHeaders(), timeout: 240000 }
+      );
+      const data = res.data;
+
+      if (data?.success && ("product_title" in data || "scores" in data)) {
+        return sanitizeAnalysisKeywords({
+          asin: data.asin,
+          marketplace: mp,
+          product_title: data.product_title,
+          product_data: {
+            ...(data.product_data || {}),
+            _capture_source: capture.source,
+            _capture_record_id: capture.record.id,
+          },
+          scores: data.scores || {},
+          analysis_report: data.analysis_report || {},
+          amazon_compliance: data.amazon_compliance,
+          data_source: data.data_source || "browser_proxy",
+          data_readiness: data.data_readiness,
+          id: data.id,
+        } as AnalysisResult);
+      }
+      localCaptureError = "本地浏览器解析失败";
     } catch (phase1Err) {
-      void phase1Err;
+      localCaptureError = phase1Err instanceof Error ? phase1Err.message : "本地浏览器抓取失败";
     }
 
-    /* ---- Phase 2: Server-side /analyze (full scraping + AI) ---- */
-    setAnalyzeProgress("🔍 Phase 2: 服务器补充抓取与AI低置信度兜底，最长约180秒...");
+    /* ---- Phase 2: Server-side /analyze fallback ---- */
+    setAnalyzeProgress("Phase 2/2：本地浏览器未完成，服务器正在兜底抓取；若核心字段不完整会被硬门槛拦截...");
     try {
       const res = await axios.post(
         `${apiBase}/api/v1/asin-analysis/analyze`,
-        { asin, marketplace: mp },
-        { headers: getAuthHeaders(), timeout: 180000 }
+        { asin, marketplace: mp, force_refresh: true },
+        { headers: getAuthHeaders(), timeout: 240000 }
       );
 
       if (res.data && ("product_title" in res.data || "scores" in res.data)) {
         const serverDataSource = res.data.data_source || res.data.product_data?._data_source;
-        if (serverDataSource === "ai_estimated" || serverDataSource === "ai_estimated_low_confidence") {
-          toast.warning("未获取到真实页面数据，已返回AI低置信度兜底分析，建议后续复核。");
+        if (serverDataSource === "insufficient_real_data") {
+          toast.warning(`本地浏览器抓取未完成，服务器也未拿到完整真实数据：${localCaptureError}`);
         }
         return sanitizeAnalysisKeywords(res.data as AnalysisResult);
       }
@@ -796,7 +793,7 @@ export default function CompetitorAnalysis() {
           return null;
         }
         if (err.code === "ECONNABORTED" || err.message?.includes("timeout")) {
-          toast.error("分析超过180秒，请稍后重试。Amazon页面抓取或模型响应可能较慢。");
+          toast.error("分析超过240秒，请稍后重试。Amazon页面抓取或模型响应可能较慢。");
           return null;
         }
         if (!err.response) {
@@ -851,56 +848,61 @@ export default function CompetitorAnalysis() {
         const cleanResult = sanitizeAnalysisKeywords(result);
         setSingleResult(cleanResult);
         const source = cleanResult.data_source;
+        const readiness = getDataReadiness(cleanResult);
         if (source === "browser_proxy") {
           toast.success("✅ 已获取Amazon真实数据并完成分析！");
         } else if (source === "amazon_scrape" || source === "amazon_scrape_httpx" || source === "amazon_scrape_browser") {
           toast.success("✅ 已从Amazon真实页面抓取数据并完成分析！");
+        } else if (readiness?.formal_analysis_allowed === false || source === "insufficient_real_data") {
+          toast.warning("真实页面数据不完整，已阻止正式评分写入。请用本地浏览器代理重新抓取。");
         } else {
           toast.success("✅ 分析完成！");
         }
 
         // Save single analysis result as competitor insight for workflow data flow
         try {
-          const report = cleanResult.analysis_report;
-          const strengths = report?.improvement_suggestions?.slice(0, 3).join("; ") || "";
-          const weaknesses = report?.improvement_suggestions?.slice(3, 6).join("; ") || "";
-          const radarJson = JSON.stringify(cleanResult.scores || {});
-          saveCompetitorInsight({
-            product_id: 0,
-            competitor_asin: cleanResult.asin,
-            strengths,
-            weaknesses,
-            gaps: "",
-            suggestions: (report?.overall_summary || "").substring(0, 5000),
-            radar_scores: radarJson,
-          }).catch(() => {});
-          // Update lifecycle stage
-          updateProductLifecycle(0, "strategy").catch(() => {});
-          // Save timeline event
-          saveTimelineEvent({
-            product_id: 0,
-            step_name: "竞品分析",
-            action_timestamp: new Date().toISOString(),
-            listing_score: 0,
-            score_details: "{}",
-            optimization_round: 1,
-          }).catch(() => {});
-          saveActionSnapshot({
-            module_key: "competitor_analysis",
-            module_name: "竞品诊断",
-            action_key: "analyze_competitor_listing",
-            action_name: "竞品Listing分析",
-            product_id: 0,
-            asin: cleanResult.asin,
-            title: cleanResult.product_title,
-            input_snapshot: { asin, marketplace: mp },
-            output_snapshot: cleanResult,
-            data_source: cleanResult.data_source || String(cleanResult.product_data?._data_source || ""),
-            confidence: String(cleanResult.product_data?.data_confidence || ""),
-            ai_called: true,
-            source_record_table: "asin_analyses",
-            source_record_id: cleanResult.id || null,
-          }).catch(() => {});
+          if (canPersistFormalAnalysis(cleanResult)) {
+            const report = cleanResult.analysis_report;
+            const strengths = report?.improvement_suggestions?.slice(0, 3).join("; ") || "";
+            const weaknesses = report?.improvement_suggestions?.slice(3, 6).join("; ") || "";
+            const radarJson = JSON.stringify(cleanResult.scores || {});
+            saveCompetitorInsight({
+              product_id: 0,
+              competitor_asin: cleanResult.asin,
+              strengths,
+              weaknesses,
+              gaps: "",
+              suggestions: (report?.overall_summary || "").substring(0, 5000),
+              radar_scores: radarJson,
+            }).catch(() => {});
+            // Update lifecycle stage
+            updateProductLifecycle(0, "strategy").catch(() => {});
+            // Save timeline event
+            saveTimelineEvent({
+              product_id: 0,
+              step_name: "竞品分析",
+              action_timestamp: new Date().toISOString(),
+              listing_score: 0,
+              score_details: "{}",
+              optimization_round: 1,
+            }).catch(() => {});
+            saveActionSnapshot({
+              module_key: "competitor_analysis",
+              module_name: "竞品诊断",
+              action_key: "analyze_competitor_listing",
+              action_name: "竞品Listing分析",
+              product_id: 0,
+              asin: cleanResult.asin,
+              title: cleanResult.product_title,
+              input_snapshot: { asin, marketplace: mp },
+              output_snapshot: cleanResult,
+              data_source: cleanResult.data_source || String(cleanResult.product_data?._data_source || ""),
+              confidence: String(cleanResult.product_data?.data_confidence || ""),
+              ai_called: true,
+              source_record_table: "asin_analyses",
+              source_record_id: cleanResult.id || null,
+            }).catch(() => {});
+          }
         } catch {
           // Non-critical
         }

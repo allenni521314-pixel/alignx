@@ -22,6 +22,7 @@ from services.aihub import AIHubService
 from services.amazon_rules_engine import evaluate_amazon_compliance, load_active_rules
 from services.amazon_scraper import scrape_amazon_product
 from services.asin_analyses import Asin_analysesService
+from services.data_readiness import assess_asin_product_data
 
 logger = logging.getLogger(__name__)
 
@@ -364,6 +365,7 @@ class AnalyzeAsinResponse(BaseModel):
     analysis_report: dict
     amazon_compliance: dict = {}
     data_source: str = "unknown"
+    data_readiness: dict = {}
     id: Optional[int] = None
 
 
@@ -450,6 +452,9 @@ async def _get_cached_asin_analysis(asin: str, marketplace: str, db: AsyncSessio
     if not analysis_report.get("listing_breakdown"):
         analysis_report["listing_breakdown"] = _build_listing_breakdown(product_data, analysis_report)
     data_source = str(product_data.get("_data_source") or analysis_report.get("data_source") or "cached_analysis")
+    data_readiness = analysis_report.get("data_readiness") or product_data.get("data_readiness") or assess_asin_product_data(product_data, data_source)
+    product_data["data_readiness"] = data_readiness
+    analysis_report["data_readiness"] = data_readiness
     amazon_compliance = analysis_report.get("amazon_compliance") or {}
     return AnalyzeAsinResponse(
         asin=record.asin,
@@ -460,6 +465,7 @@ async def _get_cached_asin_analysis(asin: str, marketplace: str, db: AsyncSessio
         analysis_report=analysis_report,
         amazon_compliance=amazon_compliance,
         data_source=data_source,
+        data_readiness=data_readiness,
         id=record.id,
     )
 
@@ -480,6 +486,7 @@ class ParseHtmlAnalyzeResponse(BaseModel):
     analysis_report: dict = {}
     amazon_compliance: dict = {}
     data_source: str = "browser_proxy"
+    data_readiness: dict = {}
     error: str = ""
     id: Optional[int] = None
 
@@ -1020,19 +1027,83 @@ async def _analyze_single_asin_with_scraped(
     from schemas.aihub import GenTxtRequest, ChatMessage
 
     if not (scrape_success and scraped_data.get("title")):
-        data_source = "ai_estimated_low_confidence"
+        product_data = {
+            "asin": asin,
+            "_data_source": "insufficient_real_data",
+            "_scrape_success": False,
+            "data_confidence": "low",
+            "data_notes": "未获取到完整Amazon真实页面数据，已阻止AI估算兜底和正式评分。",
+        }
+        data_readiness = assess_asin_product_data(product_data, "insufficient_real_data")
+        scoring_data = {
+            "scores": {},
+            "analysis": {},
+            "overall_summary": "真实页面数据不足：系统没有生成正式评分，也没有写入竞品记忆库。请使用本地浏览器代理/扩展重新抓取完整页面。",
+            "improvement_suggestions": ["先补齐标题、五点、价格、评分/评论数和图片数据", "再补齐低星评论或评分分布后生成广告策略"],
+            "analysis_mode": "blocked_insufficient_real_data",
+            "data_readiness": data_readiness,
+        }
+        product_data["data_readiness"] = data_readiness
+        return AnalyzeAsinResponse(
+            asin=asin,
+            marketplace=marketplace,
+            product_title="",
+            product_data=product_data,
+            scores={},
+            analysis_report=scoring_data,
+            amazon_compliance={},
+            data_source="insufficient_real_data",
+            data_readiness=data_readiness,
+            id=None,
+        )
     elif data_source == "unknown" and scrape_success:
         data_source = "amazon_scrape"
 
-    if data_source == "ai_estimated_low_confidence":
-        combined_prompt = AI_FALLBACK_ANALYSIS_PROMPT.format(asin=asin, marketplace=marketplace)
-    else:
-        scraped_context = _format_scraped_context(scraped_data)
-        combined_prompt = COMBINED_ANALYSIS_WITH_CONTEXT_PROMPT.format(
+    preliminary_data = {"asin": asin, **scraped_data, "_data_source": data_source}
+    preliminary_readiness = assess_asin_product_data(preliminary_data, data_source)
+    if not preliminary_readiness.get("formal_analysis_allowed"):
+        product_data = {
+            "asin": asin,
+            "title": scraped_data.get("title", ""),
+            "bullet_points": scraped_data.get("bullet_points") or [],
+            "price": scraped_data.get("price", ""),
+            "rating": scraped_data.get("rating", ""),
+            "review_count": scraped_data.get("review_count", ""),
+            "image_urls": scraped_data.get("image_urls") or [],
+            "image_count": scraped_data.get("image_count", ""),
+            "_data_source": data_source,
+            "_scrape_success": scrape_success,
+            "data_confidence": "low",
+            "data_notes": "Amazon页面核心字段不完整，已阻止AI正式评分。",
+            "data_readiness": preliminary_readiness,
+        }
+        scoring_data = {
+            "scores": {},
+            "analysis": {},
+            "overall_summary": "真实页面核心字段不足：系统没有生成正式评分，也没有写入竞品记忆库。请用本地浏览器代理补齐缺失字段后重试。",
+            "improvement_suggestions": ["补齐缺失字段：" + "、".join(preliminary_readiness.get("missing_fields", []))],
+            "analysis_mode": "blocked_incomplete_real_data",
+            "data_readiness": preliminary_readiness,
+        }
+        return AnalyzeAsinResponse(
             asin=asin,
             marketplace=marketplace,
-            scraped_context=scraped_context,
+            product_title=product_data.get("title", ""),
+            product_data=product_data,
+            scores={},
+            analysis_report=scoring_data,
+            amazon_compliance={},
+            data_source=data_source,
+            data_readiness=preliminary_readiness,
+            id=None,
         )
+
+    scraped_context = _format_scraped_context(scraped_data)
+    combined_prompt = COMBINED_ANALYSIS_WITH_CONTEXT_PROMPT.format(
+        asin=asin,
+        marketplace=marketplace,
+        scraped_context=scraped_context,
+    )
 
     # Single AI call for both product data enrichment AND scoring
     combined_request = GenTxtRequest(
@@ -1123,36 +1194,40 @@ async def _analyze_single_asin_with_scraped(
 
     product_data["_data_source"] = data_source
     product_data["_scrape_success"] = scrape_success
-    if data_source == "ai_estimated_low_confidence":
-        product_data["asin"] = asin
-        product_data["data_confidence"] = "low"
-        product_data["data_notes"] = "AI兜底估算，需以浏览器代理抓取结果或人工核实为准。"
+    product_data["asin"] = product_data.get("asin") or asin
+    data_readiness = assess_asin_product_data(product_data, data_source)
+    product_data["data_readiness"] = data_readiness
+    scoring_data["data_readiness"] = data_readiness
 
     product_data["main_keywords"] = _clean_original_english_keywords(product_data.get("main_keywords"), product_data, 10)
     scoring_data["listing_breakdown"] = _build_listing_breakdown(product_data, scoring_data)
     amazon_compliance = await _evaluate_asin_compliance(product_data, marketplace, db)
     scoring_data["amazon_compliance"] = amazon_compliance
 
-    # Save to database
-    svc = Asin_analysesService(db)
-    record = await svc.create({
-        "asin": asin,
-        "marketplace": marketplace,
-        "product_title": product_data.get("title", ""),
-        "product_data": json.dumps(product_data, ensure_ascii=False),
-        "score_functionality": scores.get("functionality", 0),
-        "score_emotional": scores.get("emotional", 0),
-        "score_scenario": scores.get("scenario", 0),
-        "score_user_profile": scores.get("user_profile", 0),
-        "score_product_identity": scores.get("product_identity", 0),
-        "score_compatibility": scores.get("compatibility", 0),
-        "score_subjective_properties": scores.get("subjective_properties", 0),
-        "score_differentiation": scores.get("differentiation", 0),
-        "score_market_trend": scores.get("market_trend", 0),
-        "score_risk_elimination": scores.get("risk_elimination", 0),
-        "analysis_report": json.dumps(scoring_data, ensure_ascii=False),
-        "created_at": datetime.now(timezone.utc),
-    }, user_id=user_id)
+    # Save only when the captured data clears the hard readiness gate.
+    record = None
+    if data_readiness.get("save_to_memory_allowed"):
+        svc = Asin_analysesService(db)
+        record = await svc.create({
+            "asin": asin,
+            "marketplace": marketplace,
+            "product_title": product_data.get("title", ""),
+            "product_data": json.dumps(product_data, ensure_ascii=False),
+            "score_functionality": scores.get("functionality", 0),
+            "score_emotional": scores.get("emotional", 0),
+            "score_scenario": scores.get("scenario", 0),
+            "score_user_profile": scores.get("user_profile", 0),
+            "score_product_identity": scores.get("product_identity", 0),
+            "score_compatibility": scores.get("compatibility", 0),
+            "score_subjective_properties": scores.get("subjective_properties", 0),
+            "score_differentiation": scores.get("differentiation", 0),
+            "score_market_trend": scores.get("market_trend", 0),
+            "score_risk_elimination": scores.get("risk_elimination", 0),
+            "analysis_report": json.dumps(scoring_data, ensure_ascii=False),
+            "created_at": datetime.now(timezone.utc),
+        }, user_id=user_id)
+    else:
+        logger.warning("Blocked ASIN analysis save for %s due to data readiness: %s", asin, data_readiness)
 
     return AnalyzeAsinResponse(
         asin=asin,
@@ -1163,6 +1238,7 @@ async def _analyze_single_asin_with_scraped(
         analysis_report=scoring_data,
         amazon_compliance=amazon_compliance,
         data_source=data_source,
+        data_readiness=data_readiness,
         id=record.id if record else None,
     )
 
@@ -1337,6 +1413,7 @@ async def parse_html_and_analyze(
             analysis_report=result.analysis_report,
             amazon_compliance=result.amazon_compliance,
             data_source=result.data_source,
+            data_readiness=result.data_readiness,
             id=result.id,
         )
     except Exception as e:
