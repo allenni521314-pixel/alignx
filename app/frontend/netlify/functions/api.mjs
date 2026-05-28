@@ -8,7 +8,8 @@ const json = (body, status = 200) =>
   });
 
 export default async (request) => {
-  const backendBase = process.env.BACKEND_API_URL;
+  const backendBase =
+    process.env.BACKEND_API_URL || "https://alignxagent-api.onrender.com";
 
   if (!backendBase) {
     return json(
