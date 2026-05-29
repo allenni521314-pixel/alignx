@@ -404,6 +404,94 @@ const HEATMAP_DIM_KEYS: { key: keyof ElementDim; label: string; color: string }[
   };
 });
 
+type ListingRulerLayer = "用户意图层" | "平台对齐层" | "Listing承接层" | "辅助验证层";
+
+const DIMENSION_RULER_META: Record<keyof Scores, {
+  layer: ListingRulerLayer;
+  intentScale: string;
+  platformScale: string;
+  ownAction: string;
+  impact: string;
+}> = {
+  function_expression: {
+    layer: "用户意图层",
+    intentScale: "任务对象清晰度 / 决策属性优先级",
+    platformScale: "证据可回答性",
+    ownAction: "把功能从参数改成用户任务、结果和可验证证据",
+    impact: "CTR / CVR / ACOS",
+  },
+  scenario_expression: {
+    layer: "平台对齐层",
+    intentScale: "使用场景约束",
+    platformScale: "查询意图匹配 / 关系图谱完整度",
+    ownAction: "补清使用地点、搭配对象、使用时机和不适用边界",
+    impact: "CTR / CPC / 广告词相关性",
+  },
+  identity_fit: {
+    layer: "用户意图层",
+    intentScale: "任务对象清晰度 / 使用场景约束",
+    platformScale: "关系图谱完整度",
+    ownAction: "明确谁在什么条件下使用，避免泛人群表达",
+    impact: "CTR / CVR / 无效点击率",
+  },
+  psychology_benefit: {
+    layer: "用户意图层",
+    intentScale: "购买触发强度 / 反购买风险",
+    platformScale: "证据可回答性",
+    ownAction: "把安心、省事、舒适等心理收益绑定到真实痛点",
+    impact: "CVR / 详情页停留 / Review",
+  },
+  risk_elimination: {
+    layer: "用户意图层",
+    intentScale: "反购买风险",
+    platformScale: "证据可回答性",
+    ownAction: "补退货、差评、误用、适配失败的证据链",
+    impact: "CVR / 退货 / 差评",
+  },
+  differentiation: {
+    layer: "Listing承接层",
+    intentScale: "决策属性优先级",
+    platformScale: "证据可回答性",
+    ownAction: "只保留用户会买单的差异，并用图片/五点/A+证明",
+    impact: "CTR / CVR / CPC",
+  },
+  product_identity: {
+    layer: "平台对齐层",
+    intentScale: "任务对象清晰度",
+    platformScale: "类目身份锚定 / 结构化属性完整度",
+    ownAction: "校准产品类型、子类目、核心对象和属性词",
+    impact: "自然排名 / 广告匹配 / Rufus理解",
+  },
+  compatibility: {
+    layer: "平台对齐层",
+    intentScale: "使用场景约束",
+    platformScale: "结构化属性完整度 / 关系图谱完整度",
+    ownAction: "补 used_with、compatible with、适配/不适配边界",
+    impact: "CVR / 退货 / 长尾广告词",
+  },
+  subjective_properties: {
+    layer: "Listing承接层",
+    intentScale: "购买触发强度 / 决策属性优先级",
+    platformScale: "证据可回答性",
+    ownAction: "把质感、美观、安静、易用等主观词落到证据",
+    impact: "CTR / CVR / Review",
+  },
+  market_trend: {
+    layer: "辅助验证层",
+    intentScale: "购买触发强度",
+    platformScale: "查询意图变化",
+    ownAction: "只用于发现需求变化，不替代两把尺主判断",
+    impact: "流量机会 / 测试优先级",
+  },
+};
+
+const TWO_RULER_DIMENSIONS: Record<string, (keyof Scores)[]> = {
+  intent: ["function_expression", "scenario_expression", "identity_fit", "psychology_benefit", "risk_elimination", "subjective_properties"],
+  platform: ["product_identity", "compatibility", "scenario_expression", "identity_fit", "function_expression"],
+  carrier: ["differentiation", "risk_elimination", "subjective_properties", "function_expression", "compatibility"],
+  validation: ["market_trend"],
+};
+
 const MARKETPLACE_OPTIONS = [
   { value: "US", label: "🇺🇸 美国站", domain: "www.amazon.com" },
   { value: "JP", label: "🇯🇵 日本站", domain: "www.amazon.co.jp" },
@@ -1155,6 +1243,77 @@ function scoreBgColor(score: number): string {
   return "bg-red-500";
 }
 
+function averageScoresByKeys(scores: Scores, keys: (keyof Scores)[]): number {
+  const values = keys.map((key) => Number(scores[key]) || 0).filter((value) => value > 0);
+  if (values.length === 0) return 0;
+  return Math.round(values.reduce((sum, value) => sum + value, 0) / values.length);
+}
+
+function getTwoRulerScoreCards(scores: Scores, marketScore?: number) {
+  const validationScore = typeof marketScore === "number" && marketScore > 0
+    ? Math.round((averageScoresByKeys(scores, TWO_RULER_DIMENSIONS.validation) + marketScore) / 2)
+    : averageScoresByKeys(scores, TWO_RULER_DIMENSIONS.validation);
+  return [
+    {
+      key: "intent",
+      title: "尺一：用户意图",
+      score: averageScoresByKeys(scores, TWO_RULER_DIMENSIONS.intent),
+      desc: "用户真实任务、购买触发、场景约束、决策属性和反购买风险。",
+    },
+    {
+      key: "platform",
+      title: "尺二：平台理解",
+      score: averageScoresByKeys(scores, TWO_RULER_DIMENSIONS.platform),
+      desc: "Amazon/Rufus 能否识别类目身份、查询意图、结构化属性和关系图谱。",
+    },
+    {
+      key: "carrier",
+      title: "Listing承接",
+      score: averageScoresByKeys(scores, TWO_RULER_DIMENSIONS.carrier),
+      desc: "标题、图片、五点、A+、评论是否证明同一件事。",
+    },
+    {
+      key: "validation",
+      title: "验证参考",
+      score: validationScore,
+      desc: "市场趋势、关键词和广告数据只做验证，不替代两把尺。",
+    },
+  ];
+}
+
+function TwoRulerSummary({ scores, marketScore }: { scores: Scores; marketScore?: number }) {
+  const cards = getTwoRulerScoreCards(scores, marketScore);
+  return (
+    <Card className="bg-white border-brand-100">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base flex items-center gap-2">
+          <Shield className="w-4 h-4 text-brand-600" />
+          两把尺 × 8D+2反向检查
+        </CardTitle>
+        <p className="text-xs text-gray-500">
+          8D+2不再作为10项平铺平均分；先看用户意图和平台理解，再反查Listing承接与广告验证。
+        </p>
+      </CardHeader>
+      <CardContent>
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+          {cards.map((card) => (
+            <div key={card.key} className="rounded-lg border border-gray-100 bg-gray-50 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-semibold text-gray-900">{card.title}</p>
+                <span className={`text-lg font-bold ${scoreColor(card.score)}`}>{card.score}</span>
+              </div>
+              <div className="mt-2 h-1.5 rounded-full bg-gray-100 overflow-hidden">
+                <div className={`h-full rounded-full ${scoreBgColor(card.score)}`} style={{ width: `${card.score}%` }} />
+              </div>
+              <p className="mt-2 text-xs text-gray-500 leading-relaxed">{card.desc}</p>
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function getGradeColor(g: string): string {
   return g === "A" ? "#10B981" : g === "B" ? "#3B82F6" : g === "C" ? "#F59E0B" : "#EF4444";
 }
@@ -1786,6 +1945,7 @@ function ListingForm({
 
 function ScoreBar({ dim, score, analysis }: { dim: typeof DIMENSIONS[0]; score: number; analysis?: string }) {
   const [expanded, setExpanded] = useState(false);
+  const rulerMeta = DIMENSION_RULER_META[dim.key];
   return (
     <div className="bg-gray-50 rounded-xl p-4 border border-gray-100">
       <div className="flex items-center justify-between mb-2">
@@ -1793,8 +1953,16 @@ function ScoreBar({ dim, score, analysis }: { dim: typeof DIMENSIONS[0]; score: 
           <span className={dim.color}>{dim.icon}</span>
           <span className="text-sm font-medium text-gray-600">{dim.label}</span>
           <span className="text-[10px] text-gray-600">{dim.labelEn}</span>
+          <Badge variant="outline" className="hidden sm:inline-flex text-[10px] border-brand-100 bg-white text-brand-700">
+            {rulerMeta.layer}
+          </Badge>
         </div>
         <span className={`text-lg font-bold ${scoreColor(score)}`}>{score}</span>
+      </div>
+      <div className="mb-2 rounded-lg bg-white border border-gray-100 p-2 text-[11px] text-gray-500 leading-relaxed">
+        <span className="font-semibold text-gray-700">尺一</span> {rulerMeta.intentScale}
+        <span className="mx-2 text-gray-300">|</span>
+        <span className="font-semibold text-gray-700">尺二</span> {rulerMeta.platformScale}
       </div>
       <div className="w-full h-2 bg-gray-50 rounded-full overflow-hidden mb-2">
         <div
@@ -1809,7 +1977,14 @@ function ScoreBar({ dim, score, analysis }: { dim: typeof DIMENSIONS[0]; score: 
         </button>
       )}
       {expanded && analysis && (
-        <p className="text-xs text-gray-500 leading-relaxed mt-2 pl-1 border-l-2 border-gray-200">{analysis}</p>
+        <div className="text-xs text-gray-500 leading-relaxed mt-2 pl-2 border-l-2 border-gray-200 space-y-2">
+          <p>{analysis}</p>
+          <p className="text-brand-700">
+            <span className="font-semibold">下一步动作：</span>{rulerMeta.ownAction}
+            <span className="mx-2 text-gray-300">|</span>
+            <span className="font-semibold">影响指标：</span>{rulerMeta.impact}
+          </p>
+        </div>
       )}
     </div>
   );
@@ -2937,8 +3112,14 @@ export default function ListingDiagnosis() {
         `  └ 市场验证分: ${marketValidation.market_total}/100 (权重35%)`,
       ] : [`  内容评分: ${contentScore}/100`]),
       ``,
-      `--- 8D+2维度评分 ---`,
-      ...DIMENSIONS.map(d => `${d.label}: ${diagResult.scores[d.key] || 0}/100 - ${diagResult.analysis?.[d.key] || ""}`),
+      `--- 两把尺 × 8D+2反向检查 ---`,
+      ...getTwoRulerScoreCards(diagResult.scores, marketValidation?.market_total).map(card => `${card.title}: ${card.score}/100 - ${card.desc}`),
+      ``,
+      `--- 8D+2维度归属 ---`,
+      ...DIMENSIONS.map(d => {
+        const meta = DIMENSION_RULER_META[d.key];
+        return `${d.label}: ${diagResult.scores[d.key] || 0}/100 | ${meta.layer} | 尺一:${meta.intentScale} | 尺二:${meta.platformScale} | ${diagResult.analysis?.[d.key] || ""}`;
+      }),
       ``,
       ...(elements.length > 0 ? [
         `--- 模块级8D+2归因 ---`,
@@ -3465,7 +3646,7 @@ export default function ListingDiagnosis() {
                         总览
                       </TabsTrigger>
                       <TabsTrigger value="scores" className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600 text-xs sm:text-sm">
-                        8D+2评分
+                        两把尺8D+2
                       </TabsTrigger>
                       <TabsTrigger value="hypotheses" className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600 text-xs sm:text-sm">
                         假设验证
@@ -3567,6 +3748,9 @@ export default function ListingDiagnosis() {
 
                     {/* ===== 8D+2 Scores ===== */}
                     <TabsContent value="scores" className="mt-4">
+                      <div className="mb-4">
+                        <TwoRulerSummary scores={diagResult.scores} marketScore={marketValidation?.market_total} />
+                      </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         {DIMENSIONS.map((dim) => (
                           <ScoreBar
@@ -4417,7 +4601,7 @@ function HistoryDetailView({
       <Tabs value={resultTab} onValueChange={setResultTab}>
         <TabsList className="bg-gray-50 border border-gray-200 flex-wrap">
           <TabsTrigger value="overview" className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600 text-xs">总览</TabsTrigger>
-          <TabsTrigger value="scores" className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600 text-xs">8D+2评分</TabsTrigger>
+          <TabsTrigger value="scores" className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600 text-xs">两把尺8D+2</TabsTrigger>
           <TabsTrigger value="judgment" className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600 text-xs">后台判断</TabsTrigger>
           <TabsTrigger value="heatmap" className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600 text-xs">热力图</TabsTrigger>
           <TabsTrigger value="keywords" className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600 text-xs">关键词</TabsTrigger>
@@ -4462,6 +4646,9 @@ function HistoryDetailView({
 
         {/* Scores */}
         <TabsContent value="scores" className="mt-3">
+          <div className="mb-3">
+            <TwoRulerSummary scores={result.scores} />
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {DIMENSIONS.map((dim) => (
               <ScoreBar key={dim.key} dim={dim} score={result.scores[dim.key] || 0} analysis={result.analysis?.[dim.key]} />

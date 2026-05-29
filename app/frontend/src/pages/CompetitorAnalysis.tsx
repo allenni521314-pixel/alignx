@@ -161,6 +161,94 @@ const SCORE_KEYS: Array<keyof Scores> = [
   "risk_elimination",
 ];
 
+type CompetitorRulerLayer = "用户意图层" | "平台对齐层" | "Listing承接层" | "辅助验证层";
+
+const COMPETITOR_RULER_META: Record<keyof Scores, {
+  layer: CompetitorRulerLayer;
+  intentScale: string;
+  platformScale: string;
+  evidenceFocus: string;
+  actionHint: string;
+}> = {
+  functionality: {
+    layer: "用户意图层",
+    intentScale: "任务对象清晰度 / 决策属性优先级",
+    platformScale: "证据可回答性",
+    evidenceFocus: "标题、五点和图片是否把功能转成用户任务",
+    actionHint: "借鉴已验证功能承接，避免只抄参数",
+  },
+  emotional: {
+    layer: "用户意图层",
+    intentScale: "购买触发强度 / 反购买风险",
+    platformScale: "证据可回答性",
+    evidenceFocus: "评论、A+和图片是否证明安心、省事、舒适等触发点",
+    actionHint: "提炼可转化的情绪利益，避开空泛高级感",
+  },
+  scenario: {
+    layer: "用户意图层",
+    intentScale: "使用场景约束 / 任务对象清晰度",
+    platformScale: "关系图谱完整度",
+    evidenceFocus: "场景、人群、地点、搭配对象是否具体",
+    actionHint: "用竞品场景定义我方广告测试入口",
+  },
+  user_profile: {
+    layer: "用户意图层",
+    intentScale: "任务对象清晰度 / 决策属性优先级",
+    platformScale: "查询意图匹配",
+    evidenceFocus: "目标用户和购买理由是否明确",
+    actionHint: "找到我方可攻击的人群/任务空白",
+  },
+  differentiation: {
+    layer: "Listing承接层",
+    intentScale: "决策属性优先级",
+    platformScale: "证据可回答性",
+    evidenceFocus: "差异点是否被主图、五点、A+或评论证明",
+    actionHint: "高分则借鉴或避开硬拼，低分则攻击",
+  },
+  market_trend: {
+    layer: "辅助验证层",
+    intentScale: "购买触发强度",
+    platformScale: "查询意图变化",
+    evidenceFocus: "趋势词、搜索需求和销量信号是否同步",
+    actionHint: "仅用于确定测试优先级，不替代主判断",
+  },
+  product_identity: {
+    layer: "平台对齐层",
+    intentScale: "任务对象清晰度",
+    platformScale: "类目身份锚定 / 结构化属性完整度",
+    evidenceFocus: "is_a、used_as、子类目和核心属性是否清楚",
+    actionHint: "借鉴平台能识别的品类锚点",
+  },
+  compatibility: {
+    layer: "平台对齐层",
+    intentScale: "使用场景约束",
+    platformScale: "结构化属性完整度 / 关系图谱完整度",
+    evidenceFocus: "used_with、compatible with、搭配/边界是否明确",
+    actionHint: "提炼长尾关系词和退货风险边界",
+  },
+  subjective_properties: {
+    layer: "Listing承接层",
+    intentScale: "购买触发强度 / 决策属性优先级",
+    platformScale: "证据可回答性",
+    evidenceFocus: "质感、美观、安静、易用等主观词是否有证据",
+    actionHint: "只借鉴被评论或图片证明的主观利益",
+  },
+  risk_elimination: {
+    layer: "用户意图层",
+    intentScale: "反购买风险",
+    platformScale: "证据可回答性",
+    evidenceFocus: "认证、适配、保修、差评风险和误用边界",
+    actionHint: "找竞品没有消除的风险作为我方攻击点",
+  },
+};
+
+const COMPETITOR_TWO_RULER_KEYS: Record<string, (keyof Scores)[]> = {
+  intent: ["functionality", "emotional", "scenario", "user_profile", "risk_elimination", "subjective_properties"],
+  platform: ["product_identity", "compatibility", "scenario", "user_profile", "functionality"],
+  carrier: ["differentiation", "risk_elimination", "subjective_properties", "functionality", "compatibility"],
+  validation: ["market_trend"],
+};
+
 interface AnalysisReport {
   scores: Scores;
   analysis: Record<string, string>;
@@ -729,6 +817,76 @@ function getAvgScore(scores: Scores): number {
   const vals = SCORE_KEYS.map((key) => normalized[key]).filter((v) => typeof v === "number");
   if (vals.length === 0) return 0;
   return Math.round(vals.reduce((a, b) => a + b, 0) / vals.length);
+}
+
+function avgCompetitorScores(scores: Scores, keys: (keyof Scores)[]): number {
+  const normalized = normalizeScores(scores);
+  const vals = keys.map((key) => normalized[key]).filter((value) => value > 0);
+  if (!vals.length) return 0;
+  return Math.round(vals.reduce((sum, value) => sum + value, 0) / vals.length);
+}
+
+function competitorScoreColor(score: number): string {
+  if (score >= 80) return "text-emerald-600";
+  if (score >= 60) return "text-amber-600";
+  return "text-red-600";
+}
+
+function competitorScoreBar(score: number): string {
+  if (score >= 80) return "bg-emerald-500";
+  if (score >= 60) return "bg-amber-500";
+  return "bg-red-500";
+}
+
+function getCompetitorAction(score: number): string {
+  if (score >= 82) return "借鉴 / 避开硬拼";
+  if (score >= 65) return "借鉴后差异化";
+  return "攻击漏洞";
+}
+
+function CompetitorTwoRulerSummary({ scores }: { scores: Scores }) {
+  const cards = [
+    {
+      key: "intent",
+      title: "尺一：用户意图",
+      score: avgCompetitorScores(scores, COMPETITOR_TWO_RULER_KEYS.intent),
+      desc: "竞品是否抓住用户任务、场景、购买触发和反购买风险。",
+    },
+    {
+      key: "platform",
+      title: "尺二：平台理解",
+      score: avgCompetitorScores(scores, COMPETITOR_TWO_RULER_KEYS.platform),
+      desc: "Amazon/Rufus 是否能识别竞品类目、属性、关系和查询意图。",
+    },
+    {
+      key: "carrier",
+      title: "Listing承接",
+      score: avgCompetitorScores(scores, COMPETITOR_TWO_RULER_KEYS.carrier),
+      desc: "竞品标题、图片、五点、A+和评论是否形成同一条证据链。",
+    },
+    {
+      key: "validation",
+      title: "验证参考",
+      score: avgCompetitorScores(scores, COMPETITOR_TWO_RULER_KEYS.validation),
+      desc: "趋势和销量信号只用于判断我方测试优先级。",
+    },
+  ];
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+      {cards.map((card) => (
+        <div key={card.key} className="rounded-lg border border-gray-100 bg-white p-3">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-semibold text-gray-900">{card.title}</p>
+            <span className={`text-lg font-bold ${competitorScoreColor(card.score)}`}>{card.score}</span>
+          </div>
+          <div className="mt-2 h-1.5 rounded-full bg-gray-100 overflow-hidden">
+            <div className={`h-full rounded-full ${competitorScoreBar(card.score)}`} style={{ width: `${card.score}%` }} />
+          </div>
+          <p className="mt-2 text-xs text-gray-500 leading-relaxed">{card.desc}</p>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function scoresToRadarData(label: string, scores: Scores, colorIdx: number): RadarDataSet {
@@ -1546,7 +1704,7 @@ function ToolboxList({ title, items, tone = "gray" }: { title: string; items?: s
 
 const RESULT_TABS = [
   { key: "overview", label: "总览", icon: Search },
-  { key: "score", label: "竞品评分", icon: Target },
+  { key: "score", label: "两把尺评分", icon: Target },
   { key: "listing-breakdown", label: "广告转化拆解", icon: FileText },
   { key: "keywords", label: "关键词结构", icon: Zap },
   { key: "review-pain", label: "评论痛点", icon: MessageSquare },
@@ -1785,9 +1943,12 @@ function SingleResultView({
         <Card className="bg-gray-50 border-gray-200">
             <CardHeader>
               <CardTitle className="text-lg flex items-center justify-between">
-                <span>8D+2评分雷达图</span>
+                <span>两把尺 × 竞品8D+2拆解</span>
                 <span className="text-2xl font-bold text-brand-600">{avgScore}分</span>
               </CardTitle>
+              <p className="text-xs text-gray-500">
+                先判断竞品为什么被用户选择、为什么被Amazon匹配，再用8D+2反查我方该借鉴、避开、攻击还是差异化。
+              </p>
             </CardHeader>
             <CardContent className="space-y-5">
               {scorePayloadMissing && (
@@ -1799,17 +1960,18 @@ function SingleResultView({
                   </div>
                 </div>
               )}
+              <CompetitorTwoRulerSummary scores={scores} />
               <div className="flex justify-center">
                 <RadarChartMulti datasets={[radarData]} size={340} />
               </div>
-              <div className="flex flex-wrap gap-2">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 {DIMENSIONS.map((dim) => {
                   const score = (scores as Record<string, number>)[dim.key] || 0;
+                  const meta = COMPETITOR_RULER_META[dim.key as keyof Scores];
                   return (
-                    <Badge
+                    <div
                       key={dim.key}
-                      variant="outline"
-                      className={`px-3 py-1 ${
+                      className={`rounded-lg border p-3 ${
                         score >= 80
                           ? "border-emerald-200 text-emerald-700 bg-emerald-50"
                           : score >= 60
@@ -1817,8 +1979,23 @@ function SingleResultView({
                             : "border-red-200 text-red-700 bg-red-50"
                       }`}
                     >
-                      {dim.label} {score}
-                    </Badge>
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold text-gray-900">{dim.label}</span>
+                          <Badge variant="outline" className="bg-white text-[10px]">{meta.layer}</Badge>
+                        </div>
+                        <span className={`text-lg font-bold ${competitorScoreColor(score)}`}>{score}</span>
+                      </div>
+                      <div className="mt-2 h-1.5 rounded-full bg-white/70 overflow-hidden">
+                        <div className={`h-full rounded-full ${competitorScoreBar(score)}`} style={{ width: `${score}%` }} />
+                      </div>
+                      <div className="mt-2 text-xs text-gray-600 leading-relaxed space-y-1">
+                        <p><span className="font-semibold">尺一：</span>{meta.intentScale}</p>
+                        <p><span className="font-semibold">尺二：</span>{meta.platformScale}</p>
+                        <p><span className="font-semibold">证据：</span>{meta.evidenceFocus}</p>
+                        <p className="text-brand-700"><span className="font-semibold">我方动作：</span>{getCompetitorAction(score)}，{meta.actionHint}</p>
+                      </div>
+                    </div>
                   );
                 })}
               </div>
