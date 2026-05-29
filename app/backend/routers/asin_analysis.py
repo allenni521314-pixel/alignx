@@ -7,6 +7,7 @@ Optimized: single AI call for both product enrichment + scoring.
 
 import json
 import logging
+import copy
 import re
 from datetime import datetime, timezone
 from typing import Any, List, Optional
@@ -1572,6 +1573,10 @@ class FiveDimensionScoreResponse(BaseModel):
     dimensions: list = []
     veto_rules: list = []
     next_actions: list = []
+    analysis_mode: str = "rule_fallback"
+    ai_called: bool = False
+    fallback_reason: Optional[str] = None
+    rule_guardrails: dict = {}
     id: Optional[int] = None
 
 
@@ -1678,6 +1683,81 @@ ASIN: {asin}
 
 只返回JSON，不要返回其他内容。"""
 
+SIX_DIMENSION_AI_PRIMARY_PROMPT = """你是AlignX的ASIN选品主判模型，使用 Amazon COSMO/Rufus × 顶级亚马逊运营操盘手的复合判断方式。
+
+你的职责：基于真实抓取证据，对单个ASIN做6维选品主判。规则底座只作为证据提示和硬闸门参考，不允许被规则分数牵着走。
+
+## 关键原则
+1. AI负责语义主判：判断商品身份、用户任务、场景、搜索入口、竞争结构、差异化、广告承受力和风险趋势。
+2. 不要补空字段：缺价格、缺评论、缺BSR、缺关键词排名时，降低对应维度分数和置信度，不能猜。
+3. 广告视角：判断该ASIN后续能不能通过CTR、CVR、CPC、ACOS和关键词订单验证。
+4. 分数要保守：证据不足不能给高分；单靠标题好听不能判断能做。
+
+## 产品证据
+ASIN: {asin}
+站点: Amazon {marketplace}
+{product_context}
+
+## 规则底座与硬闸门参考
+{rule_context}
+
+## 6维定义
+- demand: 需求强度。痛点明确、使用频率、刚性、付费理由。
+- search_entry: 搜索入口。核心词容量、长尾机会、自然位可进入性、广告入口承受力。
+- competition: 竞争结构。Top20评论门槛、低评论高排名样本、广告位压力、同质化。
+- differentiation: 差异化切口。可表达差异点、竞品差评机会、Listing承接、替代难度。
+- business: 商业承受力。毛利空间、价格带合理性、广告承受力、套装/变体/复购空间。
+- risk_trend: 风险与趋势。政策合规、BSR/关键词趋势、生命周期、新品进入案例。
+
+## 输出JSON
+只返回JSON，不要解释，不要Markdown：
+{{
+  "dimension_scores": {{
+    "demand": 0-20,
+    "search_entry": 0-20,
+    "competition": 0-20,
+    "differentiation": 0-20,
+    "business": 0-20,
+    "risk_trend": 0-20
+  }},
+  "detail_scores": {{
+    "pain_clarity": 0-5,
+    "usage_frequency": 0-5,
+    "demand_rigidity": 0-5,
+    "payment_clarity": 0-5,
+    "core_keyword_capacity": 0-5,
+    "long_tail_opportunity": 0-5,
+    "organic_entry_access": 0-5,
+    "ad_entry_tolerance": 0-5,
+    "top20_review_barrier": 0-5,
+    "low_review_rank_opportunity": 0-5,
+    "sponsored_pressure": 0-5,
+    "homogeneity": 0-5,
+    "differentiation_anchor": 0-5,
+    "competitor_weakness": 0-5,
+    "listing_expression_fit": 0-5,
+    "substitution_difficulty": 0-5,
+    "gross_margin": 0-5,
+    "price_band_match": 0-5,
+    "ad_tolerance": 0-5,
+    "profit_scalability": 0-5,
+    "compliance_risk": 0-5,
+    "demand_growth": 0-5,
+    "category_lifecycle": 0-5,
+    "new_entry_signal": 0-5
+  }},
+  "analysis": {{
+    "demand": "一句话证据判断",
+    "search_entry": "一句话证据判断",
+    "competition": "一句话证据判断",
+    "differentiation": "一句话证据判断",
+    "business": "一句话证据判断",
+    "risk_trend": "一句话证据判断"
+  }},
+  "suggestions": ["下一步动作1", "下一步动作2", "下一步动作3"],
+  "one_sentence_reason": "一句话结论，必须说明主要证据和主要风险"
+}}"""
+
 
 def _build_product_context(product_data: dict, product_title: str = "") -> str:
     """Build product context string for the 6D scoring prompt."""
@@ -1757,6 +1837,16 @@ SIX_DIMENSION_SCHEMA = [
     ]),
 ]
 
+SIX_DIMENSION_HARD_VETO_NAMES = {
+    "品牌垄断明显",
+    "平台生态强绑定",
+    "侵权风险高",
+    "认证/合规风险高",
+    "价格带严重错配",
+    "履约不可控",
+    "不是第三方卖家的合理切入品",
+}
+
 
 def _num_value(value, default: float = 0) -> float:
     if value is None:
@@ -1820,6 +1910,237 @@ def _data_completeness(product_data: dict) -> tuple[float, str, dict]:
     completeness = round(sum(1 for ok in checks.values() if ok) / len(checks), 2)
     confidence = "high" if completeness >= 0.8 else "medium" if completeness >= 0.5 else "low"
     return completeness, confidence, checks
+
+
+def _coerce_score(value, low: float, high: float, fallback: float, convert_100: bool = False) -> float:
+    if value is None:
+        return round(fallback, 1)
+    try:
+        score = float(str(value).replace(",", "").replace("%", "").strip())
+    except (TypeError, ValueError):
+        score = fallback
+    if convert_100 and score > high and score <= 100:
+        score = score * high / 100
+    return round(max(low, min(high, score)), 1)
+
+
+def _build_six_dimension_rule_context(engine: dict) -> str:
+    dimensions = []
+    for item in engine.get("dimensions", []):
+        dimensions.append({
+            "dimension_key": item.get("dimension_key"),
+            "dimension_name": item.get("dimension_name"),
+            "rule_score": item.get("final_score"),
+        })
+    payload = {
+        "data_completeness": engine.get("data_completeness"),
+        "confidence_level": engine.get("confidence_level"),
+        "rule_dimension_scores": dimensions,
+        "triggered_vetoes": [
+            {
+                "rule_name": rule.get("rule_name"),
+                "reason": rule.get("reason"),
+                "evidence": rule.get("evidence", []),
+            }
+            for rule in engine.get("veto_rules", [])
+            if rule.get("triggered")
+        ],
+    }
+    return json.dumps(payload, ensure_ascii=False, indent=2)
+
+
+def _normalize_six_dimension_ai_result(ai_result: dict, rule_engine: dict) -> dict:
+    if not isinstance(ai_result, dict):
+        raise ValueError("AI 6维主判返回格式无效")
+
+    raw_dimensions = ai_result.get("dimension_scores") or {}
+    raw_details = ai_result.get("detail_scores") or {}
+    if not isinstance(raw_dimensions, dict):
+        raw_dimensions = {}
+    if not isinstance(raw_details, dict):
+        raw_details = {}
+
+    dimension_scores: dict[str, float] = {}
+    valid_dimension_count = 0
+    for dim_key, _dim_name, _items in SIX_DIMENSION_SCHEMA:
+        fallback = float((rule_engine.get("dimension_scores") or {}).get(dim_key, 0))
+        has_value = raw_dimensions.get(dim_key) is not None
+        dimension_scores[dim_key] = _coerce_score(raw_dimensions.get(dim_key), 0, 20, fallback, convert_100=True)
+        if has_value:
+            valid_dimension_count += 1
+
+    if valid_dimension_count < 4:
+        raise ValueError("AI 6维主判缺少关键维度分数")
+
+    fallback_detail = rule_engine.get("detail_scores") or {}
+    detail_scores: dict[str, float] = {}
+    for _dim_key, _dim_name, items in SIX_DIMENSION_SCHEMA:
+        for item_key, _item_name in items:
+            fallback = float(fallback_detail.get(item_key, 0))
+            detail_scores[item_key] = _coerce_score(raw_details.get(item_key), 0, 5, fallback, convert_100=True)
+
+    analysis = {}
+    raw_analysis = ai_result.get("analysis") or {}
+    if not isinstance(raw_analysis, dict):
+        raw_analysis = {}
+    for dim_key, _dim_name, _items in SIX_DIMENSION_SCHEMA:
+        analysis[dim_key] = str(raw_analysis.get(dim_key) or (rule_engine.get("analysis") or {}).get(dim_key) or "").strip()
+
+    suggestions = ai_result.get("suggestions")
+    if not isinstance(suggestions, list):
+        suggestions = rule_engine.get("suggestions") or []
+    suggestions = [str(item).strip() for item in suggestions if str(item).strip()][:5]
+
+    return {
+        "dimension_scores": dimension_scores,
+        "detail_scores": detail_scores,
+        "analysis": analysis,
+        "suggestions": suggestions,
+        "one_sentence_reason": str(ai_result.get("one_sentence_reason") or "").strip(),
+    }
+
+
+def _apply_six_dimension_routing(engine: dict) -> dict:
+    total_score = float(engine.get("total_score") or 0)
+    dimension_scores = engine.get("dimension_scores") or {}
+    confidence_level = str(engine.get("confidence_level") or "low")
+    triggered_vetoes = [rule for rule in engine.get("veto_rules", []) if rule.get("triggered")]
+    hard_vetoes = [rule for rule in triggered_vetoes if rule.get("rule_name") in SIX_DIMENSION_HARD_VETO_NAMES]
+    market_barriers = [rule for rule in triggered_vetoes if rule.get("rule_name") not in SIX_DIMENSION_HARD_VETO_NAMES]
+    risk_level = "high" if hard_vetoes or total_score < 55 else "medium" if market_barriers or total_score < 75 or confidence_level == "low" else "low"
+
+    derivative_signal = (
+        total_score >= 55
+        and (
+            market_barriers
+            or float(dimension_scores.get("competition", 0)) < 12
+            or float(dimension_scores.get("differentiation", 0)) < 12
+        )
+        and (float(dimension_scores.get("search_entry", 0)) >= 10 or float(dimension_scores.get("demand", 0)) >= 10)
+    )
+    if hard_vetoes:
+        pool_status = "rejected_pool"
+    elif total_score >= 75 and risk_level != "high":
+        pool_status = "opportunity_pool"
+    elif 65 <= total_score < 75 and risk_level in {"low", "medium"}:
+        pool_status = "validation_pool"
+    elif derivative_signal:
+        pool_status = "derivative_pool"
+    elif total_score < 65 or risk_level == "high":
+        pool_status = "rejected_pool"
+    else:
+        pool_status = "not_entered"
+
+    if hard_vetoes:
+        decision = "高风险禁止进入"
+    elif pool_status == "opportunity_pool":
+        decision = "可进入"
+    elif pool_status == "validation_pool":
+        decision = "可小预算测试"
+    elif pool_status == "derivative_pool":
+        decision = "不建议直接进入"
+    elif total_score >= 60:
+        decision = "需改良后进入"
+    else:
+        decision = "不建议直接进入"
+
+    action_map = {
+        "可进入": ["生成 Listing 方向", "生成首轮广告验证词", "创建执行跟踪任务"],
+        "可小预算测试": ["生成最小验证方案", "生成测试关键词", "生成验证指标"],
+        "需改良后进入": ["生成产品改良方向", "提取竞品差评机会", "重新评估改良款"],
+        "不建议直接进入": ["查找替代机会", "分析配件/周边市场", "重新选择相邻类目"],
+        "高风险禁止进入": ["查看风险证据", "生成避坑报告", "重新选品"],
+    }
+    recommended_path = {
+        "opportunity_pool": "/listing-launch-check",
+        "validation_pool": "/ab-test-comparison",
+        "derivative_pool": "/asin-manager",
+        "rejected_pool": "/asin-manager",
+        "not_entered": "/asin-manager",
+    }.get(pool_status, "/asin-manager")
+    gate_reason = (
+        f"规则硬闸门：{hard_vetoes[0]['rule_name']}" if hard_vetoes
+        else f"规则进入门槛：{market_barriers[0]['rule_name']}" if market_barriers
+        else "未触发重大硬闸门"
+    )
+    prefix = "AI主判+规则闸门" if engine.get("ai_called") else "规则兜底"
+    one_sentence_reason = (
+        f"{prefix}：{decision}，总分{round(total_score, 1)}，数据置信度{confidence_level}，风险{risk_level}，{gate_reason}。"
+    )
+    if engine.get("ai_called") and engine.get("ai_reason"):
+        one_sentence_reason = f"{one_sentence_reason} AI理由：{engine['ai_reason']}"
+
+    return {
+        "risk_level": risk_level,
+        "decision": decision,
+        "pool_status": pool_status,
+        "qualified": pool_status == "opportunity_pool",
+        "recommended_path": recommended_path,
+        "one_sentence_reason": one_sentence_reason,
+        "suggestions": action_map.get(decision, []),
+        "next_actions": action_map.get(decision, []),
+        "rule_guardrails": {
+            "hard_vetoes": hard_vetoes,
+            "market_barriers": market_barriers,
+            "triggered_vetoes": triggered_vetoes,
+        },
+    }
+
+
+def _merge_ai_primary_six_dimension(rule_engine: dict, ai_result: dict) -> dict:
+    normalized = _normalize_six_dimension_ai_result(ai_result, rule_engine)
+    engine = copy.deepcopy(rule_engine)
+    engine["analysis_mode"] = "ai_primary_rule_guarded"
+    engine["ai_called"] = True
+    engine["fallback_reason"] = None
+    engine["ai_reason"] = normalized.get("one_sentence_reason") or ""
+    engine["dimension_scores"] = normalized["dimension_scores"]
+    engine["detail_scores"] = normalized["detail_scores"]
+    engine["analysis"] = normalized["analysis"]
+    engine["suggestions"] = normalized["suggestions"] or engine.get("suggestions", [])
+
+    for dimension in engine.get("dimensions", []):
+        dim_key = dimension.get("dimension_key")
+        if not dim_key:
+            continue
+        base_score = float(dimension.get("base_score") or 0)
+        final_score = float(engine["dimension_scores"].get(dim_key, base_score))
+        dimension["ai_adjustment"] = round(final_score - base_score, 1)
+        dimension["final_score"] = round(final_score, 1)
+        for item in dimension.get("items", []):
+            item_key = item.get("item_key")
+            if item_key and item_key in engine["detail_scores"]:
+                item_base = float(item.get("rule_score") or 0)
+                item_final = float(engine["detail_scores"][item_key])
+                item["ai_adjustment"] = round(item_final - item_base, 1)
+                item["final_score"] = round(item_final, 1)
+
+    engine["raw_total"] = round(sum(float(value or 0) for value in engine["dimension_scores"].values()), 1)
+    engine["total_score"] = round(engine["raw_total"] * 100 / 120, 1)
+    engine.update(_apply_six_dimension_routing(engine))
+    return engine
+
+
+async def _run_six_dimension_ai_primary(asin: str, marketplace: str, product_title: str, product_data: dict, rule_engine: dict) -> dict:
+    from schemas.aihub import ChatMessage, GenTxtRequest
+
+    product_context = _build_product_context(product_data, product_title)
+    prompt = SIX_DIMENSION_AI_PRIMARY_PROMPT.format(
+        asin=asin,
+        marketplace=marketplace,
+        product_context=product_context,
+        rule_context=_build_six_dimension_rule_context(rule_engine),
+    )
+    ai_service = AIHubService()
+    response = await ai_service.gentxt(
+        GenTxtRequest(
+            messages=[ChatMessage(role="user", content=prompt)],
+            model="AI_REASONING_MODEL",
+            temperature=0,
+            max_tokens=4096,
+        )
+    )
+    return _extract_json_from_text(response.content)
 
 
 def _build_six_dimension_rule_engine(asin: str, marketplace: str, product_title: str, product_data: dict, ai_result: dict | None = None) -> dict:
@@ -1924,6 +2245,7 @@ def _build_six_dimension_rule_engine(asin: str, marketplace: str, product_title:
             requested_adj = max(-1, min(1, requested_adj))
             row["ai_adjustment"] = round(requested_adj, 1)
             row["final_score"] = max(0, min(5, round(row["rule_score"] + requested_adj, 1)))
+            row["item_key"] = item_key
             row["item_name"] = item_name
             base_score += row["rule_score"]
             final_score += row["final_score"]
@@ -1968,9 +2290,8 @@ def _build_six_dimension_rule_engine(asin: str, marketplace: str, product_title:
         {"rule_name": "不是第三方卖家的合理切入品", "triggered": bool(amazon_owned_or_bound and reviews > 1000 and not accessory_context), "reason": "平台自营/生态强绑定且评论门槛较高，普通第三方卖家直接切入风险大。", "evidence": [seller_type, f"评论数 {int(reviews)}"]},
     ]
     triggered_vetoes = [rule for rule in veto_rules if rule["triggered"]]
-    hard_veto_names = {"品牌垄断明显", "平台生态强绑定", "侵权风险高", "认证/合规风险高", "价格带严重错配", "履约不可控", "不是第三方卖家的合理切入品"}
-    hard_vetoes = [rule for rule in triggered_vetoes if rule["rule_name"] in hard_veto_names]
-    market_barriers = [rule for rule in triggered_vetoes if rule["rule_name"] not in hard_veto_names]
+    hard_vetoes = [rule for rule in triggered_vetoes if rule["rule_name"] in SIX_DIMENSION_HARD_VETO_NAMES]
+    market_barriers = [rule for rule in triggered_vetoes if rule["rule_name"] not in SIX_DIMENSION_HARD_VETO_NAMES]
     risk_level = "high" if hard_vetoes or total_score < 55 else "medium" if market_barriers or total_score < 75 or confidence_level == "low" else "low"
 
     derivative_signal = (
@@ -2046,6 +2367,14 @@ def _build_six_dimension_rule_engine(asin: str, marketplace: str, product_title:
         "dimensions": dimensions,
         "veto_rules": veto_rules,
         "next_actions": action_map.get(decision, []),
+        "analysis_mode": "rule_fallback",
+        "ai_called": False,
+        "fallback_reason": None,
+        "rule_guardrails": {
+            "hard_vetoes": hard_vetoes,
+            "market_barriers": market_barriers,
+            "triggered_vetoes": triggered_vetoes,
+        },
         "price_tier_category": "high" if price >= 70 else "medium" if price >= 20 else "low",
         "price_tier_analysis": {
             "category": "high" if price >= 70 else "medium" if price >= 20 else "low",
@@ -2064,9 +2393,9 @@ async def five_dimension_score(
     """Run 6-Dimension Product Scoring (6维产品级决策引擎).
 
     The canonical scoring path is now:
-    real input data -> deterministic rule engine -> optional AI semantic adjustment
-    -> risk veto -> pool routing. The score is no longer decided directly by an
-    AI prompt, so missing data lowers confidence instead of producing fake precision.
+    real input data -> AI semantic main judgment -> deterministic rule guardrails
+    -> risk veto -> pool routing. If AI is unavailable or returns invalid JSON,
+    the deterministic engine is used as a clearly marked fallback.
     """
     try:
         asin = request.asin.strip().upper()
@@ -2089,13 +2418,30 @@ async def five_dimension_score(
                 except (json.JSONDecodeError, TypeError):
                     product_data = {}
 
-        engine = _build_six_dimension_rule_engine(
+        rule_engine = _build_six_dimension_rule_engine(
             asin=asin,
             marketplace=request.marketplace,
             product_title=product_title or product_data.get("title", ""),
             product_data=product_data,
             ai_result=None,
         )
+        try:
+            ai_payload = await _run_six_dimension_ai_primary(
+                asin=asin,
+                marketplace=request.marketplace,
+                product_title=product_title or product_data.get("title", ""),
+                product_data=product_data,
+                rule_engine=rule_engine,
+            )
+            engine = _merge_ai_primary_six_dimension(rule_engine, ai_payload)
+        except Exception as ai_error:
+            logger.warning("6D AI primary judgment failed for %s, using rule fallback: %s", asin, ai_error)
+            engine = copy.deepcopy(rule_engine)
+            engine["analysis_mode"] = "rule_fallback"
+            engine["ai_called"] = False
+            engine["fallback_reason"] = str(ai_error)
+            engine.update(_apply_six_dimension_routing(engine))
+            engine["one_sentence_reason"] = f"{engine['one_sentence_reason']} AI主判失败，已使用规则兜底。"
 
         dimension_scores = engine["dimension_scores"]
         detail_scores = engine["detail_scores"]
@@ -2127,6 +2473,10 @@ async def five_dimension_score(
             "dimensions": engine["dimensions"],
             "veto_rules": engine["veto_rules"],
             "next_actions": engine["next_actions"],
+            "analysis_mode": engine.get("analysis_mode", "rule_fallback"),
+            "ai_called": engine.get("ai_called", False),
+            "fallback_reason": engine.get("fallback_reason"),
+            "rule_guardrails": engine.get("rule_guardrails", {}),
         }
 
         # Save to database
@@ -2156,6 +2506,9 @@ async def five_dimension_score(
                 "pool_status": engine["pool_status"],
                 "risk_level": engine["risk_level"],
                 "confidence_level": engine["confidence_level"],
+                "analysis_mode": engine.get("analysis_mode", "rule_fallback"),
+                "ai_called": engine.get("ai_called", False),
+                "fallback_reason": engine.get("fallback_reason"),
             }, ensure_ascii=False),
             "created_at": datetime.now(timezone.utc),
         }, user_id=str(current_user.id))
@@ -2183,6 +2536,10 @@ async def five_dimension_score(
             dimensions=engine["dimensions"],
             veto_rules=engine["veto_rules"],
             next_actions=engine["next_actions"],
+            analysis_mode=engine.get("analysis_mode", "rule_fallback"),
+            ai_called=bool(engine.get("ai_called", False)),
+            fallback_reason=engine.get("fallback_reason"),
+            rule_guardrails=engine.get("rule_guardrails", {}),
             id=record.id if record else None,
         )
 

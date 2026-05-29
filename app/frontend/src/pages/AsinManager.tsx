@@ -652,7 +652,7 @@ export default function AsinManager() {
           output_snapshot: result,
           data_source: "asin_library",
           confidence: result.confidence_level === "high" ? "high" : result.confidence_level === "medium" ? "medium" : "low",
-          ai_called: false,
+          ai_called: result.ai_called !== false,
           source_record_table: "asin_analyses",
         }).catch(() => {});
         toast.success(
@@ -1850,9 +1850,9 @@ export default function AsinManager() {
           </div>
 
           <PageHeader
-            objective="集中管理你的Amazon产品ASIN，用6维规则引擎判断能不能做、风险在哪里、下一步去哪"
+            objective="集中管理你的Amazon产品ASIN，用AI主判和规则硬闸门判断能不能做、风险在哪里、下一步去哪"
             inputSource="关键词Top40竞品快照 / 单个ASIN补充抓取"
-            process="真实数据先打底，规则引擎评分，AI只做语义修正，风险规则优先否决"
+            process="真实数据先打底，AI推理6维主判；规则只做缺字段、合规、利润和风险硬兜底"
             outputTarget="决策结论 · 机会池状态 · 一票否决 · 动态下一步动作"
             action="按可进入、小预算测试、改良后进入、淘汰避坑等路径分流"
             feedback="上线后的广告验证和复盘结果回流到下一轮选品判断"

@@ -67,6 +67,14 @@ export interface FiveDScoreResult {
     evidence: string[];
   }>;
   next_actions?: string[];
+  analysis_mode?: "ai_primary_rule_guarded" | "rule_fallback" | string;
+  ai_called?: boolean;
+  fallback_reason?: string | null;
+  rule_guardrails?: {
+    hard_vetoes?: unknown[];
+    market_barriers?: unknown[];
+    triggered_vetoes?: unknown[];
+  };
   is_legacy_score?: boolean;
   id?: number;
 }

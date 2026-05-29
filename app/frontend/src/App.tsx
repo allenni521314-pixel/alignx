@@ -1,4 +1,4 @@
-import { Component, lazy, Suspense, type ReactNode } from 'react';
+import { Component, lazy, Suspense, useEffect, type ReactNode } from 'react';
 import { Toaster } from '@/components/ui/sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -12,21 +12,60 @@ import NotFound from './pages/NotFound';
 
 const queryClient = new QueryClient();
 
-const Dashboard = lazy(() => import('./pages/Dashboard'));
-const AsinManager = lazy(() => import('./pages/AsinManager'));
-const AdAnalytics = lazy(() => import('./pages/AdAnalytics'));
-const Settings = lazy(() => import('./pages/Settings'));
-const AuthCallback = lazy(() => import('./pages/AuthCallback'));
-const Pricing = lazy(() => import('./pages/Pricing'));
-const Terms = lazy(() => import('./pages/Terms'));
-const Privacy = lazy(() => import('./pages/Privacy'));
-const AuthError = lazy(() => import('./pages/AuthError'));
-const CompetitorAnalysis = lazy(() => import('./pages/CompetitorAnalysis'));
-const ListingDiagnosis = lazy(() => import('./pages/ListingDiagnosis'));
-const PreLaunchTest = lazy(() => import('./pages/PreLaunchTest'));
-const ABTestComparison = lazy(() => import('./pages/ABTestComparison'));
-const OptimizationSuggestions = lazy(() => import('./pages/OptimizationSuggestions'));
-const SuperAdmin = lazy(() => import('./pages/SuperAdmin'));
+const routeImports = {
+  Dashboard: () => import('./pages/Dashboard'),
+  AsinManager: () => import('./pages/AsinManager'),
+  AdAnalytics: () => import('./pages/AdAnalytics'),
+  Settings: () => import('./pages/Settings'),
+  AuthCallback: () => import('./pages/AuthCallback'),
+  Pricing: () => import('./pages/Pricing'),
+  Terms: () => import('./pages/Terms'),
+  Privacy: () => import('./pages/Privacy'),
+  AuthError: () => import('./pages/AuthError'),
+  CompetitorAnalysis: () => import('./pages/CompetitorAnalysis'),
+  ListingDiagnosis: () => import('./pages/ListingDiagnosis'),
+  PreLaunchTest: () => import('./pages/PreLaunchTest'),
+  ABTestComparison: () => import('./pages/ABTestComparison'),
+  OptimizationSuggestions: () => import('./pages/OptimizationSuggestions'),
+  SuperAdmin: () => import('./pages/SuperAdmin'),
+};
+
+const Dashboard = lazy(routeImports.Dashboard);
+const AsinManager = lazy(routeImports.AsinManager);
+const AdAnalytics = lazy(routeImports.AdAnalytics);
+const Settings = lazy(routeImports.Settings);
+const AuthCallback = lazy(routeImports.AuthCallback);
+const Pricing = lazy(routeImports.Pricing);
+const Terms = lazy(routeImports.Terms);
+const Privacy = lazy(routeImports.Privacy);
+const AuthError = lazy(routeImports.AuthError);
+const CompetitorAnalysis = lazy(routeImports.CompetitorAnalysis);
+const ListingDiagnosis = lazy(routeImports.ListingDiagnosis);
+const PreLaunchTest = lazy(routeImports.PreLaunchTest);
+const ABTestComparison = lazy(routeImports.ABTestComparison);
+const OptimizationSuggestions = lazy(routeImports.OptimizationSuggestions);
+const SuperAdmin = lazy(routeImports.SuperAdmin);
+
+const RoutePreloader = () => {
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void Promise.allSettled([
+        routeImports.Dashboard(),
+        routeImports.AsinManager(),
+        routeImports.PreLaunchTest(),
+        routeImports.CompetitorAnalysis(),
+        routeImports.ListingDiagnosis(),
+        routeImports.ABTestComparison(),
+        routeImports.AdAnalytics(),
+        routeImports.OptimizationSuggestions(),
+        routeImports.Settings(),
+      ]);
+    }, 1200);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  return null;
+};
 
 const PageLoader = () => (
   <div className="min-h-screen bg-gray-50 flex items-center justify-center p-6">
@@ -79,7 +118,7 @@ const AppRoutes = () => {
   return (
     <AppErrorBoundary routeKey={`${location.pathname}${location.search}`}>
       <Suspense fallback={<PageLoader />}>
-        <Routes location={location} key={`${location.pathname}${location.search}`}>
+        <Routes location={location}>
           <Route path="/" element={<Landing />} />
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/asin-manager" element={<AsinManager />} />
@@ -122,6 +161,7 @@ const App = () => (
       <TooltipProvider>
         <Toaster />
         <BrowserRouter>
+          <RoutePreloader />
           <AppRoutes />
         </BrowserRouter>
       </TooltipProvider>

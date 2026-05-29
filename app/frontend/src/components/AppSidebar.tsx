@@ -161,11 +161,7 @@ export function AppSidebar() {
 
   const handleNav = (path: string) => {
     if (location.pathname + location.search === path) {
-      window.location.reload();
-      return;
-    }
-    if (path.includes("?")) {
-      window.location.assign(path);
+      if (isMobile) setMobileOpen(false);
       return;
     }
     navigate(path);
