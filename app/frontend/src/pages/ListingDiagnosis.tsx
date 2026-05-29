@@ -1138,18 +1138,18 @@ function buildManualCaptureQuality(parsed: {
   const bulletCount = (parsed.bullet_points || []).filter((item) => String(item).trim()).length;
 
   if (!parsed.title?.trim()) missingCore.push("标题");
-  if (!hasRequiredPrice(parsed.price || "")) missingCore.push("价格");
-  if (!parsed.rating?.trim()) missingCore.push("评分");
-  if (!parsed.review_count?.trim()) missingCore.push("评论数");
   missingCore.push("主图/图片");
   if (bulletCount < 3) missingCore.push("五点描述不足3条");
   else if (bulletCount < 5) missingStrategy.push("五点描述不足5条");
 
+  if (!hasRequiredPrice(parsed.price || "")) missingStrategy.push("价格");
+  if (!parsed.rating?.trim()) missingStrategy.push("评分");
+  if (!parsed.review_count?.trim()) missingStrategy.push("评论数");
   missingStrategy.push("BSR排名", "低星评论", "评分分布", "A+内容", "库存/可售状态");
 
-  const coreTotal = 6;
+  const coreTotal = 3;
   const coreScore = Math.max(0, Math.round(((coreTotal - missingCore.length) / coreTotal) * 100));
-  const strategyTotal = 5;
+  const strategyTotal = 8;
   const strategyScore = Math.max(0, Math.round(((strategyTotal - missingStrategy.length) / strategyTotal) * 100));
   const completeness = Math.round(coreScore * 0.7 + strategyScore * 0.3);
   const allowFormalDiagnosis = missingCore.length === 0 && Boolean(parsed.title?.trim());
@@ -1164,7 +1164,7 @@ function buildManualCaptureQuality(parsed: {
     allow_formal_diagnosis: allowFormalDiagnosis,
     allow_strategy_diagnosis: allowFormalDiagnosis && strategyScore >= 60,
     confidence_level: allowFormalDiagnosis ? "medium" : "low",
-    rule: "复制文本同样使用证据完整性闸门；缺失字段不得自动猜测。",
+    rule: "承接诊断只卡Listing证据；市场数据缺失不得自动猜测，会降低置信度。",
   };
 }
 
@@ -1181,8 +1181,6 @@ function hasRequiredPrice(value?: string | null): boolean {
 
 function resolveFormalGateMissing(listing: ListingInput, meta?: FetchMeta | null): string[] {
   const missing = new Set<string>(meta?.capture_quality?.missing_core || []);
-  const rating = meta?.rating || listing.rating;
-  const reviewCount = meta?.review_count || listing.review_count;
   const imageCount = getListingImageCount(listing, meta);
   const bulletCount = splitBullets(listing.bullet_points).length;
 
@@ -1192,14 +1190,32 @@ function resolveFormalGateMissing(listing: ListingInput, meta?: FetchMeta | null
   };
 
   sync("标题", hasRequiredText(listing.title));
-  sync("价格", hasRequiredPrice(listing.price));
-  sync("评分", hasRequiredText(rating));
-  sync("评论数", hasRequiredText(reviewCount));
   sync("主图/图片", imageCount > 0 || Boolean(listing.image_urls?.length));
   if (bulletCount < 3) missing.add("五点描述不足3条");
   else missing.delete("五点描述不足3条");
 
   return Array.from(missing).filter(Boolean);
+}
+
+function resolveMarketEvidenceMissing(listing: ListingInput, meta?: FetchMeta | null): string[] {
+  const missing: string[] = [];
+  const rating = meta?.rating || listing.rating;
+  const reviewCount = meta?.review_count || listing.review_count;
+  const bsrRank = meta?.bsr_rank || listing.bsr_rank;
+  if (!hasRequiredPrice(listing.price)) missing.push("价格");
+  if (!hasRequiredText(rating)) missing.push("评分");
+  if (!hasRequiredText(reviewCount)) missing.push("评论数");
+  if (!hasRequiredText(bsrRank)) missing.push("BSR排名");
+  return missing;
+}
+
+function isNewLaunchListing(listing: ListingInput, meta?: FetchMeta | null): boolean {
+  const reviewCount = meta?.review_count || listing.review_count;
+  const bsrRank = meta?.bsr_rank || listing.bsr_rank;
+  const missingPrice = !hasRequiredPrice(listing.price);
+  const missingReviews = !hasRequiredText(reviewCount) || parseMetricInt(reviewCount) === 0;
+  const missingSales = !hasRequiredText(bsrRank) || parseMetricInt(bsrRank) === 0;
+  return missingPrice && missingReviews && missingSales;
 }
 
 /* ------------------------------------------------------------------ */
@@ -2793,9 +2809,8 @@ export default function ListingDiagnosis() {
     if (formalGateMissing.length > 0) {
       localStorage.removeItem(LISTING_DIAGNOSIS_TASK_KEY);
       localStorage.removeItem(LISTING_DIAGNOSIS_TASK_CONTEXT_KEY);
-      const isMissingPrice = formalGateMissing.includes("价格");
       toast.warning(
-        `${isMissingPrice ? "缺少价格，不能生成正式诊断报告。" : "核心字段不完整，不能生成正式诊断报告。"}请补齐：${formalGateMissing.slice(0, 5).join("、")}。`,
+        `Listing承接证据不完整，不能生成承接诊断。请补齐：${formalGateMissing.slice(0, 5).join("、")}。`,
         { duration: 7000 }
       );
       setDiagnosisPhase("fetch_success");
@@ -2834,7 +2849,9 @@ export default function ListingDiagnosis() {
           has_video: activeFetchMeta?.has_video || activeListing.has_video || false,
           has_a_plus: activeFetchMeta?.has_a_plus || activeListing.has_a_plus || false,
         },
+        diagnosis_mode: isNewLaunchListing(activeListing, activeFetchMeta) ? "new_launch_readiness" : "listing_conversion_readiness",
         precision_context: {
+          diagnosis_mode: isNewLaunchListing(activeListing, activeFetchMeta) ? "new_launch_readiness" : "listing_conversion_readiness",
           review_count: activeFetchMeta?.review_count || activeListing.review_count || "",
           rating: activeFetchMeta?.rating || activeListing.rating || "",
           bsr_rank: activeFetchMeta?.bsr_rank || activeListing.bsr_rank || "",
@@ -2861,7 +2878,9 @@ export default function ListingDiagnosis() {
         moduleKey: "listing-diagnosis",
         label: "本品Listing诊断",
         status: "running",
-        detail: "后台正在生成正式诊断报告",
+        detail: isNewLaunchListing(activeListing, activeFetchMeta)
+          ? "后台正在生成新品上架承接诊断"
+          : "后台正在生成Listing承接诊断报告",
         path: "/listing-diagnosis",
       });
       localStorage.setItem(LISTING_DIAGNOSIS_TASK_KEY, taskRes.data.task_id);
@@ -3149,11 +3168,15 @@ export default function ListingDiagnosis() {
   const radarScores = buildRadarScores();
   const elementsData = buildElements();
   const formalGateMissing = resolveFormalGateMissing(listing, fetchMeta);
+  const marketEvidenceMissing = resolveMarketEvidenceMissing(listing, fetchMeta);
+  const isNewLaunchMode = isNewLaunchListing(listing, fetchMeta);
   const canGenerateFormalDiagnosis = !diagnosing && formalGateMissing.length === 0;
-  const formalGateActionText = formalGateMissing.includes("价格")
-    ? "补齐价格后生成报告"
-    : formalGateMissing.length > 0
-      ? "补齐核心字段后生成报告"
+  const formalGateActionText = formalGateMissing.length > 0
+    ? "补齐承接字段后生成报告"
+    : isNewLaunchMode
+      ? "生成新品上架承接诊断"
+      : marketEvidenceMissing.length > 0
+      ? "生成新品承接诊断"
       : "确认并生成诊断报告";
   const updateListingCoreField = (field: keyof ListingInput, value: string) => {
     setListing((prev) => cleanListing({ ...prev, [field]: value }));
@@ -3352,9 +3375,9 @@ export default function ListingDiagnosis() {
                       <div>
                         <CardTitle className="text-base flex items-center gap-2">
                           <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-                          正式诊断门槛
+                          Listing承接诊断门槛
                         </CardTitle>
-                        <p className="text-xs text-gray-500 mt-1">只展示完整度和缺失字段；需要人工补齐时再展开字段。</p>
+                        <p className="text-xs text-gray-500 mt-1">先判断标题、图片和五点是否能承接流量；价格/评论/BSR缺失只降低市场证据置信度。</p>
                       </div>
                       {fetchSource && (
                         <Badge variant="outline" className="w-fit border-emerald-200 bg-emerald-50 text-emerald-700">
@@ -3485,7 +3508,9 @@ export default function ListingDiagnosis() {
                           <div className="flex flex-wrap gap-2">
                             <Badge variant="outline">完整度 {fetchMeta.capture_quality.completeness ?? 0}%</Badge>
                             <Badge variant={formalGateMissing.length === 0 ? "default" : "secondary"}>
-                              {formalGateMissing.length === 0 ? "可正式诊断" : "仅低置信预检"}
+                              {formalGateMissing.length === 0
+                                ? isNewLaunchMode ? "新品上架承接诊断" : marketEvidenceMissing.length > 0 ? "新品承接诊断" : "可正式诊断"
+                                : "仅低置信预检"}
                             </Badge>
                             <Button
                               type="button"
@@ -3498,18 +3523,35 @@ export default function ListingDiagnosis() {
                             </Button>
                           </div>
                         </div>
-                        {Boolean(formalGateMissing.length || fetchMeta.capture_quality.missing_strategy?.length) && (
-                          <p className="text-xs text-gray-600 mt-2">
-                            还需补齐：
-                            {[...formalGateMissing, ...(fetchMeta.capture_quality.missing_strategy || [])].join("、")}
-                          </p>
+                        {Boolean(formalGateMissing.length || marketEvidenceMissing.length || fetchMeta.capture_quality.missing_strategy?.length) && (
+                          <div className="mt-2 space-y-1 text-xs text-gray-600">
+                            {formalGateMissing.length > 0 && (
+                              <p>承接字段需补齐：<span className="font-semibold">{formalGateMissing.join("、")}</span></p>
+                            )}
+                            {marketEvidenceMissing.length > 0 && (
+                              <p>
+                                {isNewLaunchMode ? "新品上架信号" : "市场证据缺失（不阻断新品承接诊断）"}：
+                                <span className="font-semibold">{marketEvidenceMissing.join("、")}</span>
+                              </p>
+                            )}
+                            {Boolean(fetchMeta.capture_quality.missing_strategy?.length) && (
+                              <p>策略级证据待补：{(fetchMeta.capture_quality.missing_strategy || []).filter((item) => !marketEvidenceMissing.includes(item)).join("、") || "无"}</p>
+                            )}
+                          </div>
                         )}
                       </div>
                     )}
                     {formalGateMissing.length > 0 && !fetchMeta?.capture_quality && (
                       <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                        不能生成正式诊断报告。请先补齐：
+                        不能生成Listing承接诊断。请先补齐：
                         <span className="font-semibold"> {formalGateMissing.join("、")} </span>
+                      </div>
+                    )}
+                    {formalGateMissing.length === 0 && marketEvidenceMissing.length > 0 && !fetchMeta?.capture_quality && (
+                      <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                        {isNewLaunchMode ? "已识别为新品上架，可生成Listing承接诊断；" : "可生成新品承接诊断；"}
+                        缺失的市场证据会降低置信度：
+                        <span className="font-semibold"> {marketEvidenceMissing.join("、")} </span>
                       </div>
                     )}
                     {showAdvancedEditor && (

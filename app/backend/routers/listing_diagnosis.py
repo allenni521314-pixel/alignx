@@ -205,6 +205,7 @@ class DiagnoseRequest(BaseModel):
     listing: ListingInput
     precision_context: dict = Field(default_factory=dict)
     force_refresh: bool = False
+    diagnosis_mode: str = "listing_conversion_readiness"
 
 
 def _has_required_price(value: str | None) -> bool:
@@ -212,6 +213,13 @@ def _has_required_price(value: str | None) -> bool:
     if not text or text in {"-", "—", "N/A", "n/a", "NA", "待确认", "未提供", "未知"}:
         return False
     return bool(re.search(r"\d", text))
+
+
+def _is_new_launch_listing(listing: ListingInput) -> bool:
+    no_price = not _has_required_price(listing.price)
+    no_reviews = _parse_metric_int(listing.review_count) == 0
+    no_sales = _parse_metric_int(listing.bsr_rank) == 0
+    return no_price and no_reviews and no_sales
 
 
 class DiagnoseResponse(BaseModel):
@@ -1122,7 +1130,24 @@ def _apply_market_reality_caps(data: dict, listing: ListingInput) -> dict:
     bsr_rank = _parse_metric_int(listing.bsr_rank)
     bullet_count = _count_listing_bullets(listing.bullet_points)
     has_backend = bool((listing.backend_keywords or "").strip())
+    has_price = _has_required_price(listing.price)
+    is_new_launch = _is_new_launch_listing(listing)
     reasons: list[str] = []
+
+    if is_new_launch:
+        _cap_score_map(
+            scores,
+            {
+                "risk_elimination": 68,
+                "psychology_benefit": 72,
+                "differentiation": 74,
+                "market_trend": 62,
+                "causal_state_gap_coverage": 78,
+                "keyword_validation_readiness": 76,
+            },
+            reasons,
+        )
+        reasons.append("无价格、无评论、无BSR/销售记录，系统定位为新品上架承接诊断，不按成熟销量模型判断。")
 
     if bullet_count < 3:
         _cap_score_map(
@@ -1140,6 +1165,19 @@ def _apply_market_reality_caps(data: dict, listing: ListingInput) -> dict:
     elif bullet_count < 5:
         _cap_score_map(scores, {"psychology_benefit": 78, "risk_elimination": 78, "differentiation": 76}, reasons)
         reasons.append(f"五点仅识别 {bullet_count}/5，转化承接仍需补齐。")
+
+    if not has_price:
+        _cap_score_map(
+            scores,
+            {
+                "risk_elimination": 74,
+                "differentiation": 76,
+                "market_trend": 68,
+                "psychology_benefit": 78,
+            },
+            reasons,
+        )
+        reasons.append("价格缺失不阻断新品承接诊断，但不能判断价格承接和广告承受力。")
 
     if 0 < review_count < 100:
         _cap_score_map(
@@ -1184,10 +1222,26 @@ def _apply_market_reality_caps(data: dict, listing: ListingInput) -> dict:
             "review_count": review_count,
             "bsr_rank": bsr_rank,
             "bullet_count": bullet_count,
+            "has_price": has_price,
+            "is_new_launch": is_new_launch,
             "has_backend_keywords": has_backend,
             "reasons": reasons,
         }
-        prefix = "市场现实闸门已校准评分：" + "；".join(reasons[:3])
+        confidence = data.get("diagnosis_confidence") if isinstance(data.get("diagnosis_confidence"), dict) else {}
+        overall_conf = confidence.get("overall") if isinstance(confidence.get("overall"), dict) else {}
+        if not has_price or review_count == 0 or bsr_rank == 0:
+            confidence["overall"] = {
+                **overall_conf,
+                "level": "medium" if bullet_count >= 3 and not is_new_launch else "low",
+                "reason": "新品上架承接诊断已生成；市场证据缺失，需用首轮小预算广告验证。" if is_new_launch else "Listing承接诊断已生成；价格/评论/BSR等市场证据缺失，市场验证置信度降低。",
+            }
+            data["diagnosis_confidence"] = confidence
+            data["data_integrity"] = {
+                **(data.get("data_integrity") if isinstance(data.get("data_integrity"), dict) else {}),
+                "level": "low" if is_new_launch else "medium",
+                "reason": "新品上架：承接字段可诊断，但无市场验证证据，不能当作成熟销量判断。" if is_new_launch else "承接字段可诊断；市场证据不足，不能当作成熟销量验证。",
+            }
+        prefix = ("新品上架承接闸门已校准评分：" if is_new_launch else "市场现实闸门已校准评分：") + "；".join(reasons[:3])
         data["overall_summary"] = f"{prefix}。{data.get('overall_summary', '')}".strip()
     return data
 
@@ -1431,14 +1485,16 @@ def _build_compact_diagnosis_prompt(listing: ListingInput) -> str:
 - 评分/评论数：{listing.rating or "未提供"} / {listing.review_count or "未提供"}
 
 判断标准：
-1. 按10个维度0-100打分：function_expression, scenario_expression, identity_fit, psychology_benefit, risk_elimination, product_identity, compatibility, subjective_properties, differentiation, market_trend。
+1. 主要目标是判断Listing承接能力：标题、五点、图片/A+、后台词是否能承接广告点击和自然搜索意图。
 2. 关键词必须是自然美式英语，不能输出中文关键词。
 3. 广告关键词必须标记 keyword_type：attribute / relationship / state_trigger。
 4. 优先找 relationship 和 state_trigger，因为它们用于广告验证和避开纯属性词价格竞争；不能只给属性词。
 5. relationship 必须来自COSMO关系锚点：used_for_function / used_for_event / used_for_activity / used_when / used_where / used_with / used_for_audience / used_by。
 6. state_trigger 必须来自COSMO状态锚点：cause_positive / cause_negative / compared_to / requires，例如 odor control, reduce mess, low noise, safe for cats, no ozone, easy maintenance。
-7. 输出要具体指出依据来源：标题、五点、图片/A+、价格、评分评论、缺失类目/后台词。
-8. 后台COSMO/Rufus规则只是兜底和一致性校验；真实模型证据链优先。
+7. 新品或自有产品可能缺少价格、评论、BSR或库存信号；如果同时无价格、无评论、无销售/BSR记录，定位为“新品上架承接诊断”，这些字段缺失不能阻止Listing承接诊断，但必须降低市场验证、风险消除、广告承受力和趋势判断的置信度。
+8. 不得编造价格、评论数、BSR、销量或库存；缺失时只评价内容承接，并明确写“市场证据不足/需要广告验证”。
+9. 输出要具体指出依据来源：标题、五点、图片/A+、价格、评分评论、缺失类目/后台词。
+10. 后台COSMO/Rufus规则只是兜底和一致性校验；真实模型证据链优先。
 
 只返回有效JSON，结构如下：
 {{
@@ -2206,8 +2262,6 @@ async def diagnose_listing(
         listing = request.listing
         if not listing.title and not listing.bullet_points:
             raise HTTPException(status_code=400, detail="请至少输入标题或五点描述")
-        if not _has_required_price(listing.price):
-            raise HTTPException(status_code=400, detail="缺少价格，不能生成正式诊断报告。请补充价格或价格区间后再诊断。")
 
         result = None
         if not request.force_refresh:
