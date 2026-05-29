@@ -167,6 +167,34 @@ interface AnalysisReport {
   improvement_suggestions: string[];
   listing_breakdown?: ListingBreakdown;
   amazon_compliance?: ComplianceResult;
+  toolbox_enhancements?: ToolboxEnhancements;
+}
+
+interface ToolboxSection {
+  source_skills?: string[];
+  role?: string;
+  issues?: Array<Record<string, string>>;
+  actions?: Array<Record<string, string>>;
+  campaign_blueprint?: Array<Record<string, unknown>>;
+  feedback_rules?: Array<Record<string, string>>;
+  negative_seed?: string[];
+  low_star_theme_candidates?: string[];
+  semantic_gap_questions?: string[];
+  borrow_as_hypothesis?: string[];
+  keyword_pool?: string[];
+  keyword_coverage_hint?: {
+    candidate_keywords?: string[];
+    rule?: string;
+  };
+}
+
+interface ToolboxEnhancements {
+  principle?: string;
+  context?: string;
+  competitor?: ToolboxSection;
+  listing?: ToolboxSection;
+  ppc?: ToolboxSection;
+  review?: ToolboxSection;
 }
 
 interface ComplianceViolation {
@@ -1465,6 +1493,60 @@ function DataSourceBadge({ source }: { source?: string; confidence?: string }) {
   );
 }
 
+function ToolboxNotice({ toolbox }: { toolbox?: ToolboxEnhancements }) {
+  if (!toolbox) return null;
+  const sourceSkills = [
+    ...(toolbox.competitor?.source_skills || []),
+    ...(toolbox.listing?.source_skills || []),
+    ...(toolbox.ppc?.source_skills || []),
+    ...(toolbox.review?.source_skills || []),
+  ].filter((item, idx, arr) => item && arr.indexOf(item) === idx);
+  return (
+    <div className="rounded-lg border border-brand-100 bg-brand-50 p-3">
+      <div className="flex items-start gap-2">
+        <FileText className="mt-0.5 h-4 w-4 text-brand-600" />
+        <div>
+          <p className="text-sm font-semibold text-gray-900">Amazon工具箱增强已接入</p>
+          <p className="mt-1 text-xs leading-relaxed text-gray-600">
+            {toolbox.principle || "工具箱只做专业执行补充，主判断仍以AlignX COSMO/8D+2为准。"}
+          </p>
+          {sourceSkills.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {sourceSkills.slice(0, 8).map((skill) => (
+                <span key={skill} className="rounded-full border border-brand-200 bg-white px-2 py-0.5 text-[11px] font-medium text-brand-700">
+                  {skill}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ToolboxList({ title, items, tone = "gray" }: { title: string; items?: string[]; tone?: "gray" | "blue" | "amber" }) {
+  const clean = (items || []).filter(Boolean);
+  if (clean.length === 0) return null;
+  const toneClass = tone === "blue"
+    ? "bg-brand-50 border-brand-100 text-brand-700"
+    : tone === "amber"
+      ? "bg-amber-50 border-amber-100 text-amber-700"
+      : "bg-white border-gray-100 text-gray-600";
+  return (
+    <div>
+      <h4 className="mb-2 text-sm font-medium text-gray-600">{title}</h4>
+      <div className="space-y-2">
+        {clean.map((item, idx) => (
+          <div key={`${title}-${idx}`} className={`rounded-lg border p-3 text-sm leading-relaxed ${toneClass}`}>
+            {item}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /* ---- Sub-tab navigation for single result ---- */
 
 const RESULT_TABS = [
@@ -1504,6 +1586,7 @@ function SingleResultView({
   const isRuleFallback = analysisMode === "rule_fallback" || Boolean(fallbackReason);
   const displayKeywords = getDisplayKeywords(pd, pd.title || result.product_title || "");
   const listingBreakdown = report?.listing_breakdown || fallbackListingBreakdown(pd, displayKeywords);
+  const toolbox = report?.toolbox_enhancements;
   const platformEcoRisk = hasPlatformEcoRisk(pd);
   const ratingHistogram = normalizeRatingHistogram(pd.rating_histogram);
   const compliance = result.amazon_compliance || report?.amazon_compliance;
@@ -1522,6 +1605,7 @@ function SingleResultView({
           </div>
         </div>
       )}
+      <ToolboxNotice toolbox={toolbox} />
       {incompleteSnapshot && (
         <div className="flex items-start gap-3 p-3 rounded-lg bg-amber-50 border border-amber-500/25">
           <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
@@ -1806,6 +1890,19 @@ function SingleResultView({
                 <p className="text-xs mt-1">关键词信息将在抓取到真实Amazon数据时显示</p>
               </div>
             )}
+            <ToolboxList
+              title="工具箱词池补充"
+              items={[
+                ...(toolbox?.competitor?.keyword_pool || []),
+                ...(toolbox?.listing?.keyword_coverage_hint?.candidate_keywords || []),
+              ].slice(0, 10)}
+              tone="blue"
+            />
+            {toolbox?.listing?.keyword_coverage_hint?.rule && (
+              <p className="rounded-lg border border-brand-100 bg-brand-50 p-3 text-xs leading-relaxed text-gray-700">
+                {toolbox.listing.keyword_coverage_hint.rule}
+              </p>
+            )}
             {/* Keyword score from analysis */}
             {report?.analysis?.functionality && (
               <div>
@@ -1854,6 +1951,24 @@ function SingleResultView({
                 <p>暂无优化建议</p>
               </div>
             )}
+            <ToolboxList
+              title="工具箱：可测试借鉴假设"
+              items={toolbox?.competitor?.borrow_as_hypothesis}
+              tone="blue"
+            />
+            <ToolboxList
+              title="工具箱：竞品语义差距检查"
+              items={toolbox?.competitor?.semantic_gap_questions}
+            />
+            <ToolboxList
+              title="工具箱：广告验证蓝图"
+              items={(toolbox?.ppc?.campaign_blueprint || []).map((item) =>
+                [item.campaign, item.purpose, Array.isArray(item.keywords) ? `关键词：${item.keywords.join(", ")}` : ""]
+                  .filter(Boolean)
+                  .join(" - ")
+              )}
+              tone="blue"
+            />
 
             {displayKeywords.length > 0 && (
               <div>
@@ -1950,6 +2065,15 @@ function SingleResultView({
                 <p className="text-xs mt-1">系统会优先抓取评分分布和3星及以下评论作为反向验证证据。</p>
               </div>
             )}
+            <ToolboxList
+              title="工具箱：评论/退货复盘动作"
+              items={toolbox?.review?.actions}
+              tone="amber"
+            />
+            <ToolboxList
+              title="工具箱：低星主题候选"
+              items={toolbox?.review?.low_star_theme_candidates}
+            />
           </CardContent>
         </Card>
       )}

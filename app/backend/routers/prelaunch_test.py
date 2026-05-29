@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.database import get_db
 from dependencies.auth import get_current_user, get_user_scope_ids
 from schemas.auth import UserResponse
+from services.amazon_skill_toolbox import build_toolbox_enhancements, merge_toolbox_into_ad_validation_plan
 from services.ai_gateway import AgentRequest, AIGatewayService
 from services.prelaunch_test_results import Prelaunch_test_resultsService
 
@@ -53,6 +54,7 @@ class SaveResultRequest(BaseModel):
     ordered_first_fixes: list[str] = []
     rule_context: dict[str, Any] = {}
     vision_alignment: dict[str, Any] = {}
+    toolbox_enhancements: dict[str, Any] = {}
     has_images: int = 0  # 0=none, 1=main, 2=a+, 3=both
 
 
@@ -373,7 +375,7 @@ def _build_rule_evaluation(request: EvaluateLaunchRequest) -> dict[str, Any]:
         else "未提供图片素材，后台按Listing文本反推主图应承接的点击理由，图片维度为低置信评分。"
     )
 
-    return {
+    result = {
         "title_keywords": _dimension(
             title_score,
             f"标题职责是平台搜索识别和用户一眼归类；按品牌/核心关键词/关键属性/规格/使用对象或场景反向评分。禁止促销词、特殊符号、同词重复超过两次和无关堆词。关键词{len(keyword_items)}个，功能命中{function_hits}，场景命中{scenario_hits}。",
@@ -464,6 +466,27 @@ def _build_rule_evaluation(request: EvaluateLaunchRequest) -> dict[str, Any]:
         },
         "ai_called": False,
     }
+    toolbox = build_toolbox_enhancements(
+        product_data={
+            "title": request.title,
+            "category": request.category,
+            "price": request.price,
+            "bullet_points": [item.strip() for item in re.split(r"\n+", request.bullet_points or "") if item.strip()],
+            "aplus_content": request.a_plus_desc,
+            "has_a_plus": bool(request.a_plus_desc or request.a_plus_image_count),
+            "image_count": request.main_image_count,
+            "main_keywords": request.keywords,
+        },
+        scores={
+            "product_identity": title_score,
+            "risk_elimination": backend_keyword_score,
+            "scenario": image_score,
+        },
+        context="prelaunch",
+    )
+    result["toolbox_enhancements"] = toolbox
+    result["ad_validation_plan"] = merge_toolbox_into_ad_validation_plan({}, toolbox)
+    return result
 
 
 async def _enrich_with_ai(request: EvaluateLaunchRequest, result: dict[str, Any]) -> dict[str, Any]:
@@ -537,6 +560,7 @@ async def save_test_result(
             "ordered_first_fixes": request.ordered_first_fixes,
             "rule_context": request.rule_context,
             "vision_alignment": request.vision_alignment,
+            "toolbox_enhancements": request.toolbox_enhancements,
             "input_snapshot": request.input_snapshot,
             "saved_kind": request.saved_kind,
             "optimization_round": request.optimization_round,

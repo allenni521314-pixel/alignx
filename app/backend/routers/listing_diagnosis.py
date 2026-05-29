@@ -36,6 +36,7 @@ from dependencies.auth import get_current_user, get_user_scope_ids
 from schemas.auth import UserResponse
 from services.aihub import AIHubService
 from services.amazon_rules_engine import evaluate_amazon_compliance, load_active_rules
+from services.amazon_skill_toolbox import build_toolbox_enhancements, merge_toolbox_into_ad_validation_plan
 from services.judgment_feedback_rounds import JudgmentFeedbackRoundService
 from services.listing_diagnoses import Listing_diagnosesService
 from services.judgment_system import JudgmentSystemService
@@ -236,6 +237,7 @@ class DiagnoseResponse(BaseModel):
     diagnosis_confidence: dict = {}
     ad_validation_plan: dict = {}
     amazon_compliance: dict = {}
+    toolbox_enhancements: dict = {}
     trace: dict = {}
     # =========================================
 
@@ -1741,6 +1743,31 @@ async def _diagnose_single(
 
     amazon_compliance = await _evaluate_listing_compliance(listing, db)
     data["amazon_compliance"] = amazon_compliance
+    toolbox_product_data = {
+        "asin": listing.asin,
+        "title": listing.title,
+        "category": listing.category,
+        "price": listing.price,
+        "rating": listing.rating,
+        "review_count": listing.review_count,
+        "bullet_points": [item.strip() for item in re.split(r"\n+", listing.bullet_points or "") if item.strip()],
+        "description_summary": listing.description,
+        "aplus_content": listing.a_plus_content,
+        "has_a_plus": listing.has_a_plus or bool(listing.a_plus_content),
+        "has_video": listing.has_video,
+        "image_count": listing.image_count,
+        "main_keywords": (data.get("ad_keywords") or {}).get("high_intent_keywords")
+            or (data.get("keyword_coverage") or {}).get("covered_keywords")
+            or listing.backend_keywords,
+    }
+    toolbox_enhancements = build_toolbox_enhancements(
+        product_data=toolbox_product_data,
+        scores=scores,
+        context="listing",
+    )
+    data["toolbox_enhancements"] = toolbox_enhancements
+    ad_validation_plan = merge_toolbox_into_ad_validation_plan(ad_validation_plan, toolbox_enhancements)
+    data["ad_validation_plan"] = ad_validation_plan
     sanitized_listing = _sanitize_listing_for_ai(listing)
     content_fingerprint = _listing_content_fingerprint(sanitized_listing)
     data["diagnosis_meta"] = {
@@ -1845,6 +1872,7 @@ async def _diagnose_single(
         "diagnosis_confidence": diagnosis_confidence,
         "cosmo_rufus_analysis": cosmo_rufus_analysis,
         "amazon_compliance": amazon_compliance,
+        "toolbox_enhancements": toolbox_enhancements,
         "trace": {
             "model_chain": evidence_chain.get("model_chain", []),
             "cosmo_rufus_evidence_chain": evidence_chain,

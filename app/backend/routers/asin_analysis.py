@@ -22,6 +22,7 @@ from schemas.auth import UserResponse
 from services.aihub import AIHubService
 from services.amazon_rules_engine import evaluate_amazon_compliance, load_active_rules
 from services.amazon_scraper import scrape_amazon_product
+from services.amazon_skill_toolbox import build_toolbox_enhancements
 from services.asin_analyses import Asin_analysesService
 
 logger = logging.getLogger(__name__)
@@ -450,6 +451,11 @@ async def _get_cached_asin_analysis(asin: str, marketplace: str, db: AsyncSessio
     analysis_report["scores"] = analysis_report.get("scores") or scores
     if not analysis_report.get("listing_breakdown"):
         analysis_report["listing_breakdown"] = _build_listing_breakdown(product_data, analysis_report)
+    analysis_report["toolbox_enhancements"] = analysis_report.get("toolbox_enhancements") or build_toolbox_enhancements(
+        product_data=product_data,
+        scores=scores,
+        context="competitor",
+    )
     data_source = str(product_data.get("_data_source") or analysis_report.get("data_source") or "cached_analysis")
     amazon_compliance = analysis_report.get("amazon_compliance") or {}
     return AnalyzeAsinResponse(
@@ -1144,6 +1150,11 @@ async def _analyze_single_asin_with_scraped(
     scoring_data["listing_breakdown"] = _build_listing_breakdown(product_data, scoring_data)
     amazon_compliance = await _evaluate_asin_compliance(product_data, marketplace, db)
     scoring_data["amazon_compliance"] = amazon_compliance
+    scoring_data["toolbox_enhancements"] = build_toolbox_enhancements(
+        product_data=product_data,
+        scores=scores,
+        context="competitor",
+    )
 
     # Save to database
     svc = Asin_analysesService(db)
