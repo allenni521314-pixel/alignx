@@ -1333,7 +1333,7 @@ async def parse_html_and_analyze(
                 parsed["bsr_rank"] = request.captured_bsr_rank.strip()
             if request.captured_image_count.strip():
                 parsed["image_count"] = request.captured_image_count.strip()
-        if not parsed.get("low_star_reviews"):
+        if not parsed.get("low_star_reviews") and request.source != "local_browser_capture":
             parsed["low_star_reviews"] = await fetch_low_star_reviews(asin, request.marketplace)
 
         logger.info(f"parse-html-analyze: parsed {asin}: {parsed['title'][:60]}")

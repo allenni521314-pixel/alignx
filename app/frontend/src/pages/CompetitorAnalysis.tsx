@@ -911,7 +911,7 @@ export default function CompetitorAnalysis() {
     setMarketplace(capture.marketplace || marketplace);
     setAnalyzing(true);
     setSingleResult(null);
-    setAnalyzeProgress("正在解析本地浏览器采集证据并生成竞品诊断...");
+    setAnalyzeProgress("正在解析本地浏览器当前页证据并生成竞品诊断；不会额外补抓评论页...");
     try {
       const res = await axios.post(
         `${getLongRunningApiBase()}/api/v1/asin-analysis/parse-html-analyze`,
@@ -928,7 +928,7 @@ export default function CompetitorAnalysis() {
           captured_image_count: capture.imageCount ? String(capture.imageCount) : "",
           captured_bullets: capture.bullets || [],
         },
-        { headers: getAuthHeaders(), timeout: 180000 }
+        { headers: getAuthHeaders(), timeout: 120000 }
       );
       const data = res.data;
       if (data?.success && data.scores) {
@@ -947,7 +947,11 @@ export default function CompetitorAnalysis() {
         toast.error(data?.error || "本地采集解析失败");
       }
     } catch (err) {
-      const msg = axios.isAxiosError(err) ? err.response?.data?.detail || err.message : "本地采集分析失败";
+      const msg = axios.isAxiosError(err)
+        ? err.code === "ECONNABORTED" || err.message?.includes("timeout")
+          ? "本地采集分析超过120秒，请重试；系统不会保存半成品结果。"
+          : err.response?.data?.detail || err.message
+        : "本地采集分析失败";
       toast.error(msg);
     } finally {
       setAnalyzing(false);
@@ -1299,7 +1303,9 @@ export default function CompetitorAnalysis() {
                         {analyzeProgress || "正在获取Amazon真实数据并生成8D+2评分，请稍候..."}
                       </div>
                       <p className="text-xs text-gray-500 pl-6">
-                        💡 AI深度分析通常需要20-40秒，请耐心等待。
+                        {analyzeProgress.includes("本地浏览器")
+                          ? "本地采集只分析当前页面证据；缺评论页、低星评论或BSR时会降置信，不会让AI猜。"
+                          : "AI深度分析通常需要20-40秒，请耐心等待。"}
                       </p>
                     </div>
                   )}
