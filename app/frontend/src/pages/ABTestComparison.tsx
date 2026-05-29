@@ -9,6 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { getAuthHeaders } from "@/lib/auth-headers";
 import { saveActionSnapshot } from "@/lib/workflow-api";
 import { useRequireAuth } from "@/hooks/useRequireAuth";
+import { finishModuleTask, removeModuleTask, upsertModuleTask } from "@/lib/module-task-store";
 import { toast } from "sonner";
 import axios from "axios";
 import {
@@ -416,6 +417,15 @@ export default function ABTestComparison() {
 
     setLoading(true);
     setResult(null);
+    const moduleTaskId = `ab-test-comparison:${Date.now()}`;
+    upsertModuleTask({
+      id: moduleTaskId,
+      moduleKey: "ab-test-comparison",
+      label: "A/B测试推理",
+      status: "running",
+      detail: "正在调用AI比较两个Listing变量",
+      path: "/ab-test-comparison",
+    });
     try {
       const res = await axios.post(
         `${getLongRunningApiBase()}/api/v1/causal/ab-comparison`,
@@ -447,6 +457,7 @@ export default function ABTestComparison() {
         ai_called: source !== "backend_rules_fallback",
         source_record_table: "action_snapshots",
       }).catch(() => {});
+      finishModuleTask(moduleTaskId, "completed", "A/B测试推理完成");
       toast.success(source === "backend_rules_fallback" ? "A/B测试已用后台规则兜底" : "AI A/B推理完成");
     } catch (e) {
       const reason = axios.isAxiosError(e)
@@ -470,9 +481,11 @@ export default function ABTestComparison() {
         ai_called: false,
         source_record_table: "action_snapshots",
       }).catch(() => {});
+      finishModuleTask(moduleTaskId, "failed", reason);
       toast.warning("后端未返回结果，已生成临时本地兜底");
     } finally {
       setLoading(false);
+      window.setTimeout(() => removeModuleTask(moduleTaskId), 1200);
     }
   };
 

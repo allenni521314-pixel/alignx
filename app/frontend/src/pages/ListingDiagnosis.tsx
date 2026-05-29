@@ -66,6 +66,7 @@ import { getAuthHeaders } from "@/lib/auth-headers";
 import { AsinPicker, type AsinProduct } from "@/components/AsinPicker";
 import { getCompetitorInsights, updateProductLifecycle, saveTimelineEvent, saveActionSnapshot, type CompetitorInsight, type ActionSnapshot } from "@/lib/workflow-api";
 import { client } from "@/lib/api";
+import { finishModuleTask, removeModuleTask, upsertModuleTask } from "@/lib/module-task-store";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -1981,6 +1982,15 @@ export default function ListingDiagnosis() {
     let cancelled = false;
     setDiagnosing(true);
     setDiagnosisPhase("analyzing");
+    const moduleTaskId = `listing-diagnosis:${taskId}`;
+    upsertModuleTask({
+      id: moduleTaskId,
+      moduleKey: "listing-diagnosis",
+      label: "本品Listing诊断",
+      status: "running",
+      detail: "正在恢复后台AI诊断任务",
+      path: "/listing-diagnosis",
+    });
     pollDiagnosisTask(taskId)
       .then((task) => {
         if (cancelled) return;
@@ -2005,17 +2015,23 @@ export default function ListingDiagnosis() {
             savedContext.diagPayload || { listing: restoredListing }
           );
           toast.success("后台诊断已完成，结果已恢复");
+          finishModuleTask(moduleTaskId, "completed", "本品诊断已恢复完成");
         }
       })
       .catch((err) => {
         if (cancelled) return;
         localStorage.removeItem(LISTING_DIAGNOSIS_TASK_KEY);
         localStorage.removeItem(LISTING_DIAGNOSIS_TASK_CONTEXT_KEY);
-        toast.error(err instanceof Error ? err.message : "后台诊断状态恢复失败");
+        const msg = err instanceof Error ? err.message : "后台诊断状态恢复失败";
+        finishModuleTask(moduleTaskId, "failed", msg);
+        toast.error(msg);
         setDiagnosisPhase("error");
       })
       .finally(() => {
-        if (!cancelled) setDiagnosing(false);
+        if (!cancelled) {
+          setDiagnosing(false);
+          window.setTimeout(() => removeModuleTask(moduleTaskId), 1200);
+        }
       });
     return () => {
       cancelled = true;
@@ -2615,6 +2631,7 @@ export default function ListingDiagnosis() {
     setDiagnosisPhase("analyzing");
     // Don't clear diagResult here - keep previous result visible until new one arrives
     // This prevents page layout jumps during analysis
+    let moduleTaskId: string | null = null;
     try {
       // Flow 2: Fetch competitor insights to enrich diagnosis context
       let competitorContext = "";
@@ -2663,6 +2680,15 @@ export default function ListingDiagnosis() {
         diagPayload,
         { headers: getAuthHeaders(), timeout: 30000 }
       );
+      moduleTaskId = `listing-diagnosis:${taskRes.data.task_id}`;
+      upsertModuleTask({
+        id: moduleTaskId,
+        moduleKey: "listing-diagnosis",
+        label: "本品Listing诊断",
+        status: "running",
+        detail: "后台正在生成正式诊断报告",
+        path: "/listing-diagnosis",
+      });
       localStorage.setItem(LISTING_DIAGNOSIS_TASK_KEY, taskRes.data.task_id);
       localStorage.setItem(
         LISTING_DIAGNOSIS_TASK_CONTEXT_KEY,
@@ -2674,6 +2700,7 @@ export default function ListingDiagnosis() {
       localStorage.removeItem(LISTING_DIAGNOSIS_TASK_CONTEXT_KEY);
       if (!task.result_payload) throw new Error("诊断完成但未返回结果，请从历史诊断查看");
       await applyDiagnosisResult(task.result_payload, activeListing, activeFetchMeta, diagPayload);
+      finishModuleTask(moduleTaskId, "completed", "本品诊断完成");
     } catch (err: unknown) {
       // Robust error handling - never let errors propagate to cause page navigation
       try {
@@ -2682,13 +2709,16 @@ export default function ListingDiagnosis() {
           : err instanceof Error
             ? err.message
           : "诊断失败，请重试";
+        if (moduleTaskId) finishModuleTask(moduleTaskId, "failed", msg);
         toast.error(msg);
       } catch {
+        if (moduleTaskId) finishModuleTask(moduleTaskId, "failed", "诊断失败，请重试");
         toast.error("诊断失败，请重试");
       }
       setDiagnosisPhase("error");
     } finally {
       setDiagnosing(false);
+      if (moduleTaskId) window.setTimeout(() => removeModuleTask(moduleTaskId as string), 1200);
     }
   };
 

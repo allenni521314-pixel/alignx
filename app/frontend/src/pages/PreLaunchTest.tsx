@@ -11,6 +11,7 @@ import { useRequireAuth } from "@/hooks/useRequireAuth";
 import { getAuthHeaders } from "@/lib/auth-headers";
 import { toast } from "sonner";
 import { saveActionSnapshot } from "@/lib/workflow-api";
+import { finishModuleTask, removeModuleTask, upsertModuleTask } from "@/lib/module-task-store";
 import jsPDF from "jspdf";
 import {
   ClipboardCheck,
@@ -1348,9 +1349,18 @@ export default function PreLaunchTest() {
       return;
     }
 
+    const moduleTaskId = `listing-launch-check:${Date.now()}`;
     setScoring(true);
     setResult(null);
     setSaved(false);
+    upsertModuleTask({
+      id: moduleTaskId,
+      moduleKey: "listing-launch-check",
+      label: "上新检测评分",
+      status: "running",
+      detail: "正在识别图片、调用AI并生成上架前诊断",
+      path: "/listing-launch-check",
+    });
     try {
       const mainImageTexts = await runImageOcr(mainImages, "主图/辅图");
       const aPlusImageTexts = await runImageOcr(aPlusImages, "A+");
@@ -1371,12 +1381,16 @@ export default function PreLaunchTest() {
         use_ai: true,
       });
       setResult(parsed);
+      finishModuleTask(moduleTaskId, "completed", "上新检测完成");
       toast.success(parsed.ai_called ? "上新检测完成，已接入OCR、后台规则和AI辅助意见" : "上新检测完成，已使用OCR和后台规则评分");
       saveScoringResult(parsed, true, { mainImageTexts, aPlusImageTexts }).catch(() => {});
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "评分失败，请稍后重试");
+      const msg = err instanceof Error ? err.message : "评分失败，请稍后重试";
+      finishModuleTask(moduleTaskId, "failed", msg);
+      toast.error(msg);
     } finally {
       setScoring(false);
+      window.setTimeout(() => removeModuleTask(moduleTaskId), 1200);
     }
   };
 

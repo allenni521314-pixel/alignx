@@ -36,6 +36,11 @@ import {
 } from "@/components/ui/tooltip";
 import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
+import {
+  listActiveModuleTasks,
+  subscribeModuleTasks,
+  type ModuleTaskKey,
+} from "@/lib/module-task-store";
 
 /* ------------------------------------------------------------------ */
 /*  AlignX flow navigation                                             */
@@ -45,6 +50,7 @@ interface NavItem {
   path: string;
   label: string;
   icon: React.ElementType;
+  moduleKey: ModuleTaskKey;
   disabled?: boolean;
   locked?: boolean;
 }
@@ -70,6 +76,7 @@ const navGroups: NavGroup[] = [
         path: "/asin-manager",
         label: "ASIN选品",
         icon: Layers3,
+        moduleKey: "asin-manager",
       },
     ],
   },
@@ -84,16 +91,19 @@ const navGroups: NavGroup[] = [
         path: "/listing-launch-check",
         label: "上新检测",
         icon: Rocket,
+        moduleKey: "listing-launch-check",
       },
       {
         path: "/competitor-analysis?tab=strategy",
         label: "竞品诊断",
         icon: Swords,
+        moduleKey: "competitor-analysis",
       },
       {
         path: "/listing-diagnosis",
         label: "本品诊断",
         icon: Stethoscope,
+        moduleKey: "listing-diagnosis",
       },
     ],
   },
@@ -104,9 +114,9 @@ const navGroups: NavGroup[] = [
     color: "text-amber-400",
     activeColor: "text-amber-600",
     items: [
-      { path: "/ab-test-comparison", label: "测试计划", icon: ClipboardList },
-      { path: "/ad-analytics?view=records", label: "执行记录", icon: BarChart3 },
-      { path: "/ad-analytics?view=validation", label: "效果验证", icon: ShieldCheck },
+      { path: "/ab-test-comparison", label: "测试计划", icon: ClipboardList, moduleKey: "ab-test-comparison" },
+      { path: "/ad-analytics?view=records", label: "执行记录", icon: BarChart3, moduleKey: "ad-analytics" },
+      { path: "/ad-analytics?view=validation", label: "效果验证", icon: ShieldCheck, moduleKey: "ad-analytics" },
     ],
   },
   {
@@ -116,12 +126,13 @@ const navGroups: NavGroup[] = [
     color: "text-emerald-400",
     activeColor: "text-emerald-600",
     items: [
-      { path: "/optimization-suggestions?view=data-feedback", label: "验证回流", icon: Database },
-      { path: "/optimization-suggestions?view=conclusion", label: "复盘结论", icon: MessageSquareText },
+      { path: "/optimization-suggestions?view=data-feedback", label: "验证回流", icon: Database, moduleKey: "optimization-suggestions" },
+      { path: "/optimization-suggestions?view=conclusion", label: "复盘结论", icon: MessageSquareText, moduleKey: "optimization-suggestions" },
       {
         path: "/optimization-suggestions?view=next-round",
         label: "下一轮优化",
         icon: RotateCcw,
+        moduleKey: "optimization-suggestions",
       },
     ],
   },
@@ -132,10 +143,28 @@ const navGroups: NavGroup[] = [
     color: "text-gold-400",
     activeColor: "text-gold-600",
     items: [
-      { path: "/settings", label: "系统设置", icon: Settings },
+      { path: "/settings", label: "系统设置", icon: Settings, moduleKey: "settings" },
     ],
   },
 ];
+
+const LEGACY_TASKS: Array<{ storageKey: string; moduleKey: ModuleTaskKey }> = [
+  { storageKey: "alignx_active_asin_diagnosis_task_id", moduleKey: "asin-manager" },
+  { storageKey: "alignx_active_listing_diagnosis_task_id", moduleKey: "listing-diagnosis" },
+];
+
+const readTaskCounts = () => {
+  const counts: Record<string, number> = {};
+  listActiveModuleTasks().forEach((task) => {
+    counts[task.moduleKey] = (counts[task.moduleKey] || 0) + 1;
+  });
+  LEGACY_TASKS.forEach((task) => {
+    if (localStorage.getItem(task.storageKey)) {
+      counts[task.moduleKey] = Math.max(1, counts[task.moduleKey] || 0);
+    }
+  });
+  return counts;
+};
 
 export function AppSidebar() {
   const navigate = useNavigate();
@@ -143,12 +172,24 @@ export function AppSidebar() {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
+  const [taskCounts, setTaskCounts] = useState<Record<string, number>>({});
 
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 768);
     check();
     window.addEventListener("resize", check);
     return () => window.removeEventListener("resize", check);
+  }, []);
+
+  useEffect(() => {
+    const refresh = () => setTaskCounts(readTaskCounts());
+    refresh();
+    const unsubscribe = subscribeModuleTasks(refresh);
+    const timer = window.setInterval(refresh, 3000);
+    return () => {
+      unsubscribe();
+      window.clearInterval(timer);
+    };
   }, []);
 
   const handleLogout = async () => {
@@ -192,6 +233,7 @@ export function AppSidebar() {
   const renderNavButton = (item: NavItem, groupColor: string) => {
     const isActive = isNavActive(item.path);
     const isDisabled = item.disabled === true;
+    const activeTaskCount = taskCounts[item.moduleKey] || 0;
     return (
       <Tooltip key={item.path} delayDuration={0}>
         <TooltipTrigger asChild>
@@ -225,7 +267,21 @@ export function AppSidebar() {
                     (即将上线)
                   </span>
                 )}
+                {activeTaskCount > 0 && (
+                  <span
+                    className={cn(
+                      "ml-auto inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold",
+                      isActive ? "bg-white/20 text-white" : "bg-emerald-50 text-emerald-700"
+                    )}
+                    title="该模块有后台任务正在运行"
+                  >
+                    {activeTaskCount}
+                  </span>
+                )}
               </span>
+            )}
+            {!showLabel && activeTaskCount > 0 && (
+              <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-emerald-500 ring-2 ring-white" />
             )}
           </button>
         </TooltipTrigger>
@@ -235,6 +291,7 @@ export function AppSidebar() {
             className="bg-white text-gray-900 border-gray-200"
           >
             {item.label}
+            {activeTaskCount > 0 ? ` · ${activeTaskCount} 个任务运行中` : ""}
             {isDisabled ? " (即将上线)" : ""}
           </TooltipContent>
         )}
