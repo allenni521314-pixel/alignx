@@ -31,7 +31,6 @@ import { toast } from "sonner";
 import axios from "axios";
 import { getAuthHeaders } from "@/lib/auth-headers";
 import { saveCompetitorInsight, updateProductLifecycle, saveTimelineEvent, saveActionSnapshot, getActionSnapshots, type ActionSnapshot } from "@/lib/workflow-api";
-import { finishModuleTask, removeModuleTask, upsertModuleTask } from "@/lib/module-task-store";
 
 /* ------------------------------------------------------------------ */
 /*  URL / ASIN Extraction Helpers (same as ListingDiagnosis)           */
@@ -172,7 +171,6 @@ interface AnalysisReport {
 }
 
 interface ToolboxSection {
-  source_skills?: string[];
   role?: string;
   issues?: Array<Record<string, string>>;
   actions?: Array<Record<string, string>>;
@@ -936,20 +934,11 @@ export default function CompetitorAnalysis() {
     if (!capture.html || !capture.asin) return;
 
     localStorage.removeItem("alignx_local_browser_capture");
-    const moduleTaskId = `competitor-local-capture:${capture.asin}`;
     setSingleAsin(capture.asin);
     setMarketplace(capture.marketplace || marketplace);
     setAnalyzing(true);
     setSingleResult(null);
     setAnalyzeProgress("正在解析本地浏览器当前页证据并生成竞品诊断；不会额外补抓评论页...");
-    upsertModuleTask({
-      id: moduleTaskId,
-      moduleKey: "competitor-analysis",
-      label: `竞品本地采集 ${capture.asin}`,
-      status: "running",
-      detail: "正在解析本地浏览器证据并生成竞品诊断",
-      path: "/competitor-analysis?tab=strategy",
-    });
     try {
       const res = await axios.post(
         `${getLongRunningApiBase()}/api/v1/asin-analysis/parse-html-analyze`,
@@ -980,10 +969,8 @@ export default function CompetitorAnalysis() {
           data_source: data.data_source || "local_browser_capture",
           id: data.id,
         } as AnalysisResult));
-        finishModuleTask(moduleTaskId, "completed", "竞品本地采集分析完成");
         toast.success("已用本地浏览器采集证据完成竞品诊断");
       } else {
-        finishModuleTask(moduleTaskId, "failed", data?.error || "本地采集解析失败");
         toast.error(data?.error || "本地采集解析失败");
       }
     } catch (err) {
@@ -992,12 +979,10 @@ export default function CompetitorAnalysis() {
           ? "本地采集分析超过120秒，请重试；系统不会保存半成品结果。"
           : err.response?.data?.detail || err.message
         : "本地采集分析失败";
-      finishModuleTask(moduleTaskId, "failed", msg);
       toast.error(msg);
     } finally {
       setAnalyzing(false);
       setAnalyzeProgress("");
-      window.setTimeout(() => removeModuleTask(moduleTaskId), 1200);
     }
   }, [authLoading, marketplace]);
 
@@ -1038,15 +1023,6 @@ export default function CompetitorAnalysis() {
     setAnalyzing(true);
     setSingleResult(null);
     setAnalyzeProgress("");
-    const moduleTaskId = `competitor-analysis:${asin}`;
-    upsertModuleTask({
-      id: moduleTaskId,
-      moduleKey: "competitor-analysis",
-      label: `竞品诊断 ${asin}`,
-      status: "running",
-      detail: "正在抓取页面并做AI竞品诊断",
-      path: "/competitor-analysis?tab=strategy",
-    });
 
     try {
       const result = await analyzeAsinWithProxy(asin, mp);
@@ -1110,18 +1086,13 @@ export default function CompetitorAnalysis() {
         } catch {
           // Non-critical
         }
-        finishModuleTask(moduleTaskId, "completed", "竞品诊断完成");
-      } else {
-        finishModuleTask(moduleTaskId, "failed", "竞品诊断未返回可用结果");
       }
     } catch (err: unknown) {
       const msg = axios.isAxiosError(err) ? err.response?.data?.detail || "分析失败" : "分析失败";
-      finishModuleTask(moduleTaskId, "failed", msg);
       toast.error(msg);
     } finally {
       setAnalyzing(false);
       setAnalyzeProgress("");
-      window.setTimeout(() => removeModuleTask(moduleTaskId), 1200);
     }
   };
 
@@ -1886,7 +1857,7 @@ function SingleResultView({
               </div>
             )}
             <ToolboxList
-              title="工具箱词池补充"
+              title="词池补充"
               items={[
                 ...(toolbox?.competitor?.keyword_pool || []),
                 ...(toolbox?.listing?.keyword_coverage_hint?.candidate_keywords || []),
@@ -1947,16 +1918,16 @@ function SingleResultView({
               </div>
             )}
             <ToolboxList
-              title="工具箱：可测试借鉴假设"
+              title="可测试借鉴假设"
               items={toolbox?.competitor?.borrow_as_hypothesis}
               tone="blue"
             />
             <ToolboxList
-              title="工具箱：竞品语义差距检查"
+              title="竞品语义差距检查"
               items={toolbox?.competitor?.semantic_gap_questions}
             />
             <ToolboxList
-              title="工具箱：广告验证蓝图"
+              title="广告验证蓝图"
               items={(toolbox?.ppc?.campaign_blueprint || []).map((item) =>
                 [item.campaign, item.purpose, Array.isArray(item.keywords) ? `关键词：${item.keywords.join(", ")}` : ""]
                   .filter(Boolean)
@@ -2061,12 +2032,12 @@ function SingleResultView({
               </div>
             )}
             <ToolboxList
-              title="工具箱：评论/退货复盘动作"
+              title="评论/退货复盘动作"
               items={toolbox?.review?.actions}
               tone="amber"
             />
             <ToolboxList
-              title="工具箱：低星主题候选"
+              title="低星主题候选"
               items={toolbox?.review?.low_star_theme_candidates}
             />
           </CardContent>

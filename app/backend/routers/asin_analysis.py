@@ -2187,11 +2187,37 @@ def _build_six_dimension_rule_engine(asin: str, marketplace: str, product_title:
     diff_hits = sum(1 for term in diff_terms if term in text)
     compliance_hits = sum(1 for term in compliance_terms if term in text)
     risk_hits = sum(1 for term in risk_terms if term in text)
+    keyword_validation = product_data.get("keyword_sales_validation") if isinstance(product_data.get("keyword_sales_validation"), dict) else {}
+    validation_opportunity_keywords = keyword_validation.get("opportunity_keywords") or []
+    validation_assist = keyword_validation.get("market_validation_assist") if isinstance(keyword_validation.get("market_validation_assist"), dict) else {}
+    assist_keywords = validation_assist.get("keyword_expansion") if isinstance(validation_assist, dict) else []
+    if isinstance(validation_opportunity_keywords, list) or isinstance(assist_keywords, list):
+        validation_keyword_blob = " ".join(
+            str(item)
+            for item in [*(validation_opportunity_keywords if isinstance(validation_opportunity_keywords, list) else []), *(assist_keywords if isinstance(assist_keywords, list) else [])]
+            if item
+        )
+    else:
+        validation_keyword_blob = ""
     keyword_blob = " ".join(
         str(product_data.get(key) or "")
         for key in ("keyword_data", "main_keywords", "search_keywords", "backend_keywords")
     ).lower()
+    if validation_keyword_blob:
+        keyword_blob = f"{keyword_blob} {validation_keyword_blob.lower()}"
     keyword_count = len({kw for kw in re.split(r"[,;\n]+", keyword_blob) if kw.strip()})
+    keyword_rank_snapshots = product_data.get("keyword_rank_snapshots") or keyword_validation.get("rank_snapshots") or []
+    if not isinstance(keyword_rank_snapshots, list):
+        keyword_rank_snapshots = []
+    validation_organic_strength = _num_value(keyword_validation.get("organic_rank_strength"), -1) if keyword_validation else -1
+    validation_ad_risk = _num_value(keyword_validation.get("ad_dependency_risk"), -1) if keyword_validation else -1
+    validation_score = _num_value(keyword_validation.get("keyword_sales_score"), -1) if keyword_validation else -1
+    validation_top20_count = sum(
+        1
+        for row in keyword_rank_snapshots
+        if isinstance(row, dict) and _num_value(row.get("organic_position"), 999) <= 20
+    )
+    validation_sponsored_count = sum(1 for row in keyword_rank_snapshots if isinstance(row, dict) and row.get("is_sponsored"))
     top20 = product_data.get("top20_competitors") or product_data.get("top40_items") or []
     top20_count = len(top20) if isinstance(top20, list) else 0
     low_review_rank_count = 0
@@ -2206,27 +2232,45 @@ def _build_six_dimension_rule_engine(asin: str, marketplace: str, product_title:
             if item.get("isSponsored") or item.get("sponsored"):
                 sponsored_count += 1
     sponsored_ratio = sponsored_count / top20_count if top20_count else _num_value(product_data.get("sponsored_ratio"), 0)
+    if keyword_validation and not top20_count and validation_ad_risk >= 0:
+        sponsored_ratio = max(sponsored_ratio, min(0.8, validation_ad_risk / 100))
     organic_entry_score = 4.5 if bsr and bsr <= 3000 and reviews < 10000 else 3.6 if bsr and bsr <= 20000 else 2.4 if bsr else 2.8
+    if validation_organic_strength >= 75:
+        organic_entry_score = max(organic_entry_score, 4.2)
+    elif 0 <= validation_organic_strength < 45:
+        organic_entry_score = min(organic_entry_score, 2.7)
     if reviews >= 30000 and bsr and bsr <= 5000:
         organic_entry_score = min(organic_entry_score, 2.2)
     review_barrier_score = 4.4 if reviews < 800 else 3.5 if reviews < 5000 else 2.4 if reviews < 30000 else 1.5
+    validation_new_entry_case = bool(validation_top20_count and reviews and reviews <= 800)
+    search_entry_evidence = [f"关键词证据 {keyword_count} 组", f"BSR {int(bsr)}" if bsr else "BSR缺失"]
+    if validation_organic_strength >= 0:
+        search_entry_evidence.append(f"自然流量强度 {round(validation_organic_strength)}")
+    organic_access_evidence = [f"BSR {int(bsr)}" if bsr else "BSR缺失", f"评论 {int(reviews)}"]
+    if validation_top20_count:
+        organic_access_evidence.append(f"核心词Top20自然位 {validation_top20_count} 个")
+    ad_pressure_evidence = [f"广告位占比 {round(sponsored_ratio * 100)}%"]
+    if validation_sponsored_count:
+        ad_pressure_evidence.append(f"核心词广告位命中 {validation_sponsored_count} 个")
+    elif validation_ad_risk >= 0:
+        ad_pressure_evidence.append(f"广告依赖风险 {round(validation_ad_risk)}%")
 
     item_map = {
         "pain_clarity": _score_item(min(5, 1.5 + pain_hits * 0.7), [f"痛点词命中 {pain_hits} 个"], [] if pain_hits >= 2 else ["标题/五点未充分暴露用户痛点"], "补充评论痛点和差评问题，确认是否是真需求。"),
         "usage_frequency": _score_item(4.5 if any(x in text for x in ["daily", "everyday", "home", "office", "cat", "charger"]) else 3, ["存在日常/高频使用信号"] if any(x in text for x in ["daily", "everyday", "home", "office", "cat", "charger"]) else [], ["缺少使用频率证据"] if not any(x in text for x in ["daily", "everyday", "home", "office", "cat", "charger"]) else [], "用评论、QA或场景词确认使用频率。"),
         "demand_rigidity": _score_item(4.2 if pain_hits >= 3 else 3 if pain_hits >= 1 else 2, [f"痛点强度 {pain_hits}"], [] if pain_hits else ["刚需证据不足"], "判断用户是否必须解决该问题，而不是可买可不买。"),
         "payment_clarity": _score_item(4.3 if rating >= 4.3 and reviews >= 100 else 3.5 if price > 0 and rating >= 4 else 2.5, [f"价格 {price}", f"评分 {rating}", f"评论 {int(reviews)}"], ["价值支撑不足"] if rating < 4.1 or reviews < 50 else [], "用功能、效果、信任证据支撑付费理由。"),
-        "core_keyword_capacity": _score_item(4.4 if keyword_count >= 5 else 3.6 if keyword_count >= 2 or bsr else 2.6, [f"关键词证据 {keyword_count} 组", f"BSR {int(bsr)}" if bsr else "BSR缺失"], ["核心搜索入口证据不足"] if keyword_count < 2 and not bsr else [], "先确定1-3个核心词，再用Top40排名和广告位验证入口大小。"),
+        "core_keyword_capacity": _score_item(4.4 if keyword_count >= 5 or validation_score >= 75 else 3.6 if keyword_count >= 2 or bsr or validation_top20_count else 2.6, search_entry_evidence, ["核心搜索入口证据不足"] if keyword_count < 2 and not bsr and not validation_top20_count else [], "先确定1-3个核心词，再用Top40排名和广告位验证入口大小。"),
         "long_tail_opportunity": _score_item(4.2 if scenario_hits >= 3 and pain_hits >= 1 else 3.3 if scenario_hits >= 2 or pain_hits >= 2 else 2.4, [f"场景词 {scenario_hits}", f"痛点词 {pain_hits}"], ["缺少长尾场景/属性组合词"] if scenario_hits < 2 else [], "把用途、对象、属性组合成长尾词，优先验证低CPC高CVR入口。"),
-        "organic_entry_access": _score_item(organic_entry_score, [f"BSR {int(bsr)}" if bsr else "BSR缺失", f"评论 {int(reviews)}"], ["自然位进入难度高"] if organic_entry_score < 3 else [], "看核心词Top40自然位，而不是只看BSR。若头部评论过高，切细分词进入。"),
+        "organic_entry_access": _score_item(organic_entry_score, organic_access_evidence, ["自然位进入难度高"] if organic_entry_score < 3 else [], "看核心词Top40自然位，而不是只看BSR。若头部评论过高，切细分词进入。"),
         "ad_entry_tolerance": _score_item(4 if price >= 40 else 3.2 if price >= 25 else 2.2 if price > 0 else 2.5, [f"价格 {price}"], ["客单价低，广告试错空间小"] if price and price < 25 else [], "用目标毛利和CPC反推可承受ACOS，低客单价优先找自然/长尾入口。"),
         "scene_clarity": _score_item(min(5, 1.5 + scenario_hits * 0.6), [f"场景词命中 {scenario_hits} 个"], [] if scenario_hits >= 2 else ["场景表达不足"], "明确核心使用场景和目标人群。"),
         "scene_trigger": _score_item(4.2 if scenario_hits >= 3 and pain_hits >= 1 else 3 if scenario_hits else 2, [f"场景 {scenario_hits} / 痛点 {pain_hits}"], ["场景不能强触发购买"] if scenario_hits < 2 else [], "用状态触发词表达什么时候会需要它。"),
         "scene_expansion": _score_item(4.2 if scenario_hits >= 4 else 3 if scenario_hits >= 2 else 2, [f"可扩展场景 {scenario_hits}"], ["场景过窄"] if scenario_hits < 2 else [], "补充相邻场景但不要泛化到无关人群。"),
         "scene_visual": _score_item(4.5 if image_count >= 7 or has_video else 3.5 if image_count >= 4 else 2, [f"图片数 {int(image_count)}", f"视频 {has_video}"], ["图片/视频场景证据不足"] if image_count < 7 and not has_video else [], "用图片/视频验证场景是否可视化。"),
         "top20_review_barrier": _score_item(review_barrier_score, [f"当前评论 {int(reviews)}", f"低评论高位样本 {low_review_rank_count} 个"], ["Top20评论门槛偏高"] if review_barrier_score < 3 else [], "不要只看销量第一，要看Top20里有没有低评论也能上位的切口。"),
-        "low_review_rank_opportunity": _score_item(4.2 if low_review_rank_count >= 2 or product_data.get("new_seller_case") else 3 if low_review_rank_count == 1 else 2.3, [f"低评论高排名样本 {low_review_rank_count} 个"], ["缺少新品/低评论进入案例"] if low_review_rank_count == 0 and not product_data.get("new_seller_case") else [], "抓Top40，找低评论但自然位靠前的ASIN，证明新卖家仍可进入。"),
-        "sponsored_pressure": _score_item(4.2 if sponsored_ratio <= 0.15 else 3 if sponsored_ratio <= 0.35 else 2.1, [f"广告位占比 {round(sponsored_ratio * 100)}%"], ["广告位压力高，可能需要更强预算或更细长尾词"] if sponsored_ratio > 0.35 else [], "核心词广告位过密时，先切属性词/场景词，别正面烧钱。"),
+        "low_review_rank_opportunity": _score_item(4.2 if low_review_rank_count >= 2 or product_data.get("new_seller_case") or validation_new_entry_case else 3 if low_review_rank_count == 1 or validation_top20_count else 2.3, [f"低评论高排名样本 {low_review_rank_count} 个", f"本ASIN核心词Top20 {validation_top20_count} 个"], ["缺少新品/低评论进入案例"] if low_review_rank_count == 0 and not product_data.get("new_seller_case") and not validation_top20_count else [], "抓Top40，找低评论但自然位靠前的ASIN，证明新卖家仍可进入。"),
+        "sponsored_pressure": _score_item(4.2 if sponsored_ratio <= 0.15 else 3 if sponsored_ratio <= 0.35 else 2.1, ad_pressure_evidence, ["广告位压力高，可能需要更强预算或更细长尾词"] if sponsored_ratio > 0.35 else [], "核心词广告位过密时，先切属性词/场景词，别正面烧钱。"),
         "homogeneity": _score_item(2.2 if diff_hits == 0 else 3.2 if diff_hits < 2 else 4, [f"差异化信号 {diff_hits}"], ["同质化风险高"] if diff_hits == 0 else [], "对Top竞品做同尺子比较，确认同质化程度。"),
         "differentiation_anchor": _score_item(min(5, 1.8 + diff_hits * 0.8), [f"差异化词命中 {diff_hits} 个"], ["差异化锚点不清晰"] if diff_hits < 2 else [], "找到可以被Listing和广告表达的核心差异。"),
         "listing_expression_fit": _score_item(4.3 if bullet_count >= 5 and image_count >= 6 else 3.3 if bullet_count >= 3 and image_count >= 4 else 2.2, [f"五点 {bullet_count}/5", f"图片 {int(image_count)}"], ["Listing承接不足，差异点无法被图文证明"] if bullet_count < 5 or image_count < 6 else [], "差异化必须能被标题、主图、副图、五点和A+重复证明。"),
@@ -2244,7 +2288,7 @@ def _build_six_dimension_rule_engine(asin: str, marketplace: str, product_title:
         "value_perception": _score_item(4 if rating >= 4.3 and (has_a_plus or image_count >= 7) else 3, [f"评分 {rating}", f"A+ {has_a_plus}", f"图片 {int(image_count)}"], ["价值感知支撑不足"] if rating < 4.2 else [], "用A+、图片和评论支撑价格价值感。"),
         "premium_potential": _score_item(4 if diff_hits >= 2 and has_a_plus else 2.8, [f"差异化 {diff_hits}", f"A+ {has_a_plus}"], ["溢价证据不足"] if diff_hits < 2 else [], "用品牌信任和差异化证明支撑溢价。"),
         "price_risk_resistance": _score_item(4 if price >= 35 and diff_hits >= 2 else 2.8, [f"价格 {price}", f"差异化 {diff_hits}"], ["容易陷入价格战"] if diff_hits < 2 else [], "验证是否能避开纯价格竞争。"),
-        "new_entry_signal": _score_item(4.2 if product_data.get("new_seller_case") or low_review_rank_count >= 2 else 3 if bsr and bsr < 50000 else 2.3, [f"新品/低评论进入证据 {low_review_rank_count} 个"], ["缺少新卖家进入证据"] if not product_data.get("new_seller_case") and low_review_rank_count == 0 else [], "用Top40和评论增长确认新品是否仍能进入，而不是只看头部销量。"),
+        "new_entry_signal": _score_item(4.2 if product_data.get("new_seller_case") or low_review_rank_count >= 2 or validation_new_entry_case else 3 if bsr and bsr < 50000 or validation_top20_count else 2.3, [f"新品/低评论进入证据 {low_review_rank_count} 个", f"本ASIN核心词Top20 {validation_top20_count} 个"], ["缺少新卖家进入证据"] if not product_data.get("new_seller_case") and low_review_rank_count == 0 and not validation_top20_count else [], "用Top40和评论增长确认新品是否仍能进入，而不是只看头部销量。"),
     }
 
     dimensions = []

@@ -19,6 +19,7 @@ from models.asin_keyword_sales_validation import (
 from models.action_snapshots import ActionSnapshot
 from schemas.auth import UserResponse
 from services.amazon_scraper import scrape_amazon_product
+from services.amazon_skill_toolbox import build_asin_selection_assist
 from services.scrapling_amazon_capture import SCRAPLING_TOP40_RULES, capture_top40_batch
 from services.top40_market_analysis import analyze_top40_market
 
@@ -332,6 +333,7 @@ def _normalize_keyword_sales_report(report: dict[str, Any]) -> dict[str, Any]:
         summary["inventory_note"] = "该ASIN当前显示无库存或不可售，关键词销量验证不成立；请补库存并上架可售后重新抓取自然位、广告位和BSR。"
         report["suspicious_signals"] = ["ASIN当前无库存/不可售，不能据此判断销量来源。"]
         report["final_recommendation"] = "先补库存并确认页面可售，再重新进行关键词销量验证。"
+        report["market_validation_assist"] = build_asin_selection_assist(report)
         return report
 
     # Legacy reports saved ad_dependency_risk=0 when no Sponsored slot was
@@ -349,6 +351,9 @@ def _normalize_keyword_sales_report(report: dict[str, Any]) -> dict[str, Any]:
             if has_real_search_snapshot and organic_strength >= 75
             else "当前广告位证据不足，系统不把缺失广告位当成0风险；建议用不同时段/账号复查Sponsored位置。"
         )
+
+    if not isinstance(report.get("market_validation_assist"), dict):
+        report["market_validation_assist"] = build_asin_selection_assist(report)
 
     return report
 
@@ -460,7 +465,7 @@ def _build_report(asin: str, marketplace: str, category: str, product: dict[str,
                 "ad_risk_level": "库存阻断，暂不判断",
             }
         )
-        return {
+        blocked_report = {
             "asin": asin,
             "marketplace": marketplace,
             "days_range": days_range,
@@ -478,7 +483,9 @@ def _build_report(asin: str, marketplace: str, category: str, product: dict[str,
             "keyword_intent_scores": qualities,
             "final_recommendation": "先补库存并确认页面可售，再重新进行关键词销量验证；不要把当前无销量误判为广告或促销驱动。",
         }
-    return {
+        blocked_report["market_validation_assist"] = build_asin_selection_assist(blocked_report)
+        return blocked_report
+    report = {
         "asin": asin,
         "marketplace": marketplace,
         "days_range": days_range,
@@ -496,6 +503,8 @@ def _build_report(asin: str, marketplace: str, category: str, product: dict[str,
         "keyword_intent_scores": qualities,
         "final_recommendation": "适合作为候选机会继续验证。" if total >= 65 else "建议先补充真实关键词排名、广告曝光和7-30天评论/BSR趋势后再决定。",
     }
+    report["market_validation_assist"] = build_asin_selection_assist(report)
+    return report
 
 
 async def _generate_validation(request: KeywordSalesValidationRequest, user_id: str, db: AsyncSession, save_report: bool = True) -> dict[str, Any]:

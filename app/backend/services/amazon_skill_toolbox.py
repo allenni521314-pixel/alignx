@@ -43,6 +43,18 @@ def _parse_count(value: Any, fallback: int = 0) -> int:
     return max(0, int(float(match.group(0))))
 
 
+def _parse_float(value: Any, fallback: float = 0) -> float:
+    if value is None:
+        return fallback
+    if isinstance(value, (int, float)):
+        return float(value)
+    text = str(value).replace(",", "").strip()
+    match = re.search(r"\d+(?:\.\d+)?", text)
+    if not match:
+        return fallback
+    return float(match.group(0))
+
+
 def _keyword_pool(product_data: dict[str, Any], fallback_keywords: Any = None) -> list[str]:
     raw = fallback_keywords or product_data.get("main_keywords") or []
     if isinstance(raw, str):
@@ -61,6 +73,112 @@ def _keyword_pool(product_data: dict[str, Any], fallback_keywords: Any = None) -
         if len(result) >= 12:
             break
     return result
+
+
+def build_asin_selection_assist(report: dict[str, Any] | None) -> dict[str, Any]:
+    """Turn keyword-sales validation into business-facing selection signals.
+
+    The output deliberately contains no skill/source names. It is safe to send
+    to the UI as professional guidance while the internal playbooks stay hidden.
+    """
+    report = report or {}
+    summary = report.get("keyword_rank_summary") if isinstance(report.get("keyword_rank_summary"), dict) else {}
+    organic_strength = _parse_float(report.get("organic_rank_strength"))
+    ad_risk = _parse_float(report.get("ad_dependency_risk"))
+    score = _parse_float(report.get("keyword_sales_score"))
+    opportunity_keywords = _keyword_pool({}, report.get("opportunity_keywords"))
+    risk_keywords = _keyword_pool({}, report.get("risk_keywords"))
+    suspicious = _as_list(report.get("suspicious_signals"))
+    inventory_blocked = bool(summary.get("inventory_blocker"))
+
+    if inventory_blocked:
+        return {
+            "entry_strategy": "先恢复可售再判断销量来源，当前不建议进入6维正向评分。",
+            "six_dimension_calibration": [
+                {
+                    "dimension": "风险与趋势",
+                    "signal": "库存/可售状态阻断",
+                    "impact": "暂缓判断",
+                    "reason": "无库存或不可售会扭曲自然位、广告位和销量来源判断。",
+                }
+            ],
+            "validation_actions": ["补库存并确认页面可售后重新抓取", "重新验证核心词Top40自然位和广告位", "不要把当前销量缺口当作需求弱"],
+            "keyword_expansion": risk_keywords[:6],
+            "risk_followups": ["确认FBA/FBM可售状态、购物车和配送时效恢复正常"],
+        }
+
+    calibration: list[dict[str, str]] = []
+    if organic_strength >= 75:
+        calibration.append({
+            "dimension": "搜索入口",
+            "signal": "核心词自然位较强",
+            "impact": "加分",
+            "reason": "自然搜索能承接销量，说明语义入口和排名基础较好。",
+        })
+    elif organic_strength < 45:
+        calibration.append({
+            "dimension": "搜索入口",
+            "signal": "自然位证据偏弱",
+            "impact": "扣分/待验证",
+            "reason": "需要确认销量是否来自广告、促销、站外或历史流量。",
+        })
+
+    if ad_risk >= 55:
+        calibration.append({
+            "dimension": "商业承受力",
+            "signal": "广告依赖风险高",
+            "impact": "扣分",
+            "reason": "进入时需要更强毛利、CPC容忍度和长尾切入方案。",
+        })
+    elif ad_risk <= 25 and organic_strength >= 65:
+        calibration.append({
+            "dimension": "竞争结构",
+            "signal": "广告压力相对可控",
+            "impact": "加分",
+            "reason": "自然入口更健康，正面竞争成本压力较小。",
+        })
+
+    if opportunity_keywords:
+        calibration.append({
+            "dimension": "差异化切口",
+            "signal": "存在可测试机会词",
+            "impact": "加分",
+            "reason": "机会词可用于验证场景、属性或人群切入点。",
+        })
+    if suspicious:
+        calibration.append({
+            "dimension": "风险与趋势",
+            "signal": "存在异常销量来源信号",
+            "impact": "扣分/复查",
+            "reason": "需要复核BSR、促销、广告位和评论增长是否一致。",
+        })
+
+    if score >= 75 and organic_strength >= 70 and ad_risk <= 35:
+        entry_strategy = "可进入下一轮选品验证，优先围绕自然位强词做长尾切入。"
+    elif ad_risk >= 55:
+        entry_strategy = "先做小预算广告验证和毛利测算，不建议直接放量。"
+    elif score < 55:
+        entry_strategy = "暂不作为主机会，先补排名、BSR和广告位证据。"
+    else:
+        entry_strategy = "保留为观察候选，补充不同时段排名和促销/广告证据。"
+
+    actions = [
+        "用机会词复查Top40自然位，确认是否有低评论进入案例",
+        "用同一组词检查Sponsored密度，估算首轮CPC压力",
+        "把高意图机会词带入6维评分的搜索入口和差异化切口",
+    ]
+    if ad_risk >= 45:
+        actions.append("拆出长尾词小预算测试，避免一开始正面打高竞争核心词")
+    if suspicious:
+        actions.append("复核BSR、Coupon/Deal和评论增长，排除促销或站外流量放大")
+
+    return {
+        "entry_strategy": entry_strategy,
+        "six_dimension_calibration": calibration[:5],
+        "validation_actions": actions[:6],
+        "keyword_expansion": opportunity_keywords[:8],
+        "risk_followups": risk_keywords[:6],
+    }
 
 
 def build_listing_toolbox(product_data: dict[str, Any], scores: dict[str, Any] | None = None) -> dict[str, Any]:
