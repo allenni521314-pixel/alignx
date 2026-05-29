@@ -303,6 +303,10 @@ interface AsinDiagnosisTaskResponse {
 
 const ASIN_DIAGNOSIS_TASK_KEY = "alignx_active_asin_diagnosis_task_id";
 const ASIN_DIAGNOSIS_TASK_CONTEXT_KEY = "alignx_active_asin_diagnosis_task_context";
+const ASIN_TASK_POLL_INTERVAL_MS = 2000;
+const ASIN_TASK_TIMEOUT_MS = 60 * 1000;
+const TOP40_TASK_TIMEOUT_SECONDS = 300;
+const ASIN_TASK_TIMEOUT_MESSAGE = "ASIN抓取分析超过60秒，已停止等待。请稍后重试，或改用本地浏览器采集。";
 
 interface AsinFetchProductData {
   asin: string;
@@ -336,6 +340,13 @@ interface ActiveAsinTaskContext {
 
 const asinModuleTaskId = (taskId: string) => `asin-diagnosis:${taskId}`;
 
+const parseTaskStartedAt = (startedAt?: string) => {
+  const time = startedAt ? new Date(startedAt).getTime() : 0;
+  return Number.isFinite(time) && time > 0 ? time : Date.now();
+};
+
+const getAsinTaskAgeMs = (startedAt?: string) => Math.max(0, Date.now() - parseTaskStartedAt(startedAt));
+
 const readActiveAsinTaskContext = (): ActiveAsinTaskContext | null => {
   try {
     const raw = localStorage.getItem(ASIN_DIAGNOSIS_TASK_CONTEXT_KEY);
@@ -349,6 +360,12 @@ const readActiveAsinTaskContext = (): ActiveAsinTaskContext | null => {
 const clearActiveAsinTaskStorage = () => {
   localStorage.removeItem(ASIN_DIAGNOSIS_TASK_KEY);
   localStorage.removeItem(ASIN_DIAGNOSIS_TASK_CONTEXT_KEY);
+};
+
+const clearFailedAsinModuleTask = (moduleTaskId: string, message: string) => {
+  finishModuleTask(moduleTaskId, "failed", message);
+  clearActiveAsinTaskStorage();
+  window.setTimeout(() => removeModuleTask(moduleTaskId), 1200);
 };
 
 const productDataFromAsinTaskPayload = (
@@ -466,9 +483,9 @@ export default function AsinManager() {
   useEffect(() => {
     if (!autoImportLoading && !batchImportLoading && !scraplingLoading && !top40Analyzing) return;
     const startedAt = Date.now();
-    const targetSeconds = scraplingLoading || top40Analyzing ? 300 : 60;
+    const targetSeconds = scraplingLoading || top40Analyzing ? TOP40_TASK_TIMEOUT_SECONDS : ASIN_TASK_TIMEOUT_MS / 1000;
     const timer = window.setInterval(() => {
-      const elapsed = Math.floor((Date.now() - startedAt) / 1000);
+      const elapsed = Math.min(targetSeconds, Math.floor((Date.now() - startedAt) / 1000));
       setAutoImportElapsed(elapsed);
       setAutoImportProgress((current) => Math.max(current, Math.min(92, Math.round((elapsed / targetSeconds) * 92))));
     }, 1000);
@@ -1108,6 +1125,12 @@ export default function AsinManager() {
     const moduleTaskId = context.moduleTaskId || asinModuleTaskId(taskId);
 
     const recoverTask = async () => {
+      if (getAsinTaskAgeMs(context.startedAt) >= ASIN_TASK_TIMEOUT_MS) {
+        clearFailedAsinModuleTask(moduleTaskId, ASIN_TASK_TIMEOUT_MESSAGE);
+        toast.error(ASIN_TASK_TIMEOUT_MESSAGE);
+        return;
+      }
+
       setAutoImportLoading(true);
       setAutoImportElapsed(0);
       setAutoImportProgress(20);
@@ -1124,24 +1147,27 @@ export default function AsinManager() {
 
       try {
         let task: AsinDiagnosisTaskResponse | null = null;
-        for (let attempt = 0; attempt < 180; attempt += 1) {
+        while (getAsinTaskAgeMs(context.startedAt) < ASIN_TASK_TIMEOUT_MS) {
           if (cancelled) return;
+          const remainingMs = ASIN_TASK_TIMEOUT_MS - getAsinTaskAgeMs(context.startedAt);
           const statusRes = await axios.get<AsinDiagnosisTaskResponse>(
             `${apiBase}/api/v1/diagnosis-tasks/${taskId}`,
-            { headers: getAuthHeaders(), timeout: 30000 }
+            { headers: getAuthHeaders(), timeout: Math.max(3000, Math.min(10000, remainingMs)) }
           );
           task = statusRes.data;
           if (task.status === "completed") break;
           if (task.status === "failed") {
             throw new Error(task.error_message || "ASIN后台任务失败");
           }
-          setAutoImportProgress((current) => Math.min(92, Math.max(current, 20 + attempt)));
-          await new Promise((resolve) => window.setTimeout(resolve, 2000));
+          const elapsedRatio = Math.min(1, getAsinTaskAgeMs(context.startedAt) / ASIN_TASK_TIMEOUT_MS);
+          setAutoImportProgress((current) => Math.min(92, Math.max(current, 20 + Math.round(elapsedRatio * 72))));
+          await new Promise((resolve) => window.setTimeout(resolve, ASIN_TASK_POLL_INTERVAL_MS));
         }
 
         if (cancelled) return;
         if (!task || task.status !== "completed" || !task.result_payload) {
-          toast.warning("ASIN后台任务仍在运行，稍后返回ASIN选品页会继续恢复");
+          clearFailedAsinModuleTask(moduleTaskId, ASIN_TASK_TIMEOUT_MESSAGE);
+          toast.error(ASIN_TASK_TIMEOUT_MESSAGE);
           return;
         }
 
@@ -1249,8 +1275,7 @@ export default function AsinManager() {
             : "ASIN后台任务恢复失败";
         if (!cancelled) {
           toast.error(msg);
-          finishModuleTask(moduleTaskId, "failed", msg);
-          clearActiveAsinTaskStorage();
+          clearFailedAsinModuleTask(moduleTaskId, msg);
         }
       } finally {
         if (!cancelled) {
@@ -1414,24 +1439,28 @@ export default function AsinManager() {
       status: "running",
       detail: "后台正在抓取Amazon页面并生成选品判断",
       path: "/asin-manager",
+      startedAt: taskContext.startedAt,
     });
     let task = taskRes.data;
-    for (let attempt = 0; attempt < 180; attempt += 1) {
+    const pollStartedAt = Date.now();
+    while (Date.now() - pollStartedAt < ASIN_TASK_TIMEOUT_MS) {
+      const remainingMs = ASIN_TASK_TIMEOUT_MS - (Date.now() - pollStartedAt);
       const statusRes = await axios.get<AsinDiagnosisTaskResponse>(
         `${apiBase}/api/v1/diagnosis-tasks/${taskRes.data.task_id}`,
-        { headers: getAuthHeaders(), timeout: 30000 }
+        { headers: getAuthHeaders(), timeout: Math.max(3000, Math.min(10000, remainingMs)) }
       );
       task = statusRes.data;
       if (task.status === "completed") break;
       if (task.status === "failed") {
-        finishModuleTask(moduleTaskId, "failed", task.error_message || "ASIN分析任务失败");
-        clearActiveAsinTaskStorage();
-        throw new Error(task.error_message || "ASIN分析任务失败");
+        const message = task.error_message || "ASIN分析任务失败";
+        clearFailedAsinModuleTask(moduleTaskId, message);
+        throw new Error(message);
       }
-      await new Promise((resolve) => window.setTimeout(resolve, 2000));
+      await new Promise((resolve) => window.setTimeout(resolve, ASIN_TASK_POLL_INTERVAL_MS));
     }
     if (task.status !== "completed" || !task.result_payload) {
-      throw new Error("ASIN分析仍在后台运行，请稍后刷新查看");
+      clearFailedAsinModuleTask(moduleTaskId, ASIN_TASK_TIMEOUT_MESSAGE);
+      throw new Error(ASIN_TASK_TIMEOUT_MESSAGE);
     }
     finishModuleTask(moduleTaskId, "completed", "ASIN抓取分析已完成");
     window.setTimeout(() => removeModuleTask(moduleTaskId), 1200);
@@ -2649,7 +2678,9 @@ export default function AsinManager() {
                       {autoImportMessage || "正在抓取并分析 ASIN 数据"}
                       {batchImportCurrent ? ` · 当前 ${batchImportCurrent}` : ""}
                     </span>
-                    <span className="shrink-0">{autoImportElapsed}s / {isTop40Busy ? "300s" : "60s"}</span>
+                    <span className="shrink-0">
+                      {autoImportElapsed}s / {isTop40Busy ? `${TOP40_TASK_TIMEOUT_SECONDS}s` : `${ASIN_TASK_TIMEOUT_MS / 1000}s`}
+                    </span>
                   </div>
                   <div className="mt-2 h-2 overflow-hidden rounded-full bg-white">
                     <div

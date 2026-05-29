@@ -23,7 +23,7 @@ export interface ModuleTaskRecord {
 
 const STORE_KEY = "alignx_module_tasks_v1";
 const TASK_EVENT = "alignx-module-tasks-updated";
-const ACTIVE_TTL_MS = 8 * 60 * 60 * 1000;
+const ACTIVE_TTL_MS = 30 * 60 * 1000;
 const FINISHED_TTL_MS = 10 * 60 * 1000;
 
 const nowIso = () => new Date().toISOString();
