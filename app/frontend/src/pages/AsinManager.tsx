@@ -616,7 +616,7 @@ export default function AsinManager() {
     setScoringAsin(product.asin);
     try {
       const res = await axios.post(
-        "/api/v1/asin-analysis/six-dimension-score",
+        `${getLongRunningApiBase()}/api/v1/asin-analysis/six-dimension-score`,
         {
           asin: product.asin,
           marketplace,
