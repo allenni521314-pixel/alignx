@@ -51,6 +51,11 @@ import {
   type FiveDScoreResult,
 } from "@/components/FiveDimensionScore";
 import { getActionSnapshots, saveActionSnapshot, type ActionSnapshot } from "@/lib/workflow-api";
+import {
+  finishModuleTask,
+  removeModuleTask,
+  upsertModuleTask,
+} from "@/lib/module-task-store";
 
 const MARKETPLACE_OPTIONS = [
   { value: "US", label: "🇺🇸 美国站", domain: "www.amazon.com", currency: "$" },
@@ -297,6 +302,77 @@ interface AsinDiagnosisTaskResponse {
 }
 
 const ASIN_DIAGNOSIS_TASK_KEY = "alignx_active_asin_diagnosis_task_id";
+const ASIN_DIAGNOSIS_TASK_CONTEXT_KEY = "alignx_active_asin_diagnosis_task_context";
+
+interface AsinFetchProductData {
+  asin: string;
+  title: string;
+  bullet_points: string;
+  a_plus_content: string;
+  search_keywords: string;
+  price: number;
+  review_count: number;
+  rating: number;
+  category: string;
+}
+
+interface AsinFetchResult {
+  status: string;
+  data?: AsinFetchProductData;
+  error?: string;
+  source?: string;
+}
+
+interface ActiveAsinTaskContext {
+  taskId: string;
+  moduleTaskId: string;
+  asin: string;
+  marketplace: string;
+  intent: "single_import" | "single_import_validate" | "batch_import" | "refresh_product" | "background_fetch";
+  autoFetch?: boolean;
+  productId?: number;
+  startedAt: string;
+}
+
+const asinModuleTaskId = (taskId: string) => `asin-diagnosis:${taskId}`;
+
+const readActiveAsinTaskContext = (): ActiveAsinTaskContext | null => {
+  try {
+    const raw = localStorage.getItem(ASIN_DIAGNOSIS_TASK_CONTEXT_KEY);
+    return raw ? (JSON.parse(raw) as ActiveAsinTaskContext) : null;
+  } catch {
+    localStorage.removeItem(ASIN_DIAGNOSIS_TASK_CONTEXT_KEY);
+    return null;
+  }
+};
+
+const clearActiveAsinTaskStorage = () => {
+  localStorage.removeItem(ASIN_DIAGNOSIS_TASK_KEY);
+  localStorage.removeItem(ASIN_DIAGNOSIS_TASK_CONTEXT_KEY);
+};
+
+const productDataFromAsinTaskPayload = (
+  payload: Record<string, unknown>,
+  fallbackAsin: string
+): { source: string; data: AsinFetchProductData } => {
+  const d = payload as Record<string, any>;
+  const pd = d.product_data || {};
+  const source = d.data_source || pd._data_source || "server_analysis";
+  return {
+    source,
+    data: {
+      asin: d.asin || fallbackAsin,
+      title: pd.title || d.product_title || "",
+      bullet_points: Array.isArray(pd.bullet_points) ? pd.bullet_points.join("\n") : pd.bullet_points || "",
+      a_plus_content: pd.description_summary || "",
+      search_keywords: Array.isArray(pd.main_keywords) ? pd.main_keywords.join(", ") : pd.main_keywords || "",
+      price: parseFloat(String(pd.price).replace(/[^0-9.]/g, "")) || 0,
+      review_count: parseInt(String(pd.review_count).replace(/[^0-9]/g, ""), 10) || 0,
+      rating: parseFloat(String(pd.rating)) || 0,
+      category: pd.category || "",
+    },
+  };
+};
 
 const emptyProduct = {
   asin: "",
@@ -631,10 +707,19 @@ export default function AsinManager() {
       keywordReport?.market_validation_assist?.keyword_expansion?.length
         ? keywordReport.market_validation_assist.keyword_expansion
         : keywordReport?.opportunity_keywords || [];
+    const moduleTaskId = `asin-six-dimension:${product.asin}`;
     setScoringAsin(product.asin);
+    upsertModuleTask({
+      id: moduleTaskId,
+      moduleKey: "asin-manager",
+      label: `6维评分 ${product.asin}`,
+      status: "running",
+      detail: "AI优先分析，硬规则兜底",
+      path: "/asin-manager",
+    });
     try {
       const res = await axios.post(
-        "/api/v1/asin-analysis/six-dimension-score",
+        `${getLongRunningApiBase()}/api/v1/asin-analysis/six-dimension-score`,
         {
           asin: product.asin,
           marketplace,
@@ -680,7 +765,9 @@ export default function AsinManager() {
         toast.success(
           `${product.asin} 6维决策完成: ${result.total_score}分 · ${result.decision || "已生成"} · ${result.pool_status === "opportunity_pool" ? "进入机会池" : "未进机会池"}`
         );
+        finishModuleTask(moduleTaskId, "completed", "6维评分完成");
       } else {
+        finishModuleTask(moduleTaskId, "failed", "评分失败");
         toast.error("评分失败，请重试");
       }
     } catch (e: unknown) {
@@ -689,9 +776,11 @@ export default function AsinManager() {
         : e instanceof Error
           ? e.message
           : "评分失败";
+      finishModuleTask(moduleTaskId, "failed", msg);
       toast.error(msg);
     } finally {
       setScoringAsin(null);
+      window.setTimeout(() => removeModuleTask(moduleTaskId), 1200);
     }
   };
 
@@ -751,11 +840,20 @@ export default function AsinManager() {
 
       localStorage.removeItem("alignx_local_browser_capture");
       const mp = capture.marketplace || autoImportMarketplace || "US";
+      const moduleTaskId = `asin-local-capture:${capture.asin}`;
       setAutoImportAsin(capture.asin);
       setAutoImportMarketplace(mp);
       setAutoImportLoading(true);
       setAutoImportProgress(45);
       setAutoImportMessage("正在用本地浏览器采集证据写入ASIN选品库");
+      upsertModuleTask({
+        id: moduleTaskId,
+        moduleKey: "asin-manager",
+        label: `本地采集写入 ${capture.asin}`,
+        status: "running",
+        detail: "正在解析本地浏览器页面并写入ASIN库",
+        path: "/asin-manager",
+      });
       try {
         const res = await axios.post(
           `${getLongRunningApiBase()}/api/v1/asin-analysis/parse-html-analyze`,
@@ -776,7 +874,9 @@ export default function AsinManager() {
         );
         const d = res.data;
         if (!d?.success || !d.product_data) {
-          toast.error(d?.error || "本地采集解析失败");
+          const msg = d?.error || "本地采集解析失败";
+          finishModuleTask(moduleTaskId, "failed", msg);
+          toast.error(msg);
           return;
         }
         const pd = d.product_data || {};
@@ -818,13 +918,16 @@ export default function AsinManager() {
           source_record_table: "products",
         }).catch(() => {});
         setAutoImportProgress(100);
+        finishModuleTask(moduleTaskId, "completed", "本地采集写入完成");
         toast.success(`已用本地浏览器采集${saved.mode === "updated" ? "更新" : "保存"} ${productData.asin}`);
       } catch (err) {
         const msg = axios.isAxiosError(err) ? err.response?.data?.detail || err.message : "本地采集写入失败";
+        finishModuleTask(moduleTaskId, "failed", msg);
         toast.error(msg);
       } finally {
         setAutoImportLoading(false);
         setAutoImportMessage("");
+        window.setTimeout(() => removeModuleTask(moduleTaskId), 1200);
       }
     };
 
@@ -910,7 +1013,16 @@ export default function AsinManager() {
 
   const handleKeywordSalesValidation = async (product: Product) => {
     const marketplace = getProductMarketplace(product);
+    const moduleTaskId = `asin-keyword-validation:${product.asin}`;
     setValidatingKeywordAsin(product.asin);
+    upsertModuleTask({
+      id: moduleTaskId,
+      moduleKey: "asin-manager",
+      label: `关键词销量验证 ${product.asin}`,
+      status: "running",
+      detail: "搜索快照校验自然位与广告位",
+      path: "/asin-manager",
+    });
     try {
       const targetKeywords = (product.search_keywords || "")
         .split(/[,，;\n]+/)
@@ -932,6 +1044,7 @@ export default function AsinManager() {
       );
       setKeywordValidationResults((prev) => ({ ...prev, [product.asin]: normalizeKeywordSalesReport(res.data) }));
       setExpandedKeywordAsin(product.asin);
+      finishModuleTask(moduleTaskId, "completed", "关键词销量验证完成");
       toast.success(`${product.asin} 关键词销量验证完成：${Math.round(res.data.keyword_sales_score || 0)}分`);
     } catch (e: unknown) {
       const msg = axios.isAxiosError(e)
@@ -939,9 +1052,11 @@ export default function AsinManager() {
         : e instanceof Error
           ? e.message
           : "关键词销量验证失败";
+      finishModuleTask(moduleTaskId, "failed", msg);
       toast.error(msg);
     } finally {
       setValidatingKeywordAsin(null);
+      window.setTimeout(() => removeModuleTask(moduleTaskId), 1200);
     }
   };
 
@@ -969,6 +1084,190 @@ export default function AsinManager() {
     setExpandedKeywordAsin(productData.asin);
     return normalizedReport;
   };
+
+  useEffect(() => {
+    if (authLoading) return;
+    const taskId = localStorage.getItem(ASIN_DIAGNOSIS_TASK_KEY);
+    if (!taskId) return;
+
+    const storedContext = readActiveAsinTaskContext();
+    const context: ActiveAsinTaskContext = storedContext?.taskId === taskId
+      ? storedContext
+      : {
+          taskId,
+          moduleTaskId: asinModuleTaskId(taskId),
+          asin: autoImportAsin.trim().toUpperCase() || "ASIN",
+          marketplace: autoImportMarketplace || "US",
+          intent: "background_fetch",
+          autoFetch: true,
+          startedAt: new Date().toISOString(),
+        };
+
+    let cancelled = false;
+    const apiBase = getLongRunningApiBase();
+    const moduleTaskId = context.moduleTaskId || asinModuleTaskId(taskId);
+
+    const recoverTask = async () => {
+      setAutoImportLoading(true);
+      setAutoImportElapsed(0);
+      setAutoImportProgress(20);
+      setAutoImportMessage(`正在恢复 ${context.asin} 的后台抓取分析任务`);
+      upsertModuleTask({
+        id: moduleTaskId,
+        moduleKey: "asin-manager",
+        label: `ASIN抓取分析 ${context.asin}`,
+        status: "running",
+        detail: "用户切换页面后继续恢复后台任务",
+        path: "/asin-manager",
+        startedAt: context.startedAt,
+      });
+
+      try {
+        let task: AsinDiagnosisTaskResponse | null = null;
+        for (let attempt = 0; attempt < 180; attempt += 1) {
+          if (cancelled) return;
+          const statusRes = await axios.get<AsinDiagnosisTaskResponse>(
+            `${apiBase}/api/v1/diagnosis-tasks/${taskId}`,
+            { headers: getAuthHeaders(), timeout: 30000 }
+          );
+          task = statusRes.data;
+          if (task.status === "completed") break;
+          if (task.status === "failed") {
+            throw new Error(task.error_message || "ASIN后台任务失败");
+          }
+          setAutoImportProgress((current) => Math.min(92, Math.max(current, 20 + attempt)));
+          await new Promise((resolve) => window.setTimeout(resolve, 2000));
+        }
+
+        if (cancelled) return;
+        if (!task || task.status !== "completed" || !task.result_payload) {
+          toast.warning("ASIN后台任务仍在运行，稍后返回ASIN选品页会继续恢复");
+          return;
+        }
+
+        const normalized = productDataFromAsinTaskPayload(task.result_payload, context.asin);
+        const productData = normalized.data;
+        const sourceLabel = productFetchSourceLabel(normalized.source);
+        const isLowConfidence = sourceLabel === "低置信度补充分析";
+        setAutoImportProgress(88);
+        setAutoImportMessage(`已恢复 ${productData.asin} 抓取结果，正在写入ASIN库`);
+
+        if (context.intent === "refresh_product" && context.productId) {
+          await client.entities.products.update({
+            id: String(context.productId),
+            data: {
+              title: productData.title,
+              bullet_points: productData.bullet_points,
+              a_plus_content: productData.a_plus_content,
+              search_keywords: productData.search_keywords,
+              price: productData.price,
+              review_count: productData.review_count,
+              rating: productData.rating,
+              category: productData.category,
+            },
+          });
+          setAsinMarketplaceMap((prev) => ({ ...prev, [productData.asin]: context.marketplace }));
+          saveActionSnapshot({
+            module_key: "asin_selection",
+            module_name: "6维选品",
+            action_key: "recover_refresh_asin_product",
+            action_name: "恢复并刷新ASIN产品数据",
+            product_id: context.productId,
+            asin: productData.asin,
+            title: productData.title,
+            input_snapshot: context,
+            output_snapshot: { ...productData, marketplace: context.marketplace },
+            data_source: sourceLabel,
+            confidence: isLowConfidence ? "low" : "high",
+            ai_called: isLowConfidence,
+            source_record_table: "products",
+            source_record_id: context.productId,
+          }).catch(() => {});
+          toast.success(`${productData.asin} 后台刷新已完成`);
+        } else {
+          const saved = await saveProductToLibrary(productData);
+          const savedProduct = { ...saved.product, marketplace: context.marketplace };
+          setAsinMarketplaceMap((prev) => ({ ...prev, [productData.asin]: context.marketplace }));
+          setProducts((prev) => {
+            const index = prev.findIndex((product) => product.asin === productData.asin);
+            if (index >= 0) {
+              const next = [...prev];
+              next[index] = savedProduct;
+              return next;
+            }
+            return [savedProduct, ...prev];
+          });
+          saveActionSnapshot({
+            module_key: "asin_selection",
+            module_name: "6维选品",
+            action_key: "recover_fetch_asin_product",
+            action_name: "恢复ASIN后台抓取并保存",
+            product_id: saved.product.id,
+            asin: productData.asin,
+            title: productData.title,
+            input_snapshot: context,
+            output_snapshot: { ...productData, marketplace: context.marketplace },
+            data_source: sourceLabel,
+            confidence: isLowConfidence ? "low" : "high",
+            ai_called: isLowConfidence,
+            source_record_table: "products",
+            source_record_id: saved.product.id,
+          }).catch(() => {});
+
+          if (context.intent === "single_import_validate") {
+            setAutoImportMessage("抓取已恢复，正在继续关键词销量验证");
+            const report = await validateImportedProduct(productData, context.marketplace);
+            saveActionSnapshot({
+              module_key: "asin_selection",
+              module_name: "关键词销量验证",
+              action_key: "recover_keyword_sales_validation",
+              action_name: "恢复抓取后继续关键词销量验证",
+              product_id: saved.product.id,
+              asin: productData.asin,
+              title: productData.title,
+              input_snapshot: context,
+              output_snapshot: { product: productData, keyword_sales_validation: report },
+              data_source: normalized.source,
+              confidence: report.keyword_sales_score >= 65 ? "medium" : "low",
+              ai_called: false,
+              source_record_table: "asin_keyword_sales_validation_reports",
+            }).catch(() => {});
+          }
+          toast.success(`${productData.asin} 后台抓取已${saved.mode === "updated" ? "更新" : "保存"}`);
+        }
+
+        setAutoImportProgress(100);
+        await loadProducts();
+        clearActiveAsinTaskStorage();
+        finishModuleTask(moduleTaskId, "completed", "ASIN后台任务已恢复完成");
+        window.setTimeout(() => removeModuleTask(moduleTaskId), 1200);
+      } catch (e: unknown) {
+        const msg = axios.isAxiosError(e)
+          ? e.response?.data?.detail || e.message
+          : e instanceof Error
+            ? e.message
+            : "ASIN后台任务恢复失败";
+        if (!cancelled) {
+          toast.error(msg);
+          finishModuleTask(moduleTaskId, "failed", msg);
+          clearActiveAsinTaskStorage();
+        }
+      } finally {
+        if (!cancelled) {
+          setAutoImportLoading(false);
+          setAutoImportProgress(0);
+          setAutoImportElapsed(0);
+          setAutoImportMessage("");
+        }
+      }
+    };
+
+    recoverTask();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authLoading]);
 
   /* ---- CRUD ---- */
   const handleSubmit = async () => {
@@ -1086,30 +1385,36 @@ export default function AsinManager() {
   /* ---- Server-side ASIN fetch and analysis ---- */
   const fetchAsinViaAI = async (
     asin: string,
-    marketplace: string
-  ): Promise<{
-    status: string;
-    data?: {
-      asin: string;
-      title: string;
-      bullet_points: string;
-      a_plus_content: string;
-      search_keywords: string;
-      price: number;
-      review_count: number;
-      rating: number;
-      category: string;
-    };
-    error?: string;
-    source?: string;
-  }> => {
+    marketplace: string,
+    context: Partial<Omit<ActiveAsinTaskContext, "taskId" | "moduleTaskId" | "asin" | "marketplace" | "startedAt">> = {}
+  ): Promise<AsinFetchResult> => {
     const apiBase = getLongRunningApiBase();
     const taskRes = await axios.post<AsinDiagnosisTaskResponse>(
       `${apiBase}/api/v1/diagnosis-tasks/asin`,
       { asin, marketplace },
       { headers: getAuthHeaders(), timeout: 30000 }
     );
+    const moduleTaskId = asinModuleTaskId(taskRes.data.task_id);
+    const taskContext: ActiveAsinTaskContext = {
+      taskId: taskRes.data.task_id,
+      moduleTaskId,
+      asin,
+      marketplace,
+      intent: context.intent || "background_fetch",
+      autoFetch: context.autoFetch,
+      productId: context.productId,
+      startedAt: new Date().toISOString(),
+    };
     localStorage.setItem(ASIN_DIAGNOSIS_TASK_KEY, taskRes.data.task_id);
+    localStorage.setItem(ASIN_DIAGNOSIS_TASK_CONTEXT_KEY, JSON.stringify(taskContext));
+    upsertModuleTask({
+      id: moduleTaskId,
+      moduleKey: "asin-manager",
+      label: `ASIN抓取分析 ${asin}`,
+      status: "running",
+      detail: "后台正在抓取Amazon页面并生成选品判断",
+      path: "/asin-manager",
+    });
     let task = taskRes.data;
     for (let attempt = 0; attempt < 180; attempt += 1) {
       const statusRes = await axios.get<AsinDiagnosisTaskResponse>(
@@ -1118,63 +1423,38 @@ export default function AsinManager() {
       );
       task = statusRes.data;
       if (task.status === "completed") break;
-      if (task.status === "failed") throw new Error(task.error_message || "ASIN分析任务失败");
+      if (task.status === "failed") {
+        finishModuleTask(moduleTaskId, "failed", task.error_message || "ASIN分析任务失败");
+        clearActiveAsinTaskStorage();
+        throw new Error(task.error_message || "ASIN分析任务失败");
+      }
       await new Promise((resolve) => window.setTimeout(resolve, 2000));
     }
     if (task.status !== "completed" || !task.result_payload) {
       throw new Error("ASIN分析仍在后台运行，请稍后刷新查看");
     }
-    localStorage.removeItem(ASIN_DIAGNOSIS_TASK_KEY);
-    const d = task.result_payload as Record<string, any>;
-    const pd = d.product_data || {};
-    const source = d.data_source || pd._data_source || "server_analysis";
+    finishModuleTask(moduleTaskId, "completed", "ASIN抓取分析已完成");
+    window.setTimeout(() => removeModuleTask(moduleTaskId), 1200);
+    clearActiveAsinTaskStorage();
+    const normalized = productDataFromAsinTaskPayload(task.result_payload, asin);
     return {
       status: "success",
-      source,
-      data: {
-        asin: d.asin || asin,
-        title: pd.title || d.product_title || "",
-        bullet_points: Array.isArray(pd.bullet_points)
-          ? pd.bullet_points.join("\n")
-          : pd.bullet_points || "",
-        a_plus_content: pd.description_summary || "",
-        search_keywords: Array.isArray(pd.main_keywords)
-          ? pd.main_keywords.join(", ")
-          : pd.main_keywords || "",
-        price: parseFloat(String(pd.price).replace(/[^0-9.]/g, "")) || 0,
-        review_count:
-          parseInt(String(pd.review_count).replace(/[^0-9]/g, "")) || 0,
-        rating: parseFloat(String(pd.rating)) || 0,
-        category: pd.category || "",
-      },
+      source: normalized.source,
+      data: normalized.data,
     };
   };
 
   /* ---- Smart fetch: Server proxy → Server scrape → AI (three phases) ---- */
   const smartFetchAsin = async (
     asin: string,
-    marketplace: string
-  ): Promise<{
-    status: string;
-    data?: {
-      asin: string;
-      title: string;
-      bullet_points: string;
-      a_plus_content: string;
-      search_keywords: string;
-      price: number;
-      review_count: number;
-      rating: number;
-      category: string;
-    };
-    error?: string;
-    source?: string;
-  }> => {
+    marketplace: string,
+    context: Partial<Omit<ActiveAsinTaskContext, "taskId" | "moduleTaskId" | "asin" | "marketplace" | "startedAt">> = {}
+  ): Promise<AsinFetchResult> => {
     if (isPublicDeployment()) {
       setAutoImportMessage("正在提取商品信息并生成分析结果，通常需要 10-40 秒");
       setAutoImportProgress(35);
       try {
-        const serverResult = await fetchAsinViaAI(asin, marketplace);
+        const serverResult = await fetchAsinViaAI(asin, marketplace, context);
         setAutoImportProgress(100);
         return serverResult;
       } catch (e: unknown) {
@@ -1247,7 +1527,7 @@ export default function AsinManager() {
     setAutoImportMessage("正在补充商品信息并生成低置信度标记");
     setAutoImportProgress(62);
     try {
-      const aiResult = await fetchAsinViaAI(asin, marketplace);
+      const aiResult = await fetchAsinViaAI(asin, marketplace, context);
       setAutoImportProgress(100);
       return aiResult;
     } catch (e: unknown) {
@@ -1274,7 +1554,10 @@ export default function AsinManager() {
     setAutoImportElapsed(0);
     setAutoImportMessage("准备开始抓取分析，预计 60 秒内完成");
     try {
-      const result = await smartFetchAsin(asin, autoImportMarketplace);
+      const result = await smartFetchAsin(asin, autoImportMarketplace, {
+        intent: "single_import",
+        autoFetch,
+      });
       if (result.status === "success" && result.data) {
         const productData = {
           asin: result.data.asin || asin,
@@ -1354,7 +1637,10 @@ export default function AsinManager() {
     setAutoImportElapsed(0);
     setAutoImportMessage("准备抓取、保存并验证关键词销量");
     try {
-      const result = await smartFetchAsin(asin, autoImportMarketplace);
+      const result = await smartFetchAsin(asin, autoImportMarketplace, {
+        intent: "single_import_validate",
+        autoFetch: true,
+      });
       if (result.status !== "success" || !result.data) {
         toast.error(result.error || "抓取失败，请检查ASIN是否正确");
         return;
@@ -1430,7 +1716,10 @@ export default function AsinManager() {
         setAutoImportMessage(`正在分析 ${asin}（${currentIndex}/${asins.length}）`);
         setAutoImportProgress(Math.max(5, Math.round(((currentIndex - 1) / asins.length) * 100)));
         try {
-          const result = await smartFetchAsin(asin, autoImportMarketplace);
+          const result = await smartFetchAsin(asin, autoImportMarketplace, {
+            intent: "batch_import",
+            autoFetch: true,
+          });
           if (result.status === "success" && result.data) {
             const importedAsin = result.data.asin || asin;
             const productData = {
@@ -1498,12 +1787,21 @@ export default function AsinManager() {
       toast.error("请输入关键词");
       return;
     }
+    const moduleTaskId = `asin-top40-batch:${autoImportMarketplace}:${keyword}:${scraplingBatchIndex}`;
     setScraplingLoading(true);
     setScraplingResult(null);
     setTop40Analysis(null);
     setAutoImportProgress(5);
     setAutoImportElapsed(0);
     setAutoImportMessage(`正在生成Top40竞品快照：第 ${scraplingBatchIndex} 批`);
+    upsertModuleTask({
+      id: moduleTaskId,
+      moduleKey: "asin-manager",
+      label: `Top40快照 ${keyword}`,
+      status: "running",
+      detail: `正在抓取第 ${scraplingBatchIndex} 批搜索结果`,
+      path: "/asin-manager",
+    });
     try {
       const res = await axios.post(
         `${getLongRunningApiBase()}/api/v1/asin-selection/scrapling/top40-batch`,
@@ -1542,6 +1840,7 @@ export default function AsinManager() {
       });
       loadTop40Usage().catch(() => {});
       const okCount = result.items.filter((item) => ["ok", "search_snapshot"].includes(String(item.status))).length;
+      finishModuleTask(moduleTaskId, "completed", `Top40快照完成：${okCount}/${result.items.length}`);
       toast.success(`已抓取 Rank ${result.rankRange}: ${okCount}/${result.items.length} 条样本可用`);
     } catch (e: unknown) {
       const msg = axios.isAxiosError(e)
@@ -1549,12 +1848,14 @@ export default function AsinManager() {
         : e instanceof Error
           ? e.message
           : "Top40竞品快照生成失败";
+      finishModuleTask(moduleTaskId, "failed", msg);
       toast.error(msg);
     } finally {
       setScraplingLoading(false);
       setAutoImportProgress(0);
       setAutoImportElapsed(0);
       setAutoImportMessage("");
+      window.setTimeout(() => removeModuleTask(moduleTaskId), 1200);
     }
   };
 
@@ -1564,12 +1865,21 @@ export default function AsinManager() {
       toast.error("请输入关键词");
       return;
     }
+    const moduleTaskId = `asin-top40-all:${autoImportMarketplace}:${keyword}`;
     setScraplingLoading(true);
     setScraplingResult(null);
     setScraplingResults([]);
     setTop40Analysis(null);
     setAutoImportProgress(3);
     setAutoImportElapsed(0);
+    upsertModuleTask({
+      id: moduleTaskId,
+      moduleKey: "asin-manager",
+      label: `Top40完整抓取 ${keyword}`,
+      status: "running",
+      detail: "正在抓取4批搜索结果并生成市场快照",
+      path: "/asin-manager",
+    });
     const collected: ScraplingTop40BatchResult[] = [];
     try {
       for (let batchIndex = 1; batchIndex <= 4; batchIndex += 1) {
@@ -1620,6 +1930,7 @@ export default function AsinManager() {
       );
       setAutoImportProgress(100);
       loadTop40Usage().catch(() => {});
+      finishModuleTask(moduleTaskId, "completed", `Top40抓取完成：${okCount}/${itemCount}`);
       toast.success(`Top40抓取完成：${okCount}/${itemCount} 条样本可用`);
       const capturedItems = collected.flatMap((batch) => batch.items);
       if (capturedItems.length > 0) {
@@ -1633,12 +1944,14 @@ export default function AsinManager() {
         : e instanceof Error
           ? e.message
           : "Top40竞品快照生成失败";
+      finishModuleTask(moduleTaskId, "failed", msg);
       toast.error(msg);
     } finally {
       setScraplingLoading(false);
       setAutoImportProgress(0);
       setAutoImportElapsed(0);
       setAutoImportMessage("");
+      window.setTimeout(() => removeModuleTask(moduleTaskId), 1200);
     }
   };
 
@@ -1652,10 +1965,19 @@ export default function AsinManager() {
       toast.error("请先完成Top40抓取");
       return;
     }
+    const moduleTaskId = `asin-top40-analysis:${marketplace}:${keyword}`;
     setTop40Analyzing(true);
     setAutoImportProgress(8);
     setAutoImportElapsed(0);
     setAutoImportMessage("正在生成Top40市场机会报告");
+    upsertModuleTask({
+      id: moduleTaskId,
+      moduleKey: "asin-manager",
+      label: `Top40机会分析 ${keyword}`,
+      status: "running",
+      detail: "AI优先推理市场机会，规则兜底",
+      path: "/asin-manager",
+    });
     try {
       const res = await axios.post(
         `${getLongRunningApiBase()}/api/v1/asin-selection/top40-market-analysis`,
@@ -1681,6 +2003,7 @@ export default function AsinManager() {
         ai_called: analysis.analysisSource === "ai",
         source_record_table: "top40_market_analysis",
       }).catch(() => {});
+      finishModuleTask(moduleTaskId, "completed", "Top40市场机会分析完成");
       toast.success(`Top40市场机会分析完成：${analysis.headline}`);
     } catch (e: unknown) {
       const msg = axios.isAxiosError(e)
@@ -1688,6 +2011,7 @@ export default function AsinManager() {
         : e instanceof Error
           ? e.message
           : "Top40市场机会分析失败";
+      finishModuleTask(moduleTaskId, "failed", msg);
       toast.error(msg);
     } finally {
       setTop40Analyzing(false);
@@ -1696,6 +2020,7 @@ export default function AsinManager() {
         setAutoImportElapsed(0);
         setAutoImportMessage("");
       }
+      window.setTimeout(() => removeModuleTask(moduleTaskId), 1200);
     }
   };
 
@@ -1709,7 +2034,11 @@ export default function AsinManager() {
     const marketplace = getProductMarketplace(product);
     setRefreshingId(product.id);
     try {
-      const result = await smartFetchAsin(product.asin, marketplace);
+      const result = await smartFetchAsin(product.asin, marketplace, {
+        intent: "refresh_product",
+        autoFetch: true,
+        productId: product.id,
+      });
       if (result.status === "success" && result.data) {
         await client.entities.products.update({
           id: String(product.id),
