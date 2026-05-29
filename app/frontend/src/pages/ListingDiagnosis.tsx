@@ -404,7 +404,7 @@ const HEATMAP_DIM_KEYS: { key: keyof ElementDim; label: string; color: string }[
   };
 });
 
-type ListingRulerLayer = "用户意图层" | "平台对齐层" | "Listing承接层" | "辅助验证层";
+type ListingRulerLayer = "需求承接层" | "平台识别层" | "Listing证明层" | "市场验证层";
 
 const DIMENSION_RULER_META: Record<keyof Scores, {
   layer: ListingRulerLayer;
@@ -414,73 +414,73 @@ const DIMENSION_RULER_META: Record<keyof Scores, {
   impact: string;
 }> = {
   function_expression: {
-    layer: "用户意图层",
+    layer: "需求承接层",
     intentScale: "任务对象清晰度 / 决策属性优先级",
     platformScale: "证据可回答性",
     ownAction: "把功能从参数改成用户任务、结果和可验证证据",
     impact: "CTR / CVR / ACOS",
   },
   scenario_expression: {
-    layer: "平台对齐层",
+    layer: "平台识别层",
     intentScale: "使用场景约束",
     platformScale: "查询意图匹配 / 关系图谱完整度",
     ownAction: "补清使用地点、搭配对象、使用时机和不适用边界",
     impact: "CTR / CPC / 广告词相关性",
   },
   identity_fit: {
-    layer: "用户意图层",
+    layer: "需求承接层",
     intentScale: "任务对象清晰度 / 使用场景约束",
     platformScale: "关系图谱完整度",
     ownAction: "明确谁在什么条件下使用，避免泛人群表达",
     impact: "CTR / CVR / 无效点击率",
   },
   psychology_benefit: {
-    layer: "用户意图层",
+    layer: "需求承接层",
     intentScale: "购买触发强度 / 反购买风险",
     platformScale: "证据可回答性",
     ownAction: "把安心、省事、舒适等心理收益绑定到真实痛点",
     impact: "CVR / 详情页停留 / Review",
   },
   risk_elimination: {
-    layer: "用户意图层",
+    layer: "需求承接层",
     intentScale: "反购买风险",
     platformScale: "证据可回答性",
     ownAction: "补退货、差评、误用、适配失败的证据链",
     impact: "CVR / 退货 / 差评",
   },
   differentiation: {
-    layer: "Listing承接层",
+    layer: "Listing证明层",
     intentScale: "决策属性优先级",
     platformScale: "证据可回答性",
     ownAction: "只保留用户会买单的差异，并用图片/五点/A+证明",
     impact: "CTR / CVR / CPC",
   },
   product_identity: {
-    layer: "平台对齐层",
+    layer: "平台识别层",
     intentScale: "任务对象清晰度",
     platformScale: "类目身份锚定 / 结构化属性完整度",
     ownAction: "校准产品类型、子类目、核心对象和属性词",
     impact: "自然排名 / 广告匹配 / Rufus理解",
   },
   compatibility: {
-    layer: "平台对齐层",
+    layer: "平台识别层",
     intentScale: "使用场景约束",
     platformScale: "结构化属性完整度 / 关系图谱完整度",
     ownAction: "补 used_with、compatible with、适配/不适配边界",
     impact: "CVR / 退货 / 长尾广告词",
   },
   subjective_properties: {
-    layer: "Listing承接层",
+    layer: "Listing证明层",
     intentScale: "购买触发强度 / 决策属性优先级",
     platformScale: "证据可回答性",
     ownAction: "把质感、美观、安静、易用等主观词落到证据",
     impact: "CTR / CVR / Review",
   },
   market_trend: {
-    layer: "辅助验证层",
+    layer: "市场验证层",
     intentScale: "购买触发强度",
     platformScale: "查询意图变化",
-    ownAction: "只用于发现需求变化，不替代两把尺主判断",
+    ownAction: "只用于发现需求变化，不替代Listing承接主判断",
     impact: "流量机会 / 测试优先级",
   },
 };
@@ -1272,13 +1272,13 @@ function getTwoRulerScoreCards(scores: Scores, marketScore?: number) {
   return [
     {
       key: "intent",
-      title: "尺一：用户意图",
+      title: "需求承接",
       score: averageScoresByKeys(scores, TWO_RULER_DIMENSIONS.intent),
       desc: "用户真实任务、购买触发、场景约束、决策属性和反购买风险。",
     },
     {
       key: "platform",
-      title: "尺二：平台理解",
+      title: "平台识别",
       score: averageScoresByKeys(scores, TWO_RULER_DIMENSIONS.platform),
       desc: "Amazon/Rufus 能否识别类目身份、查询意图、结构化属性和关系图谱。",
     },
@@ -1292,7 +1292,7 @@ function getTwoRulerScoreCards(scores: Scores, marketScore?: number) {
       key: "validation",
       title: "验证参考",
       score: validationScore,
-      desc: "市场趋势、关键词和广告数据只做验证，不替代两把尺。",
+      desc: "市场趋势、关键词和广告数据只做验证，不替代承接判断。",
     },
   ];
 }
@@ -1304,10 +1304,10 @@ function TwoRulerSummary({ scores, marketScore }: { scores: Scores; marketScore?
       <CardHeader className="pb-3">
         <CardTitle className="text-base flex items-center gap-2">
           <Shield className="w-4 h-4 text-brand-600" />
-          两把尺 × 8D+2反向检查
+          Listing承接诊断
         </CardTitle>
         <p className="text-xs text-gray-500">
-          8D+2不再作为10项平铺平均分；先看用户意图和平台理解，再反查Listing承接与广告验证。
+          先看用户需求和平台识别，再反查标题、图片、五点、A+与广告验证是否形成闭环。
         </p>
       </CardHeader>
       <CardContent>
@@ -1976,9 +1976,9 @@ function ScoreBar({ dim, score, analysis }: { dim: typeof DIMENSIONS[0]; score: 
         <span className={`text-lg font-bold ${scoreColor(score)}`}>{score}</span>
       </div>
       <div className="mb-2 rounded-lg bg-white border border-gray-100 p-2 text-[11px] text-gray-500 leading-relaxed">
-        <span className="font-semibold text-gray-700">尺一</span> {rulerMeta.intentScale}
+        <span className="font-semibold text-gray-700">需求</span> {rulerMeta.intentScale}
         <span className="mx-2 text-gray-300">|</span>
-        <span className="font-semibold text-gray-700">尺二</span> {rulerMeta.platformScale}
+        <span className="font-semibold text-gray-700">平台</span> {rulerMeta.platformScale}
       </div>
       <div className="w-full h-2 bg-gray-50 rounded-full overflow-hidden mb-2">
         <div
@@ -3131,13 +3131,13 @@ export default function ListingDiagnosis() {
         `  └ 市场验证分: ${marketValidation.market_total}/100 (权重35%)`,
       ] : [`  内容评分: ${contentScore}/100`]),
       ``,
-      `--- 两把尺 × 8D+2反向检查 ---`,
+      `--- Listing承接诊断 ---`,
       ...getTwoRulerScoreCards(diagResult.scores, marketValidation?.market_total).map(card => `${card.title}: ${card.score}/100 - ${card.desc}`),
       ``,
       `--- 8D+2维度归属 ---`,
       ...DIMENSIONS.map(d => {
         const meta = DIMENSION_RULER_META[d.key];
-        return `${d.label}: ${diagResult.scores[d.key] || 0}/100 | ${meta.layer} | 尺一:${meta.intentScale} | 尺二:${meta.platformScale} | ${diagResult.analysis?.[d.key] || ""}`;
+        return `${d.label}: ${diagResult.scores[d.key] || 0}/100 | ${meta.layer} | 需求:${meta.intentScale} | 平台:${meta.platformScale} | ${diagResult.analysis?.[d.key] || ""}`;
       }),
       ``,
       ...(elements.length > 0 ? [
@@ -3688,7 +3688,7 @@ export default function ListingDiagnosis() {
                         总览
                       </TabsTrigger>
                       <TabsTrigger value="scores" className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600 text-xs sm:text-sm">
-                        两把尺8D+2
+                        承接评分
                       </TabsTrigger>
                       <TabsTrigger value="hypotheses" className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600 text-xs sm:text-sm">
                         假设验证
@@ -3809,7 +3809,12 @@ export default function ListingDiagnosis() {
                     <TabsContent value="heatmap" className="mt-4">
                       {elementsData.length > 0 ? (
                         <Card className="bg-gray-50 border-gray-200 p-5">
-                          <h3 className="text-sm font-semibold text-gray-600 mb-4">Listing模块 × 8D+2归因图</h3>
+                          <div className="mb-4">
+                            <h3 className="text-sm font-semibold text-gray-700">Listing模块贡献图</h3>
+                            <p className="mt-1 text-xs text-gray-500 leading-relaxed">
+                              行分用于定位标题、五点、图片、A+或后台词哪个模块拖后腿；列分会汇总到最终承接评分。价格、评论、BSR和广告数据属于验证参考，不和单个模块行分直接对比。
+                            </p>
+                          </div>
                           <div className="overflow-x-auto">
                             <table className="w-full min-w-[600px]">
                               <thead>
@@ -3840,6 +3845,19 @@ export default function ListingDiagnosis() {
                                     </tr>
                                   );
                                 })}
+                                <tr className="border-t border-gray-200">
+                                  <td className="py-2 pr-3">
+                                    <span className="text-xs font-semibold text-gray-700">最终维度分</span>
+                                  </td>
+                                  {HEATMAP_DIM_KEYS.map((d) => (
+                                    <td key={d.key} className="px-1 py-2">
+                                      <HeatmapCell value={Number(diagResult.scores[d.key as keyof Scores]) || 0} />
+                                    </td>
+                                  ))}
+                                  <td className="px-1 py-2">
+                                    <HeatmapCell value={getAvgScore(diagResult.scores)} />
+                                  </td>
+                                </tr>
                               </tbody>
                             </table>
                           </div>
@@ -3857,6 +3875,9 @@ export default function ListingDiagnosis() {
                             <span className="px-2 py-0.5 rounded bg-teal-500/50 text-gray-900">60-79</span>
                             <span className="px-2 py-0.5 rounded bg-emerald-500/60 text-gray-900">80-100</span>
                           </div>
+                          <p className="mt-2 text-[11px] text-gray-500 leading-relaxed">
+                            若模块行分较高但验证参考较低，通常是价格、评论、BSR、销量或广告数据不足；若后台属性行分偏低，说明Search Terms、关系词、状态词证据不足，会影响平台识别和广告匹配。
+                          </p>
                         </Card>
                       ) : (
                         <Card className="bg-gray-50 border-gray-200 p-8 text-center">
@@ -4643,7 +4664,7 @@ function HistoryDetailView({
       <Tabs value={resultTab} onValueChange={setResultTab}>
         <TabsList className="bg-gray-50 border border-gray-200 flex-wrap">
           <TabsTrigger value="overview" className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600 text-xs">总览</TabsTrigger>
-          <TabsTrigger value="scores" className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600 text-xs">两把尺8D+2</TabsTrigger>
+          <TabsTrigger value="scores" className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600 text-xs">承接评分</TabsTrigger>
           <TabsTrigger value="judgment" className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600 text-xs">后台判断</TabsTrigger>
           <TabsTrigger value="heatmap" className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600 text-xs">热力图</TabsTrigger>
           <TabsTrigger value="keywords" className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600 text-xs">关键词</TabsTrigger>
@@ -4701,7 +4722,14 @@ function HistoryDetailView({
         {/* Heatmap */}
         <TabsContent value="heatmap" className="mt-3">
           {elementsData.some((e) => Object.values(e.dims).some((v) => v > 0)) ? (
-            <div className="overflow-x-auto">
+            <div>
+              <div className="mb-3 rounded-lg border border-brand-100 bg-brand-50 p-3">
+                <p className="text-xs font-semibold text-brand-700">读图方式</p>
+                <p className="mt-1 text-xs text-gray-500 leading-relaxed">
+                  行分看单个Listing模块的贡献；最终维度分看系统汇总后的承接判断。验证参考来自价格、评论、BSR和广告数据，低分不等于标题或五点一定差。
+                </p>
+              </div>
+              <div className="overflow-x-auto">
               <table className="w-full min-w-[500px]">
                 <thead>
                   <tr>
@@ -4730,8 +4758,22 @@ function HistoryDetailView({
                       </tr>
                     );
                   })}
+                  <tr className="border-t border-gray-200">
+                    <td className="py-2 pr-3">
+                      <span className="text-xs font-semibold text-gray-700">最终维度分</span>
+                    </td>
+                    {HEATMAP_DIM_KEYS.map((d) => (
+                      <td key={d.key} className="px-1 py-2">
+                        <HeatmapCell value={Number(result.scores[d.key as keyof Scores]) || 0} />
+                      </td>
+                    ))}
+                    <td className="px-1 py-2">
+                      <HeatmapCell value={getAvgScore(result.scores)} />
+                    </td>
+                  </tr>
                 </tbody>
               </table>
+              </div>
               {expandedEl && elementsData.find((e) => e.key === expandedEl) && (
                 <p className="mt-2 text-xs text-gray-500 p-2 bg-gray-50 rounded border border-gray-100">
                   {elementsData.find((e) => e.key === expandedEl)!.summary}
