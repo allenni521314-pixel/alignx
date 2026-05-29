@@ -8,3 +8,7 @@ async function deliverPendingCapture() {
 }
 
 deliverPendingCapture().catch(() => {});
+
+window.addEventListener("alignx-request-pending-capture", () => {
+  deliverPendingCapture().catch(() => {});
+});

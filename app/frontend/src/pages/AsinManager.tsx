@@ -338,6 +338,20 @@ interface ActiveAsinTaskContext {
   startedAt: string;
 }
 
+interface LocalBrowserCapture {
+  html?: string;
+  asin?: string;
+  marketplace?: string;
+  title?: string;
+  price?: string;
+  rating?: string;
+  reviewCount?: string;
+  bsrRank?: string;
+  imageCount?: number;
+  bullets?: string[];
+  destination?: string;
+}
+
 const asinModuleTaskId = (taskId: string) => `asin-diagnosis:${taskId}`;
 
 const parseTaskStartedAt = (startedAt?: string) => {
@@ -346,6 +360,9 @@ const parseTaskStartedAt = (startedAt?: string) => {
 };
 
 const getAsinTaskAgeMs = (startedAt?: string) => Math.max(0, Date.now() - parseTaskStartedAt(startedAt));
+
+const isAxiosTimeout = (error: unknown) =>
+  axios.isAxiosError(error) && (error.code === "ECONNABORTED" || /timeout/i.test(error.message || ""));
 
 const readActiveAsinTaskContext = (): ActiveAsinTaskContext | null => {
   try {
@@ -427,6 +444,8 @@ export default function AsinManager() {
   // Tab state: "library" = ASIN库, "pool" = ASIN机会池
   const [searchParams, setSearchParams] = useSearchParams();
   const urlTab = searchParams.get("tab");
+  const isLocalCaptureRoute = searchParams.get("localCapture") === "1";
+  const localCaptureAsin = (searchParams.get("asin") || "").trim().toUpperCase();
   const [activeTab, setActiveTabState] = useState<"library" | "pool">(
     urlTab === "pool" ? "pool" : "library"
   );
@@ -473,6 +492,7 @@ export default function AsinManager() {
   const [top40Analysis, setTop40Analysis] = useState<Top40MarketAnalysis | null>(null);
   const [top40Usage, setTop40Usage] = useState<Top40Usage | null>(null);
   const [top40DeepDiveAsin, setTop40DeepDiveAsin] = useState<string | null>(null);
+  const [pendingLocalCapture, setPendingLocalCapture] = useState<LocalBrowserCapture | null>(null);
 
   // Fetch history state
   const [showHistory, setShowHistory] = useState(false);
@@ -483,14 +503,18 @@ export default function AsinManager() {
   useEffect(() => {
     if (!autoImportLoading && !batchImportLoading && !scraplingLoading && !top40Analyzing) return;
     const startedAt = Date.now();
-    const targetSeconds = scraplingLoading || top40Analyzing ? TOP40_TASK_TIMEOUT_SECONDS : ASIN_TASK_TIMEOUT_MS / 1000;
+    const targetSeconds = scraplingLoading || top40Analyzing
+      ? TOP40_TASK_TIMEOUT_SECONDS
+      : isLocalCaptureRoute
+        ? 180
+        : ASIN_TASK_TIMEOUT_MS / 1000;
     const timer = window.setInterval(() => {
       const elapsed = Math.min(targetSeconds, Math.floor((Date.now() - startedAt) / 1000));
       setAutoImportElapsed(elapsed);
       setAutoImportProgress((current) => Math.max(current, Math.min(92, Math.round((elapsed / targetSeconds) * 92))));
     }, 1000);
     return () => window.clearInterval(timer);
-  }, [autoImportLoading, batchImportLoading, scraplingLoading, top40Analyzing]);
+  }, [autoImportLoading, batchImportLoading, scraplingLoading, top40Analyzing, isLocalCaptureRoute]);
 
   // Refresh single product
   const [refreshingId, setRefreshingId] = useState<number | null>(null);
@@ -828,132 +852,199 @@ export default function AsinManager() {
     return { product: created as Product, mode: "created" as const };
   };
 
+  function readStoredLocalBrowserCapture() {
+    const raw = localStorage.getItem("alignx_local_browser_capture");
+    if (!raw) return null;
+    try {
+      const capture = JSON.parse(raw) as LocalBrowserCapture;
+      if (capture.destination && capture.destination !== "asin") {
+        localStorage.removeItem("alignx_local_browser_capture");
+        return null;
+      }
+      if (!capture.html || !capture.asin) return null;
+      return { ...capture, asin: capture.asin.trim().toUpperCase() };
+    } catch {
+      localStorage.removeItem("alignx_local_browser_capture");
+      return null;
+    }
+  }
+
+  function resolveLocalBrowserCapture() {
+    const stored = readStoredLocalBrowserCapture();
+    if (stored) return stored;
+    if (pendingLocalCapture?.html && pendingLocalCapture.asin) {
+      return { ...pendingLocalCapture, asin: pendingLocalCapture.asin.trim().toUpperCase() };
+    }
+    return null;
+  }
+
+  function requestPendingLocalCapture() {
+    window.dispatchEvent(new Event("alignx-request-pending-capture"));
+  }
+
+  function showMissingLocalCaptureMessage() {
+    requestPendingLocalCapture();
+    toast.warning("未收到本地浏览器采集数据，请回到 Amazon 商品页重新点击插件发送。");
+    setAutoImportMessage("等待插件传回本地采集数据，不会启动服务器抓取");
+  }
+
+  async function processLocalBrowserCapture(capture: LocalBrowserCapture, options: { validate?: boolean } = {}) {
+    if (!capture.html || !capture.asin) {
+      showMissingLocalCaptureMessage();
+      return null;
+    }
+
+    const asin = capture.asin.trim().toUpperCase();
+    const mp = capture.marketplace || autoImportMarketplace || "US";
+    const moduleTaskId = `asin-local-capture:${asin}`;
+    localStorage.removeItem("alignx_local_browser_capture");
+    setPendingLocalCapture({ ...capture, asin });
+    setAutoImportAsin(asin);
+    setAutoImportMarketplace(mp);
+    setAutoImportLoading(true);
+    setAutoImportElapsed(0);
+    setAutoImportProgress(28);
+    setAutoImportMessage(
+      options.validate
+        ? "正在解析本地浏览器采集证据，并继续做关键词销量验证"
+        : "正在解析本地浏览器采集证据并写入ASIN库"
+    );
+    upsertModuleTask({
+      id: moduleTaskId,
+      moduleKey: "asin-manager",
+      label: `本地采集分析 ${asin}`,
+      status: "running",
+      detail: "正在解析插件传来的Amazon当前页面，不启动服务器抓取",
+      path: "/asin-manager",
+    });
+
+    try {
+      const res = await axios.post(
+        `${getLongRunningApiBase()}/api/v1/asin-analysis/parse-html-analyze`,
+        {
+          asin,
+          marketplace: mp,
+          html: capture.html,
+          source: "local_browser_capture",
+          captured_title: capture.title || "",
+          captured_price: capture.price || "",
+          captured_rating: capture.rating || "",
+          captured_review_count: capture.reviewCount || "",
+          captured_bsr_rank: capture.bsrRank || "",
+          captured_image_count: capture.imageCount ? String(capture.imageCount) : "",
+          captured_bullets: capture.bullets || [],
+        },
+        { headers: getAuthHeaders(), timeout: 180000 }
+      );
+      const d = res.data;
+      if (!d?.success || !d.product_data) {
+        const msg = d?.error || "本地采集解析失败";
+        finishModuleTask(moduleTaskId, "failed", msg);
+        toast.error(msg);
+        return null;
+      }
+
+      const pd = d.product_data || {};
+      const productData: Omit<Product, "id" | "created_at" | "marketplace"> = {
+        asin: d.asin || asin,
+        title: pd.title || d.product_title || capture.title || asin,
+        bullet_points: Array.isArray(pd.bullet_points) ? pd.bullet_points.join("\n") : pd.bullet_points || "",
+        a_plus_content: pd.description_summary || pd.aplus_content || "",
+        search_keywords: Array.isArray(pd.main_keywords) ? pd.main_keywords.join(", ") : pd.main_keywords || "",
+        price: parseFloat(String(pd.price || capture.price || "").replace(/[^0-9.]/g, "")) || 0,
+        review_count: parseInt(String(pd.review_count || capture.reviewCount || "").replace(/[^0-9]/g, ""), 10) || 0,
+        rating: parseFloat(String(pd.rating || capture.rating || "")) || 0,
+        category: pd.category || "",
+      };
+
+      setAutoImportProgress(options.validate ? 74 : 88);
+      const saved = await saveProductToLibrary(productData);
+      const savedProduct = { ...saved.product, marketplace: mp };
+      setAsinMarketplaceMap((prev) => ({ ...prev, [productData.asin]: mp }));
+      setProducts((prev) => {
+        const existingIndex = prev.findIndex((product) => product.asin === productData.asin);
+        if (existingIndex >= 0) {
+          const next = [...prev];
+          next[existingIndex] = savedProduct;
+          return next;
+        }
+        return [savedProduct, ...prev];
+      });
+
+      let report: KeywordSalesValidationReport | null = null;
+      if (options.validate) {
+        setAutoImportMessage("本地采集已写入ASIN库，正在做关键词销量验证");
+        setAutoImportProgress(86);
+        report = await validateImportedProduct(productData, mp);
+      }
+
+      saveActionSnapshot({
+        module_key: "asin_selection",
+        module_name: options.validate ? "关键词销量验证" : "ASIN选品",
+        action_key: options.validate ? "local_capture_save_keyword_sales_validation" : "local_browser_capture_import",
+        action_name: options.validate ? "本地采集保存并验证关键词销量" : "本地浏览器采集写入ASIN库",
+        product_id: saved.product.id,
+        asin: productData.asin,
+        title: productData.title,
+        input_snapshot: { asin, marketplace: mp, destination: capture.destination || "asin" },
+        output_snapshot: { product: productData, marketplace: mp, capture_quality: pd.capture_quality, keyword_sales_validation: report },
+        data_source: "本地浏览器页面采集",
+        confidence: report ? (report.keyword_sales_score >= 65 ? "medium" : "low") : "high",
+        ai_called: true,
+        source_record_table: options.validate ? "asin_keyword_sales_validation_reports" : "products",
+        source_record_id: saved.product.id,
+      }).catch(() => {});
+
+      setAutoImportProgress(100);
+      setPendingLocalCapture(null);
+      finishModuleTask(moduleTaskId, "completed", options.validate ? "本地采集保存并验证完成" : "本地采集写入完成");
+      await loadProducts();
+      toast.success(
+        options.validate && report
+          ? `${productData.asin} 已${saved.mode === "updated" ? "更新" : "保存"}，关键词验证 ${Math.round(report.keyword_sales_score)} 分`
+          : `已用本地浏览器采集${saved.mode === "updated" ? "更新" : "保存"} ${productData.asin}`
+      );
+      return { productData, savedProduct, report };
+    } catch (err) {
+      const msg = axios.isAxiosError(err) ? err.response?.data?.detail || err.message : "本地采集分析失败";
+      finishModuleTask(moduleTaskId, "failed", msg);
+      toast.error(msg);
+      return null;
+    } finally {
+      setAutoImportLoading(false);
+      setAutoImportProgress(0);
+      setAutoImportElapsed(0);
+      setAutoImportMessage("");
+      window.setTimeout(() => removeModuleTask(moduleTaskId), 1200);
+    }
+  }
+
   useEffect(() => {
     if (authLoading) return;
     const consumeLocalBrowserCapture = async () => {
-      const raw = localStorage.getItem("alignx_local_browser_capture");
-      if (!raw) return;
-      let capture: {
-        html?: string;
-        asin?: string;
-        marketplace?: string;
-        title?: string;
-        price?: string;
-        rating?: string;
-        reviewCount?: string;
-        bsrRank?: string;
-        imageCount?: number;
-        bullets?: string[];
-        destination?: string;
-      };
-      try {
-        capture = JSON.parse(raw);
-      } catch {
-        localStorage.removeItem("alignx_local_browser_capture");
+      const capture = readStoredLocalBrowserCapture();
+      if (!capture) {
+        if (isLocalCaptureRoute) {
+          if (localCaptureAsin) setAutoImportAsin(localCaptureAsin);
+          requestPendingLocalCapture();
+          setAutoImportMessage("等待插件传回本地采集数据，不会启动服务器抓取");
+        }
         return;
       }
-      if (capture.destination && capture.destination !== "asin") return;
-      if (!capture.html || !capture.asin) return;
-
-      localStorage.removeItem("alignx_local_browser_capture");
-      const mp = capture.marketplace || autoImportMarketplace || "US";
-      const moduleTaskId = `asin-local-capture:${capture.asin}`;
-      setAutoImportAsin(capture.asin);
-      setAutoImportMarketplace(mp);
-      setAutoImportLoading(true);
-      setAutoImportProgress(45);
-      setAutoImportMessage("正在用本地浏览器采集证据写入ASIN选品库");
-      upsertModuleTask({
-        id: moduleTaskId,
-        moduleKey: "asin-manager",
-        label: `本地采集写入 ${capture.asin}`,
-        status: "running",
-        detail: "正在解析本地浏览器页面并写入ASIN库",
-        path: "/asin-manager",
-      });
-      try {
-        const res = await axios.post(
-          `${getLongRunningApiBase()}/api/v1/asin-analysis/parse-html-analyze`,
-          {
-            asin: capture.asin,
-            marketplace: mp,
-            html: capture.html,
-            source: "local_browser_capture",
-            captured_title: capture.title || "",
-            captured_price: capture.price || "",
-            captured_rating: capture.rating || "",
-            captured_review_count: capture.reviewCount || "",
-            captured_bsr_rank: capture.bsrRank || "",
-            captured_image_count: capture.imageCount ? String(capture.imageCount) : "",
-            captured_bullets: capture.bullets || [],
-          },
-          { headers: getAuthHeaders(), timeout: 180000 }
-        );
-        const d = res.data;
-        if (!d?.success || !d.product_data) {
-          const msg = d?.error || "本地采集解析失败";
-          finishModuleTask(moduleTaskId, "failed", msg);
-          toast.error(msg);
-          return;
-        }
-        const pd = d.product_data || {};
-        const productData: Omit<Product, "id" | "created_at" | "marketplace"> = {
-          asin: d.asin || capture.asin,
-          title: pd.title || d.product_title || capture.title || capture.asin,
-          bullet_points: Array.isArray(pd.bullet_points) ? pd.bullet_points.join("\n") : pd.bullet_points || "",
-          a_plus_content: pd.description_summary || pd.aplus_content || "",
-          search_keywords: Array.isArray(pd.main_keywords) ? pd.main_keywords.join(", ") : pd.main_keywords || "",
-          price: parseFloat(String(pd.price || capture.price || "").replace(/[^0-9.]/g, "")) || 0,
-          review_count: parseInt(String(pd.review_count || capture.reviewCount || "").replace(/[^0-9]/g, ""), 10) || 0,
-          rating: parseFloat(String(pd.rating || capture.rating || "")) || 0,
-          category: pd.category || "",
-        };
-        const saved = await saveProductToLibrary(productData);
-        const savedProduct = { ...saved.product, marketplace: mp };
-        setAsinMarketplaceMap((prev) => ({ ...prev, [productData.asin]: mp }));
-        setProducts((prev) => {
-          const existingIndex = prev.findIndex((product) => product.asin === productData.asin);
-          if (existingIndex >= 0) {
-            const next = [...prev];
-            next[existingIndex] = savedProduct;
-            return next;
-          }
-          return [savedProduct, ...prev];
-        });
-        saveActionSnapshot({
-          module_key: "asin_selection",
-          module_name: "ASIN选品",
-          action_key: "local_browser_capture_import",
-          action_name: "本地浏览器采集写入ASIN库",
-          asin: productData.asin,
-          title: productData.title,
-          input_snapshot: { asin: capture.asin, marketplace: mp },
-          output_snapshot: { ...productData, marketplace: mp, capture_quality: pd.capture_quality },
-          data_source: "本地浏览器页面采集",
-          confidence: "high",
-          ai_called: true,
-          source_record_table: "products",
-        }).catch(() => {});
-        setAutoImportProgress(100);
-        finishModuleTask(moduleTaskId, "completed", "本地采集写入完成");
-        toast.success(`已用本地浏览器采集${saved.mode === "updated" ? "更新" : "保存"} ${productData.asin}`);
-      } catch (err) {
-        const msg = axios.isAxiosError(err) ? err.response?.data?.detail || err.message : "本地采集写入失败";
-        finishModuleTask(moduleTaskId, "failed", msg);
-        toast.error(msg);
-      } finally {
-        setAutoImportLoading(false);
-        setAutoImportMessage("");
-        window.setTimeout(() => removeModuleTask(moduleTaskId), 1200);
-      }
+      setPendingLocalCapture(capture);
+      setAutoImportAsin(capture.asin || localCaptureAsin);
+      setAutoImportMarketplace(capture.marketplace || autoImportMarketplace || "US");
+      await processLocalBrowserCapture(capture, { validate: true });
     };
 
     consumeLocalBrowserCapture();
-    const onCapture = () => consumeLocalBrowserCapture();
+    const onCapture = () => {
+      consumeLocalBrowserCapture();
+    };
     window.addEventListener("alignx-local-browser-capture", onCapture);
     return () => window.removeEventListener("alignx-local-browser-capture", onCapture);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authLoading]);
+  }, [authLoading, isLocalCaptureRoute, localCaptureAsin]);
 
   const handleTop40DeepDive = async (item: ScraplingTop40Item) => {
     if (!item.asin) {
@@ -1104,6 +1195,13 @@ export default function AsinManager() {
 
   useEffect(() => {
     if (authLoading) return;
+    if (isLocalCaptureRoute) {
+      const taskId = localStorage.getItem(ASIN_DIAGNOSIS_TASK_KEY);
+      const context = readActiveAsinTaskContext();
+      if (taskId) removeModuleTask(context?.moduleTaskId || asinModuleTaskId(taskId));
+      clearActiveAsinTaskStorage();
+      return;
+    }
     const taskId = localStorage.getItem(ASIN_DIAGNOSIS_TASK_KEY);
     if (!taskId) return;
 
@@ -1150,11 +1248,19 @@ export default function AsinManager() {
         while (getAsinTaskAgeMs(context.startedAt) < ASIN_TASK_TIMEOUT_MS) {
           if (cancelled) return;
           const remainingMs = ASIN_TASK_TIMEOUT_MS - getAsinTaskAgeMs(context.startedAt);
-          const statusRes = await axios.get<AsinDiagnosisTaskResponse>(
-            `${apiBase}/api/v1/diagnosis-tasks/${taskId}`,
-            { headers: getAuthHeaders(), timeout: Math.max(3000, Math.min(10000, remainingMs)) }
-          );
-          task = statusRes.data;
+          try {
+            const statusRes = await axios.get<AsinDiagnosisTaskResponse>(
+              `${apiBase}/api/v1/diagnosis-tasks/${taskId}`,
+              { headers: getAuthHeaders(), timeout: Math.max(3000, Math.min(10000, remainingMs)) }
+            );
+            task = statusRes.data;
+          } catch (err) {
+            if (isAxiosTimeout(err)) {
+              await new Promise((resolve) => window.setTimeout(resolve, ASIN_TASK_POLL_INTERVAL_MS));
+              continue;
+            }
+            throw err;
+          }
           if (task.status === "completed") break;
           if (task.status === "failed") {
             throw new Error(task.error_message || "ASIN后台任务失败");
@@ -1445,11 +1551,19 @@ export default function AsinManager() {
     const pollStartedAt = Date.now();
     while (Date.now() - pollStartedAt < ASIN_TASK_TIMEOUT_MS) {
       const remainingMs = ASIN_TASK_TIMEOUT_MS - (Date.now() - pollStartedAt);
-      const statusRes = await axios.get<AsinDiagnosisTaskResponse>(
-        `${apiBase}/api/v1/diagnosis-tasks/${taskRes.data.task_id}`,
-        { headers: getAuthHeaders(), timeout: Math.max(3000, Math.min(10000, remainingMs)) }
-      );
-      task = statusRes.data;
+      try {
+        const statusRes = await axios.get<AsinDiagnosisTaskResponse>(
+          `${apiBase}/api/v1/diagnosis-tasks/${taskRes.data.task_id}`,
+          { headers: getAuthHeaders(), timeout: Math.max(3000, Math.min(10000, remainingMs)) }
+        );
+        task = statusRes.data;
+      } catch (err) {
+        if (isAxiosTimeout(err)) {
+          await new Promise((resolve) => window.setTimeout(resolve, ASIN_TASK_POLL_INTERVAL_MS));
+          continue;
+        }
+        throw err;
+      }
       if (task.status === "completed") break;
       if (task.status === "failed") {
         const message = task.error_message || "ASIN分析任务失败";
@@ -1578,6 +1692,15 @@ export default function AsinManager() {
       toast.error("请输入ASIN");
       return;
     }
+    if (isLocalCaptureRoute) {
+      const capture = resolveLocalBrowserCapture();
+      if (!capture) {
+        showMissingLocalCaptureMessage();
+        return;
+      }
+      await processLocalBrowserCapture(capture, { validate: false });
+      return;
+    }
     setAutoImportLoading(true);
     setAutoImportProgress(3);
     setAutoImportElapsed(0);
@@ -1659,6 +1782,15 @@ export default function AsinManager() {
     const asin = autoImportAsin.trim().toUpperCase();
     if (!asin) {
       toast.error("请输入ASIN");
+      return;
+    }
+    if (isLocalCaptureRoute) {
+      const capture = resolveLocalBrowserCapture();
+      if (!capture) {
+        showMissingLocalCaptureMessage();
+        return;
+      }
+      await processLocalBrowserCapture(capture, { validate: true });
       return;
     }
     setAutoImportLoading(true);
@@ -2346,6 +2478,24 @@ export default function AsinManager() {
 
               {importMode === "single" ? (
                 <div className="space-y-3">
+                {isLocalCaptureRoute && (
+                  <div className="rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-3">
+                    <p className="text-sm font-semibold text-emerald-800 flex items-center gap-2">
+                      <ShieldCheck className="w-4 h-4" />
+                      本地浏览器采集模式
+                    </p>
+                    <p className="text-xs text-gray-600 mt-1">
+                      本次只解析插件传来的当前 Amazon 页面，不启动服务器抓取。未收到页面证据时，请回 Amazon 商品页重新点击插件发送。
+                    </p>
+                    <p className="text-xs text-emerald-700 mt-1">
+                      {pendingLocalCapture?.asin
+                        ? `已收到 ${pendingLocalCapture.asin} 的本地页面证据。`
+                        : localCaptureAsin
+                          ? `正在等待插件传回 ${localCaptureAsin} 的页面证据。`
+                          : "正在等待插件传回页面证据。"}
+                    </p>
+                  </div>
+                )}
                 <div className="flex gap-3 items-end">
                   <div className="flex-1">
                     <Label className="text-gray-500 text-sm">ASIN</Label>
@@ -2371,8 +2521,12 @@ export default function AsinManager() {
                       <CloudDownload className="w-4 h-4 mr-1" />
                     )}
                     {autoImportLoading
-                      ? "正在抓取真实数据..."
-                      : "开始抓取真实数据"}
+                      ? isLocalCaptureRoute
+                        ? "正在解析本地页面..."
+                        : "正在抓取真实数据..."
+                      : isLocalCaptureRoute
+                        ? "使用本地采集分析"
+                        : "开始抓取真实数据"}
                   </Button>
                 </div>
                 <div className="rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -2400,7 +2554,7 @@ export default function AsinManager() {
                     ) : (
                       <ShieldCheck className="w-4 h-4 mr-1" />
                     )}
-                    抓取保存并验证
+                    {isLocalCaptureRoute ? "本地采集保存并验证" : "抓取保存并验证"}
                   </Button>
                 </div>
                 </div>
@@ -2679,7 +2833,9 @@ export default function AsinManager() {
                       {batchImportCurrent ? ` · 当前 ${batchImportCurrent}` : ""}
                     </span>
                     <span className="shrink-0">
-                      {autoImportElapsed}s / {isTop40Busy ? `${TOP40_TASK_TIMEOUT_SECONDS}s` : `${ASIN_TASK_TIMEOUT_MS / 1000}s`}
+                      {isLocalCaptureRoute
+                        ? `${autoImportElapsed}s · 本地解析中`
+                        : `${autoImportElapsed}s / ${isTop40Busy ? `${TOP40_TASK_TIMEOUT_SECONDS}s` : `${ASIN_TASK_TIMEOUT_MS / 1000}s`}`}
                     </span>
                   </div>
                   <div className="mt-2 h-2 overflow-hidden rounded-full bg-white">
