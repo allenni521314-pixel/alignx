@@ -31,6 +31,18 @@ def _as_list(value: Any) -> list[Any]:
     return value if isinstance(value, list) else []
 
 
+def _parse_count(value: Any, fallback: int = 0) -> int:
+    if value is None:
+        return fallback
+    if isinstance(value, (int, float)):
+        return max(0, int(value))
+    text = str(value).replace(",", "").strip()
+    match = re.search(r"\d+(?:\.\d+)?", text)
+    if not match:
+        return fallback
+    return max(0, int(float(match.group(0))))
+
+
 def _keyword_pool(product_data: dict[str, Any], fallback_keywords: Any = None) -> list[str]:
     raw = fallback_keywords or product_data.get("main_keywords") or []
     if isinstance(raw, str):
@@ -56,7 +68,7 @@ def build_listing_toolbox(product_data: dict[str, Any], scores: dict[str, Any] |
     scores = scores or {}
     title = product_data.get("title") or ""
     bullets = _as_list(product_data.get("bullet_points"))
-    image_count = int(float(str(product_data.get("image_count") or len(_as_list(product_data.get("image_urls"))) or 0).replace(",", "") or 0))
+    image_count = _parse_count(product_data.get("image_count"), fallback=len(_as_list(product_data.get("image_urls"))))
     has_aplus = bool(product_data.get("has_a_plus") or product_data.get("aplus_content") or product_data.get("a_plus_content"))
     keywords = _keyword_pool(product_data)
 

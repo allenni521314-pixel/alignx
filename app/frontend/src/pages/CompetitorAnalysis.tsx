@@ -1493,38 +1493,6 @@ function DataSourceBadge({ source }: { source?: string; confidence?: string }) {
   );
 }
 
-function ToolboxNotice({ toolbox }: { toolbox?: ToolboxEnhancements }) {
-  if (!toolbox) return null;
-  const sourceSkills = [
-    ...(toolbox.competitor?.source_skills || []),
-    ...(toolbox.listing?.source_skills || []),
-    ...(toolbox.ppc?.source_skills || []),
-    ...(toolbox.review?.source_skills || []),
-  ].filter((item, idx, arr) => item && arr.indexOf(item) === idx);
-  return (
-    <div className="rounded-lg border border-brand-100 bg-brand-50 p-3">
-      <div className="flex items-start gap-2">
-        <FileText className="mt-0.5 h-4 w-4 text-brand-600" />
-        <div>
-          <p className="text-sm font-semibold text-gray-900">Amazon工具箱增强已接入</p>
-          <p className="mt-1 text-xs leading-relaxed text-gray-600">
-            {toolbox.principle || "工具箱只做专业执行补充，主判断仍以AlignX COSMO/8D+2为准。"}
-          </p>
-          {sourceSkills.length > 0 && (
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {sourceSkills.slice(0, 8).map((skill) => (
-                <span key={skill} className="rounded-full border border-brand-200 bg-white px-2 py-0.5 text-[11px] font-medium text-brand-700">
-                  {skill}
-                </span>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function ToolboxList({ title, items, tone = "gray" }: { title: string; items?: string[]; tone?: "gray" | "blue" | "amber" }) {
   const clean = (items || []).filter(Boolean);
   if (clean.length === 0) return null;
@@ -1605,7 +1573,6 @@ function SingleResultView({
           </div>
         </div>
       )}
-      <ToolboxNotice toolbox={toolbox} />
       {incompleteSnapshot && (
         <div className="flex items-start gap-3 p-3 rounded-lg bg-amber-50 border border-amber-500/25">
           <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />

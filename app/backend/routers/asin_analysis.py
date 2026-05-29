@@ -412,14 +412,21 @@ async def _evaluate_asin_compliance(product_data: dict, marketplace: str, db: As
     return evaluate_amazon_compliance(payload, rules)
 
 
-async def _get_cached_asin_analysis(asin: str, marketplace: str, db: AsyncSession) -> AnalyzeAsinResponse | None:
+async def _get_cached_asin_analysis(
+    asin: str,
+    marketplace: str,
+    db: AsyncSession,
+    user_id: str | list[str],
+) -> AnalyzeAsinResponse | None:
     """Return the latest saved ASIN analysis so the same ASIN does not receive drifting scores."""
     from sqlalchemy import select
     from models.asin_analyses import Asin_analyses
 
+    user_filter = Asin_analyses.user_id.in_(user_id) if isinstance(user_id, list) else Asin_analyses.user_id == user_id
     result = await db.execute(
         select(Asin_analyses)
         .where(Asin_analyses.asin == asin, Asin_analyses.marketplace == marketplace)
+        .where(user_filter)
         .where(Asin_analyses.product_title.isnot(None), Asin_analyses.analysis_report.isnot(None))
         .order_by(Asin_analyses.id.desc())
         .limit(1)
@@ -1405,7 +1412,8 @@ async def analyze_asin(
             raise HTTPException(status_code=400, detail="请输入有效的10位ASIN")
 
         if not request.force_refresh:
-            cached = await _get_cached_asin_analysis(asin, request.marketplace, db)
+            scope_user_ids = await get_user_scope_ids(current_user, db)
+            cached = await _get_cached_asin_analysis(asin, request.marketplace, db, scope_user_ids)
             if cached:
                 if not cached.amazon_compliance:
                     cached.amazon_compliance = await _evaluate_asin_compliance(cached.product_data, cached.marketplace, db)

@@ -24,6 +24,34 @@ class EnvVariableUpdate(BaseModel):
     value: str
 
 
+SENSITIVE_ENV_TOKENS = (
+    "SECRET",
+    "PASSWORD",
+    "TOKEN",
+    "API_KEY",
+    "ACCESS_KEY",
+    "PRIVATE_KEY",
+    "CLIENT_SECRET",
+    "DATABASE_URL",
+    "STRIPE",
+    "OIDC_CLIENT_SECRET",
+)
+
+
+def is_sensitive_env_key(key: str) -> bool:
+    upper = key.upper()
+    return any(token in upper for token in SENSITIVE_ENV_TOKENS)
+
+
+def redact_env_value(key: str, value: str) -> str:
+    if not is_sensitive_env_key(key):
+        return value
+    if not value:
+        return ""
+    tail = value[-4:] if len(value) >= 4 else ""
+    return f"<configured:{tail}>"
+
+
 def get_env_file_path(env_type: str) -> Path:
     """Get the path to the environment variable file."""
     base_path = Path(__file__).parent.parent
@@ -96,11 +124,19 @@ async def get_settings(current_user: UserResponse = Depends(get_admin_user)):
         # Build response data
         backend_config = {}
         for key, value in backend_vars.items():
-            backend_config[key] = EnvVariable(key=key, value=value, description=backend_descriptions.get(key, ""))
+            backend_config[key] = EnvVariable(
+                key=key,
+                value=redact_env_value(key, value),
+                description=backend_descriptions.get(key, ""),
+            )
 
         frontend_config = {}
         for key, value in frontend_vars.items():
-            frontend_config[key] = EnvVariable(key=key, value=value, description=frontend_descriptions.get(key, ""))
+            frontend_config[key] = EnvVariable(
+                key=key,
+                value=redact_env_value(key, value),
+                description=frontend_descriptions.get(key, ""),
+            )
 
         return EnvConfig(backend_vars=backend_config, frontend_vars=frontend_config)
     except Exception as e:
