@@ -139,7 +139,7 @@ def assess_listing_diagnosis_input(listing: Any, context: dict[str, Any] | None 
             11,
             image_len > 0 or image_count > 0 or has_a_plus or has_video,
             "high",
-            "已有图片或A+素材信号，可支撑图文一致性判断。" if (image_len > 0 or image_count > 0 or has_a_plus or has_video) else "缺少图片/A+输入，COSMO图文匹配只能低置信估计。",
+            "已有图片或A+素材信号，可支撑图文一致性判断。" if (image_len > 0 or image_count > 0 or has_a_plus or has_video) else "缺少图片/A+输入，图文匹配只能低置信估计。",
             "补充主图、副图、A+和视频信息，至少提供图片数量或图片描述。",
         ),
         _rule(

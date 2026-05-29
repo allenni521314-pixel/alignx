@@ -161,7 +161,7 @@ const SCORE_KEYS: Array<keyof Scores> = [
   "risk_elimination",
 ];
 
-type CompetitorRulerLayer = "用户意图层" | "平台对齐层" | "Listing承接层" | "辅助验证层";
+type CompetitorRulerLayer = "需求承接层" | "平台识别层" | "Listing证明层" | "市场验证层";
 
 const COMPETITOR_RULER_META: Record<keyof Scores, {
   layer: CompetitorRulerLayer;
@@ -171,70 +171,70 @@ const COMPETITOR_RULER_META: Record<keyof Scores, {
   actionHint: string;
 }> = {
   functionality: {
-    layer: "用户意图层",
+    layer: "需求承接层",
     intentScale: "任务对象清晰度 / 决策属性优先级",
     platformScale: "证据可回答性",
     evidenceFocus: "标题、五点和图片是否把功能转成用户任务",
     actionHint: "借鉴已验证功能承接，避免只抄参数",
   },
   emotional: {
-    layer: "用户意图层",
+    layer: "需求承接层",
     intentScale: "购买触发强度 / 反购买风险",
     platformScale: "证据可回答性",
     evidenceFocus: "评论、A+和图片是否证明安心、省事、舒适等触发点",
     actionHint: "提炼可转化的情绪利益，避开空泛高级感",
   },
   scenario: {
-    layer: "用户意图层",
+    layer: "需求承接层",
     intentScale: "使用场景约束 / 任务对象清晰度",
     platformScale: "关系图谱完整度",
     evidenceFocus: "场景、人群、地点、搭配对象是否具体",
     actionHint: "用竞品场景定义我方广告测试入口",
   },
   user_profile: {
-    layer: "用户意图层",
+    layer: "需求承接层",
     intentScale: "任务对象清晰度 / 决策属性优先级",
     platformScale: "查询意图匹配",
     evidenceFocus: "目标用户和购买理由是否明确",
     actionHint: "找到我方可攻击的人群/任务空白",
   },
   differentiation: {
-    layer: "Listing承接层",
+    layer: "Listing证明层",
     intentScale: "决策属性优先级",
     platformScale: "证据可回答性",
     evidenceFocus: "差异点是否被主图、五点、A+或评论证明",
     actionHint: "高分则借鉴或避开硬拼，低分则攻击",
   },
   market_trend: {
-    layer: "辅助验证层",
+    layer: "市场验证层",
     intentScale: "购买触发强度",
     platformScale: "查询意图变化",
     evidenceFocus: "趋势词、搜索需求和销量信号是否同步",
     actionHint: "仅用于确定测试优先级，不替代主判断",
   },
   product_identity: {
-    layer: "平台对齐层",
+    layer: "平台识别层",
     intentScale: "任务对象清晰度",
     platformScale: "类目身份锚定 / 结构化属性完整度",
     evidenceFocus: "is_a、used_as、子类目和核心属性是否清楚",
     actionHint: "借鉴平台能识别的品类锚点",
   },
   compatibility: {
-    layer: "平台对齐层",
+    layer: "平台识别层",
     intentScale: "使用场景约束",
     platformScale: "结构化属性完整度 / 关系图谱完整度",
     evidenceFocus: "used_with、compatible with、搭配/边界是否明确",
     actionHint: "提炼长尾关系词和退货风险边界",
   },
   subjective_properties: {
-    layer: "Listing承接层",
+    layer: "Listing证明层",
     intentScale: "购买触发强度 / 决策属性优先级",
     platformScale: "证据可回答性",
     evidenceFocus: "质感、美观、安静、易用等主观词是否有证据",
     actionHint: "只借鉴被评论或图片证明的主观利益",
   },
   risk_elimination: {
-    layer: "用户意图层",
+    layer: "需求承接层",
     intentScale: "反购买风险",
     platformScale: "证据可回答性",
     evidenceFocus: "认证、适配、保修、差评风险和误用边界",
@@ -848,15 +848,15 @@ function CompetitorTwoRulerSummary({ scores }: { scores: Scores }) {
   const cards = [
     {
       key: "intent",
-      title: "尺一：用户意图",
+      title: "需求承接",
       score: avgCompetitorScores(scores, COMPETITOR_TWO_RULER_KEYS.intent),
       desc: "竞品是否抓住用户任务、场景、购买触发和反购买风险。",
     },
     {
       key: "platform",
-      title: "尺二：平台理解",
+      title: "平台识别",
       score: avgCompetitorScores(scores, COMPETITOR_TWO_RULER_KEYS.platform),
-      desc: "Amazon/Rufus 是否能识别竞品类目、属性、关系和查询意图。",
+      desc: "Amazon是否能识别竞品类目、属性、关系和查询意图。",
     },
     {
       key: "carrier",
@@ -1431,7 +1431,7 @@ export default function CompetitorAnalysis() {
           <PageHeader
             objective="拆解竞品Listing为什么卖得好，提炼我方可借鉴动作"
             inputSource="竞品ASIN/Amazon链接、标题、五点、主图/副图、A+、评论、关键词、价格和销量表现"
-            process="按Listing结构、Rufus/COSMO语义、评论反向验证和价格销量信号拆解转化原因"
+            process="按Listing结构、平台识别、评论反向验证和价格销量信号拆解转化原因"
             outputTarget="竞品核心优势、广告转化拆解、关键词结构、评论痛点、可借鉴动作和不建议模仿点"
             action="把可借鉴动作带回本品诊断或上新检测"
             feedback="保存竞品诊断快照，沉淀到关键词库、竞品库和后续数据回流"
@@ -1513,7 +1513,7 @@ export default function CompetitorAnalysis() {
                     <div className="mt-4 space-y-2">
                       <div className="flex items-center gap-2 text-sm text-brand-600">
                         <Loader2 className="w-4 h-4 animate-spin" />
-                        {analyzeProgress || "正在获取Amazon真实数据并生成8D+2评分，请稍候..."}
+                        {analyzeProgress || "正在获取Amazon真实数据并生成10维诊断，请稍候..."}
                       </div>
                       <p className="text-xs text-gray-500 pl-6">
                         {analyzeProgress.includes("本地浏览器")
@@ -1704,7 +1704,7 @@ function ToolboxList({ title, items, tone = "gray" }: { title: string; items?: s
 
 const RESULT_TABS = [
   { key: "overview", label: "总览", icon: Search },
-  { key: "score", label: "两把尺评分", icon: Target },
+  { key: "score", label: "10维诊断", icon: Target },
   { key: "listing-breakdown", label: "广告转化拆解", icon: FileText },
   { key: "keywords", label: "关键词结构", icon: Zap },
   { key: "review-pain", label: "评论痛点", icon: MessageSquare },
@@ -1883,7 +1883,7 @@ function SingleResultView({
                 )}
                 {displayKeywords.length > 0 && (
                   <div>
-                    <span className="text-sm text-gray-500 block mb-1">Rufus/COSMO关键词：</span>
+                    <span className="text-sm text-gray-500 block mb-1">优先验证关键词：</span>
                     <div className="flex flex-wrap gap-1.5">
                       {displayKeywords.map((kw, i) => (
                         <KeywordBadge key={i} keyword={kw} compact />
@@ -1943,11 +1943,11 @@ function SingleResultView({
         <Card className="bg-gray-50 border-gray-200">
             <CardHeader>
               <CardTitle className="text-lg flex items-center justify-between">
-                <span>两把尺 × 竞品8D+2拆解</span>
+                <span>竞品10维诊断</span>
                 <span className="text-2xl font-bold text-brand-600">{avgScore}分</span>
               </CardTitle>
               <p className="text-xs text-gray-500">
-                先判断竞品为什么被用户选择、为什么被Amazon匹配，再用8D+2反查我方该借鉴、避开、攻击还是差异化。
+                先判断竞品为什么被用户选择、为什么被Amazon匹配，再用10维诊断反查我方该借鉴、避开、攻击还是差异化。
               </p>
             </CardHeader>
             <CardContent className="space-y-5">
@@ -1955,7 +1955,7 @@ function SingleResultView({
                 <div className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
                   <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
                   <div>
-                    <p className="font-medium">当前快照缺少8D+2评分数据</p>
+                    <p className="font-medium">当前快照缺少10维诊断数据</p>
                     <p className="mt-1 text-amber-700">这不是Top40搜索快照造成的，请重新运行本竞品诊断或从完整历史记录打开。</p>
                   </div>
                 </div>
@@ -1990,8 +1990,8 @@ function SingleResultView({
                         <div className={`h-full rounded-full ${competitorScoreBar(score)}`} style={{ width: `${score}%` }} />
                       </div>
                       <div className="mt-2 text-xs text-gray-600 leading-relaxed space-y-1">
-                        <p><span className="font-semibold">尺一：</span>{meta.intentScale}</p>
-                        <p><span className="font-semibold">尺二：</span>{meta.platformScale}</p>
+                        <p><span className="font-semibold">需求：</span>{meta.intentScale}</p>
+                        <p><span className="font-semibold">平台：</span>{meta.platformScale}</p>
                         <p><span className="font-semibold">证据：</span>{meta.evidenceFocus}</p>
                         <p className="text-brand-700"><span className="font-semibold">我方动作：</span>{getCompetitorAction(score)}，{meta.actionHint}</p>
                       </div>
@@ -2018,7 +2018,7 @@ function SingleResultView({
             {displayKeywords.length > 0 ? (
               <>
                 <div>
-                  <h4 className="text-sm font-medium text-gray-600 mb-2">Rufus/COSMO关键词</h4>
+                  <h4 className="text-sm font-medium text-gray-600 mb-2">优先验证关键词</h4>
                   <p className="text-xs text-gray-500 mb-3">
                     广告验证优先关系词和状态触发词，属性词只做基础覆盖，避免直接卷入纯价格竞争。
                   </p>

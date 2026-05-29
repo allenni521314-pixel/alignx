@@ -542,7 +542,7 @@ async def compare_listings_ab(
                 source_diagnosis_id=request.source_diagnosis_id,
             )
         except Exception as ai_error:
-            logger.warning(f"DeepSeek A/B comparison failed, using backend rules fallback: {ai_error}")
+            logger.warning(f"AI A/B comparison failed, using backend rules fallback: {ai_error}")
 
         result = await service.compare_listings(
             variant_a=request.variant_a,
@@ -571,7 +571,7 @@ async def compare_listings_ab(
             },
             "predicted_conversion_impact": result.predicted_conversion_impact,
             "recommendations": result.actionable_recommendations,
-            "text_report": f"DeepSeek A/B推理不可用，已使用后端规则兜底。\n\n{text_report}",
+            "text_report": f"AI判断暂不可用，已使用后端规则兜底。\n\n{text_report}",
             "model_used": "backend_rules_fallback",
             "judgment_source": "backend_rules_fallback",
             "data_source": "backend_rules_fallback"

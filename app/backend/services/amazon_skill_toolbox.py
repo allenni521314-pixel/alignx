@@ -1,7 +1,7 @@
 """
 Amazon skill toolbox adapters for AlignX.
 
-These helpers intentionally do not replace the COSMO/8D+2 judgment layer.
+These helpers intentionally do not replace the COSMO/10-dimension judgment layer.
 They convert selected Amazon-Skills playbooks into downstream execution hints
 that can be attached to existing ASIN, Listing, ad validation, and execution
 modules.
@@ -216,7 +216,7 @@ def build_listing_toolbox(product_data: dict[str, Any], scores: dict[str, Any] |
             "amazon-a-plus-content",
             "amazon-backend-keywords",
         ],
-        "role": "下游Listing执行工具箱，不改写COSMO/8D+2主评分。",
+        "role": "下游Listing执行工具箱，不改写COSMO/10维诊断主评分。",
         "issues": issues[:6],
         "actions": actions[:8],
         "keyword_coverage_hint": {
@@ -339,7 +339,7 @@ def build_toolbox_enhancements(
     }.get(context, ["listing", "ppc"])
 
     result: dict[str, Any] = {
-        "principle": "工具箱按需调用；AlignX COSMO/8D+2仍是主判断结构。",
+        "principle": "工具箱按需调用；AlignX COSMO/10维诊断仍是主判断结构。",
         "context": context,
     }
     if "competitor" in enabled:

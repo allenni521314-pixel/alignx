@@ -24,7 +24,7 @@ If any required fact source is missing, the result must lower confidence or swit
 DeepSeek is the primary text model for seller-facing analysis and final judgment.
 
 Use DeepSeek for:
-- ASIN competitor diagnosis and COSMO 8D+2 scoring.
+- ASIN competitor diagnosis and COSMO 10-dimension scoring.
 - Listing diagnosis, Listing rewriting suggestions, and launch checks.
 - Top40 market opportunity synthesis after the search snapshot is saved.
 - Price-band, review-count, rating, BSR, bought-count, and opportunity interpretation.
@@ -65,7 +65,7 @@ Use Qwen Vision for:
 - Pre-launch image checks before publishing.
 
 Do not use Qwen Vision for:
-- Final 8D+2 business judgment by itself.
+- Final 10-dimension business judgment by itself.
 - Large text-only diagnosis.
 - Keyword vector retrieval.
 - Price, BSR, rating, bought-count, or sales opportunity conclusions without DeepSeek or rules.
@@ -136,7 +136,7 @@ Competitor diagnosis:
 2. BGE retrieves similar product and review history when available.
 3. Reranker filters that evidence.
 4. Qwen Vision/OCR analyzes images/A+ only when images are present and visual diagnosis is requested.
-5. DeepSeek produces final 8D+2 scoring and strategy.
+5. DeepSeek produces final 10-dimension scoring and strategy.
 6. If DeepSeek fails, backend must mark `analysis_mode=rule_fallback`; never present fallback scores as full AI judgment.
 
 Listing diagnosis:
@@ -145,7 +145,7 @@ Listing diagnosis:
 3. BGE retrieves similar Listing mistakes, keyword intent and review pains.
 4. Reranker filters semantic evidence before it enters the prompt.
 5. Qwen Vision/OCR checks main image, secondary image, A+ evidence and image-embedded claims when images are available.
-6. DeepSeek `AI_DEEP_MODEL` produces 8D+2, rewrite direction and next validation plan.
+6. DeepSeek `AI_DEEP_MODEL` produces 10-dimension diagnosis, rewrite direction and next validation plan.
 7. Versioned diagnosis snapshot is saved.
 
 Ad validation and feedback loop:

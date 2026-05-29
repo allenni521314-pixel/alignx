@@ -1,6 +1,6 @@
 """
 Listing Diagnosis & Optimization Router.
-Provides COSMO 8D+2 listing diagnosis, keyword coverage analysis,
+Provides COSMO 10-dimension listing diagnosis, keyword coverage analysis,
 optimization suggestions, competitor comparison, and ad ROI keyword recommendations.
 
 Dimension system:
@@ -578,7 +578,7 @@ def _detect_marketplace(url: str) -> str:
 
 DIAGNOSIS_PROMPT = """【最高优先级指令】你正在诊断的产品是: "{title}"。所有分析必须围绕这个产品，禁止分析其他任何产品。
 
-你是一位顶级亚马逊Listing优化专家，精通COSMO语义算法和美区消费者行为。
+你是一位顶级亚马逊Listing优化专家，精通平台语义识别和美区消费者行为。
 请对以下Amazon Listing进行全面诊断分析。
 
 ⚠️ 绝对禁止猜测或替换产品信息！你必须且只能分析以下提供的产品。
@@ -596,9 +596,9 @@ DIAGNOSIS_PROMPT = """【最高优先级指令】你正在诊断的产品是: "{
 价格: {price}
 品牌: {brand}
 
-## 判断模式：用户需求 × 平台识别 × 8D+2反向检查
+## 判断模式：用户需求 × 平台识别 × 10维诊断
 
-本次不是把8D+2当作10个平铺同级指标简单平均。必须先用“用户需求”和“平台识别”两套标准判断，再把8D+2作为反向检查视角。注意：最终输出面向卖家，不要暴露内部方法论名称。
+本次不是把10个维度当作平铺同级指标简单平均。必须先用“用户需求”和“平台识别”两套标准判断，再把10维诊断作为反向检查视角。注意：最终输出面向卖家，不要暴露内部方法论名称。
 
 ### 用户需求标准
 判断用户真实要完成什么任务、为什么现在要买、在什么场景使用、依据什么属性决策、担心什么风险。
@@ -609,14 +609,14 @@ DIAGNOSIS_PROMPT = """【最高优先级指令】你正在诊断的产品是: "{
 - 反购买风险：为什么会不买、退货或差评？
 
 ### 平台识别标准
-判断Amazon/Rufus/COSMO是否能把该商品放进正确的搜索、广告、推荐和购物助手语义池。
+判断Amazon是否能把该商品放进正确的搜索、广告、推荐和购物助手语义池。
 - 类目身份锚定：平台能否识别它是什么商品、属于哪个子类目？
 - 查询意图匹配：它应该匹配哪些核心词、场景词、问题词和属性词？
 - 结构化属性完整度：尺寸、材质、数量、规格、兼容性、变体是否可抽取？
 - 关系图谱完整度：for whom、used for、used with、in scenario、solves 是否清楚？
-- 证据可回答性：标题、图片、五点、A+、评论能否回答用户和Rufus的问题？
+- 证据可回答性：标题、图片、五点、A+、评论能否回答用户和平台购物助手的问题？
 
-### 8D+2归位规则
+### 10维诊断归位规则
 - 需求承接层：功能表达、场景表达、身份适配、心理利益、风险消除、主观属性。
 - 平台识别层：产品身份、兼容搭配、场景表达、身份适配、功能表达。
 - Listing证明层：差异化、风险消除、主观属性、功能表达、兼容搭配。
@@ -624,9 +624,9 @@ DIAGNOSIS_PROMPT = """【最高优先级指令】你正在诊断的产品是: "{
 
 每个analysis字段必须说明：维度归属、用户需求映射、平台识别映射、当前证据、扣分原因、问题类型（对齐/缺失/错位/断链/误导）、影响指标（CTR/CVR/CPC/ACOS/退货/差评）、下一步动作。禁止在analysis里直接写内部方法论名称。
 
-## 诊断维度（COSMO核心8D + 卖家扩展2D，共10个维度，每个0-100分）
+## 诊断维度（共10个维度，每个0-100分）
 
-### COSMO核心8D
+### 基础承接维度
 
 #### 1. 功能表达清晰度 (function_expression)
 这个产品到底解决什么问题？功能描述是否清晰、具体、可量化？
@@ -662,7 +662,7 @@ DIAGNOSIS_PROMPT = """【最高优先级指令】你正在诊断的产品是: "{
 - 是否有社会证明（bestseller, reviews, ratings）
 
 #### 6. 产品身份 (product_identity) 🆕
-产品的"is_a"和"used_as"定义是否清晰？COSMO算法如何理解这个产品？
+产品的"is_a"和"used_as"定义是否清晰？平台如何理解这个产品？
 - 产品品类词(is_a)是否在标题中明确出现（如"wireless charger"、"phone stand"）
 - 是否有多个used_as场景定义（如"desk organizer"同时也是"phone holder"）
 - 品类词是否覆盖了用户可能搜索的所有同义词和变体
@@ -676,7 +676,7 @@ DIAGNOSIS_PROMPT = """【最高优先级指令】你正在诊断的产品是: "{
 - 是否有不兼容的设备说明（减少退货风险）
 
 #### 8. 主观属性 (subjective_properties) 🆕
-产品的感性描述词是否丰富？是否触发了COSMO的主观属性匹配？
+产品的感性描述词是否丰富？是否触发了平台的主观属性匹配？
 - 是否使用了感官描述词（soft, lightweight, sleek, compact, sturdy等）
 - 是否有品质感知词（premium, professional-grade, military-grade等）
 - 是否有美学/设计描述（modern design, minimalist, elegant等）
@@ -775,11 +775,11 @@ DIAGNOSIS_PROMPT = """【最高优先级指令】你正在诊断的产品是: "{
     "ad_summary": "广告关键词策略总结"
   }},
   "elements": {{
-    "title": {{"function_expression": 0-100, "scenario_expression": 0-100, "identity_fit": 0-100, "psychology_benefit": 0-100, "risk_elimination": 0-100, "product_identity": 0-100, "compatibility": 0-100, "subjective_properties": 0-100, "differentiation": 0-100, "market_trend": 0-100, "summary": "标题对8D+2各维度的责任归因"}},
-    "bullets": {{"function_expression": 0-100, "scenario_expression": 0-100, "identity_fit": 0-100, "psychology_benefit": 0-100, "risk_elimination": 0-100, "product_identity": 0-100, "compatibility": 0-100, "subjective_properties": 0-100, "differentiation": 0-100, "market_trend": 0-100, "summary": "五点描述对8D+2各维度的责任归因"}},
-    "images": {{"function_expression": 0-100, "scenario_expression": 0-100, "identity_fit": 0-100, "psychology_benefit": 0-100, "risk_elimination": 0-100, "product_identity": 0-100, "compatibility": 0-100, "subjective_properties": 0-100, "differentiation": 0-100, "market_trend": 0-100, "summary": "图片对8D+2各维度的责任归因"}},
-    "aplus": {{"function_expression": 0-100, "scenario_expression": 0-100, "identity_fit": 0-100, "psychology_benefit": 0-100, "risk_elimination": 0-100, "product_identity": 0-100, "compatibility": 0-100, "subjective_properties": 0-100, "differentiation": 0-100, "market_trend": 0-100, "summary": "A+内容对8D+2各维度的责任归因"}},
-    "backend": {{"function_expression": 0-100, "scenario_expression": 0-100, "identity_fit": 0-100, "psychology_benefit": 0-100, "risk_elimination": 0-100, "product_identity": 0-100, "compatibility": 0-100, "subjective_properties": 0-100, "differentiation": 0-100, "market_trend": 0-100, "summary": "后台属性对8D+2各维度的责任归因"}}
+    "title": {{"function_expression": 0-100, "scenario_expression": 0-100, "identity_fit": 0-100, "psychology_benefit": 0-100, "risk_elimination": 0-100, "product_identity": 0-100, "compatibility": 0-100, "subjective_properties": 0-100, "differentiation": 0-100, "market_trend": 0-100, "summary": "标题对10维诊断各维度的责任归因"}},
+    "bullets": {{"function_expression": 0-100, "scenario_expression": 0-100, "identity_fit": 0-100, "psychology_benefit": 0-100, "risk_elimination": 0-100, "product_identity": 0-100, "compatibility": 0-100, "subjective_properties": 0-100, "differentiation": 0-100, "market_trend": 0-100, "summary": "五点描述对10维诊断各维度的责任归因"}},
+    "images": {{"function_expression": 0-100, "scenario_expression": 0-100, "identity_fit": 0-100, "psychology_benefit": 0-100, "risk_elimination": 0-100, "product_identity": 0-100, "compatibility": 0-100, "subjective_properties": 0-100, "differentiation": 0-100, "market_trend": 0-100, "summary": "图片对10维诊断各维度的责任归因"}},
+    "aplus": {{"function_expression": 0-100, "scenario_expression": 0-100, "identity_fit": 0-100, "psychology_benefit": 0-100, "risk_elimination": 0-100, "product_identity": 0-100, "compatibility": 0-100, "subjective_properties": 0-100, "differentiation": 0-100, "market_trend": 0-100, "summary": "A+内容对10维诊断各维度的责任归因"}},
+    "backend": {{"function_expression": 0-100, "scenario_expression": 0-100, "identity_fit": 0-100, "psychology_benefit": 0-100, "risk_elimination": 0-100, "product_identity": 0-100, "compatibility": 0-100, "subjective_properties": 0-100, "differentiation": 0-100, "market_trend": 0-100, "summary": "后台属性对10维诊断各维度的责任归因"}}
   }},
 
 ⚠️ 关于elements中各要素的评分规则（极其重要，必须遵守）：
@@ -809,7 +809,7 @@ COMPARE_PROMPT = """你是一位顶级亚马逊Listing竞品对比分析专家�
 
 ## 我的Listing
 标题: {my_title}
-8D+2诊断评分: {my_scores}
+10维诊断评分: {my_scores}
 
 ## 竞品Listing列表
 {competitor_info}
@@ -964,7 +964,7 @@ def _build_listing_text(listing: ListingInput) -> str:
     return " | ".join(parts) if parts else "未提供"
 
 
-# All 10 8D+2 dimension keys used in the module attribution heatmap
+# All 10 diagnosis dimension keys used in the module attribution heatmap
 _ELEMENT_DIM_KEYS = [
     "function_expression", "scenario_expression", "identity_fit", "psychology_benefit", "risk_elimination",
     "product_identity", "compatibility", "subjective_properties", "differentiation", "market_trend",
@@ -1113,7 +1113,7 @@ def _cap_score_map(scores: dict, caps: dict[str, int], reasons: list[str]) -> No
 def _apply_market_reality_caps(data: dict, listing: ListingInput) -> dict:
     """Keep content scores from drifting into market-proof claims.
 
-    Local browser capture improves evidence completeness, but the 8D+2 score is
+    Local browser capture improves evidence completeness, but the 10-dimension score is
     a sell-through hypothesis. It must be capped by review, BSR, bullet quality
     and backend/ad validation evidence so a complete page is not mistaken for a
     proven high-conversion listing.
@@ -1161,7 +1161,7 @@ def _apply_market_reality_caps(data: dict, listing: ListingInput) -> dict:
             },
             reasons,
         )
-        reasons.append(f"五点仅识别 {bullet_count}/5，不能按完整购买理由承接评分。")
+        reasons.append(f"五点仅识别 {bullet_count}/5，不能按完整购买理由给高分。")
     elif bullet_count < 5:
         _cap_score_map(scores, {"psychology_benefit": 78, "risk_elimination": 78, "differentiation": 76}, reasons)
         reasons.append(f"五点仅识别 {bullet_count}/5，转化承接仍需补齐。")
@@ -1377,7 +1377,7 @@ def _fallback_listing_diagnosis(listing: ListingInput, reason: str = "") -> dict
     analysis = {
         "function_expression": f"本地兜底判断：产品身份为 {insights['product_identity']}，已识别功能点：{', '.join(covered.get('function') or ['基础功能可识别'])}。AI深度分析超时，但抓取字段足以做基础功能判断。",
         "scenario_expression": f"已识别场景：{', '.join(covered.get('scenario') or ['场景表达不够集中'])}。建议把最高转化场景前置到标题和主图，而不是平均堆叠多个场景。",
-        "identity_fit": f"已识别人群/关系词：{', '.join(covered.get('audience') or ['人群关系词不足'])}。关系词决定Rufus/COSMO是否理解适用人群。",
+        "identity_fit": f"已识别人群/关系词：{', '.join(covered.get('audience') or ['人群关系词不足'])}。关系词决定平台是否理解适用人群。",
         "psychology_benefit": f"待补强状态触发词：{', '.join(missing.get('pain_point') or ['痛点触发词不足'])}。这些词比普通属性词更适合广告验证。",
         "risk_elimination": f"{insights['price_note']}；评分/评论信号为 {listing.rating or '未抓取'} / {listing.review_count or '未抓取'}。风险消除还需要保修、安全、材质、使用限制或真实证据支撑。",
         "product_identity": f"产品身份词已可识别为 {insights['product_identity']}，但仍需要用类目路径和后台关键词确认平台语义一致。",
@@ -1489,12 +1489,12 @@ def _build_compact_diagnosis_prompt(listing: ListingInput) -> str:
 2. 关键词必须是自然美式英语，不能输出中文关键词。
 3. 广告关键词必须标记 keyword_type：attribute / relationship / state_trigger。
 4. 优先找 relationship 和 state_trigger，因为它们用于广告验证和避开纯属性词价格竞争；不能只给属性词。
-5. relationship 必须来自COSMO关系锚点：used_for_function / used_for_event / used_for_activity / used_when / used_where / used_with / used_for_audience / used_by。
-6. state_trigger 必须来自COSMO状态锚点：cause_positive / cause_negative / compared_to / requires，例如 odor control, reduce mess, low noise, safe for cats, no ozone, easy maintenance。
+5. relationship 必须来自平台关系锚点：used_for_function / used_for_event / used_for_activity / used_when / used_where / used_with / used_for_audience / used_by。
+6. state_trigger 必须来自平台状态锚点：cause_positive / cause_negative / compared_to / requires，例如 odor control, reduce mess, low noise, safe for cats, no ozone, easy maintenance。
 7. 新品或自有产品可能缺少价格、评论、BSR或库存信号；如果同时无价格、无评论、无销售/BSR记录，定位为“新品上架承接诊断”，这些字段缺失不能阻止Listing承接诊断，但必须降低市场验证、风险消除、广告承受力和趋势判断的置信度。
 8. 不得编造价格、评论数、BSR、销量或库存；缺失时只评价内容承接，并明确写“市场证据不足/需要广告验证”。
 9. 输出要具体指出依据来源：标题、五点、图片/A+、价格、评分评论、缺失类目/后台词。
-10. 后台COSMO/Rufus规则只是兜底和一致性校验；真实模型证据链优先。
+10. 后台规则只是兜底和一致性校验；真实模型证据链优先。
 
 只返回有效JSON，结构如下：
 {{
@@ -1575,10 +1575,10 @@ def _listing_semantic_text(listing: ListingInput) -> str:
 
 
 async def _build_listing_evidence_chain(listing: ListingInput, ai_service: AIHubService) -> dict:
-    """Run mandatory COSMO/Rufus evidence enhancement for every Listing diagnosis.
+    """Run mandatory platform evidence enhancement for every Listing diagnosis.
 
     Hosted embedding/rerank/vision models are the primary evidence path. Local
-    COSMO/Rufus rules are only fallback and consistency checks.
+    platform rules are only fallback and consistency checks.
     """
     semantic_text = _listing_semantic_text(listing)
     evidence: dict = {
@@ -1588,11 +1588,11 @@ async def _build_listing_evidence_chain(listing: ListingInput, ai_service: AIHub
         "visual_ocr": {},
         "model_chain": ["BAAI/bge-m3", "BAAI/bge-reranker-v2-m3", "qwen2.5-vl-72b-instruct"],
         "task_boundaries": {
-            "AI_EMBEDDING_MODEL": "只做COSMO语义向量召回：把标题、五点、A+、后台词映射到isA、used_for_function、used_where、used_with、cause_positive、cause_negative等关系/状态锚点；不做最终评分。",
-            "RERANK_MODEL": "只做证据精排：过滤低相关COSMO锚点和历史语义证据，优先保留relationship与state_trigger；不生成Listing建议。",
+            "AI_EMBEDDING_MODEL": "只做平台语义召回：把标题、五点、A+、后台词映射到isA、used_for_function、used_where、used_with、cause_positive、cause_negative等关系/状态锚点；不做最终评分。",
+            "RERANK_MODEL": "只做证据精排：过滤低相关关系锚点和历史语义证据，优先保留relationship与state_trigger；不生成Listing建议。",
             "AI_VISION_MODEL": "只做图片/OCR事实提取：识别主图、副图、A+图里的产品、场景、文字、徽章、认证、风险承诺和合规风险；不做最终评分。",
-            "AI_DEEP_MODEL": "只做综合诊断：必须引用向量、精排、OCR事实和抓取字段，先按用户需求与平台识别判断，再用8D+2反向检查承接、关系词、状态词和广告验证假设。输出面向卖家，不暴露内部方法论名称。",
-            "rules": "后台COSMO/Rufus规则只做兜底和一致性校验，不能覆盖真实模型证据。",
+            "AI_DEEP_MODEL": "只做综合诊断：必须引用向量、精排、OCR事实和抓取字段，先按用户需求与平台识别判断，再用10维诊断反向检查承接、关系词、状态词和广告验证假设。输出面向卖家，不暴露内部方法论名称。",
+            "rules": "后台规则只做兜底和一致性校验，不能覆盖真实模型证据。",
         },
         "cosmo_reference": {
             "relationship_anchors": ["used_for_function", "used_for_event", "used_for_activity", "used_when", "used_where", "used_with", "used_for_audience", "used_by"],
@@ -1639,7 +1639,7 @@ async def _build_listing_evidence_chain(listing: ListingInput, ai_service: AIHub
 
         prompt = (
             "你是AlignX视觉/OCR证据提取器。只提取事实，不做最终评分，不改写Listing。"
-            "请按COSMO证据边界识别图片或图片描述中的产品身份、使用场景、搭配对象、使用时机、状态承诺、图片内文字、徽章、认证、风险承诺、合规风险，输出JSON。"
+            "请按平台证据边界识别图片或图片描述中的产品身份、使用场景、搭配对象、使用时机、状态承诺、图片内文字、徽章、认证、风险承诺、合规风险，输出JSON。"
             "必须区分事实evidence与推断inference；不能凭空补图中不存在的信息。"
             f"\nListing标题：{listing.title}"
             f"\n主图描述：{listing.main_image_description or '未提供'}"
@@ -1695,7 +1695,7 @@ async def _diagnose_single(
 
     prompt = (
         _build_compact_diagnosis_prompt(listing)
-        + "\n\n【强制证据链】以下证据来自COSMO/Rufus主链路，必须优先使用；后台规则只可作为兜底或一致性校验，不能替代主判断：\n"
+        + "\n\n【强制证据链】以下证据来自平台识别主链路，必须优先使用；后台规则只可作为兜底或一致性校验，不能替代主判断：\n"
         + json.dumps(evidence_chain, ensure_ascii=False)[:6000]
     )
 
@@ -1716,8 +1716,8 @@ async def _diagnose_single(
         f'4.在JSON中"analyzed_product_name"字段填入你实际分析的产品名称。'
         f'{a_plus_hint}'
         f' 6.elements中每个要素的每个维度评分都必须是合理的非零值，绝对禁止全部给0分。'
-        f' 7.本次诊断采用“用户需求 × 平台识别 × 8D+2反向检查”：先判断用户需求标准和平台识别标准，再把8D+2归入需求承接层、平台识别层、Listing证明层、市场验证层；禁止把10项当作平铺平均分。输出面向卖家，禁止暴露内部方法论名称。'
-        f' 8.判断优先级：BGE语义召回和rerank精排证据 > Qwen视觉/OCR事实 > DeepSeek综合推理；后台COSMO/Rufus规则只做兜底和一致性校验。'
+        f' 7.本次诊断采用“用户需求 × 平台识别 × 10维诊断”：先判断用户需求标准和平台识别标准，再把10个维度归入需求承接层、平台识别层、Listing证明层、市场验证层；禁止把10项当作平铺平均分。输出面向卖家，禁止暴露内部方法论名称。'
+        f' 8.判断优先级：语义召回和证据精排 > 图片识别事实 > AI综合判断；后台规则只做兜底和一致性校验。'
         f'你是亚马逊Listing优化专家。只输出JSON。'
     )
 
@@ -2257,7 +2257,7 @@ async def diagnose_listing(
     current_user: UserResponse = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Full listing diagnosis: 8D+2 scoring + keyword coverage + optimization suggestions + ad keywords."""
+    """Full listing diagnosis: 10-dimension scoring + keyword coverage + optimization suggestions + ad keywords."""
     try:
         listing = request.listing
         if not listing.title and not listing.bullet_points:
@@ -2359,7 +2359,7 @@ async def compare_listings(
         # Generate comparison
         ai_service = AIHubService()
         competitor_info = "\n".join([
-            f"竞品{i+1} 标题: {c['listing_title']}, 8D+2评分: {json.dumps(c['scores'], ensure_ascii=False)}"
+            f"竞品{i+1} 标题: {c['listing_title']}, 10维诊断: {json.dumps(c['scores'], ensure_ascii=False)}"
             for i, c in enumerate(comp_results)
         ])
 

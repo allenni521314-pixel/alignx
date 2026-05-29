@@ -423,8 +423,8 @@ def _build_rule_evaluation(request: EvaluateLaunchRequest) -> dict[str, Any]:
         ),
         "overall_score": overall_score,
         "overall_summary": f"{launch_advice}。后台已按Amazon上新准入规则反向评分：标题、7张主图顺序、9张A+信任顺序、五点和后台关键词分别判定；AI只作为修改意见辅助，不改后台分数。",
-        "cosmo_alignment": f"COSMO判断：标题负责搜索识别，主图负责点击，辅图负责转化，五点负责购买理由，后台词负责补语义，A+负责信任闭环。当前功能覆盖{function_hits}，场景覆盖{scenario_hits}。",
-        "rufus_alignment": "Rufus判断：Listing是否用美国消费者自然语言承接搜索意图。标题不堆词，五点讲购买理由，后台词补充前台未覆盖的真实相关词。",
+        "cosmo_alignment": f"平台识别判断：标题负责搜索识别，主图负责点击，辅图负责转化，五点负责购买理由，后台词负责补语义，A+负责信任闭环。当前功能覆盖{function_hits}，场景覆盖{scenario_hits}。",
+        "rufus_alignment": "用户意图判断：Listing是否用美国消费者自然语言承接搜索意图。标题不堆词，五点讲购买理由，后台词补充前台未覆盖的真实相关词。",
         "ordered_first_fixes": ordered_first_fixes,
         "vision_alignment": {
             "required": True,

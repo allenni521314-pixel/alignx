@@ -335,7 +335,7 @@ class JudgmentSystemService:
         }
 
     def build_rule_based_causal_judgment(self, listing: Any, diagnosis_data: dict[str, Any]) -> dict[str, Any]:
-        """Build causal conversion judgment from scraped fields and 8D+2 output without a second AI call.
+        """Build causal conversion judgment from scraped fields and 10-dimension diagnosis output without a second AI call.
 
         Listing diagnosis already contains product semantics, keyword coverage, ad keywords and
         input completeness. This deterministic layer keeps the foreground request fast and turns
@@ -380,7 +380,7 @@ class JudgmentSystemService:
                 "keyword_validation_readiness": round(readiness, 2),
                 "overall": round(overall, 2),
             },
-            "summary": "后台标准基于抓取字段、8D+2评分、关键词覆盖和广告关键词直接生成因果判断，未阻塞等待第二轮AI。",
+            "summary": "后台标准基于抓取字段、10维诊断、关键词覆盖和广告关键词直接生成因果判断，未阻塞等待第二轮AI。",
             "keyword_causality": {
                 "framework": "rufus_cosmo_causal_keywords",
                 "priority_order": ["state_trigger", "relationship", "attribute"],
@@ -451,7 +451,7 @@ class JudgmentSystemService:
             validation_items.append({
                 "id": f"ad-test-causal-keyword-{idx}",
                 "hypothesis": f"用「{keyword}」验证Listing是否承接了用户状态或使用关系",
-                "diagnosis_issue": f"Rufus/COSMO因果关键词待验证: {keyword}",
+                "diagnosis_issue": f"优先验证关键词待验证: {keyword}",
                 "suggested_listing_action": "先在标题、五点或图片文案中补强同一状态/关系表达，再用广告验证。",
                 "keyword_type": keyword_type,
                 "ad_action": {
@@ -462,7 +462,7 @@ class JudgmentSystemService:
                 },
                 "success_metrics": ["CTR", "CVR", "CPC", "ACOS", "search_term_precision"],
                 "decision_rules": [
-                    "CTR提升: Rufus/COSMO语义和首屏表达更容易被识别",
+                    "CTR提升: 平台识别和首屏表达更容易被识别",
                     "CVR提升: 状态承诺和详情页承接成立",
                     "CTR升CVR不升: 关键词切口成立，但价格、评价或机制证据不足",
                     "CTR不升: 状态触发词或关系词仍未击中真实搜索意图",

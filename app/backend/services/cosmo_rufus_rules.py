@@ -78,7 +78,7 @@ def build_cosmo_rufus_analysis(listing: Any, diagnosis_data: dict[str, Any]) -> 
         "scores": scores,
         "verdict": _verdict(scores, gaps),
         "safe_language": [
-            "平台理解准备度",
+            "平台识别准备度",
             "买家问题覆盖",
             "关系图谱完整度",
             "可验证广告假设",
@@ -250,10 +250,10 @@ def _scores(relation_map: dict[str, list[str]], buyer_questions: list[dict[str, 
 
 def _verdict(scores: dict[str, int], gaps: list[dict[str, str]]) -> str:
     if scores["overall"] >= 80:
-        return "COSMO/Rufus关系与买家问题承接较完整，可进入假设级广告验证。"
+        return "关系词与买家问题承接较完整，可进入假设级广告验证。"
     if scores["overall"] >= 60:
         return "已有基础语义承接，但仍存在关系或买家问题缺口，建议先补强再验证。"
-    return "平台理解和买家问题承接不足，当前广告验证容易产生噪音。"
+    return "平台识别和买家问题承接不足，当前广告验证容易产生噪音。"
 
 
 def _ad_keyword_pool(ad_keywords: dict[str, Any]) -> list[str]:

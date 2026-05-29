@@ -223,11 +223,11 @@ class CausalDiagnosisService:
 商品不是"有属性的物品"，而是"状态转移算子"。它将人类从不满意的状态S1转移到满意的状态S2。
 状态差距 = S2(期望状态) - S1(当前状态) = 需求的本质
 
-【AlignX Rufus/COSMO因果关键词规则】
+【AlignX平台识别因果关键词规则】
 1. 属性词(attribute)只说明"这是什么"，例如 cat litter box、bluetooth speaker，通常价格竞争激烈。
 2. 关系词(relationship)说明"给谁/在哪/和什么一起用/避免什么限制"，例如 for apartment cats、with carbon filter、compatible with Echo Dot。
 3. 状态触发词(state_trigger)说明"用户正在经历什么问题或想摆脱什么状态"，例如 ammonia odor control、litter tracking mess、sleep noise relief。
-4. Rufus/COSMO最需要的是：产品身份词 + 关系词 + 状态触发词 + 可信因果机制。
+4. 平台识别最需要的是：产品身份词 + 关系词 + 状态触发词 + 可信因果机制。
 5. 广告验证优先级必须是 state_trigger > relationship > attribute。
 
 【产品信息】
@@ -244,7 +244,7 @@ class CausalDiagnosisService:
       "gap_name": "这个差距的简短名称（如'手机摔坏的焦虑'）",
       "gap_description": "详细描述这个人类状态差距是什么",
       "keyword_type": "state_trigger | relationship | attribute",
-      "rufus_cosmo_role": "这个状态差距如何帮助Rufus/COSMO理解产品身份、使用关系或购买意图",
+      "rufus_cosmo_role": "这个状态差距如何帮助平台识别产品身份、使用关系或购买意图",
       "american_english_keywords": ["自然美式英语关键词，不允许中文，不允许直译腔"],
       "ad_validation_keywords": ["用于广告小预算验证的美式英语关键词，优先状态触发词和关系词"],
       "gap_strength_score": 0-100分, 这个差距在目标用户中的强烈程度,
@@ -311,7 +311,7 @@ class CausalDiagnosisService:
 【核心原则】
 好的因果机制 = 清晰的因果链条 + 可验证的证据
 坏的因果机制 = 黑盒宣称（"有效"但不说为什么）+ 没有证据
-AlignX额外要求 = 机制必须能落到Rufus/COSMO可理解的关系词和状态触发词，并能转成广告验证关键词。
+AlignX额外要求 = 机制必须能落到平台可识别的关系词和状态触发词，并能转成广告验证关键词。
 
 【产品信息】
 标题: {title}
@@ -462,7 +462,7 @@ AlignX额外要求 = 机制必须能落到Rufus/COSMO可理解的关系词和状
         else:
             side_effect_transparency = 50.0  # 没发现也没说，给中间分
 
-        # 4. Rufus/COSMO关键词验证就绪度
+        # 4. 平台关键词验证就绪度
         keyword_causality = self._build_keyword_causality(state_gaps_result, mechanisms_result)
         keyword_validation_readiness = keyword_causality.get("readiness_score", 0)
         
@@ -483,7 +483,7 @@ AlignX额外要求 = 机制必须能落到Rufus/COSMO可理解的关系词和状
         }
 
     def _build_keyword_causality(self, state_gaps_result: Dict, mechanisms_result: Dict) -> Dict[str, Any]:
-        """Extract the ad-verifiable Rufus/COSMO keyword layer from causal analysis."""
+        """Extract the ad-verifiable platform keyword layer from causal analysis."""
         keywords: list[dict[str, Any]] = []
         seen: set[str] = set()
 

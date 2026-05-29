@@ -680,7 +680,7 @@ function generatePDF(result: ScoringResult, titleText: string) {
   });
   y += 22;
 
-  // COSMO & Rufus
+  // Platform and intent alignment
   if (result.cosmo_alignment || result.rufus_alignment) {
     addNewPageIfNeeded(30);
     const halfW = (contentWidth - 4) / 2;
@@ -689,7 +689,7 @@ function generatePDF(result: ScoringResult, titleText: string) {
       doc.roundedRect(margin, y, halfW, 24, 2, 2, "F");
       doc.setFontSize(8);
       doc.setTextColor(79, 70, 229);
-      doc.text("COSMO Alignment", margin + 3, y + 6);
+      doc.text("Platform Alignment", margin + 3, y + 6);
       doc.setFontSize(7);
       doc.setTextColor(80, 80, 80);
       const cosmoLines = doc.splitTextToSize(result.cosmo_alignment, halfW - 6);
@@ -700,7 +700,7 @@ function generatePDF(result: ScoringResult, titleText: string) {
       doc.roundedRect(margin + halfW + 4, y, halfW, 24, 2, 2, "F");
       doc.setFontSize(8);
       doc.setTextColor(139, 92, 246);
-      doc.text("Rufus Alignment", margin + halfW + 7, y + 6);
+      doc.text("Intent Match", margin + halfW + 7, y + 6);
       doc.setFontSize(7);
       doc.setTextColor(80, 80, 80);
       const rufusLines = doc.splitTextToSize(result.rufus_alignment, halfW - 6);
@@ -767,7 +767,7 @@ function generatePDF(result: ScoringResult, titleText: string) {
   addNewPageIfNeeded(10);
   doc.setFontSize(7);
   doc.setTextColor(160, 160, 160);
-  doc.text("Powered by AlignX - COSMO & Rufus Listing Optimization", margin, doc.internal.pageSize.getHeight() - 8);
+  doc.text("Powered by AlignX Listing Optimization", margin, doc.internal.pageSize.getHeight() - 8);
 
   const filename = `AlignX_Report_${titleText ? titleText.substring(0, 20).replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, "_") : "listing"}_${new Date().toISOString().slice(0, 10)}.pdf`;
   doc.save(filename);
@@ -1338,7 +1338,7 @@ export default function PreLaunchTest() {
       return texts;
     } catch {
       setOcrStatus("");
-      toast.warning(`${label}图片OCR暂不可用，已继续按图片数量和文本描述评分`);
+      toast.warning(`${label}图片识别暂不可用，已继续按图片数量和文本描述评分`);
       return [];
     }
   };
@@ -1382,7 +1382,7 @@ export default function PreLaunchTest() {
       });
       setResult(parsed);
       finishModuleTask(moduleTaskId, "completed", "上新检测完成");
-      toast.success(parsed.ai_called ? "上新检测完成，已接入OCR、后台规则和AI辅助意见" : "上新检测完成，已使用OCR和后台规则评分");
+      toast.success(parsed.ai_called ? "上新检测完成，已接入图片识别和AI辅助意见" : "上新检测完成，已使用系统规则评分");
       saveScoringResult(parsed, true, { mainImageTexts, aPlusImageTexts }).catch(() => {});
     } catch (err) {
       const msg = err instanceof Error ? err.message : "评分失败，请稍后重试";
@@ -1612,7 +1612,7 @@ export default function PreLaunchTest() {
           <PageHeader
             objective="上架前判断Listing是否建议上架"
             inputSource="标题、五点、主图/副图、A+、后台搜索关键词"
-            process="按评论需求、COSMO语义和因果转化标准做上新准入检测"
+            process="按评论需求、平台识别和转化承接做上新准入检测"
             outputTarget="是否建议上架、风险等级、必改项、缺失关键词、表达错配点"
             action="修改必改项后进入本品诊断，生成广告验证假设"
             feedback="每一轮检测完整保存为历史记录，作为本品诊断和后续广告验证基线"
@@ -1744,7 +1744,7 @@ export default function PreLaunchTest() {
                   {ocrStatus || "后台正在进行上新准入检测"}
                 </p>
                 <p className="text-xs text-gray-500 text-center max-w-sm">
-                  正在识别图片文案，并按评论需求、Rufus/COSMO语义、因果转化、图片顺序和素材完整度反向评分；AI只补充修改意见。
+                  正在识别图片文案，并按评论需求、平台识别、转化承接、图片顺序和素材完整度评分；AI只补充修改意见。
                 </p>
               </div>
             </Card>
@@ -1892,12 +1892,12 @@ export default function PreLaunchTest() {
                 </div>
               </Card>
 
-              {/* COSMO & Rufus Alignment */}
+              {/* Platform and intent alignment */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {result.cosmo_alignment && (
                   <Card className="bg-white border-gray-200 p-4">
                     <h3 className="text-sm font-semibold text-brand-600 mb-2 flex items-center gap-1.5">
-                      <Sparkles className="w-3.5 h-3.5" /> COSMO 语义对齐度
+                      <Sparkles className="w-3.5 h-3.5" /> 平台语义对齐度
                     </h3>
                     <p className="text-xs text-gray-500 leading-relaxed">{result.cosmo_alignment}</p>
                   </Card>
@@ -1905,7 +1905,7 @@ export default function PreLaunchTest() {
                 {result.rufus_alignment && (
                   <Card className="bg-white border-gray-200 p-4">
                     <h3 className="text-sm font-semibold text-gold-400 mb-2 flex items-center gap-1.5">
-                      <TrendingUp className="w-3.5 h-3.5" /> Rufus 意图匹配度
+                      <TrendingUp className="w-3.5 h-3.5" /> 用户意图匹配度
                     </h3>
                     <p className="text-xs text-gray-500 leading-relaxed">{result.rufus_alignment}</p>
                   </Card>

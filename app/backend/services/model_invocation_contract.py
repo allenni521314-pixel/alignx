@@ -68,7 +68,7 @@ LISTING_DIAGNOSIS_CONTRACT = WorkflowContract(
         PipelineStep("semantic_recall", "embedding", "召回相似Listing错误、评论痛点和语义锚点", "semantic_candidates"),
         PipelineStep("evidence_rerank", "rerank", "选择最相关证据进入诊断Prompt", "ranked_evidence"),
         PipelineStep("visual_ocr_evidence", "vision", "用Qwen Vision/OCR读取主图、副图、A+图片中的产品、场景、文字、徽章、认证和风险承诺", "visual_ocr_evidence"),
-        PipelineStep("diagnosis_reasoning", "text_deep", "输出8D+2、本品问题和广告验证假设", "listing_diagnosis"),
+        PipelineStep("diagnosis_reasoning", "text_deep", "输出10维诊断、本品问题和广告验证假设", "listing_diagnosis"),
     ),
 )
 

@@ -460,7 +460,7 @@ const DIMENSION_RULER_META: Record<keyof Scores, {
     intentScale: "任务对象清晰度",
     platformScale: "类目身份锚定 / 结构化属性完整度",
     ownAction: "校准产品类型、子类目、核心对象和属性词",
-    impact: "自然排名 / 广告匹配 / Rufus理解",
+    impact: "自然排名 / 广告匹配 / 平台识别",
   },
   compatibility: {
     layer: "平台识别层",
@@ -1229,8 +1229,8 @@ function getAvgScore(scores: Scores): number {
 }
 
 /**
- * Normalize backend element attribution keys to 8D+2 keys.
- * New backend returns 8D+2 keys; aliases keep older saved diagnoses readable.
+ * Normalize backend element attribution keys to the 10 diagnosis dimensions.
+ * Aliases keep older saved diagnoses readable.
  */
 function normalizeElementDims(ed: Record<string, unknown>): ElementDim {
   return {
@@ -1280,7 +1280,7 @@ function getTwoRulerScoreCards(scores: Scores, marketScore?: number) {
       key: "platform",
       title: "平台识别",
       score: averageScoresByKeys(scores, TWO_RULER_DIMENSIONS.platform),
-      desc: "Amazon/Rufus 能否识别类目身份、查询意图、结构化属性和关系图谱。",
+      desc: "Amazon能否识别类目身份、查询意图、结构化属性和关系图谱。",
     },
     {
       key: "carrier",
@@ -1647,7 +1647,7 @@ function BackendJudgmentPanel({ result }: { result: DiagnosisResult }) {
     : [];
   const items = [
     { key: "review_alignment", label: "评论需求对齐", score: alignment.review_alignment ?? result.diagnosis_confidence?.review_alignment?.score },
-    { key: "platform_semantic_alignment", label: "平台语义对齐", score: alignment.platform_semantic_alignment ?? result.diagnosis_confidence?.platform_semantic_alignment?.score },
+    { key: "platform_semantic_alignment", label: "平台识别对齐", score: alignment.platform_semantic_alignment ?? result.diagnosis_confidence?.platform_semantic_alignment?.score },
     { key: "causal_conversion_alignment", label: "因果转化对齐", score: alignment.causal_conversion_alignment ?? result.diagnosis_confidence?.causal_conversion_alignment?.score ?? result.causal_scores?.overall_causal_score },
     { key: "keyword_validation_readiness", label: "关键词验证就绪", score: keywordCausality.readiness_score ?? result.causal_scores?.keyword_validation_readiness },
   ].filter((item) => item.score !== undefined);
@@ -1661,11 +1661,11 @@ function BackendJudgmentPanel({ result }: { result: DiagnosisResult }) {
           <div>
             <div className="flex items-center gap-2">
               <Shield className="w-4 h-4 text-brand-600" />
-              <h3 className="text-lg font-bold text-gray-900">后台判断系统</h3>
+              <h3 className="text-lg font-bold text-gray-900">诊断判断</h3>
             </div>
-            <p className="text-xs text-gray-500 mt-1">评论需求、平台语义、因果转化在后台统一计算，前台展示可执行判断。</p>
+            <p className="text-xs text-gray-500 mt-1">把评论需求、平台识别和转化承接统一成可执行判断。</p>
           </div>
-          <Badge variant="outline" className="border-brand-200 text-brand-600">算法基座</Badge>
+          <Badge variant="outline" className="border-brand-200 text-brand-600">系统计算</Badge>
         </div>
         {items.length > 0 && (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -1688,7 +1688,7 @@ function BackendJudgmentPanel({ result }: { result: DiagnosisResult }) {
         {causal.summary && <p className="mt-3 text-xs text-gray-600 leading-relaxed">{String(causal.summary)}</p>}
         {priorityKeywords.length > 0 && (
           <div className="mt-4 rounded-lg border border-brand-100 bg-white p-3">
-            <p className="text-xs font-semibold text-brand-600 mb-2">Rufus/COSMO因果关键词</p>
+            <p className="text-xs font-semibold text-brand-600 mb-2">优先验证关键词</p>
             <p className="text-[11px] text-gray-500 mb-3">广告验证优先状态触发词和关系词，属性词只做基础覆盖。</p>
             <div className="flex flex-wrap gap-2">
               {priorityKeywords.slice(0, 8).map((item: any, idx: number) => {
@@ -3110,7 +3110,7 @@ export default function ListingDiagnosis() {
     }));
   };
 
-  // Compute content score (avg of 8D+2)
+  // Compute content score (avg of the 10 diagnosis dimensions)
   const contentScore = diagResult ? getAvgScore(diagResult.scores) : 0;
   // Compute final weighted total: content 65% + market 35%
   const weightedTotal = marketValidation
@@ -3134,14 +3134,14 @@ export default function ListingDiagnosis() {
       `--- Listing承接诊断 ---`,
       ...getTwoRulerScoreCards(diagResult.scores, marketValidation?.market_total).map(card => `${card.title}: ${card.score}/100 - ${card.desc}`),
       ``,
-      `--- 8D+2维度归属 ---`,
+      `--- 10维诊断维度 ---`,
       ...DIMENSIONS.map(d => {
         const meta = DIMENSION_RULER_META[d.key];
         return `${d.label}: ${diagResult.scores[d.key] || 0}/100 | ${meta.layer} | 需求:${meta.intentScale} | 平台:${meta.platformScale} | ${diagResult.analysis?.[d.key] || ""}`;
       }),
       ``,
       ...(elements.length > 0 ? [
-        `--- 模块级8D+2归因 ---`,
+        `--- 模块级10维贡献 ---`,
         ...elements.map(e => `[${e.label}] ${e.summary}\n  功能表达:${e.dims.function_expression} 场景表达:${e.dims.scenario_expression} 身份适配:${e.dims.identity_fit} 心理利益:${e.dims.psychology_benefit} 风险消除:${e.dims.risk_elimination} 产品身份:${e.dims.product_identity} 兼容搭配:${e.dims.compatibility} 主观属性:${e.dims.subjective_properties} 差异化:${e.dims.differentiation} 市场趋势:${e.dims.market_trend}`),
         ``,
       ] : []),
@@ -3210,7 +3210,7 @@ export default function ListingDiagnosis() {
           <PageHeader
             objective="诊断已上架产品Listing为什么不转化，并判断先改哪里"
             inputSource="站点、ASIN/Amazon链接、标题、主图/副图、五点、A+、价格、评分、评论、关键词"
-            process="自动抓取Listing后，按买家意图、COSMO语义承接和因果转化标准判断转化障碍"
+            process="自动抓取Listing后，按买家意图、平台识别和转化承接判断问题"
             outputTarget="综合诊断分、主要问题、优先级列表、分模块修改建议、广告验证关键词"
             action="确认必改项后进入广告验证或执行记录"
             feedback="保存每次诊断快照，后续用效果验证和数据回流校准下一轮优化"
@@ -3688,7 +3688,7 @@ export default function ListingDiagnosis() {
                         总览
                       </TabsTrigger>
                       <TabsTrigger value="scores" className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600 text-xs sm:text-sm">
-                        承接评分
+                        10维诊断
                       </TabsTrigger>
                       <TabsTrigger value="hypotheses" className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600 text-xs sm:text-sm">
                         假设验证
@@ -3788,7 +3788,7 @@ export default function ListingDiagnosis() {
                       <ListingHypothesisLoopPanel result={diagResult} listing={listing} />
                     </TabsContent>
 
-                    {/* ===== 8D+2 Scores ===== */}
+                    {/* ===== 10 Dimension Scores ===== */}
                     <TabsContent value="scores" className="mt-4">
                       <div className="mb-4">
                         <TwoRulerSummary scores={diagResult.scores} marketScore={marketValidation?.market_total} />
@@ -3812,7 +3812,7 @@ export default function ListingDiagnosis() {
                           <div className="mb-4">
                             <h3 className="text-sm font-semibold text-gray-700">Listing模块贡献图</h3>
                             <p className="mt-1 text-xs text-gray-500 leading-relaxed">
-                              行分用于定位标题、五点、图片、A+或后台词哪个模块拖后腿；列分会汇总到最终承接评分。价格、评论、BSR和广告数据属于验证参考，不和单个模块行分直接对比。
+                              行分用于定位标题、五点、图片、A+或后台词哪个模块拖后腿；列分会汇总到最终诊断分。价格、评论、BSR和广告数据属于验证参考，不和单个模块行分直接对比。
                             </p>
                           </div>
                           <div className="overflow-x-auto">
@@ -4664,8 +4664,8 @@ function HistoryDetailView({
       <Tabs value={resultTab} onValueChange={setResultTab}>
         <TabsList className="bg-gray-50 border border-gray-200 flex-wrap">
           <TabsTrigger value="overview" className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600 text-xs">总览</TabsTrigger>
-          <TabsTrigger value="scores" className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600 text-xs">承接评分</TabsTrigger>
-          <TabsTrigger value="judgment" className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600 text-xs">后台判断</TabsTrigger>
+          <TabsTrigger value="scores" className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600 text-xs">10维诊断</TabsTrigger>
+          <TabsTrigger value="judgment" className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600 text-xs">系统判断</TabsTrigger>
           <TabsTrigger value="heatmap" className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600 text-xs">热力图</TabsTrigger>
           <TabsTrigger value="keywords" className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600 text-xs">关键词</TabsTrigger>
           <TabsTrigger value="suggestions" className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600 text-xs">优化建议</TabsTrigger>

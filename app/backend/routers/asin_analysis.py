@@ -1,6 +1,6 @@
 """
 ASIN Product Analysis Router.
-Provides AI-powered product analysis and 8D+2 scoring.
+Provides AI-powered product analysis and 10-dimension scoring.
 Uses web scraping to get real product data. No AI estimation fallback — precision is the core value.
 Optimized: single AI call for both product enrichment + scoring.
 """
@@ -533,7 +533,7 @@ class CompareAsinsResponse(BaseModel):
 
 # ---- Combined Prompt (single AI call for enrichment + scoring) ---- #
 
-COMBINED_ANALYSIS_WITH_CONTEXT_PROMPT = """你是AlignX的COSMO 8D+2评分系统专家，同时也是专业的亚马逊产品分析师。
+COMBINED_ANALYSIS_WITH_CONTEXT_PROMPT = """你是AlignX的10维诊断系统专家，同时也是专业的亚马逊产品分析师。
 
 ## 已抓取的真实产品数据
 ASIN: {asin}
@@ -547,28 +547,28 @@ ASIN: {asin}
 基于以上真实数据，补充缺失的字段（如预估月销量、月收入等）。已有真实数据直接使用，不要修改。
 真实字段硬性约束：标题、品牌、类目、价格、评分、评论数、BSR、上架时间、五点、A+文本必须以抓取数据为准；不要翻译、不要改写、不要自行估算覆盖真实字段。
 
-### 任务2：两把尺 × COSMO 8D+2评分
-本任务不是把8D+2当作10个平铺同级指标简单平均。必须先用两把尺判断竞品/ASIN为什么被用户选择、为什么被Amazon匹配，再用8D+2做反向检查。
+### 任务2：用户需求 × 平台识别 × 10维诊断
+本任务不是把10个维度当作平铺同级指标简单平均。必须先判断竞品/ASIN为什么被用户选择、为什么被Amazon匹配，再用10维诊断做反向检查。
 
-**尺一：用户意图标准**
+**用户需求标准**
 - 任务对象清晰度：用户是谁，要完成什么任务，想得到什么结果。
 - 购买触发强度：用户为什么现在需要它，痛点/损失/效率/安心感是否明确。
 - 使用场景约束：地点、人群、搭配、时间、限制和不适用边界是否清楚。
 - 决策属性优先级：用户买前最先确认的尺寸、材质、效果、安全、兼容、价格或信任证据。
 - 反购买风险：为什么不买、退货、差评或产生错误期待。
 
-**尺二：平台理解标准**
+**平台识别标准**
 - 类目身份锚定：Amazon能否识别产品类型、子类目、核心对象。
 - 查询意图匹配：核心词、场景词、问题词、属性词是否与用户任务对应。
 - 结构化属性完整度：尺寸、材质、数量、规格、兼容性、变体是否可抽取。
 - 关系图谱完整度：for whom、used for、used with、in scenario、solves 是否清楚。
-- 证据可回答性：标题、图片、五点、A+、评论是否能回答用户和Rufus的问题。
+- 证据可回答性：标题、图片、五点、A+、评论是否能回答用户和平台购物助手的问题。
 
-每个analysis字段必须输出：维度归属（用户意图层/平台对齐层/Listing承接层/辅助验证层）、两把尺映射、真实证据、强点/漏洞、我方动作（借鉴/避开/攻击/差异化）和广告验证假设。
+每个analysis字段必须输出：维度归属（需求承接层/平台识别层/Listing证明层/市场验证层）、用户需求映射、平台识别映射、真实证据、强点/漏洞、我方动作（借鉴/避开/攻击/差异化）和广告验证假设。
 
 从以下10个维度进行评分（每个维度0-100分）并给出详细分析：
 
-**COSMO核心8D维度：**
+**基础承接维度：**
 1. 功能性(functionality): 产品功能是否完善、是否满足核心需求
 2. 情感性(emotional): 品牌故事、情感连接、用户体验感受
 3. 场景性(scenario): 使用场景是否明确、场景覆盖是否全面
@@ -585,7 +585,7 @@ ASIN: {asin}
 ### 关键词硬性规则
 - main_keywords 必须是自然美式英语 Amazon 搜索词，不允许中文、不允许直译腔。
 - main_keywords 只能来自真实抓取到的英文标题、五点、类目、A+或评论语义；如果原始字段是中文或不确定，返回空数组，不要翻译、不要补中文词。
-- 关键词必须符合 Rufus/COSMO 可理解结构：产品身份词 + 使用关系词 + 场景状态词。
+- 关键词必须符合平台可识别结构：产品身份词 + 使用关系词 + 场景状态词。
 - 不要只输出 product attribute words（如 material、size、color），必须优先包含 relationship words 与 state-trigger words。
 - relationship words 示例：for apartment cats, with odor filter, under desk speaker, for mom gifts, compatible with xxx。
 - state-trigger words 示例：ammonia odor control, litter tracking mess, outdoor party sound, sleep noise relief。
@@ -662,7 +662,7 @@ AI_FALLBACK_ANALYSIS_PROMPT = """你是AlignX亚马逊ASIN分析专家。
 2. 不确定字段必须留空或标记“待确认”。
 3. data_confidence 必须为 low。
 4. data_notes 必须说明“AI兜底估算，需以本地浏览器页面采集、服务器抓取或人工核实为准”。
-5. 仍需给出可用于初步测试的“两把尺 × 8D+2”评分，但分数要保守；analysis必须说明低置信度和待补证据。
+5. 仍需给出可用于初步测试的10维诊断评分，但分数要保守；analysis必须说明低置信度和待补证据。
 
 ASIN: {asin}
 站点: Amazon {marketplace}
@@ -722,12 +722,12 @@ ASIN: {asin}
 }}"""
 
 
-COMPARISON_PROMPT = """你是AlignX的竞品对比分析专家。请对比以下产品的8D+2评分数据，生成对比分析报告。
+COMPARISON_PROMPT = """你是AlignX的竞品对比分析专家。请对比以下产品的10维诊断数据，生成对比分析报告。
 
 我的产品：
 ASIN: {my_asin}
 标题: {my_title}
-8D+2评分: {my_scores}
+10维诊断: {my_scores}
 
 竞品列表：
 {competitor_info}
@@ -1331,7 +1331,7 @@ async def parse_html_and_analyze(
     current_user: UserResponse = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Parse raw Amazon HTML and run full 8D+2 analysis.
+    """Parse raw Amazon HTML and run full 10-dimension analysis.
 
     Source is explicit so local-browser captures and backend proxy fetches
     never get mixed into the same confidence bucket.
@@ -1423,7 +1423,7 @@ async def analyze_asin(
     current_user: UserResponse = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Analyze a single ASIN - get product data and 8D+2 scores."""
+    """Analyze a single ASIN - get product data and 10-dimension scores."""
     try:
         asin = request.asin.strip().upper()
         if not asin or len(asin) != 10:
@@ -1461,7 +1461,7 @@ async def compare_asins(
     current_user: UserResponse = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Compare my ASIN with competitor ASINs using 8D+2 scoring."""
+    """Compare my ASIN with competitor ASINs using 10-dimension scoring."""
     try:
         my_asin = request.my_asin.strip().upper()
         competitor_asins = [a.strip().upper() for a in request.competitor_asins if a.strip()]
@@ -1488,7 +1488,7 @@ async def compare_asins(
         # Generate comparison report
         ai_service = AIHubService()
         competitor_info = "\n".join([
-            f"ASIN: {c.asin}, 标题: {c.product_title}, 8D+2评分: {json.dumps(c.scores, ensure_ascii=False)}"
+            f"ASIN: {c.asin}, 标题: {c.product_title}, 10维诊断: {json.dumps(c.scores, ensure_ascii=False)}"
             for c in competitor_results
         ])
 
@@ -1720,7 +1720,7 @@ ASIN: {asin}
 
 只返回JSON，不要返回其他内容。"""
 
-SIX_DIMENSION_AI_PRIMARY_PROMPT = """你是AlignX的ASIN选品主判模型，使用 Amazon COSMO/Rufus × 顶级亚马逊运营操盘手的复合判断方式。
+SIX_DIMENSION_AI_PRIMARY_PROMPT = """你是AlignX的ASIN选品主判模型，使用用户意图 × 平台识别 × 顶级亚马逊运营操盘手的复合判断方式。
 
 你的职责：基于真实抓取证据，对单个ASIN做6维选品主判。规则底座只作为证据提示和硬闸门参考，不允许被规则分数牵着走。
 
