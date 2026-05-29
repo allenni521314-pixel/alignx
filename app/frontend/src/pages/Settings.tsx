@@ -5,6 +5,7 @@ import AdminPanel from "@/components/admin/AdminPanel";
 import { FeedbackDialog } from "@/components/FeedbackDialog";
 import { getAuthHeaders } from "@/lib/auth-headers";
 import { getAPIBaseURL } from "@/lib/config";
+import { finishModuleTask, removeModuleTask, upsertModuleTask } from "@/lib/module-task-store";
 import { versionLabel } from "@/lib/version";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -117,7 +118,16 @@ export default function Settings() {
   }, [accountStatus]);
 
   const downloadDataExport = async () => {
+    const moduleTaskId = `settings-data-export:${Date.now()}`;
     setExporting(true);
+    upsertModuleTask({
+      id: moduleTaskId,
+      moduleKey: "settings",
+      label: "导出账号数据",
+      status: "running",
+      detail: "正在生成当前账号的数据导出文件",
+      path: "/settings",
+    });
     try {
       const res = await fetch(`${getAPIBaseURL()}/api/v1/users/data-export`, {
         headers: getAuthHeaders(),
@@ -134,17 +144,30 @@ export default function Settings() {
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
+      finishModuleTask(moduleTaskId, "completed", "账号数据导出已生成");
       toast.success("数据导出已生成");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "数据导出失败");
+      const msg = err instanceof Error ? err.message : "数据导出失败";
+      finishModuleTask(moduleTaskId, "failed", msg);
+      toast.error(msg);
     } finally {
       setExporting(false);
+      window.setTimeout(() => removeModuleTask(moduleTaskId), 1200);
     }
   };
 
   const requestDataDeletion = async () => {
     if (!window.confirm("删除申请需要超级管理员复核。确认提交当前邮箱数据删除申请？")) return;
+    const moduleTaskId = `settings-delete-request:${Date.now()}`;
     setDeleting(true);
+    upsertModuleTask({
+      id: moduleTaskId,
+      moduleKey: "settings",
+      label: "提交数据删除申请",
+      status: "running",
+      detail: "正在提交当前账号的数据删除申请",
+      path: "/settings",
+    });
     try {
       const res = await fetch(`${getAPIBaseURL()}/api/v1/users/data-deletion-request`, {
         method: "POST",
@@ -153,11 +176,15 @@ export default function Settings() {
       });
       if (!res.ok) throw new Error("删除申请提交失败");
       const data = await res.json();
+      finishModuleTask(moduleTaskId, "completed", data.message || "删除申请已提交");
       toast.success(data.message || "删除申请已提交");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "删除申请提交失败");
+      const msg = err instanceof Error ? err.message : "删除申请提交失败";
+      finishModuleTask(moduleTaskId, "failed", msg);
+      toast.error(msg);
     } finally {
       setDeleting(false);
+      window.setTimeout(() => removeModuleTask(moduleTaskId), 1200);
     }
   };
 

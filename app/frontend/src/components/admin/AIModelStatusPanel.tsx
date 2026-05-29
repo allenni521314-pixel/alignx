@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { getAdminAIModels, probeAdminAIModels, type AdminAIModelProbe, type AdminAIModelStatus } from "@/lib/admin-api";
+import { finishModuleTask, removeModuleTask, upsertModuleTask } from "@/lib/module-task-store";
 import { AlertTriangle, CheckCircle2, Cpu, Server, Zap } from "lucide-react";
 import { toast } from "sonner";
 
@@ -45,20 +46,33 @@ export function AIModelStatusPanel() {
   }, []);
 
   const runProbe = async () => {
+    const moduleTaskId = `settings-ai-probe:${Date.now()}`;
     setProbing(true);
+    upsertModuleTask({
+      id: moduleTaskId,
+      moduleKey: "settings",
+      label: "AI模型真实调用检测",
+      status: "running",
+      detail: "正在逐个检测生产模型连通性",
+      path: "/settings",
+    });
     try {
       const data = await probeAdminAIModels();
       setProbe(data);
       if (data.ok) {
+        finishModuleTask(moduleTaskId, "completed", "所有AI模型真实调用通过");
         toast.success("所有AI模型真实调用通过");
       } else {
+        finishModuleTask(moduleTaskId, "failed", "部分AI模型真实调用失败");
         toast.warning("部分AI模型真实调用失败，请查看探针结果");
       }
     } catch (e) {
       console.error(e);
+      finishModuleTask(moduleTaskId, "failed", "AI模型真实调用检测失败");
       toast.error("AI模型真实调用检测失败");
     } finally {
       setProbing(false);
+      window.setTimeout(() => removeModuleTask(moduleTaskId), 1200);
     }
   };
 

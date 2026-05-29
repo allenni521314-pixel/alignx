@@ -14,6 +14,7 @@ import { useRequireAuth } from "@/hooks/useRequireAuth";
 import { getAuthHeaders } from "@/lib/auth-headers";
 import { saveActionSnapshot, upsertAdValidationFeedbackRound } from "@/lib/workflow-api";
 import { getApiErrorMessage } from "@/lib/api-retry";
+import { finishModuleTask, removeModuleTask, upsertModuleTask } from "@/lib/module-task-store";
 import { toast } from "sonner";
 import {
   BarChart3,
@@ -424,7 +425,16 @@ export default function AdAnalytics() {
   const handleSubmit = async () => {
     if (!selectedProductId || selectedProductId === "all") { toast.error("请先选择一个产品"); return; }
     if (!form.ad_group_name.trim() || !form.keyword.trim()) { toast.error("广告组名称和关键词为必填项"); return; }
+    const moduleTaskId = `ad-record-save:${Date.now()}`;
     setSaving(true);
+    upsertModuleTask({
+      id: moduleTaskId,
+      moduleKey: "ad-analytics",
+      label: "保存广告执行记录",
+      status: "running",
+      detail: "正在写入本轮广告投放事实数据",
+      path: "/ad-analytics?view=records",
+    });
     try {
       await client.entities.ad_data.create({
         data: {
@@ -466,12 +476,20 @@ export default function AdAnalytics() {
         ai_called: false,
         source_record_table: "ad_data",
       }).catch(() => {});
+      finishModuleTask(moduleTaskId, "completed", "广告执行记录已保存");
       toast.success("广告数据已添加");
       setShowForm(false);
       setForm(emptyAd);
       await loadAdData();
-    } catch (e: any) { toast.error(e?.message || "添加失败"); }
-    finally { setSaving(false); }
+    } catch (e: any) {
+      const msg = e?.message || "添加失败";
+      finishModuleTask(moduleTaskId, "failed", msg);
+      toast.error(msg);
+    }
+    finally {
+      setSaving(false);
+      window.setTimeout(() => removeModuleTask(moduleTaskId), 1200);
+    }
   };
 
   const openImportMode = (mode: ImportMode) => {
@@ -497,7 +515,16 @@ export default function AdAnalytics() {
       toast.error("未解析到有效广告数据，请检查表头和内容");
       return;
     }
+    const moduleTaskId = `ad-report-import:${Date.now()}`;
     setImporting(true);
+    upsertModuleTask({
+      id: moduleTaskId,
+      moduleKey: "ad-analytics",
+      label: "导入广告报表",
+      status: "running",
+      detail: `正在解析并写入 ${parsedImportRows.length} 条广告数据`,
+      path: "/ad-analytics?view=records",
+    });
     try {
       await Promise.all(parsedImportRows.map((row) => client.entities.ad_data.create({
         data: {
@@ -525,14 +552,18 @@ export default function AdAnalytics() {
         ai_called: false,
         source_record_table: "ad_data",
       }).catch(() => {});
+      finishModuleTask(moduleTaskId, "completed", `已导入 ${parsedImportRows.length} 条广告数据`);
       toast.success(`已导入 ${parsedImportRows.length} 条广告数据`);
       setImportText("");
       setImportMode(null);
       await loadAdData();
     } catch (e: any) {
-      toast.error(e?.message || "导入失败");
+      const msg = e?.message || "导入失败";
+      finishModuleTask(moduleTaskId, "failed", msg);
+      toast.error(msg);
     } finally {
       setImporting(false);
+      window.setTimeout(() => removeModuleTask(moduleTaskId), 1200);
     }
   };
 
@@ -595,6 +626,15 @@ export default function AdAnalytics() {
     const key = `${selectedProductId || "all"}-${totalImpressions}-${totalClicks}-${totalSpend}-${totalOrders}-${totalSales}-${validationConclusion.level}`;
     if (validationSnapshotKeyRef.current === key) return;
     validationSnapshotKeyRef.current = key;
+    const moduleTaskId = `ad-validation-snapshot:${key}`;
+    upsertModuleTask({
+      id: moduleTaskId,
+      moduleKey: "ad-analytics",
+      label: "沉淀广告效果验证",
+      status: "running",
+      detail: "正在把验证结论写入闭环回流",
+      path: "/ad-analytics?view=validation",
+    });
     const selectedProduct = products.find((product) => String(product.id) === selectedProductId);
     const hitStatus = inferValidationHitStatus(validationConclusion.level);
     const missReason = inferValidationFailureReason(
@@ -625,7 +665,10 @@ export default function AdAnalytics() {
       confidence: totalClicks >= 100 ? "high" : totalClicks >= 30 ? "medium" : "low",
       ai_called: false,
       source_record_table: "ad_data",
-    }).catch(() => {});
+    })
+      .then(() => finishModuleTask(moduleTaskId, "completed", "广告验证结论已回流"))
+      .catch(() => finishModuleTask(moduleTaskId, "failed", "广告验证结论回流失败"))
+      .finally(() => window.setTimeout(() => removeModuleTask(moduleTaskId), 1200));
     if (selectedProductId && selectedProductId !== "all") {
       upsertAdValidationFeedbackRound({
         product_id: Number(selectedProductId),

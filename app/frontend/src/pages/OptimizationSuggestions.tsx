@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { useRequireAuth } from "@/hooks/useRequireAuth";
 import { getAuthHeaders } from "@/lib/auth-headers";
 import { saveActionSnapshot } from "@/lib/workflow-api";
+import { finishModuleTask, removeModuleTask, upsertModuleTask } from "@/lib/module-task-store";
 import {
   RotateCcw,
   AlertTriangle,
@@ -656,6 +657,15 @@ export default function OptimizationSuggestions() {
     const key = `${view}-${liveFeedbackStats.rounds}-${liveFeedbackStats.hitRate}-${liveFeedbackStats.learnings}-${workflowChain?.product?.asin || ""}`;
     if (savedViewRef.current === key) return;
     savedViewRef.current = key;
+    const moduleTaskId = `optimization-snapshot:${key}`;
+    upsertModuleTask({
+      id: moduleTaskId,
+      moduleKey: "optimization-suggestions",
+      label: `${pageConfig.title}沉淀`,
+      status: "running",
+      detail: "正在保存闭环优化页面快照",
+      path: `/optimization-suggestions?view=${view}`,
+    });
     saveActionSnapshot({
       module_key: "optimization",
       module_name: "数据回流",
@@ -680,7 +690,10 @@ export default function OptimizationSuggestions() {
       confidence: liveFeedbackStats.hitRate === "样本不足" ? "low" : "medium",
       ai_called: false,
       source_record_table: "action_snapshots",
-    }).catch(() => {});
+    })
+      .then(() => finishModuleTask(moduleTaskId, "completed", "闭环优化快照已保存"))
+      .catch(() => finishModuleTask(moduleTaskId, "failed", "闭环优化快照保存失败"))
+      .finally(() => window.setTimeout(() => removeModuleTask(moduleTaskId), 1200));
   }, [
     view,
     liveFeedbackStats.rounds,
