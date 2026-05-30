@@ -404,7 +404,7 @@ const HEATMAP_DIM_KEYS: { key: keyof ElementDim; label: string; color: string }[
   };
 });
 
-type ListingRulerLayer = "需求承接层" | "平台识别层" | "Listing证明层" | "市场验证层";
+type ListingRulerLayer = "用户需求" | "平台识别" | "Listing证明" | "市场验证";
 
 const DIMENSION_RULER_META: Record<keyof Scores, {
   layer: ListingRulerLayer;
@@ -414,70 +414,70 @@ const DIMENSION_RULER_META: Record<keyof Scores, {
   impact: string;
 }> = {
   function_expression: {
-    layer: "需求承接层",
+    layer: "用户需求",
     intentScale: "任务对象清晰度 / 决策属性优先级",
     platformScale: "证据可回答性",
     ownAction: "把功能从参数改成用户任务、结果和可验证证据",
     impact: "CTR / CVR / ACOS",
   },
   scenario_expression: {
-    layer: "平台识别层",
+    layer: "平台识别",
     intentScale: "使用场景约束",
     platformScale: "查询意图匹配 / 关系图谱完整度",
     ownAction: "补清使用地点、搭配对象、使用时机和不适用边界",
     impact: "CTR / CPC / 广告词相关性",
   },
   identity_fit: {
-    layer: "需求承接层",
+    layer: "用户需求",
     intentScale: "任务对象清晰度 / 使用场景约束",
     platformScale: "关系图谱完整度",
     ownAction: "明确谁在什么条件下使用，避免泛人群表达",
     impact: "CTR / CVR / 无效点击率",
   },
   psychology_benefit: {
-    layer: "需求承接层",
+    layer: "用户需求",
     intentScale: "购买触发强度 / 反购买风险",
     platformScale: "证据可回答性",
     ownAction: "把安心、省事、舒适等心理收益绑定到真实痛点",
     impact: "CVR / 详情页停留 / Review",
   },
   risk_elimination: {
-    layer: "需求承接层",
+    layer: "用户需求",
     intentScale: "反购买风险",
     platformScale: "证据可回答性",
     ownAction: "补退货、差评、误用、适配失败的证据链",
     impact: "CVR / 退货 / 差评",
   },
   differentiation: {
-    layer: "Listing证明层",
+    layer: "Listing证明",
     intentScale: "决策属性优先级",
     platformScale: "证据可回答性",
     ownAction: "只保留用户会买单的差异，并用图片/五点/A+证明",
     impact: "CTR / CVR / CPC",
   },
   product_identity: {
-    layer: "平台识别层",
+    layer: "平台识别",
     intentScale: "任务对象清晰度",
     platformScale: "类目身份锚定 / 结构化属性完整度",
     ownAction: "校准产品类型、子类目、核心对象和属性词",
     impact: "自然排名 / 广告匹配 / 平台识别",
   },
   compatibility: {
-    layer: "平台识别层",
+    layer: "平台识别",
     intentScale: "使用场景约束",
     platformScale: "结构化属性完整度 / 关系图谱完整度",
     ownAction: "补 used_with、compatible with、适配/不适配边界",
     impact: "CVR / 退货 / 长尾广告词",
   },
   subjective_properties: {
-    layer: "Listing证明层",
+    layer: "Listing证明",
     intentScale: "购买触发强度 / 决策属性优先级",
     platformScale: "证据可回答性",
     ownAction: "把质感、美观、安静、易用等主观词落到证据",
     impact: "CTR / CVR / Review",
   },
   market_trend: {
-    layer: "市场验证层",
+    layer: "市场验证",
     intentScale: "购买触发强度",
     platformScale: "查询意图变化",
     ownAction: "只用于发现需求变化，不替代Listing承接主判断",
@@ -2841,6 +2841,7 @@ export default function ListingDiagnosis() {
         force_refresh: false,
         listing: {
           ...activeListing,
+          asin: activeFetchMeta?.asin || selectedListingAsin || activeListing.asin || "",
           marketplace: activeListing.marketplace || marketplace,
           rating: activeFetchMeta?.rating || activeListing.rating || "",
           review_count: activeFetchMeta?.review_count || activeListing.review_count || "",

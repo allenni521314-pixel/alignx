@@ -42,6 +42,8 @@ from services.listing_diagnoses import Listing_diagnosesService
 from services.judgment_system import JudgmentSystemService
 from services.cosmo_rufus_rules import build_cosmo_rufus_analysis, merge_cosmo_rufus_into_legacy
 from services.cosmo_vector_mapping import evaluate_cosmo_vector_mapping_async
+from services.canonical_10d_scoring import product_evidence_similarity
+from services.cosmo_operator_agent import CosmoOperatorAgent
 
 logger = logging.getLogger(__name__)
 AI_DIAGNOSIS_TIMEOUT_SECONDS = int(os.getenv("AI_DIAGNOSIS_TIMEOUT_SECONDS", "180"))
@@ -616,13 +618,13 @@ DIAGNOSIS_PROMPT = """【最高优先级指令】你正在诊断的产品是: "{
 - 关系图谱完整度：for whom、used for、used with、in scenario、solves 是否清楚？
 - 证据可回答性：标题、图片、五点、A+、评论能否回答用户和平台购物助手的问题？
 
-### 10维诊断归位规则
-- 需求承接层：功能表达、场景表达、身份适配、心理利益、风险消除、主观属性。
-- 平台识别层：产品身份、兼容搭配、场景表达、身份适配、功能表达。
-- Listing证明层：差异化、风险消除、主观属性、功能表达、兼容搭配。
-- 市场验证层：市场趋势。趋势只用于验证和排序，不能替代用户需求与平台识别主判断。
+### 10维诊断动作顺序
+必须按以下顺序做后台判断：
+1. 用户意图：先判断用户任务、购买触发、场景、决策属性和反购买风险。
+2. 平台规则：再判断Amazon能否识别商品身份、查询意图、结构化属性和关系图谱。
+3. 验证回流：最后用价格、评论、BSR、关键词和广告数据校准置信度与下一步动作。
 
-每个analysis字段必须说明：维度归属、用户需求映射、平台识别映射、当前证据、扣分原因、问题类型（对齐/缺失/错位/断链/误导）、影响指标（CTR/CVR/CPC/ACOS/退货/差评）、下一步动作。禁止在analysis里直接写内部方法论名称。
+每个analysis字段必须说明：用户需求映射、平台识别映射、当前证据、扣分原因、问题类型（对齐/缺失/错位/断链/误导）、影响指标（CTR/CVR/CPC/ACOS/退货/差评）、下一步动作。禁止在analysis里直接写内部方法论名称。
 
 ## 诊断维度（共10个维度，每个0-100分）
 
@@ -1086,6 +1088,7 @@ def _normalize_diagnosis_result(result: dict, listing: ListingInput) -> dict:
     if not data.get("analyzed_product_name"):
         data["analyzed_product_name"] = listing.title or ""
     data = _apply_market_reality_caps(data, listing)
+    data = _align_listing_scores_with_canonical(data, listing)
     return data
 
 
@@ -1243,6 +1246,88 @@ def _apply_market_reality_caps(data: dict, listing: ListingInput) -> dict:
             }
         prefix = ("新品上架承接闸门已校准评分：" if is_new_launch else "市场现实闸门已校准评分：") + "；".join(reasons[:3])
         data["overall_summary"] = f"{prefix}。{data.get('overall_summary', '')}".strip()
+    return data
+
+
+def _align_listing_scores_with_canonical(data: dict, listing: ListingInput) -> dict:
+    """Use the same Amazon/COSMO 10D basis as ASIN and competitor diagnosis."""
+    scores = data.get("scores") if isinstance(data.get("scores"), dict) else {}
+    if not scores:
+        return data
+    aligned = CosmoOperatorAgent.align_scores(scores, listing)
+    data["scores"] = aligned["canonical_scores"]
+    data["canonical_10d_scores"] = aligned["canonical_scores"]
+    data["score_aliases"] = aligned["scores"]
+    data["score_basis"] = "amazon_skill_10d_canonical"
+    data["market_reality_caps"] = aligned["market_reality_caps"]
+    return data
+
+
+async def _find_shared_asin_score_snapshot(
+    listing: ListingInput,
+    db: AsyncSession,
+    user_id: str,
+) -> dict | None:
+    """Reuse the same 10D score base when the ASIN and captured evidence match."""
+    asin = (listing.asin or "").strip().upper()
+    if not asin:
+        return None
+    from sqlalchemy import select
+    from models.asin_analyses import Asin_analyses
+
+    result = await db.execute(
+        select(Asin_analyses)
+        .where(Asin_analyses.user_id == user_id, Asin_analyses.asin == asin, Asin_analyses.marketplace == listing.marketplace)
+        .where(Asin_analyses.analysis_report.isnot(None), Asin_analyses.product_data.isnot(None))
+        .order_by(Asin_analyses.id.desc())
+        .limit(10)
+    )
+    for record in result.scalars().all():
+        try:
+            product_data = json.loads(record.product_data or "{}")
+            analysis_report = json.loads(record.analysis_report or "{}")
+        except Exception:
+            continue
+        product_data.setdefault("title", record.product_title or "")
+        similarity = product_evidence_similarity(listing.model_dump(), product_data)
+        if similarity.get("score", 0) < 0.62:
+            continue
+        aligned = CosmoOperatorAgent.align_scores(
+            analysis_report.get("canonical_10d_scores") or analysis_report.get("scores"),
+            product_data,
+        )
+        if not any(aligned["canonical_scores"].values()):
+            continue
+        return {
+            "source": "asin_analysis",
+            "source_id": record.id,
+            "canonical_scores": aligned["canonical_scores"],
+            "score_aliases": aligned["scores"],
+            "market_reality_caps": aligned["market_reality_caps"],
+            "similarity": similarity,
+        }
+    return None
+
+
+async def _apply_shared_asin_score_snapshot(
+    data: dict,
+    listing: ListingInput,
+    db: AsyncSession,
+    user_id: str,
+) -> dict:
+    snapshot = await _find_shared_asin_score_snapshot(listing, db, user_id)
+    if not snapshot:
+        return data
+    data["scores"] = snapshot["canonical_scores"]
+    data["canonical_10d_scores"] = snapshot["canonical_scores"]
+    data["score_aliases"] = snapshot["score_aliases"]
+    data["score_basis"] = "amazon_skill_10d_canonical_shared_asin_snapshot"
+    data["shared_score_source"] = {
+        "type": snapshot["source"],
+        "id": snapshot["source_id"],
+        "similarity": snapshot["similarity"],
+    }
+    data["market_reality_caps"] = snapshot["market_reality_caps"]
     return data
 
 
@@ -1692,12 +1777,26 @@ async def _diagnose_single(
 
     product_title = listing.title or "未提供"
     evidence_chain = await _build_listing_evidence_chain(listing, ai_service)
+    operator_agent = CosmoOperatorAgent(db)
+    alignment_context: dict = {}
+    try:
+        alignment_context = await operator_agent.build_context(
+            user_id=user_id,
+            workflow="listing_diagnosis",
+            product=listing.model_dump(),
+            asin=listing.asin or None,
+            marketplace=listing.marketplace,
+        )
+    except Exception as e:
+        logger.warning(f"123 alignment memory unavailable for listing diagnosis: {e}")
 
     prompt = (
         _build_compact_diagnosis_prompt(listing)
         + "\n\n【强制证据链】以下证据来自平台识别主链路，必须优先使用；后台规则只可作为兜底或一致性校验，不能替代主判断：\n"
         + json.dumps(evidence_chain, ensure_ascii=False)[:6000]
     )
+    if alignment_context.get("prompt_summary"):
+        prompt += "\n\n" + str(alignment_context["prompt_summary"])[:3500]
 
     # Determine A+ content status for system message hint
     a_plus_hint = ""
@@ -1716,7 +1815,7 @@ async def _diagnose_single(
         f'4.在JSON中"analyzed_product_name"字段填入你实际分析的产品名称。'
         f'{a_plus_hint}'
         f' 6.elements中每个要素的每个维度评分都必须是合理的非零值，绝对禁止全部给0分。'
-        f' 7.本次诊断采用“用户需求 × 平台识别 × 10维诊断”：先判断用户需求标准和平台识别标准，再把10个维度归入需求承接层、平台识别层、Listing证明层、市场验证层；禁止把10项当作平铺平均分。输出面向卖家，禁止暴露内部方法论名称。'
+        f' 7.本次诊断采用“1用户意图 → 2平台规则 → 3验证回流 → 10维诊断”的后台动作顺序；禁止把10项当作平铺平均分。输出面向卖家，禁止暴露内部方法论名称。'
         f' 8.判断优先级：语义召回和证据精排 > 图片识别事实 > AI综合判断；后台规则只做兜底和一致性校验。'
         f'你是亚马逊Listing优化专家。只输出JSON。'
     )
@@ -1822,8 +1921,16 @@ async def _diagnose_single(
     cosmo_rufus_analysis["rule_track_role"] = "fallback_consistency_check_only"
     data = merge_cosmo_rufus_into_legacy(data, cosmo_rufus_analysis)
     data = _apply_market_reality_caps(data, listing)
+    data = _align_listing_scores_with_canonical(data, listing)
+    data = await _apply_shared_asin_score_snapshot(data, listing, db, user_id)
     scores = data.get("scores", {})
     ad_validation_plan = data.get("ad_validation_plan", ad_validation_plan)
+    data = operator_agent.attach_result_metadata(
+        data,
+        alignment_context,
+        product=listing.model_dump(),
+        scores=scores,
+    )
 
     amazon_compliance = await _evaluate_listing_compliance(listing, db)
     data["amazon_compliance"] = amazon_compliance
@@ -2215,6 +2322,13 @@ async def parse_html_content(
             price=parsed.get("price", ""),
             brand=parsed.get("brand", ""),
             marketplace=marketplace,
+            asin=request.asin.strip().upper() if request.asin else parsed.get("asin", ""),
+            rating=parsed.get("rating", ""),
+            review_count=parsed.get("review_count", ""),
+            bsr_rank=parsed.get("bsr_rank", ""),
+            image_count=str(parsed.get("image_count", "") or ""),
+            has_video=bool(parsed.get("has_video", False)),
+            has_a_plus=bool(parsed.get("has_a_plus", False)),
             image_urls=parsed.get("image_urls", []) or [],
             aplus_image_urls=parsed.get("aplus_image_urls", []) or [],
         )

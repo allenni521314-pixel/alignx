@@ -161,7 +161,7 @@ const SCORE_KEYS: Array<keyof Scores> = [
   "risk_elimination",
 ];
 
-type CompetitorRulerLayer = "需求承接层" | "平台识别层" | "Listing证明层" | "市场验证层";
+type CompetitorRulerLayer = "用户需求" | "平台识别" | "Listing证明" | "市场验证";
 
 const COMPETITOR_RULER_META: Record<keyof Scores, {
   layer: CompetitorRulerLayer;
@@ -171,70 +171,70 @@ const COMPETITOR_RULER_META: Record<keyof Scores, {
   actionHint: string;
 }> = {
   functionality: {
-    layer: "需求承接层",
+    layer: "用户需求",
     intentScale: "任务对象清晰度 / 决策属性优先级",
     platformScale: "证据可回答性",
     evidenceFocus: "标题、五点和图片是否把功能转成用户任务",
     actionHint: "借鉴已验证功能承接，避免只抄参数",
   },
   emotional: {
-    layer: "需求承接层",
+    layer: "用户需求",
     intentScale: "购买触发强度 / 反购买风险",
     platformScale: "证据可回答性",
     evidenceFocus: "评论、A+和图片是否证明安心、省事、舒适等触发点",
     actionHint: "提炼可转化的情绪利益，避开空泛高级感",
   },
   scenario: {
-    layer: "需求承接层",
+    layer: "用户需求",
     intentScale: "使用场景约束 / 任务对象清晰度",
     platformScale: "关系图谱完整度",
     evidenceFocus: "场景、人群、地点、搭配对象是否具体",
     actionHint: "用竞品场景定义我方广告测试入口",
   },
   user_profile: {
-    layer: "需求承接层",
+    layer: "用户需求",
     intentScale: "任务对象清晰度 / 决策属性优先级",
     platformScale: "查询意图匹配",
     evidenceFocus: "目标用户和购买理由是否明确",
     actionHint: "找到我方可攻击的人群/任务空白",
   },
   differentiation: {
-    layer: "Listing证明层",
+    layer: "Listing证明",
     intentScale: "决策属性优先级",
     platformScale: "证据可回答性",
     evidenceFocus: "差异点是否被主图、五点、A+或评论证明",
     actionHint: "高分则借鉴或避开硬拼，低分则攻击",
   },
   market_trend: {
-    layer: "市场验证层",
+    layer: "市场验证",
     intentScale: "购买触发强度",
     platformScale: "查询意图变化",
     evidenceFocus: "趋势词、搜索需求和销量信号是否同步",
     actionHint: "仅用于确定测试优先级，不替代主判断",
   },
   product_identity: {
-    layer: "平台识别层",
+    layer: "平台识别",
     intentScale: "任务对象清晰度",
     platformScale: "类目身份锚定 / 结构化属性完整度",
     evidenceFocus: "is_a、used_as、子类目和核心属性是否清楚",
     actionHint: "借鉴平台能识别的品类锚点",
   },
   compatibility: {
-    layer: "平台识别层",
+    layer: "平台识别",
     intentScale: "使用场景约束",
     platformScale: "结构化属性完整度 / 关系图谱完整度",
     evidenceFocus: "used_with、compatible with、搭配/边界是否明确",
     actionHint: "提炼长尾关系词和退货风险边界",
   },
   subjective_properties: {
-    layer: "Listing证明层",
+    layer: "Listing证明",
     intentScale: "购买触发强度 / 决策属性优先级",
     platformScale: "证据可回答性",
     evidenceFocus: "质感、美观、安静、易用等主观词是否有证据",
     actionHint: "只借鉴被评论或图片证明的主观利益",
   },
   risk_elimination: {
-    layer: "需求承接层",
+    layer: "用户需求",
     intentScale: "反购买风险",
     platformScale: "证据可回答性",
     evidenceFocus: "认证、适配、保修、差评风险和误用边界",
@@ -777,10 +777,10 @@ function normalizeScores(value: unknown): Scores {
   const nested = raw.scores && typeof raw.scores === "object" ? (raw.scores as Record<string, unknown>) : {};
   const source = { ...nested, ...raw };
   return {
-    functionality: toScoreNumber(source.functionality ?? source.score_functionality),
-    emotional: toScoreNumber(source.emotional ?? source.score_emotional),
-    scenario: toScoreNumber(source.scenario ?? source.score_scenario),
-    user_profile: toScoreNumber(source.user_profile ?? source.score_user_profile),
+    functionality: toScoreNumber(source.functionality ?? source.function_expression ?? source.score_functionality ?? source.score_function_expression),
+    emotional: toScoreNumber(source.emotional ?? source.psychology_benefit ?? source.score_emotional ?? source.score_psychology_benefit),
+    scenario: toScoreNumber(source.scenario ?? source.scenario_expression ?? source.score_scenario ?? source.score_scenario_expression),
+    user_profile: toScoreNumber(source.user_profile ?? source.identity_fit ?? source.score_user_profile ?? source.score_identity_fit),
     differentiation: toScoreNumber(source.differentiation ?? source.score_differentiation),
     market_trend: toScoreNumber(source.market_trend ?? source.score_market_trend),
     product_identity: toScoreNumber(source.product_identity ?? source.score_product_identity),

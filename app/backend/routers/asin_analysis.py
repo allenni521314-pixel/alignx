@@ -24,6 +24,11 @@ from services.amazon_rules_engine import evaluate_amazon_compliance, load_active
 from services.amazon_scraper import scrape_amazon_product
 from services.amazon_skill_toolbox import build_toolbox_enhancements
 from services.asin_analyses import Asin_analysesService
+from services.canonical_10d_scoring import (
+    canonical_to_asin_scores,
+    product_evidence_similarity,
+)
+from services.cosmo_operator_agent import CosmoOperatorAgent
 
 logger = logging.getLogger(__name__)
 
@@ -455,12 +460,32 @@ async def _get_cached_asin_analysis(
         "risk_elimination": record.score_risk_elimination or 0,
     }
     product_data["main_keywords"] = _clean_original_english_keywords(product_data.get("main_keywords"), product_data, 10)
-    analysis_report["scores"] = analysis_report.get("scores") or scores
+    aligned = CosmoOperatorAgent.align_scores(
+        analysis_report.get("canonical_10d_scores") or analysis_report.get("scores") or scores,
+        product_data,
+    )
+    scores = aligned["asin_scores"]
+    analysis_report["scores"] = aligned["scores"]
+    analysis_report["canonical_10d_scores"] = aligned["canonical_scores"]
+    analysis_report["score_basis"] = "amazon_skill_10d_canonical"
+    analysis_report["market_reality_caps"] = aligned["market_reality_caps"]
+    shared_snapshot = await _find_shared_listing_score_snapshot(record.asin, marketplace, product_data, db, user_id)
+    if shared_snapshot:
+        scores = shared_snapshot["asin_scores"]
+        analysis_report["scores"] = shared_snapshot["score_aliases"]
+        analysis_report["canonical_10d_scores"] = shared_snapshot["canonical_scores"]
+        analysis_report["score_basis"] = "amazon_skill_10d_canonical_shared_listing_snapshot"
+        analysis_report["shared_score_source"] = {
+            "type": shared_snapshot["source"],
+            "id": shared_snapshot["source_id"],
+            "similarity": shared_snapshot["similarity"],
+        }
+        analysis_report["market_reality_caps"] = shared_snapshot["market_reality_caps"]
     if not analysis_report.get("listing_breakdown"):
         analysis_report["listing_breakdown"] = _build_listing_breakdown(product_data, analysis_report)
     analysis_report["toolbox_enhancements"] = analysis_report.get("toolbox_enhancements") or build_toolbox_enhancements(
         product_data=product_data,
-        scores=scores,
+        scores=analysis_report["scores"],
         context="competitor",
     )
     data_source = str(product_data.get("_data_source") or analysis_report.get("data_source") or "cached_analysis")
@@ -476,6 +501,72 @@ async def _get_cached_asin_analysis(
         data_source=data_source,
         id=record.id,
     )
+
+
+async def _find_shared_listing_score_snapshot(
+    asin: str,
+    marketplace: str,
+    product_data: dict,
+    db: AsyncSession,
+    user_id: str | list[str],
+) -> dict | None:
+    """Reuse listing diagnosis 10D scores when the same ASIN/evidence was already diagnosed."""
+    asin = (asin or "").strip().upper()
+    if not asin:
+        return None
+    from sqlalchemy import select
+    from models.listing_diagnoses import Listing_diagnoses
+
+    user_filter = Listing_diagnoses.user_id.in_(user_id) if isinstance(user_id, list) else Listing_diagnoses.user_id == user_id
+    result = await db.execute(
+        select(Listing_diagnoses)
+        .where(Listing_diagnoses.marketplace == marketplace)
+        .where(user_filter)
+        .where(Listing_diagnoses.input_data.isnot(None), Listing_diagnoses.diagnosis_report.isnot(None))
+        .order_by(Listing_diagnoses.id.desc())
+        .limit(30)
+    )
+    for record in result.scalars().all():
+        try:
+            input_data = json.loads(record.input_data or "{}")
+            diagnosis_report = json.loads(record.diagnosis_report or "{}")
+        except Exception:
+            continue
+        input_asin = str(input_data.get("asin") or "").strip().upper()
+        if input_asin and input_asin != asin:
+            continue
+        if not input_asin:
+            continue
+        similarity = product_evidence_similarity(product_data, input_data)
+        if similarity.get("score", 0) < 0.62:
+            continue
+        raw_scores = diagnosis_report.get("canonical_10d_scores") or diagnosis_report.get("scores") or {
+            "function_expression": record.score_function_expression or 0,
+            "scenario_expression": record.score_scenario_expression or 0,
+            "identity_fit": record.score_identity_fit or 0,
+            "psychology_benefit": record.score_psychology_benefit or 0,
+            "risk_elimination": record.score_risk_elimination or 0,
+            "product_identity": record.score_product_identity or 0,
+            "compatibility": record.score_compatibility or 0,
+            "subjective_properties": record.score_subjective_properties or 0,
+            "differentiation": record.score_differentiation or 0,
+            "market_trend": record.score_market_trend or 0,
+        }
+        aligned = CosmoOperatorAgent.align_scores(raw_scores, input_data)
+        canonical_scores = aligned["canonical_scores"]
+        if not any(canonical_scores.values()):
+            continue
+        asin_scores = canonical_to_asin_scores(canonical_scores)
+        return {
+            "source": "listing_diagnosis",
+            "source_id": record.id,
+            "canonical_scores": canonical_scores,
+            "asin_scores": asin_scores,
+            "score_aliases": {**asin_scores, **canonical_scores},
+            "market_reality_caps": diagnosis_report.get("market_reality_caps") or aligned["market_reality_caps"],
+            "similarity": similarity,
+        }
+    return None
 
 
 class ParseHtmlAnalyzeRequest(BaseModel):
@@ -564,7 +655,7 @@ ASIN: {asin}
 - 关系图谱完整度：for whom、used for、used with、in scenario、solves 是否清楚。
 - 证据可回答性：标题、图片、五点、A+、评论是否能回答用户和平台购物助手的问题。
 
-每个analysis字段必须输出：维度归属（需求承接层/平台识别层/Listing证明层/市场验证层）、用户需求映射、平台识别映射、真实证据、强点/漏洞、我方动作（借鉴/避开/攻击/差异化）和广告验证假设。
+每个analysis字段必须输出：用户需求映射、平台识别映射、真实证据、强点/漏洞、我方动作（借鉴/避开/攻击/差异化）和广告验证假设。后台判断必须按1用户意图、2平台规则、3验证回流的顺序执行，但不要把内部流程原文暴露给前台卖家。
 
 从以下10个维度进行评分（每个维度0-100分）并给出详细分析：
 
@@ -1074,6 +1165,21 @@ async def _analyze_single_asin_with_scraped(
             marketplace=marketplace,
             scraped_context=scraped_context,
         )
+    operator_agent = CosmoOperatorAgent(db)
+    alignment_context: dict = {}
+    try:
+        memory_product = {**scraped_data, "asin": asin, "marketplace": marketplace}
+        alignment_context = await operator_agent.build_context(
+            user_id=user_id,
+            workflow="asin_selection",
+            product=memory_product,
+            asin=asin,
+            marketplace=marketplace,
+        )
+        if alignment_context.get("prompt_summary"):
+            combined_prompt += "\n\n" + str(alignment_context["prompt_summary"])[:3500]
+    except Exception as e:
+        logger.warning(f"123 alignment memory unavailable for ASIN analysis {asin}: {e}")
 
     # Single AI call for both product data enrichment AND scoring
     combined_request = GenTxtRequest(
@@ -1172,12 +1278,36 @@ async def _analyze_single_asin_with_scraped(
         product_data["data_notes"] = "AI兜底估算，需以本地浏览器页面采集、服务器抓取或人工核实为准。"
 
     product_data["main_keywords"] = _clean_original_english_keywords(product_data.get("main_keywords"), product_data, 10)
+    aligned_scores = CosmoOperatorAgent.align_scores(scoring_data.get("scores") or scores, product_data)
+    scores = aligned_scores["asin_scores"]
+    scoring_data["scores"] = aligned_scores["scores"]
+    scoring_data["canonical_10d_scores"] = aligned_scores["canonical_scores"]
+    scoring_data["score_basis"] = "amazon_skill_10d_canonical"
+    scoring_data["market_reality_caps"] = aligned_scores["market_reality_caps"]
+    shared_snapshot = await _find_shared_listing_score_snapshot(asin, marketplace, product_data, db, user_id)
+    if shared_snapshot:
+        scores = shared_snapshot["asin_scores"]
+        scoring_data["scores"] = shared_snapshot["score_aliases"]
+        scoring_data["canonical_10d_scores"] = shared_snapshot["canonical_scores"]
+        scoring_data["score_basis"] = "amazon_skill_10d_canonical_shared_listing_snapshot"
+        scoring_data["shared_score_source"] = {
+            "type": shared_snapshot["source"],
+            "id": shared_snapshot["source_id"],
+            "similarity": shared_snapshot["similarity"],
+        }
+        scoring_data["market_reality_caps"] = shared_snapshot["market_reality_caps"]
+    scoring_data = operator_agent.attach_result_metadata(
+        scoring_data,
+        alignment_context,
+        product=product_data,
+        scores=scoring_data.get("canonical_10d_scores") or scoring_data.get("scores"),
+    )
     scoring_data["listing_breakdown"] = _build_listing_breakdown(product_data, scoring_data)
     amazon_compliance = await _evaluate_asin_compliance(product_data, marketplace, db)
     scoring_data["amazon_compliance"] = amazon_compliance
     scoring_data["toolbox_enhancements"] = build_toolbox_enhancements(
         product_data=product_data,
-        scores=scores,
+        scores=scoring_data["scores"],
         context="competitor",
     )
 

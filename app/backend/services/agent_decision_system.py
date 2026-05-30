@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from services.cosmo_operator_agent import CosmoOperatorAgent
+
 
 def _num(value: Any, default: float = 0) -> float:
     try:
@@ -476,6 +478,7 @@ def build_agent_decision_system(product: dict, stages: list[dict]) -> dict:
     return {
         "version": "agent-decision-architecture-v1",
         "mode": "deterministic_rules_no_ai_call",
+        "decision_standard": CosmoOperatorAgent.public_standard_meta("feedback_loop"),
         "agent_roles": [
             {"key": "selection_agent", "name": "选品判断Agent", "responsibility": "判断ASIN是否值得进入机会池"},
             {"key": "launch_agent", "name": "上新检测Agent", "responsibility": "判断Listing上架前是否具备条件"},

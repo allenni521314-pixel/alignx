@@ -15,6 +15,7 @@ from models.products import Products
 from schemas.auth import UserResponse
 from services.agent_chain import AgentNodeRunRequest, get_agent_node_status, run_agent_node, run_all_agent_nodes
 from services.agent_decision_system import build_agent_decision_system
+from services.cosmo_operator_agent import CosmoOperatorAgent
 from services.judgment_feedback_rounds import JudgmentFeedbackRoundService
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -155,6 +156,7 @@ def _stage_evidence_meta(stage: dict, ad_totals: Optional[dict] = None, timeline
         "data_source": meta.get("data_source", source_ref),
         "source_type": meta.get("source_type", "business_record"),
         "source_ref": source_ref,
+        "decision_standard": CosmoOperatorAgent.public_standard_meta("feedback_loop"),
         "confidence": confidence,
         "confidence_reason": confidence_reason,
         "judgment_basis": meta.get("judgment_basis", stage.get("summary") or "基于当前节点结构化记录生成判断。"),

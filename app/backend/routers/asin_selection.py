@@ -20,6 +20,7 @@ from models.action_snapshots import ActionSnapshot
 from schemas.auth import UserResponse
 from services.amazon_scraper import scrape_amazon_product
 from services.amazon_skill_toolbox import build_asin_selection_assist
+from services.cosmo_operator_agent import CosmoOperatorAgent
 from services.scrapling_amazon_capture import SCRAPLING_TOP40_RULES, capture_top40_batch
 from services.top40_market_analysis import analyze_top40_market
 
@@ -354,6 +355,7 @@ def _normalize_keyword_sales_report(report: dict[str, Any]) -> dict[str, Any]:
 
     if not isinstance(report.get("market_validation_assist"), dict):
         report["market_validation_assist"] = build_asin_selection_assist(report)
+    report.setdefault("decision_standard", CosmoOperatorAgent.public_standard_meta("asin_selection"))
 
     return report
 
@@ -549,6 +551,18 @@ async def _generate_validation(request: KeywordSalesValidationRequest, user_id: 
     report = _build_report(asin, marketplace, product["category"], product, ranks, qualities, request.days_range)
     if rank_errors:
         report["keyword_rank_summary"]["rank_capture_errors"] = rank_errors[:8]
+    try:
+        operator_agent = CosmoOperatorAgent(db)
+        operator_context = await operator_agent.build_context(
+            user_id=user_id,
+            workflow="asin_selection",
+            product=product,
+            asin=asin,
+            marketplace=marketplace,
+        )
+        report = operator_agent.attach_result_metadata(report, operator_context, product=product)
+    except Exception:
+        report.setdefault("decision_standard", CosmoOperatorAgent.public_standard_meta("asin_selection"))
 
     for rank in ranks:
         db.add(AsinKeywordRankSnapshot(user_id=user_id, **rank))
