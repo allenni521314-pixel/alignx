@@ -618,35 +618,72 @@ def _extract_category(soup: BeautifulSoup) -> str:
     return ""
 
 
+def _extract_bsr_from_text(value: str) -> dict:
+    result = {"rank": "", "category": ""}
+    text = _clean_text(value)
+    if not text:
+        return result
+
+    label_match = re.search(
+        r"(?:Amazon\s*)?Best\s*Sellers?\s*Rank\s*[:：]?\s*(#[\d,.\s]+(?:\s+in\s+.{2,220})?)",
+        text,
+        flags=re.I,
+    )
+    direct_match = label_match or re.search(r"#\s*[\d,.\s]+\s+in\s+[^#|]{3,220}", text, flags=re.I)
+    source = direct_match.group(1 if label_match else 0) if direct_match else text
+    rank_match = re.search(r"#?\s*([\d,]+)", source)
+    if rank_match:
+        result["rank"] = rank_match.group(1).replace(",", "")
+    cat_match = re.search(r"\bin\s+(.+?)(?:\s*\(|\s*#|$)", source, flags=re.I)
+    if cat_match:
+        category = _clean_text(cat_match.group(1))
+        category = re.sub(r"\s*See Top 100.*$", "", category, flags=re.I).strip()
+        result["category"] = category[:160]
+    return result
+
+
 def _extract_bsr(soup: BeautifulSoup) -> dict:
     result = {"rank": "", "category": ""}
-    details = soup.select_one("#productDetails_detailBullets_sections1")
-    if details:
+    label_terms = ("best seller", "sales rank", "ranking", "畅销", "销售排名", "ランキング")
+
+    for table_sel in [
+        "#productDetails_detailBullets_sections1",
+        "#productDetails_db_sections",
+        "#productDetails_techSpec_section_1",
+        "#prodDetails",
+    ]:
+        details = soup.select_one(table_sel)
+        if not details:
+            continue
         for row in details.select("tr"):
             header = row.select_one("th")
             value = row.select_one("td")
-            if header and value:
-                h_text = _clean_text(header.get_text()).lower()
-                if "best seller" in h_text or "ranking" in h_text:
-                    v_text = _clean_text(value.get_text())
-                    match = re.search(r"#?([\d,]+)", v_text)
-                    if match:
-                        result["rank"] = match.group(1).replace(",", "")
-                    cat_match = re.search(r"in\s+(.+?)(?:\s*\(|$)", v_text)
-                    if cat_match:
-                        result["category"] = cat_match.group(1).strip()
-                    break
+            row_text = _clean_text(row.get_text(" ", strip=True))
+            h_text = _clean_text(header.get_text(" ", strip=True)).lower() if header else ""
+            if any(term in h_text or term in row_text.lower() for term in label_terms):
+                parsed = _extract_bsr_from_text(value.get_text(" ", strip=True) if value else row_text)
+                if parsed["rank"]:
+                    return parsed
+
     if not result["rank"]:
-        for li in soup.select("#detailBulletsWrapper_feature_div li"):
-            text = _clean_text(li.get_text())
-            if "best seller" in text.lower() or "ranking" in text.lower():
-                match = re.search(r"#?([\d,]+)", text)
-                if match:
-                    result["rank"] = match.group(1).replace(",", "")
-                cat_match = re.search(r"in\s+(.+?)(?:\s*\(|$)", text)
-                if cat_match:
-                    result["category"] = cat_match.group(1).strip()
-                break
+        for node in soup.select(
+            "#detailBulletsWrapper_feature_div li, #detailBullets_feature_div li, "
+            "#productDetails_feature_div, [id*='SalesRank'], [id*='salesRank']"
+        ):
+            text = _clean_text(node.get_text(" ", strip=True))
+            if any(term in text.lower() for term in label_terms):
+                parsed = _extract_bsr_from_text(text)
+                if parsed["rank"]:
+                    return parsed
+
+    body_text = _clean_text(soup.get_text(" ", strip=True))
+    if any(term in body_text.lower() for term in label_terms):
+        parsed = _extract_bsr_from_text(body_text)
+        if parsed["rank"]:
+            return parsed
+    parsed = _extract_bsr_from_text(body_text)
+    if parsed["rank"]:
+        return parsed
     return result
 
 

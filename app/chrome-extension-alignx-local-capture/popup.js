@@ -22,8 +22,9 @@ function marketplaceFromHost(hostname) {
   return "US";
 }
 
-function captureAmazonPage() {
+async function captureAmazonPage() {
   const clean = (value) => String(value || "").replace(/\s+/g, " ").trim();
+  const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const pickText = (selectors) => {
     for (const selector of selectors) {
       const node = document.querySelector(selector);
@@ -231,6 +232,118 @@ function captureAmazonPage() {
     }
     return bullets;
   };
+  const revealAmazonDetails = async () => {
+    const originalY = window.scrollY;
+    const detailSelectors = [
+      "#detailBulletsWrapper_feature_div",
+      "#detailBullets_feature_div",
+      "#productDetails_detailBullets_sections1",
+      "#productDetails_db_sections",
+      "#productDetails_techSpec_section_1",
+      "#prodDetails",
+      "#productDetails_feature_div",
+    ];
+
+    const expanders = Array.from(document.querySelectorAll("a, button"))
+      .filter((node) => /show more|see more product details|show product details|product details/i.test(clean(node.textContent || node.getAttribute("aria-label") || "")))
+      .slice(0, 4);
+    for (const node of expanders) {
+      try {
+        node.click();
+        await wait(180);
+      } catch (_) {
+        // Best effort only: Amazon variants do not expose a stable expander API.
+      }
+    }
+
+    let foundDetails = false;
+    for (const selector of detailSelectors) {
+      const node = document.querySelector(selector);
+      if (!node) continue;
+      foundDetails = true;
+      try {
+        node.scrollIntoView({ block: "center", behavior: "auto" });
+      } catch (_) {
+        node.scrollIntoView({ block: "center" });
+      }
+      await wait(260);
+    }
+
+    if (!foundDetails) {
+      const height = Math.max(document.documentElement.scrollHeight || 0, document.body?.scrollHeight || 0);
+      for (const ratio of [0.35, 0.55, 0.75, 0.9]) {
+        window.scrollTo(0, Math.round(height * ratio));
+        await wait(220);
+      }
+    }
+
+    window.scrollTo(0, originalY);
+    await wait(80);
+  };
+  const normalizeBsrText = (value) => {
+    let text = clean(value)
+      .replace(/\u200e|\u200f/g, "")
+      .replace(/Best Sellers Rank\s*[:：]?/i, "")
+      .replace(/Amazon Best Sellers Rank\s*[:：]?/i, "")
+      .trim();
+    if (!text) return "";
+    const direct = text.match(/#\s*[\d,.\s]+(?:\s+in\s+[^#|]+)?/i);
+    if (direct) text = direct[0];
+    text = clean(text)
+      .replace(/\s*\(?\s*See Top 100[^\)]*\)?/i, "")
+      .replace(/\s*\(?\s*Top 100[^\)]*\)?/i, "")
+      .replace(/\s+#[\d,.\s]+\s+in\s+/g, " | #")
+      .replace(/\s{2,}/g, " ")
+      .trim();
+    return text.slice(0, 220);
+  };
+  const pickBsrRank = () => {
+    const bsrLabelPattern = /best\s*sellers?\s*rank|sales\s*rank|amazon\s*best\s*sellers?\s*rank|畅销|销售排名|ランキング/i;
+    const detailSelectors = [
+      "#productDetails_detailBullets_sections1",
+      "#productDetails_db_sections",
+      "#productDetails_techSpec_section_1",
+      "#prodDetails",
+      "#detailBulletsWrapper_feature_div",
+      "#detailBullets_feature_div",
+      "#productDetails_feature_div",
+      "[id*='SalesRank']",
+      "[id*='salesRank']",
+    ];
+
+    for (const selector of ["#productDetails_detailBullets_sections1 tr", "#productDetails_db_sections tr", "#productDetails_techSpec_section_1 tr", "#prodDetails tr"]) {
+      for (const row of document.querySelectorAll(selector)) {
+        const header = clean(row.querySelector("th, .a-text-bold")?.textContent || "");
+        const value = clean(row.querySelector("td")?.textContent || row.textContent || "");
+        if (bsrLabelPattern.test(header) || bsrLabelPattern.test(value)) {
+          const parsed = normalizeBsrText(value);
+          if (parsed) return parsed;
+        }
+      }
+    }
+
+    for (const selector of detailSelectors) {
+      const node = document.querySelector(selector);
+      if (!node) continue;
+      const text = clean(node.textContent || "");
+      if (bsrLabelPattern.test(text)) {
+        const labelMatch = text.match(/(?:Amazon\s*)?Best\s*Sellers?\s*Rank\s*[:：]?\s*(#[\d,.\s]+(?:\s+in\s+.{2,180})?)/i);
+        const parsed = normalizeBsrText(labelMatch?.[1] || text);
+        if (parsed) return parsed;
+      }
+      const direct = text.match(/#\s*[\d,.\s]+\s+in\s+[^#|]{3,180}/i);
+      const parsed = normalizeBsrText(direct?.[0] || "");
+      if (parsed) return parsed;
+    }
+
+    const bodyText = String(document.body?.innerText || "");
+    const multiline = bodyText.match(/(?:Amazon\s*)?Best\s*Sellers?\s*Rank\s*[:：]?\s*([\s\S]{0,320}?)(?=\n\s*(?:Customer Reviews|Product Dimensions|Date First Available|ASIN|Manufacturer|Item model number|Best Sellers Rank|$))/i);
+    const parsedFromLabel = normalizeBsrText(multiline?.[1] || "");
+    if (parsedFromLabel) return parsedFromLabel;
+
+    const direct = bodyText.match(/#\s*[\d,.\s]+\s+in\s+[^\n\r]{3,180}/i);
+    return normalizeBsrText(direct?.[0] || "");
+  };
   const marketplaceFromCurrentHost = (hostname) => {
     const host = String(hostname || "").toLowerCase();
     if (host.includes("amazon.co.uk")) return "UK";
@@ -243,6 +356,7 @@ function captureAmazonPage() {
     if (host.includes("amazon.com.au")) return "AU";
     return "US";
   };
+  await revealAmazonDetails();
   const url = location.href;
   const safeText = clean(document.body?.innerText || "");
   const asinMatch =
@@ -263,8 +377,7 @@ function captureAmazonPage() {
   const price = pickPrice();
   const rating = pickText(["#acrPopover span.a-icon-alt", "#averageCustomerReviews span.a-icon-alt", "span[data-hook='rating-out-of-text']"]);
   const reviewCount = pickText(["#acrCustomerReviewText", "[data-hook='total-review-count']"]);
-  const bsrMatch = safeText.match(/#\s*[\d,]+\s+in\s+[^\n\r]{3,120}/i);
-  const bsrRank = bsrMatch ? clean(bsrMatch[0]) : "";
+  const bsrRank = pickBsrRank();
   const images = Array.from(document.querySelectorAll("#altImages img, img"))
     .map((img) => img.currentSrc || img.src || "")
     .filter(Boolean)
@@ -296,6 +409,8 @@ function captureAmazonPage() {
       htmlLength: html.length,
       productTitleFound: Boolean(document.querySelector("#productTitle")),
       h1Found: Boolean(document.querySelector("h1")),
+      bsrDetailsFound: Boolean(document.querySelector("#detailBulletsWrapper_feature_div, #detailBullets_feature_div, #productDetails_detailBullets_sections1, #productDetails_db_sections, #prodDetails, [id*='SalesRank'], [id*='salesRank']")),
+      bsrRankFound: Boolean(bsrRank),
     },
   };
 }
