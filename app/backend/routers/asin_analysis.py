@@ -22,7 +22,11 @@ from schemas.auth import UserResponse
 from services.aihub import AIHubService
 from services.amazon_rules_engine import evaluate_amazon_compliance, load_active_rules
 from services.amazon_scraper import scrape_amazon_product
-from services.amazon_skill_toolbox import build_toolbox_enhancements
+from services.amazon_skill_toolbox import (
+    build_review_intent_assets,
+    build_toolbox_enhancements,
+    normalize_review_samples,
+)
 from services.asin_analyses import Asin_analysesService
 from services.canonical_10d_scoring import (
     canonical_to_asin_scores,
@@ -582,6 +586,7 @@ class ParseHtmlAnalyzeRequest(BaseModel):
     captured_bsr_rank: str = ""
     captured_image_count: str = ""
     captured_bullets: list[str] = Field(default_factory=list)
+    captured_reviews: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class ParseHtmlAnalyzeResponse(BaseModel):
@@ -989,6 +994,19 @@ def _format_scraped_context(scraped: dict) -> str:
         lines.append("产品详情:\n  " + "\n  ".join(detail_lines))
     if scraped.get("low_star_reviews"):
         lines.append(f"3星及以下评论样本: {len(scraped['low_star_reviews'])}条")
+    review_samples = scraped.get("review_samples") or scraped.get("reviews") or []
+    if isinstance(review_samples, list) and review_samples:
+        lines.append(f"页面评论样本: {len(review_samples)}条")
+    review_assets = scraped.get("review_intent_assets") if isinstance(scraped.get("review_intent_assets"), dict) else {}
+    review_keywords = review_assets.get("intent_keywords") if isinstance(review_assets, dict) else []
+    if isinstance(review_keywords, list) and review_keywords:
+        labels = [
+            str(item.get("keyword") or "").strip()
+            for item in review_keywords
+            if isinstance(item, dict) and str(item.get("keyword") or "").strip()
+        ][:10]
+        if labels:
+            lines.append("评论提取的买家意图/抱怨: " + ", ".join(labels))
     lines.append(f"有视频: {'是' if scraped.get('has_video') else '否'}")
     lines.append(f"有A+内容: {'是' if scraped.get('has_a_plus') else '否'}")
     return "\n".join(lines) if lines else "（未能抓取到数据）"
@@ -1089,13 +1107,13 @@ def _rule_based_competitor_scoring(asin: str, marketplace: str, scraped_data: di
         "bsr_rank": scraped_data.get("bsr_rank") or "",
         "bsr_category": scraped_data.get("bsr_category") or "",
         "bullet_points": bullets,
-        "description_summary": "AI深度分析失败，当前为基于真实抓取字段生成的规则兜底诊断。",
+        "description_summary": "深度分析暂未完成，当前为基于真实抓取字段生成的保守预检。",
         "main_keywords": _clean_original_english_keywords([], scraped_data, 10),
         "seller_type": scraped_data.get("seller_type") or "待确认",
         "amazon_bought_count": scraped_data.get("bought_count") or "",
         "estimated_monthly_sales": "",
         "estimated_monthly_revenue": "",
-        "listing_quality_notes": "规则兜底：已使用标题、价格、评分、评论、图片、五点和A+等字段做保守评分。",
+        "listing_quality_notes": "已使用标题、价格、评分、评论、图片、五点和A+等字段做保守预检。",
         "image_count": scraped_data.get("image_count") or str(len(image_urls) or ""),
         "has_video": has_video,
         "has_a_plus": has_a_plus,
@@ -1104,7 +1122,7 @@ def _rule_based_competitor_scoring(asin: str, marketplace: str, scraped_data: di
         "image_urls": image_urls,
         "product_details": details,
         "data_confidence": "medium" if scraped_data.get("scrape_success") and title else "low",
-        "data_notes": "AI模型调用或JSON解析失败；本次结果为真实抓取字段驱动的规则兜底评分，建议后续重新运行AI深度诊断。",
+        "data_notes": "深度分析暂未完成；本次结果为真实抓取字段驱动的保守预检，建议稍后重新生成完整诊断。",
     }
 
     analysis = {
@@ -1122,10 +1140,10 @@ def _rule_based_competitor_scoring(asin: str, marketplace: str, scraped_data: di
     scoring_data = {
         "scores": scores,
         "analysis": analysis,
-        "overall_summary": "AI深度分析未完成，当前为规则兜底诊断。分数可用于快速排查，但不应作为最终决策。",
-        "improvement_suggestions": ["稍后重新运行AI深度诊断", "优先核实价格、评论数、购买人数和五点/A+内容", "进入单品分析前先确认该ASIN是否为真实目标竞品"],
+        "overall_summary": "深度分析暂未完成，当前为保守预检。分数可用于快速排查，但不应作为最终决策。",
+        "improvement_suggestions": ["稍后重新生成完整诊断", "优先核实价格、评论数、购买人数和五点/A+内容", "进入单品分析前先确认该ASIN是否为真实目标竞品"],
         "analysis_mode": "rule_fallback",
-        "fallback_reason": "AI模型调用或JSON解析失败，系统使用真实抓取字段做保守规则评分。",
+        "fallback_reason": "深度分析暂未完成，系统使用真实抓取字段做保守预检。",
     }
     return product_data, scoring_data
 
@@ -1262,7 +1280,15 @@ async def _analyze_single_asin_with_scraped(
             product_data["image_count"] = scraped_data["image_count"]
         if scraped_data.get("bought_count"):
             product_data["bought_count"] = scraped_data["bought_count"]
-        for key in ["seller_type", "platform_ecosystem", "brand_monopoly_risk", "capture_quality"]:
+        for key in [
+            "seller_type",
+            "platform_ecosystem",
+            "brand_monopoly_risk",
+            "capture_quality",
+            "review_samples",
+            "reviews",
+            "review_intent_assets",
+        ]:
             if key in scraped_data:
                 product_data[key] = scraped_data[key]
         product_data["has_video"] = scraped_data.get("has_video", False)
@@ -1502,6 +1528,14 @@ async def parse_html_and_analyze(
                 parsed["image_count"] = request.captured_image_count.strip()
         if not parsed.get("low_star_reviews") and request.source != "local_browser_capture":
             parsed["low_star_reviews"] = await fetch_low_star_reviews(asin, request.marketplace)
+        review_samples = normalize_review_samples(request.captured_reviews, limit=40)
+        if review_samples:
+            parsed["review_samples"] = review_samples
+            parsed["reviews"] = review_samples
+            parsed["review_intent_assets"] = build_review_intent_assets({
+                **parsed,
+                "review_samples": review_samples,
+            })
 
         logger.info(f"parse-html-analyze: parsed {asin}: {parsed['title'][:60]}")
 
@@ -1852,7 +1886,7 @@ ASIN: {asin}
 
 SIX_DIMENSION_AI_PRIMARY_PROMPT = """你是AlignX的ASIN选品主判模型，使用用户意图 × 平台识别 × 顶级亚马逊运营操盘手的复合判断方式。
 
-你的职责：基于真实抓取证据，对单个ASIN做6维选品主判。规则底座只作为证据提示和硬闸门参考，不允许被规则分数牵着走。
+你的职责：基于真实抓取证据，对单个ASIN做机会判断主判。规则底座只作为证据提示和硬闸门参考，不允许被规则分数牵着走。
 
 ## 关键原则
 1. AI负责语义主判：判断商品身份、用户任务、场景、搜索入口、竞争结构、差异化、广告承受力和风险趋势。
@@ -2008,9 +2042,6 @@ SIX_DIMENSION_HARD_VETO_NAMES = {
     "品牌垄断明显",
     "平台生态强绑定",
     "侵权风险高",
-    "认证/合规风险高",
-    "价格带严重错配",
-    "履约不可控",
     "不是第三方卖家的合理切入品",
 }
 
@@ -2174,7 +2205,13 @@ def _apply_six_dimension_routing(engine: dict) -> dict:
     triggered_vetoes = [rule for rule in engine.get("veto_rules", []) if rule.get("triggered")]
     hard_vetoes = [rule for rule in triggered_vetoes if rule.get("rule_name") in SIX_DIMENSION_HARD_VETO_NAMES]
     market_barriers = [rule for rule in triggered_vetoes if rule.get("rule_name") not in SIX_DIMENSION_HARD_VETO_NAMES]
-    risk_level = "high" if hard_vetoes or total_score < 55 else "medium" if market_barriers or total_score < 75 or confidence_level == "low" else "low"
+    risk_level = (
+        "high"
+        if hard_vetoes or total_score < 45
+        else "medium"
+        if market_barriers or total_score < 75 or confidence_level == "low"
+        else "low"
+    )
 
     derivative_signal = (
         total_score >= 55
@@ -2193,30 +2230,31 @@ def _apply_six_dimension_routing(engine: dict) -> dict:
         pool_status = "validation_pool"
     elif derivative_signal:
         pool_status = "derivative_pool"
-    elif total_score < 65 or risk_level == "high":
+    elif total_score < 55 or risk_level == "high":
         pool_status = "rejected_pool"
     else:
         pool_status = "not_entered"
 
     if hard_vetoes:
-        decision = "高风险禁止进入"
+        decision = "暂缓进入"
     elif pool_status == "opportunity_pool":
-        decision = "可进入"
+        decision = "可进入验证"
     elif pool_status == "validation_pool":
-        decision = "可小预算测试"
+        decision = "小预算验证"
     elif pool_status == "derivative_pool":
-        decision = "不建议直接进入"
+        decision = "找细分机会"
     elif total_score >= 60:
-        decision = "需改良后进入"
+        decision = "补证后再评估"
     else:
-        decision = "不建议直接进入"
+        decision = "暂不建议进入"
 
     action_map = {
-        "可进入": ["生成 Listing 方向", "生成首轮广告验证词", "创建执行跟踪任务"],
-        "可小预算测试": ["生成最小验证方案", "生成测试关键词", "生成验证指标"],
-        "需改良后进入": ["生成产品改良方向", "提取竞品差评机会", "重新评估改良款"],
-        "不建议直接进入": ["查找替代机会", "分析配件/周边市场", "重新选择相邻类目"],
-        "高风险禁止进入": ["查看风险证据", "生成避坑报告", "重新选品"],
+        "可进入验证": ["生成 Listing 方向", "生成首轮广告验证词", "创建执行跟踪任务"],
+        "小预算验证": ["生成最小验证方案", "生成测试关键词", "生成验证指标"],
+        "补证后再评估": ["补齐关键证据", "提取竞品差评机会", "重新评估"],
+        "找细分机会": ["查找替代机会", "分析配件/周边市场", "重新选择相邻类目"],
+        "暂不建议进入": ["查找替代机会", "分析配件/周边市场", "重新选择相邻类目"],
+        "暂缓进入": ["查看风险证据", "生成避坑报告", "重新选品"],
     }
     recommended_path = {
         "opportunity_pool": "/listing-launch-check",
@@ -2226,16 +2264,17 @@ def _apply_six_dimension_routing(engine: dict) -> dict:
         "not_entered": "/asin-manager",
     }.get(pool_status, "/asin-manager")
     gate_reason = (
-        f"规则硬闸门：{hard_vetoes[0]['rule_name']}" if hard_vetoes
-        else f"规则进入门槛：{market_barriers[0]['rule_name']}" if market_barriers
-        else "未触发重大硬闸门"
+        f"需要先排查：{hard_vetoes[0]['rule_name']}" if hard_vetoes
+        else f"进入前需确认：{market_barriers[0]['rule_name']}" if market_barriers
+        else "未发现必须先排查的硬伤"
     )
-    prefix = "AI主判+规则闸门" if engine.get("ai_called") else "规则兜底"
+    confidence_label = {"high": "较完整", "medium": "一般", "low": "偏少"}.get(confidence_level, confidence_level)
+    risk_label = {"high": "高", "medium": "中", "low": "低"}.get(risk_level, risk_level)
     one_sentence_reason = (
-        f"{prefix}：{decision}，总分{round(total_score, 1)}，数据置信度{confidence_level}，风险{risk_level}，{gate_reason}。"
+        f"{decision}：总分{round(total_score, 1)}，证据完整度{confidence_label}，主要风险{risk_label}，{gate_reason}。"
     )
     if engine.get("ai_called") and engine.get("ai_reason"):
-        one_sentence_reason = f"{one_sentence_reason} AI理由：{engine['ai_reason']}"
+        one_sentence_reason = f"{one_sentence_reason} 判断依据：{engine['ai_reason']}"
 
     return {
         "risk_level": risk_level,
@@ -2503,7 +2542,13 @@ def _build_six_dimension_rule_engine(asin: str, marketplace: str, product_title:
     triggered_vetoes = [rule for rule in veto_rules if rule["triggered"]]
     hard_vetoes = [rule for rule in triggered_vetoes if rule["rule_name"] in SIX_DIMENSION_HARD_VETO_NAMES]
     market_barriers = [rule for rule in triggered_vetoes if rule["rule_name"] not in SIX_DIMENSION_HARD_VETO_NAMES]
-    risk_level = "high" if hard_vetoes or total_score < 55 else "medium" if market_barriers or total_score < 75 or confidence_level == "low" else "low"
+    risk_level = (
+        "high"
+        if hard_vetoes or total_score < 45
+        else "medium"
+        if market_barriers or total_score < 75 or confidence_level == "low"
+        else "low"
+    )
 
     derivative_signal = (
         total_score >= 55
@@ -2522,30 +2567,31 @@ def _build_six_dimension_rule_engine(asin: str, marketplace: str, product_title:
         pool_status = "validation_pool"
     elif derivative_signal:
         pool_status = "derivative_pool"
-    elif total_score < 65 or risk_level == "high":
+    elif total_score < 55 or risk_level == "high":
         pool_status = "rejected_pool"
     else:
         pool_status = "not_entered"
 
     if hard_vetoes:
-        decision = "高风险禁止进入"
+        decision = "暂缓进入"
     elif pool_status == "opportunity_pool":
-        decision = "可进入"
+        decision = "可进入验证"
     elif pool_status == "validation_pool":
-        decision = "可小预算测试"
+        decision = "小预算验证"
     elif pool_status == "derivative_pool":
-        decision = "不建议直接进入"
+        decision = "找细分机会"
     elif total_score >= 60:
-        decision = "需改良后进入"
+        decision = "补证后再评估"
     else:
-        decision = "不建议直接进入"
+        decision = "暂不建议进入"
 
     action_map = {
-        "可进入": ["生成 Listing 方向", "生成首轮广告验证词", "创建执行跟踪任务"],
-        "可小预算测试": ["生成最小验证方案", "生成测试关键词", "生成验证指标"],
-        "需改良后进入": ["生成产品改良方向", "提取竞品差评机会", "重新评估改良款"],
-        "不建议直接进入": ["查找替代机会", "分析配件/周边市场", "重新选择相邻类目"],
-        "高风险禁止进入": ["查看风险证据", "生成避坑报告", "重新选品"],
+        "可进入验证": ["生成 Listing 方向", "生成首轮广告验证词", "创建执行跟踪任务"],
+        "小预算验证": ["生成最小验证方案", "生成测试关键词", "生成验证指标"],
+        "补证后再评估": ["补齐关键证据", "提取竞品差评机会", "重新评估"],
+        "找细分机会": ["查找替代机会", "分析配件/周边市场", "重新选择相邻类目"],
+        "暂不建议进入": ["查找替代机会", "分析配件/周边市场", "重新选择相邻类目"],
+        "暂缓进入": ["查看风险证据", "生成避坑报告", "重新选品"],
     }
     recommended_path = {
         "opportunity_pool": "/listing-launch-check",
@@ -2554,10 +2600,14 @@ def _build_six_dimension_rule_engine(asin: str, marketplace: str, product_title:
         "rejected_pool": "/asin-manager",
         "not_entered": "/asin-manager",
     }.get(pool_status, "/asin-manager")
-    one_sentence_reason = (
-        f"{decision}：总分{total_score}，数据置信度{confidence_level}，风险{risk_level}，"
-        f"{'触发硬性否决：' + hard_vetoes[0]['rule_name'] if hard_vetoes else ('存在进入门槛：' + market_barriers[0]['rule_name'] if market_barriers else '未触发重大否决规则')}。"
+    confidence_label = {"high": "较完整", "medium": "一般", "low": "偏少"}.get(confidence_level, confidence_level)
+    risk_label = {"high": "高", "medium": "中", "low": "低"}.get(risk_level, risk_level)
+    gate_reason = (
+        f"需要先排查：{hard_vetoes[0]['rule_name']}" if hard_vetoes
+        else f"进入前需确认：{market_barriers[0]['rule_name']}" if market_barriers
+        else "未发现必须先排查的硬伤"
     )
+    one_sentence_reason = f"{decision}：总分{total_score}，证据完整度{confidence_label}，主要风险{risk_label}，{gate_reason}。"
 
     return {
         "raw_total": raw_total,
@@ -2652,7 +2702,6 @@ async def five_dimension_score(
             engine["ai_called"] = False
             engine["fallback_reason"] = str(ai_error)
             engine.update(_apply_six_dimension_routing(engine))
-            engine["one_sentence_reason"] = f"{engine['one_sentence_reason']} AI主判失败，已使用规则兜底。"
 
         dimension_scores = engine["dimension_scores"]
         detail_scores = engine["detail_scores"]

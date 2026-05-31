@@ -288,7 +288,7 @@ function scoreVariant(v: VariantForm) {
   };
 }
 
-function buildLocalABResult(a: VariantForm, b: VariantForm, reason = "后端AI对比暂不可用，已使用本地规则兜底。"): ABResult {
+function buildLocalABResult(a: VariantForm, b: VariantForm, reason = "完整对比暂不可用，已生成临时保守判断。"): ABResult {
   const scoresA = scoreVariant(a);
   const scoresB = scoreVariant(b);
   const dimension_comparison = Object.fromEntries(
@@ -421,9 +421,9 @@ export default function ABTestComparison() {
     upsertModuleTask({
       id: moduleTaskId,
       moduleKey: "ab-test-comparison",
-      label: "A/B测试推理",
+      label: "A/B测试判断",
       status: "running",
-      detail: "正在调用AI比较两个Listing变量",
+      detail: "正在比较两个Listing变量",
       path: "/ab-test-comparison",
     });
     try {
@@ -457,14 +457,14 @@ export default function ABTestComparison() {
         ai_called: source !== "backend_rules_fallback",
         source_record_table: "action_snapshots",
       }).catch(() => {});
-      finishModuleTask(moduleTaskId, "completed", "A/B测试推理完成");
-      toast.success(source === "backend_rules_fallback" ? "A/B测试已用后台规则兜底" : "AI A/B推理完成");
+      finishModuleTask(moduleTaskId, "completed", "A/B测试判断完成");
+      toast.success(source === "backend_rules_fallback" ? "A/B测试已生成保守判断" : "A/B测试判断完成");
     } catch (e) {
       const reason = axios.isAxiosError(e)
         ? e.code === "ECONNABORTED"
-          ? "后端A/B对比超过180秒，本地兜底仅作临时参考。"
-          : e.response?.data?.detail || "后端A/B对比网络失败，本地兜底仅作临时参考。"
-        : "后端A/B对比网络失败，本地兜底仅作临时参考。";
+          ? "A/B对比超过180秒，已生成临时判断，仅作参考。"
+          : e.response?.data?.detail || "A/B对比暂时失败，已生成临时判断，仅作参考。"
+        : "A/B对比暂时失败，已生成临时判断，仅作参考。";
       const fallback = buildLocalABResult(variantA, variantB, reason);
       setResult(fallback);
       saveActionSnapshot({
@@ -482,7 +482,7 @@ export default function ABTestComparison() {
         source_record_table: "action_snapshots",
       }).catch(() => {});
       finishModuleTask(moduleTaskId, "failed", reason);
-      toast.warning("后端未返回结果，已生成临时本地兜底");
+      toast.warning("完整对比暂不可用，已生成临时判断");
     } finally {
       setLoading(false);
       window.setTimeout(() => removeModuleTask(moduleTaskId), 1200);
@@ -499,11 +499,11 @@ export default function ABTestComparison() {
   const resultSource = result?.judgment_source || result?.data_source || "";
   const resultSourceLabel =
     resultSource === "deepseek_v4_reasoning"
-      ? "AI 推理"
+      ? "智能判断"
       : resultSource === "backend_rules_fallback"
-        ? "后台规则兜底"
+        ? "保守判断"
         : resultSource === "frontend_local_fallback"
-          ? "前端本地兜底"
+          ? "临时判断"
           : "判断来源待确认";
 
   return (

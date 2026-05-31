@@ -821,7 +821,7 @@ export default function AdAnalytics() {
                   <div>
                     <p className="text-sm font-semibold text-gray-900">未来：API授权同步</p>
                     <p className="text-xs text-gray-600 mt-1 leading-relaxed">
-                      不让AI代替用户登录后台抓数据；接入Amazon Ads API后再做自动同步。
+                      不代替用户登录广告后台抓数据；接入Amazon Ads API后再做自动同步。
                     </p>
                   </div>
                 </div>

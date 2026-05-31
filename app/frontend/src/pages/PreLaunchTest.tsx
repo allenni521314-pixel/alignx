@@ -407,7 +407,7 @@ function MainImageUploadZone({
 
       {images.length > 0 && (
         <p className="text-[10px] text-teal-600/70 flex items-center gap-1">
-          <CheckCircle2 className="w-3 h-3" /> 已上传 {images.length} 张主图，后台会按素材完整度和图文承接关系评分（第1张为主图）
+          <CheckCircle2 className="w-3 h-3" /> 已上传 {images.length} 张主图，将按素材完整度和图文承接关系评分（第1张为主图）
         </p>
       )}
     </div>
@@ -537,7 +537,7 @@ function APlusImageUploadZone({
 
       {images.length > 0 && (
         <p className="text-[10px] text-gold-600/70 flex items-center gap-1">
-          <CheckCircle2 className="w-3 h-3" /> 已上传 {images.length} 张A+图片，后台会按A+素材完整度和图文承接关系评分
+          <CheckCircle2 className="w-3 h-3" /> 已上传 {images.length} 张A+图片，将按A+素材完整度和图文承接关系评分
         </p>
       )}
     </div>
@@ -874,7 +874,7 @@ function HistoryPanel({
         {/* Search */}
         <div className="p-3 border-b border-gray-100">
           <p className="mb-2 rounded-md border border-emerald-100 bg-emerald-50 px-2 py-1.5 text-[11px] text-emerald-700">
-            查看历史只读取完整检测记录，不会重新调用 AI 评分。
+            查看历史只读取完整检测记录，不会重新生成评分。
           </p>
           <div className="flex gap-2">
             <div className="relative flex-1">
@@ -1358,7 +1358,7 @@ export default function PreLaunchTest() {
       moduleKey: "listing-launch-check",
       label: "上新检测评分",
       status: "running",
-      detail: "正在识别图片、调用AI并生成上架前诊断",
+      detail: "正在识别图片并生成上架前诊断",
       path: "/listing-launch-check",
     });
     try {
@@ -1382,7 +1382,7 @@ export default function PreLaunchTest() {
       });
       setResult(parsed);
       finishModuleTask(moduleTaskId, "completed", "上新检测完成");
-      toast.success(parsed.ai_called ? "上新检测完成，已接入图片识别和AI辅助意见" : "上新检测完成，已使用系统规则评分");
+      toast.success(parsed.ai_called ? "上新检测完成，已生成图片与文案建议" : "上新检测完成，已生成系统评分");
       saveScoringResult(parsed, true, { mainImageTexts, aPlusImageTexts }).catch(() => {});
     } catch (err) {
       const msg = err instanceof Error ? err.message : "评分失败，请稍后重试";
@@ -1709,7 +1709,7 @@ export default function PreLaunchTest() {
               />
               <div className="mt-2">
                 <p className="text-[10px] text-gray-500 mb-1.5">
-                  上传A+图片（最多9张），后台按A+素材矩阵、图文承接和图片文案规范评分
+                  上传A+图片（最多9张），将按A+素材矩阵、图文承接和图片文案规范评分
                 </p>
                 <p className="mb-2 text-[11px] text-gray-500">
                   A+ 9张顺序：1品牌承诺，2技术原理，3场景教育，4利益证明，5差异化对比，6尺寸/适配，7安全认证，8使用维护，9售后保障。
@@ -1741,10 +1741,10 @@ export default function PreLaunchTest() {
               <div className="flex flex-col items-center justify-center py-8">
                 <Loader2 className="w-10 h-10 animate-spin text-teal-600 mb-4" />
                 <p className="text-sm font-medium text-gray-600 mb-2">
-                  {ocrStatus || "后台正在进行上新准入检测"}
+                  {ocrStatus || "正在进行上新准入检测"}
                 </p>
                 <p className="text-xs text-gray-500 text-center max-w-sm">
-                  正在识别图片文案，并按评论需求、平台识别、转化承接、图片顺序和素材完整度评分；AI只补充修改意见。
+                  正在识别图片文案，并按评论需求、平台识别、转化承接、图片顺序和素材完整度评分。
                 </p>
               </div>
             </Card>
@@ -1809,7 +1809,7 @@ export default function PreLaunchTest() {
                     <div className="flex-1">
                       <h3 className="text-sm font-semibold text-brand-800">建议修改顺序</h3>
                       <p className="mt-1 text-xs text-brand-700/80">
-                        系统按模块职责判断先后：标题归类 → 主图点击 → 辅图转化 → 五点购买理由 → 后台词补语义 → A+信任闭环。
+                        系统按模块职责判断先后：标题归类 → 主图点击 → 辅图转化 → 五点购买理由 → Search Terms补充匹配 → A+信任闭环。
                       </p>
                       <div className="mt-3 space-y-2">
                         {result.ordered_first_fixes.map((item, index) => (
@@ -1897,7 +1897,7 @@ export default function PreLaunchTest() {
                 {result.cosmo_alignment && (
                   <Card className="bg-white border-gray-200 p-4">
                     <h3 className="text-sm font-semibold text-brand-600 mb-2 flex items-center gap-1.5">
-                      <Sparkles className="w-3.5 h-3.5" /> 平台语义对齐度
+                      <Sparkles className="w-3.5 h-3.5" /> 平台识别对齐度
                     </h3>
                     <p className="text-xs text-gray-500 leading-relaxed">{result.cosmo_alignment}</p>
                   </Card>

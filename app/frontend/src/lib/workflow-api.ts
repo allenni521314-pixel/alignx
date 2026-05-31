@@ -588,7 +588,7 @@ export function getProductStageInfo(
       case "discovery":
         return {
           stage: label,
-          issue: "正在进行6维选品判断",
+          issue: "正在进行ASIN机会判断",
           suggestion: "查看机会池",
           action: path,
         };

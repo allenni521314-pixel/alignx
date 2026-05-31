@@ -925,7 +925,7 @@ export default function CompetitorAnalysis() {
 
   /**
    * Core analysis function. Use the backend's full ASIN analysis endpoint directly,
-   * because public Netlify function proxying can timeout on long Amazon/AI requests.
+   * because public Netlify function proxying can timeout on long Amazon requests.
    */
   const analyzeAsinWithProxy = useCallback(async (
     asin: string,
@@ -945,7 +945,7 @@ export default function CompetitorAnalysis() {
         if (res.data && ("product_title" in res.data || "scores" in res.data)) {
           const serverDataSource = res.data.data_source || res.data.product_data?._data_source;
           if (serverDataSource === "ai_estimated" || serverDataSource === "ai_estimated_low_confidence") {
-            toast.warning("未获取到真实页面数据，已返回AI低置信度兜底分析，建议后续复核。");
+            toast.warning("未获取到完整页面数据，已生成低置信度预检，建议后续复核。");
           }
           return sanitizeAnalysisKeywords(res.data as AnalysisResult);
         }
@@ -960,7 +960,7 @@ export default function CompetitorAnalysis() {
             return null;
           }
           if (err.code === "ECONNABORTED" || err.message?.includes("timeout")) {
-            toast.error("分析超过240秒，请稍后重试。Amazon页面抓取或模型响应可能较慢。");
+            toast.error("分析超过240秒，请稍后重试。Amazon页面抓取或诊断生成可能较慢。");
             return null;
           }
           if (!err.response) {
@@ -979,7 +979,7 @@ export default function CompetitorAnalysis() {
 
     /* ---- Phase 1: Backend proxy-fetch → parse-html-analyze ---- */
     try {
-      setAnalyzeProgress("🛰️ Phase 1: 正在通过服务器代理抓取Amazon页面，通常需要20-60秒...");
+      setAnalyzeProgress("正在采集Amazon页面，通常需要20-60秒...");
 
       const proxyRes = await axios.post(
         "/api/v1/asin-analysis/proxy-fetch",
@@ -989,7 +989,7 @@ export default function CompetitorAnalysis() {
 
       if (proxyRes.data?.success && proxyRes.data?.html) {
         const html = proxyRes.data.html;
-        setAnalyzeProgress("🔬 已获取到真实页面HTML，正在进行AI深度分析...");
+        setAnalyzeProgress("已获取到页面证据，正在生成竞品诊断...");
 
         try {
           const res = await axios.post(
@@ -1021,8 +1021,8 @@ export default function CompetitorAnalysis() {
       void phase1Err;
     }
 
-    /* ---- Phase 2: Server-side /analyze (full scraping + AI) ---- */
-    setAnalyzeProgress("🔍 Phase 2: 服务器补充抓取与AI低置信度兜底，最长约180秒...");
+    /* ---- Phase 2: Server-side /analyze (full scraping + diagnosis) ---- */
+    setAnalyzeProgress("正在补充页面证据并生成保守诊断，最长约180秒...");
     try {
       const res = await axios.post(
         `${apiBase}/api/v1/asin-analysis/analyze`,
@@ -1033,7 +1033,7 @@ export default function CompetitorAnalysis() {
       if (res.data && ("product_title" in res.data || "scores" in res.data)) {
         const serverDataSource = res.data.data_source || res.data.product_data?._data_source;
         if (serverDataSource === "ai_estimated" || serverDataSource === "ai_estimated_low_confidence") {
-          toast.warning("未获取到真实页面数据，已返回AI低置信度兜底分析，建议后续复核。");
+          toast.warning("未获取到完整页面数据，已生成低置信度预检，建议后续复核。");
         }
         return sanitizeAnalysisKeywords(res.data as AnalysisResult);
       }
@@ -1049,7 +1049,7 @@ export default function CompetitorAnalysis() {
           return null;
         }
         if (err.code === "ECONNABORTED" || err.message?.includes("timeout")) {
-          toast.error("分析超过180秒，请稍后重试。Amazon页面抓取或模型响应可能较慢。");
+          toast.error("分析超过180秒，请稍后重试。Amazon页面抓取或诊断生成可能较慢。");
           return null;
         }
         if (!err.response) {
@@ -1081,6 +1081,7 @@ export default function CompetitorAnalysis() {
       bsrRank?: string;
       imageCount?: number;
       bullets?: string[];
+      reviews?: Array<Record<string, unknown>>;
       destination?: string;
     };
     try {
@@ -1122,6 +1123,7 @@ export default function CompetitorAnalysis() {
           captured_bsr_rank: capture.bsrRank || "",
           captured_image_count: capture.imageCount ? String(capture.imageCount) : "",
           captured_bullets: capture.bullets || [],
+          captured_reviews: capture.reviews || [],
         },
         { headers: getAuthHeaders(), timeout: 120000 }
       );
@@ -1201,7 +1203,7 @@ export default function CompetitorAnalysis() {
       moduleKey: "competitor-analysis",
       label: `竞品诊断 ${asin}`,
       status: "running",
-      detail: "正在抓取页面并做AI竞品诊断",
+      detail: "正在抓取页面并生成竞品诊断",
       path: "/competitor-analysis?tab=strategy",
     });
 
@@ -1213,13 +1215,13 @@ export default function CompetitorAnalysis() {
         setSingleResult(cleanResult);
         const source = cleanResult.data_source;
         if (source === "server_proxy_fetch") {
-          toast.success("✅ 已通过服务器代理兜底抓取并完成分析！");
+          toast.success("已完成页面采集并生成分析");
         } else if (source === "local_browser_capture") {
-          toast.success("✅ 已通过本地浏览器页面采集并完成分析！");
+          toast.success("已用本地浏览器页面采集完成分析");
         } else if (source === "amazon_scrape" || source === "amazon_scrape_httpx" || source === "amazon_scrape_browser") {
-          toast.success("✅ 已从Amazon真实页面抓取数据并完成分析！");
+          toast.success("已从Amazon页面采集数据并完成分析");
         } else {
-          toast.success("✅ 分析完成！");
+          toast.success("分析完成");
         }
 
         // Save single analysis result as competitor insight for workflow data flow
@@ -1349,9 +1351,9 @@ export default function CompetitorAnalysis() {
       setExpandedReport(false);
       setActiveTab("single");
       if (isIncompleteSavedResult(loaded)) {
-        toast.warning("这是旧残缺快照，未调用AI；请点击开始分析重新抓取完整数据");
+        toast.warning("这是旧残缺快照，请点击开始分析重新抓取完整数据");
       } else {
-        toast.success("已打开已保存竞品诊断快照，未调用AI");
+        toast.success("已打开已保存竞品诊断快照");
       }
       return;
     }
@@ -1370,13 +1372,13 @@ export default function CompetitorAnalysis() {
       product_data: {
         title: item.product_title || item.asin,
         _data_source: "saved_history_snapshot",
-        data_notes: "历史快照：只读取已保存评分，不重新抓取Amazon页面，也不再次调用AI。",
+        data_notes: "历史快照：只读取已保存评分，不重新抓取Amazon页面，也不重新生成诊断。",
       },
       scores: item.scores,
       analysis_report: {
         scores: item.scores,
         analysis: Object.fromEntries(DIMENSIONS.map((dim) => [dim.key, "来自历史快照的已保存评分。"])) as Record<string, string>,
-        overall_summary: "这是已保存的竞品诊断快照，查看时不会重新抓取或调用AI。",
+        overall_summary: "这是已保存的竞品诊断快照，查看时不会重新抓取或重新生成诊断。",
         improvement_suggestions: ["如需最新市场数据，请手动点击开始分析生成新一轮记录。"],
       },
       data_source: "saved_history_snapshot",
@@ -1386,7 +1388,7 @@ export default function CompetitorAnalysis() {
     setSingleAsin(item.asin || "");
     setExpandedReport(false);
     setActiveTab("single");
-    toast.warning("已加载简略历史评分，未调用AI；如需完整拆解请重新抓取分析");
+    toast.warning("已加载简略历史评分；如需完整拆解请重新抓取分析");
   };
 
   if (authLoading) {
@@ -1517,8 +1519,8 @@ export default function CompetitorAnalysis() {
                       </div>
                       <p className="text-xs text-gray-500 pl-6">
                         {analyzeProgress.includes("本地浏览器")
-                          ? "本地采集只分析当前页面证据；缺评论页、低星评论或BSR时会降置信，不会让AI猜。"
-                          : "AI深度分析通常需要20-40秒，请耐心等待。"}
+                          ? "本地采集只分析当前页面证据；缺评论页、低星评论或BSR时会降置信，不会自动猜空字段。"
+                          : "深度分析通常需要20-40秒，请耐心等待。"}
                       </p>
                     </div>
                   )}
@@ -1571,7 +1573,7 @@ export default function CompetitorAnalysis() {
             {/* History */}
             <TabsContent value="history" className="space-y-4">
               <div className="rounded-lg border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
-                分析历史已合并自动保存快照，点击查看只读取本地数据库，不会重新抓取页面或再次调用 AI。
+                分析历史已合并自动保存快照，点击查看只读取已保存数据，不会重新抓取页面或重新生成诊断。
               </div>
               {historyLoading ? (
                 <div className="flex items-center justify-center py-12">
@@ -1659,7 +1661,7 @@ function DataSourceBadge({ source }: { source?: string; confidence?: string }) {
   if (source === "server_proxy_fetch" || source === "browser_proxy") {
     return (
       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-blue-500/15 text-blue-700 border border-blue-500/20">
-        <Globe className="w-3 h-3" /> 服务器代理兜底
+        <Globe className="w-3 h-3" /> 服务器采集
       </span>
     );
   }
@@ -1753,7 +1755,7 @@ function SingleResultView({
           <div>
             <p className="text-sm font-medium text-emerald-600">数据来源：Amazon真实页面数据</p>
             <p className="text-xs text-emerald-600/70 mt-0.5">
-              产品数据来自{dataSource === "local_browser_capture" ? "本地浏览器页面采集" : "服务器代理/抓取兜底"}，评分会按数据完整度降低或提高置信。
+              产品数据来自{dataSource === "local_browser_capture" ? "本地浏览器页面采集" : "服务器页面采集"}，评分会按数据完整度降低或提高置信。
             </p>
           </div>
         </div>
@@ -1764,7 +1766,7 @@ function SingleResultView({
           <div>
             <p className="text-sm font-medium text-amber-700">这是旧残缺快照，不是完整抓取结果</p>
             <p className="text-xs text-amber-700/80 mt-0.5">
-              当前快照缺少标题、价格、评分、评论、五点或图片等核心原始数据。系统没有重新调用AI，请回填ASIN后点击“开始分析”重新抓取完整页面。
+              当前快照缺少标题、价格、评分、评论、五点或图片等核心原始数据。系统没有重新生成诊断，请回填ASIN后点击“开始分析”重新抓取完整页面。
             </p>
           </div>
         </div>
@@ -1773,9 +1775,9 @@ function SingleResultView({
         <div className="flex items-start gap-3 p-3 rounded-lg bg-amber-50 border border-amber-500/25">
           <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
           <div>
-            <p className="text-sm font-medium text-amber-700">当前为规则兜底诊断，不是完整AI深度评分</p>
+            <p className="text-sm font-medium text-amber-700">当前为保守诊断，证据不完整</p>
             <p className="text-xs text-amber-700/80 mt-0.5">
-              {fallbackReason || "AI模型调用或JSON解析失败，系统基于已抓取字段生成保守评分。建议稍后重新运行AI深度诊断。"}
+              {fallbackReason || "系统基于已抓取字段生成保守评分。建议稍后重新运行完整诊断。"}
             </p>
           </div>
         </div>

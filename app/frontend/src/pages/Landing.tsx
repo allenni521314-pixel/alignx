@@ -90,7 +90,7 @@ export default function Landing() {
         <section id="capabilities" className="px-5 sm:px-8 pb-16 max-w-7xl mx-auto">
           <div className="mb-6">
             <h2 className="text-2xl font-bold">核心价值</h2>
-            <p className="text-sm text-gray-500 mt-1">把 AI 判断放进标准化业务流程，而不是让卖家猜模型结论。</p>
+            <p className="text-sm text-gray-500 mt-1">把诊断判断放进标准化业务流程，而不是让卖家猜下一步。</p>
           </div>
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {valueCards.map((item) => (

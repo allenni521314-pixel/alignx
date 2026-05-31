@@ -25,7 +25,7 @@ import asyncio
 import os
 import hashlib
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -36,7 +36,12 @@ from dependencies.auth import get_current_user, get_user_scope_ids
 from schemas.auth import UserResponse
 from services.aihub import AIHubService
 from services.amazon_rules_engine import evaluate_amazon_compliance, load_active_rules
-from services.amazon_skill_toolbox import build_toolbox_enhancements, merge_toolbox_into_ad_validation_plan
+from services.amazon_skill_toolbox import (
+    build_review_intent_assets,
+    build_toolbox_enhancements,
+    merge_toolbox_into_ad_validation_plan,
+    normalize_review_samples,
+)
 from services.judgment_feedback_rounds import JudgmentFeedbackRoundService
 from services.listing_diagnoses import Listing_diagnosesService
 from services.judgment_system import JudgmentSystemService
@@ -443,6 +448,7 @@ class ParseHtmlRequest(BaseModel):
     captured_bsr_rank: str = ""
     captured_image_count: str = ""
     captured_bullets: List[str] = Field(default_factory=list)
+    captured_reviews: List[dict[str, Any]] = Field(default_factory=list)
 
 
 class ParseHtmlResponse(BaseModel):
@@ -457,6 +463,8 @@ class ParseHtmlResponse(BaseModel):
     has_video: bool = False
     has_a_plus: bool = False
     capture_quality: dict = {}
+    review_intent_assets: dict = Field(default_factory=dict)
+    review_samples: List[dict[str, Any]] = Field(default_factory=list)
     success: bool = False
     error: str = ""
 
@@ -1500,13 +1508,13 @@ def _fallback_listing_diagnosis(listing: ListingInput, reason: str = "") -> dict
             "covered_keywords": [kw for values in covered.values() for kw in values],
             "missing_keywords": [kw for values in missing.values() for kw in values],
             "coverage_score": 58 if insights["state_keywords"] else 42,
-            "coverage_summary": "AI深度分析超时，当前为本地规则兜底关键词判断；优先使用关系词和状态触发词进入广告验证。",
+            "coverage_summary": "深度分析暂未完成，当前先用已提取关键词做保守判断；优先使用关系词和状态触发词进入广告验证。",
         },
         "ad_keywords": {
             **insights["ad_keywords"],
             "negative_keywords": [],
             "negative": [],
-            "ad_summary": "本地兜底广告词优先给出关系词和状态触发词，属性词仅做基础覆盖。",
+            "ad_summary": "广告词优先给出关系词和状态触发词，属性词仅做基础覆盖。",
         },
         "elements": elements,
         "market_estimates": {},
@@ -1774,6 +1782,25 @@ async def _diagnose_single(
     """Run full diagnosis on a single listing."""
     ai_service = AIHubService()
     listing = _sanitize_listing_for_ai(listing)
+    precision_context = dict(precision_context or {})
+    review_samples = normalize_review_samples(
+        precision_context.get("review_samples") or precision_context.get("captured_reviews"),
+        limit=40,
+    )
+    review_intent_assets = (
+        precision_context.get("review_intent_assets")
+        if isinstance(precision_context.get("review_intent_assets"), dict)
+        else {}
+    )
+    if review_samples and not review_intent_assets:
+        review_intent_assets = build_review_intent_assets({
+            "title": listing.title,
+            "bullet_points": [item.strip() for item in re.split(r"\n+", listing.bullet_points or "") if item.strip()],
+            "review_samples": review_samples,
+        })
+    if review_samples:
+        precision_context["review_samples"] = review_samples
+        precision_context["review_intent_assets"] = review_intent_assets
 
     product_title = listing.title or "未提供"
     evidence_chain = await _build_listing_evidence_chain(listing, ai_service)
@@ -1795,6 +1822,11 @@ async def _diagnose_single(
         + "\n\n【强制证据链】以下证据来自平台识别主链路，必须优先使用；后台规则只可作为兜底或一致性校验，不能替代主判断：\n"
         + json.dumps(evidence_chain, ensure_ascii=False)[:6000]
     )
+    if review_intent_assets:
+        prompt += (
+            "\n\n【评论证据】以下内容来自页面评论样本，只用于识别买家真实购买理由、抱怨和风险，不得编造评论不存在的结论：\n"
+            + json.dumps(review_intent_assets, ensure_ascii=False)[:2400]
+        )
     if alignment_context.get("prompt_summary"):
         prompt += "\n\n" + str(alignment_context["prompt_summary"])[:3500]
 
@@ -1899,7 +1931,7 @@ async def _diagnose_single(
             listing=listing,
             diagnosis_data=data,
             user_id=user_id,
-            context=precision_context or {},
+            context=precision_context,
             asin=listing.asin or None,
             listing_diagnosis_id=None,
             run_causal=False,
@@ -1950,6 +1982,8 @@ async def _diagnose_single(
         "main_keywords": (data.get("ad_keywords") or {}).get("high_intent_keywords")
             or (data.get("keyword_coverage") or {}).get("covered_keywords")
             or listing.backend_keywords,
+        "review_samples": review_samples,
+        "review_intent_assets": review_intent_assets,
     }
     toolbox_enhancements = build_toolbox_enhancements(
         product_data=toolbox_product_data,
@@ -2304,6 +2338,15 @@ async def parse_html_content(
                 parsed["bsr_rank"] = request.captured_bsr_rank.strip()
             if request.captured_image_count.strip():
                 parsed["image_count"] = request.captured_image_count.strip()
+        review_samples = normalize_review_samples(request.captured_reviews, limit=40)
+        review_intent_assets = {}
+        if review_samples:
+            parsed["review_samples"] = review_samples
+            parsed["reviews"] = review_samples
+            review_intent_assets = build_review_intent_assets({
+                **parsed,
+                "review_samples": review_samples,
+            })
 
         aplus_text_parsed = parsed.get("aplus_content", "")
         if parsed.get("has_a_plus"):
@@ -2352,6 +2395,8 @@ async def parse_html_content(
             has_video=parsed.get("has_video", False),
             has_a_plus=parsed.get("has_a_plus", False),
             capture_quality=quality,
+            review_intent_assets=review_intent_assets,
+            review_samples=review_samples,
             success=True,
         )
 

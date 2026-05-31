@@ -344,6 +344,62 @@ async function captureAmazonPage() {
     const direct = bodyText.match(/#\s*[\d,.\s]+\s+in\s+[^\n\r]{3,180}/i);
     return normalizeBsrText(direct?.[0] || "");
   };
+  const parseRatingValue = (value) => {
+    const match = clean(value).match(/\d+(?:\.\d+)?/);
+    if (!match) return 0;
+    const rating = Number(match[0]);
+    return Number.isFinite(rating) && rating > 0 && rating <= 5 ? rating : 0;
+  };
+  const pickReviewSamples = () => {
+    const selectors = [
+      "[data-hook='review']",
+      ".review",
+      "#cm-cr-dp-review-list [id^='customer_review-']",
+      "#cm-cr-dp-review-list .a-section.review",
+    ];
+    const nodes = [];
+    for (const selector of selectors) {
+      for (const node of document.querySelectorAll(selector)) {
+        if (!nodes.includes(node)) nodes.push(node);
+      }
+      if (nodes.length >= 24) break;
+    }
+    const seen = new Set();
+    const reviews = [];
+    for (const node of nodes.slice(0, 30)) {
+      const ratingText = clean(
+        node.querySelector("[data-hook='review-star-rating'] .a-icon-alt")?.textContent ||
+          node.querySelector("[data-hook='cmps-review-star-rating'] .a-icon-alt")?.textContent ||
+          node.querySelector(".review-rating .a-icon-alt")?.textContent ||
+          node.querySelector(".a-icon-alt")?.textContent
+      );
+      const title = clean(
+        node.querySelector("[data-hook='review-title'] span:not(.a-icon-alt)")?.textContent ||
+          node.querySelector("[data-hook='review-title']")?.textContent ||
+          node.querySelector(".review-title")?.textContent
+      ).replace(/^\d+(?:\.\d+)? out of 5 stars\s*/i, "");
+      const body = clean(
+        node.querySelector("[data-hook='review-body'] span")?.textContent ||
+          node.querySelector("[data-hook='review-body']")?.textContent ||
+          node.querySelector(".review-text")?.textContent
+      );
+      if (!title && !body) continue;
+      const fingerprint = `${title} ${body}`.toLowerCase().replace(/\W+/g, "").slice(0, 180);
+      if (!fingerprint || seen.has(fingerprint)) continue;
+      seen.add(fingerprint);
+      reviews.push({
+        rating: ratingText,
+        rating_value: parseRatingValue(ratingText),
+        title: title.slice(0, 240),
+        body: body.slice(0, 1200),
+        date: clean(node.querySelector("[data-hook='review-date']")?.textContent || "").slice(0, 120),
+        verified: Boolean(node.querySelector("[data-hook='avp-badge']")),
+        helpful: clean(node.querySelector("[data-hook='helpful-vote-statement']")?.textContent || "").slice(0, 120),
+      });
+      if (reviews.length >= 20) break;
+    }
+    return reviews;
+  };
   const marketplaceFromCurrentHost = (hostname) => {
     const host = String(hostname || "").toLowerCase();
     if (host.includes("amazon.co.uk")) return "UK";
@@ -378,6 +434,7 @@ async function captureAmazonPage() {
   const rating = pickText(["#acrPopover span.a-icon-alt", "#averageCustomerReviews span.a-icon-alt", "span[data-hook='rating-out-of-text']"]);
   const reviewCount = pickText(["#acrCustomerReviewText", "[data-hook='total-review-count']"]);
   const bsrRank = pickBsrRank();
+  const reviews = pickReviewSamples();
   const images = Array.from(document.querySelectorAll("#altImages img, img"))
     .map((img) => img.currentSrc || img.src || "")
     .filter(Boolean)
@@ -399,6 +456,7 @@ async function captureAmazonPage() {
     reviewCount,
     bsrRank,
     bullets,
+    reviews,
     imageCount: images.length,
     html,
     text: safeText.slice(0, 20000),
@@ -409,6 +467,7 @@ async function captureAmazonPage() {
       htmlLength: html.length,
       productTitleFound: Boolean(document.querySelector("#productTitle")),
       h1Found: Boolean(document.querySelector("h1")),
+      reviewSampleCount: reviews.length,
       bsrDetailsFound: Boolean(document.querySelector("#detailBulletsWrapper_feature_div, #detailBullets_feature_div, #productDetails_detailBullets_sections1, #productDetails_db_sections, #prodDetails, [id*='SalesRank'], [id*='salesRank']")),
       bsrRankFound: Boolean(bsrRank),
     },
@@ -433,6 +492,7 @@ function renderCapture(capture) {
     ["评论数", capture.reviewCount || "未识别"],
     ["BSR", capture.bsrRank || "未识别"],
     ["五点", String(capture.bullets?.length || 0)],
+    ["评论样本", String(capture.reviews?.length || 0)],
     ["图片", String(capture.imageCount || 0)],
     ["HTML", `${Math.round((capture.html?.length || 0) / 1024)} KB`],
     ["文本", `${Math.round((capture.text?.length || 0) / 1024)} KB`],

@@ -172,10 +172,10 @@ const DIMENSIONS = [
 
 const poolLabels: Record<string, string> = {
   opportunity_pool: "机会池",
-  validation_pool: "验证池",
+  validation_pool: "小预算验证",
   derivative_pool: "周边/延伸池",
-  rejected_pool: "淘汰池",
-  not_entered: "未入池",
+  rejected_pool: "暂缓观察",
+  not_entered: "待补证",
 };
 
 const confidenceLabels: Record<string, string> = {
@@ -191,13 +191,13 @@ const riskLabels: Record<string, string> = {
 };
 
 const getTone = (value?: string) => {
-  if (value === "high" || value === "rejected_pool" || value === "高风险禁止进入") {
+  if (value === "high" || value === "rejected_pool" || value === "暂缓进入" || value === "暂不建议进入") {
     return "bg-red-50 text-red-700 border-red-200";
   }
-  if (value === "medium" || value === "validation_pool" || value === "需改良后进入" || value === "可小预算测试") {
+  if (value === "medium" || value === "validation_pool" || value === "需改良后进入" || value === "小预算验证" || value === "补证后再评估") {
     return "bg-amber-50 text-amber-700 border-amber-200";
   }
-  if (value === "low" || value === "opportunity_pool" || value === "可进入") {
+  if (value === "low" || value === "opportunity_pool" || value === "可进入" || value === "可进入验证") {
     return "bg-emerald-50 text-emerald-700 border-emerald-200";
   }
   return "bg-gray-50 text-gray-700 border-gray-200";
@@ -206,6 +206,39 @@ const getTone = (value?: string) => {
 const getDimensionKey = (name: string) => {
   const found = DIMENSIONS.find((dim) => dim.label === name || dim.key === name);
   return found?.key || name;
+};
+
+const publicDecisionLabels: Record<string, string> = {
+  "高风险禁止进入": "暂缓进入",
+  "可进入": "可进入验证",
+  "可小预算测试": "小预算验证",
+  "需改良后进入": "补证后再评估",
+  "不建议直接进入": "暂不建议进入",
+};
+
+const getPublicDecision = (value?: string) => {
+  if (!value) return "待验证";
+  return publicDecisionLabels[value] || value;
+};
+
+const sanitizeSellerText = (text?: string) => {
+  if (!text) return "";
+  return text
+    .replace(/AI主判\+规则闸门[:：]\s*/g, "")
+    .replace(/规则兜底[:：]\s*/g, "")
+    .replace(/规则硬闸门[:：]\s*/g, "需要先排查：")
+    .replace(/规则进入门槛[:：]\s*/g, "进入前需确认：")
+    .replace(/AI理由[:：]\s*/g, "判断依据：")
+    .replace(/AI主判失败[，,、\s]*/g, "")
+    .replace(/已使用规则兜底[。.]?/g, "")
+    .replace(/数据置信度/g, "证据完整度")
+    .replace(/风险high/g, "风险高")
+    .replace(/风险medium/g, "风险中")
+    .replace(/风险low/g, "风险低")
+    .replace(/高风险禁止进入/g, "暂缓进入")
+    .replace(/可小预算测试/g, "小预算验证")
+    .replace(/不建议直接进入/g, "暂不建议进入")
+    .replace(/需改良后进入/g, "补证后再评估");
 };
 
 /* ------------------------------------------------------------------ */
@@ -365,19 +398,19 @@ export function FiveDimensionScoreCard({
       `ASIN避坑报告：${result.asin}`,
       `产品：${result.product_title || "-"}`,
       `总分：${result.total_score}`,
-      `决策：${result.decision || (result.qualified ? "可继续验证" : "暂不建议进入")}`,
-      `一句话原因：${result.one_sentence_reason || "-"}`,
+      `决策：${getPublicDecision(result.decision) || (result.qualified ? "可继续验证" : "暂不建议进入")}`,
+      `一句话原因：${sanitizeSellerText(result.one_sentence_reason) || "-"}`,
       "",
       "风险证据：",
       ...(triggeredVetoes.length
         ? triggeredVetoes.flatMap((rule) => [
-            `- ${rule.rule_name}：${rule.reason}`,
+            `- ${rule.rule_name}：${sanitizeSellerText(rule.reason)}`,
             ...(rule.evidence || []).map((item) => `  证据：${item}`),
           ])
         : ["- 暂无一票否决证据，请结合维度扣分继续人工复核。"]),
       "",
       "维度分析：",
-      ...Object.entries(result.analysis || {}).map(([key, value]) => `- ${key}：${value}`),
+      ...Object.entries(result.analysis || {}).map(([key, value]) => `- ${key}：${sanitizeSellerText(value)}`),
       "",
       "建议动作：",
       ...(result.next_actions || result.suggestions || []).map((item) => `- ${item}`),
@@ -405,7 +438,7 @@ export function FiveDimensionScoreCard({
       action,
       asin: result.asin,
       product_title: result.product_title,
-      decision,
+      decision: publicDecision,
       pool_status: poolStatus,
       route,
       created_at: new Date().toISOString(),
@@ -440,7 +473,7 @@ export function FiveDimensionScoreCard({
       return;
     }
     if (action.includes("执行") || action.includes("跟踪")) {
-      goToActionRoute(action, `/optimization-suggestions?view=data-feedback&asin=${asinParam}`, "已进入验证回流，用执行记录反哺判断模型。");
+      goToActionRoute(action, `/optimization-suggestions?view=data-feedback&asin=${asinParam}`, "已进入验证回流，用执行记录校准下一轮判断。");
       return;
     }
     if (action.includes("竞品") || action.includes("配件") || action.includes("周边")) {
@@ -501,7 +534,9 @@ export function FiveDimensionScoreCard({
   const completenessText = isLegacyScore && completeness === 0 ? "历史未记录" : `${completeness}%`;
   const completenessWidth = isLegacyScore && completeness === 0 ? 8 : completeness;
   const decision = result.decision || (result.qualified ? "可进入" : "待验证");
+  const publicDecision = getPublicDecision(decision);
   const poolStatus = result.pool_status || (result.qualified ? "opportunity_pool" : "not_entered");
+  const reasonText = sanitizeSellerText(result.one_sentence_reason);
 
   return (
     <Card className="bg-white border-gray-200 overflow-hidden">
@@ -522,7 +557,7 @@ export function FiveDimensionScoreCard({
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <span className="font-semibold text-sm">6维选品决策</span>
+              <span className="font-semibold text-sm">选品机会判断</span>
               <ScoreBadge score={result.total_score} size="sm" />
               <span className={`text-[10px] px-1.5 py-0.5 rounded border ${getTone(poolStatus)}`}>
                 {poolLabels[poolStatus] || poolStatus}
@@ -566,15 +601,15 @@ export function FiveDimensionScoreCard({
               <div className="mt-1 text-base font-bold">{confidenceLabels[result.confidence_level || ""] || result.confidence_level || "低置信"}</div>
             </div>
             <div className={`rounded-lg border p-3 ${getTone(result.risk_level)}`}>
-              <div className="text-[11px] opacity-80">风险等级</div>
+              <div className="text-[11px] opacity-80">主要风险</div>
               <div className="mt-1 text-base font-bold">{riskLabels[result.risk_level || ""] || result.risk_level || "中风险"}</div>
             </div>
-            <div className={`rounded-lg border p-3 ${getTone(decision)}`}>
-              <div className="text-[11px] opacity-80">决策结论</div>
-              <div className="mt-1 text-base font-bold">{decision}</div>
+            <div className={`rounded-lg border p-3 ${getTone(publicDecision)}`}>
+              <div className="text-[11px] opacity-80">下一步建议</div>
+              <div className="mt-1 text-base font-bold">{publicDecision}</div>
             </div>
             <div className={`rounded-lg border p-3 ${getTone(poolStatus)}`}>
-              <div className="text-[11px] opacity-80">机会池状态</div>
+              <div className="text-[11px] opacity-80">机会分组</div>
               <div className="mt-1 text-base font-bold">{poolLabels[poolStatus] || poolStatus}</div>
             </div>
           </div>
@@ -582,14 +617,14 @@ export function FiveDimensionScoreCard({
           {isLegacyScore && (
             <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 leading-relaxed">
               <AlertTriangle className="w-3.5 h-3.5 inline mr-1" />
-              这是旧链路历史评分，只保留了维度分和摘要，未完整保存数据完整度、一票否决和子项证据。请点击下方“重新评分”，使用新的后台规则引擎重新生成结果。
+              这是历史评分，只保留了维度分和摘要，未完整保存证据明细。请点击下方“重新评分”，重新生成完整判断。
             </div>
           )}
 
-          {result.one_sentence_reason && (
+          {reasonText && (
             <div className="rounded-lg border border-brand-100 bg-brand-50/70 p-3 text-xs text-brand-900 leading-relaxed">
               <Info className="w-3.5 h-3.5 inline mr-1 text-brand-500" />
-              {result.one_sentence_reason}
+              {reasonText}
             </div>
           )}
 
@@ -597,7 +632,7 @@ export function FiveDimensionScoreCard({
             <Info className="w-3.5 h-3.5 mt-0.5 text-teal-600 flex-shrink-0" />
             <div>
               <span className="font-semibold">维度分析已展开。</span>
-              <span className="ml-1">点击右侧任一维度，可查看规则分、AI修正、证据、扣分原因和具体建议。</span>
+              <span className="ml-1">点击右侧任一维度，可查看证据、扣分原因和下一步建议。</span>
             </div>
           </div>
 
@@ -646,10 +681,9 @@ export function FiveDimensionScoreCard({
                     {/* Sub-items */}
                     {expandedDim === dimKey && (
                       <div className="mt-2 ml-5 space-y-2 pb-2">
-                        <div className="grid grid-cols-3 gap-2 text-[11px] text-gray-500">
-                          <span>规则分：{Math.max(0, Math.min(20, structured.base_score || 0))}/20</span>
-                          <span>AI修正：{structured.ai_adjustment > 0 ? "+" : ""}{structured.ai_adjustment}</span>
-                          <span>置信：{Math.round((structured.confidence || 0) * 100)}%</span>
+                        <div className="grid grid-cols-2 gap-2 text-[11px] text-gray-500">
+                          <span>维度得分：{score}/20</span>
+                          <span>证据完整度：{Math.round((structured.confidence || 0) * 100)}%</span>
                         </div>
                         {structured.items.map((sub) => {
                           const subScore = sub.final_score || 0;
@@ -666,11 +700,6 @@ export function FiveDimensionScoreCard({
                                 </div>
                                 <span className="text-gray-700 font-semibold w-8 text-right">{subScore}/5</span>
                               </div>
-                              <div className="mt-1 grid grid-cols-3 gap-1 text-[10px] text-gray-500">
-                                <span>规则 {sub.rule_score}</span>
-                                <span>AI {sub.ai_adjustment > 0 ? "+" : ""}{sub.ai_adjustment}</span>
-                                <span>最终 {sub.final_score}</span>
-                              </div>
                               {sub.evidence.length > 0 && (
                                 <div className="mt-1 text-[10px] text-emerald-700">证据：{sub.evidence.join("；")}</div>
                               )}
@@ -678,7 +707,7 @@ export function FiveDimensionScoreCard({
                                 <div className="mt-1 text-[10px] text-amber-700">扣分：{sub.deduction_reasons.join("；")}</div>
                               )}
                               {sub.suggestion && sub.suggestion !== result.analysis[dimKey] && (
-                                <div className="mt-1 text-[10px] text-gray-600">建议：{sub.suggestion}</div>
+                                <div className="mt-1 text-[10px] text-gray-600">建议：{sanitizeSellerText(sub.suggestion)}</div>
                               )}
                             </div>
                           );
@@ -686,7 +715,7 @@ export function FiveDimensionScoreCard({
                         {result.analysis[dimKey] && (
                           <div className="mt-2 p-2 bg-gray-50 rounded-lg text-[11px] text-gray-600 leading-relaxed">
                             <Info className="w-3 h-3 inline mr-1 text-gray-400" />
-                            {result.analysis[dimKey]}
+                            {sanitizeSellerText(result.analysis[dimKey])}
                           </div>
                         )}
                       </div>
@@ -701,13 +730,13 @@ export function FiveDimensionScoreCard({
             <div id="asin-risk-evidence" className="rounded-lg border border-red-200 bg-red-50 p-3">
               <h4 className="text-xs font-semibold text-red-700 mb-2 flex items-center gap-1">
                 <ShieldAlert className="w-3.5 h-3.5" />
-                一票否决原因
+                需要先排查的问题
               </h4>
               <div className="space-y-2">
                 {triggeredVetoes.map((rule) => (
                   <div key={rule.rule_name} className="text-[11px] text-red-800">
                     <span className="font-semibold">{rule.rule_name}：</span>
-                    {rule.reason}
+                    {sanitizeSellerText(rule.reason)}
                     {rule.evidence?.length > 0 && (
                       <span className="text-red-600"> 证据：{rule.evidence.join("；")}</span>
                     )}
@@ -753,7 +782,7 @@ export function FiveDimensionScoreCard({
             <div className="bg-brand-50/50 rounded-lg p-3">
               <h4 className="text-xs font-semibold text-brand-700 mb-2 flex items-center gap-1">
                 <Route className="w-3.5 h-3.5" />
-                动态下一步动作
+                下一步动作
               </h4>
               <div className="flex flex-wrap gap-2">
                 {(result.next_actions || result.suggestions).map((s, i) => (
@@ -810,7 +839,7 @@ export function FiveDScoreButton({
         size="sm"
         onClick={onClick}
         className="h-8 border-brand-200 bg-brand-50 px-3 text-brand-800 hover:bg-brand-100"
-        title="查看6维选品分析"
+      title="查看选品机会分析"
       >
         <Award className="w-3.5 h-3.5 mr-1.5" />
         <span className="hidden sm:inline text-xs font-semibold mr-1.5">查看分析</span>
@@ -825,10 +854,10 @@ export function FiveDScoreButton({
       size="sm"
       onClick={onClick}
       className="text-brand-500 hover:text-brand-700 hover:bg-brand-50 h-8 px-2"
-      title="6维评分"
+      title="选品机会评分"
     >
       <Award className="w-3.5 h-3.5 mr-1" />
-      <span className="text-[11px]">6维评分</span>
+      <span className="text-[11px]">机会评分</span>
     </Button>
   );
 }

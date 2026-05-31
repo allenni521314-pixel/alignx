@@ -189,7 +189,7 @@ export function AsinPicker({
 
         <div className="rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2 text-xs text-emerald-700 flex items-center gap-2">
           <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-          自动保存已开启：ASIN抓取、评分、诊断和验证结果会保存为快照；查看快照不会重新调用AI。
+          自动保存已开启：ASIN抓取、评分、诊断和验证结果会保存为快照；查看快照不会重新生成诊断。
         </div>
 
         <div className="relative mb-3">

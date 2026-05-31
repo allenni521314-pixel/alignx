@@ -248,7 +248,7 @@ const CYCLE_STEPS = [
     borderColor: "border-brand-200",
     bgLight: "bg-brand-50",
     path: "/asin-manager",
-    stepName: "6维选品",
+    stepName: "机会判断",
     dotColor: "#0f2a24",
   },
   {
@@ -665,7 +665,7 @@ export default function Dashboard() {
         priority: "P2",
         status: stages.get("selection")?.status === "completed" ? "已通过" : "待判断",
         evidence: stages.get("selection")?.summary || "先判断 ASIN 是否值得进入机会池，再进入 Listing 上新检测。",
-        action: "查看6维选品",
+        action: "查看机会判断",
         path: "/asin-manager",
         icon: Layers3,
         color: "indigo",
@@ -866,7 +866,7 @@ export default function Dashboard() {
                           置信度 {stage.evidence_meta?.confidence || "低"}
                         </Badge>
                         <Badge variant="outline" className="bg-white text-gray-600 border-gray-200">
-                          {stage.evidence_meta?.ai_used ? "AI已调用" : "规则判断"}
+                          {stage.evidence_meta?.ai_used ? "已生成" : "结构判断"}
                         </Badge>
                       </div>
                       <p className="text-[10px] text-gray-500 leading-relaxed">
@@ -1023,7 +1023,7 @@ export default function Dashboard() {
                     </div>
                   )}
                   <p className="text-[11px] text-gray-400 mt-3">
-                    当前为规则化决策架构层，未接入AI模型调用。
+                    当前为结构化决策流程，部分智能诊断能力会逐步开放。
                   </p>
                 </div>
               )}
@@ -1388,7 +1388,7 @@ export default function Dashboard() {
                             {item.created_at ? new Date(item.created_at).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }) : ""}
                           </p>
                           <p className="text-[10px] text-gray-500 mt-1">
-                            {item.ai_called ? "AI生成" : "数据保存"} · 只读
+                            {item.ai_called ? "智能生成" : "数据保存"} · 只读
                           </p>
                         </div>
                       </div>
@@ -1405,7 +1405,7 @@ export default function Dashboard() {
                 </div>
               )}
               <p className="text-[11px] text-gray-400 mt-3">
-                快照为当时输入、输出和判断依据的只读记录，点击历史查看不会重新调用AI模型。
+                快照为当时输入、输出和判断依据的只读记录，点击历史查看不会重新生成诊断。
               </p>
             </Card>
 

@@ -150,7 +150,7 @@ export const planRows: PlanFeatureRow[] = [
 ];
 
 export const addOnPacks = [
-  { name: "ASIN 分析加量包", price: "99 元", benefit: "增加 10 个 ASIN 6维选品分析" },
+  { name: "ASIN 分析加量包", price: "99 元", benefit: "增加 10 个 ASIN 机会判断" },
   { name: "Listing 诊断加量包", price: "99 元", benefit: "增加 10 次 Listing 上新检测或本品诊断" },
   { name: "竞品诊断加量包", price: "199 元", benefit: "增加 10 次竞品诊断" },
   { name: "广告验证加量包", price: "199 元", benefit: "增加 10 次广告验证任务" },

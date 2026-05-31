@@ -273,7 +273,7 @@ export function AppSidebar() {
                       "ml-auto inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold",
                       isActive ? "bg-white/20 text-white" : "bg-emerald-50 text-emerald-700"
                     )}
-                    title="该模块有后台任务正在运行"
+                    title="该模块有任务正在运行"
                   >
                     {activeTaskCount}
                   </span>

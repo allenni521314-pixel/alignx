@@ -104,6 +104,8 @@ interface FetchMeta {
   image_count?: string;
   has_video?: boolean;
   has_a_plus?: boolean;
+  review_samples?: Array<Record<string, unknown>>;
+  review_intent_assets?: Record<string, unknown>;
   capture_quality?: {
     completeness?: number;
     core_score?: number;
@@ -119,11 +121,11 @@ interface FetchMeta {
 
 const sourceLabel = (source?: string | null) => {
   if (source === "local_browser_capture") return "本地浏览器页面采集";
-  if (source === "server_proxy_fetch") return "服务器代理兜底抓取";
+  if (source === "server_proxy_fetch") return "服务器页面采集";
   if (source === "manual_paste") return "手动粘贴解析";
-  if (source === "ai_estimated" || source === "ai_estimated_low_confidence") return "AI低置信度兜底";
-  if (source?.includes("scrape") || source === "scraped") return "服务器真实抓取";
-  if (source === "ai_search") return "AI搜索验证";
+  if (source === "ai_estimated" || source === "ai_estimated_low_confidence") return "低置信度预检";
+  if (source?.includes("scrape") || source === "scraped") return "服务器页面采集";
+  if (source === "ai_search") return "搜索验证";
   return source || "未知来源";
 };
 
@@ -379,7 +381,7 @@ const ELEMENT_META = [
   { key: "bullets", label: "五点描述", icon: <List className="w-4 h-4" /> },
   { key: "images", label: "图片描述", icon: <Image className="w-4 h-4" /> },
   { key: "aplus", label: "A+内容", icon: <Star className="w-4 h-4" /> },
-  { key: "backend", label: "后台属性", icon: <Database className="w-4 h-4" /> },
+  { key: "backend", label: "Search Terms", icon: <Database className="w-4 h-4" /> },
 ];
 
 const MODULE_ATTRIBUTION_ORDER: (keyof Scores)[] = [
@@ -616,7 +618,7 @@ function buildPriorityIssues(result: DiagnosisResult | null): PriorityIssue[] {
     {
       position: "关键词匹配",
       score: result.keyword_coverage?.coverage_score || s.product_identity || 0,
-      judgement: "判断标题、五点、A+和后台词是否覆盖真实购买意图。",
+      judgement: "判断标题、五点、A+和Search Terms是否覆盖真实购买意图。",
       action: "补关系词和状态触发词，广告验证优先测试高意图词。",
     },
     {
@@ -1797,7 +1799,7 @@ function ListingHypothesisLoopPanel({ result, listing }: { result: DiagnosisResu
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <div className="rounded-lg bg-emerald-50 border border-emerald-100 p-3">
-                    <p className="text-[11px] font-semibold text-emerald-700">命中规则</p>
+                    <p className="text-[11px] font-semibold text-emerald-700">命中标准</p>
                     <p className="mt-1 text-xs text-gray-600 leading-relaxed">{row.success}</p>
                   </div>
                   <div className="rounded-lg bg-amber-50 border border-amber-100 p-3">
@@ -1817,7 +1819,7 @@ function ListingHypothesisLoopPanel({ result, listing }: { result: DiagnosisResu
 function DiagnosisTraceBar({ result }: { result: DiagnosisResult }) {
   const trace = result.trace;
   if (!trace) return null;
-  const mode = trace.ai_called ? "新AI诊断" : trace.cache_hit ? "命中缓存" : "历史诊断";
+  const mode = trace.ai_called ? "最新诊断" : trace.cache_hit ? "命中缓存" : "历史诊断";
   const generatedAt = trace.generated_at ? new Date(trace.generated_at).toLocaleString() : "";
   const meta = trace.diagnosis_meta || {};
   const fingerprint = meta.content_fingerprint_short || trace.content_fingerprint_short;
@@ -1835,7 +1837,7 @@ function DiagnosisTraceBar({ result }: { result: DiagnosisResult }) {
         <span>版本 {meta.schema_version}</span>
       )}
       {meta.rules_version && (
-        <span>规则 {meta.rules_version}</span>
+        <span>标准 {meta.rules_version}</span>
       )}
       {meta.cache_policy && (
         <span>缓存 {meta.cache_policy === "exact_content_only" ? "仅同内容命中" : meta.cache_policy}</span>
@@ -2114,7 +2116,7 @@ export default function ListingDiagnosis() {
       }
       await new Promise((resolve) => window.setTimeout(resolve, 2000));
     }
-    throw new Error("诊断任务仍在后台运行，请稍后从最新诊断查看");
+    throw new Error("诊断任务仍在运行，请稍后从最新诊断查看");
   };
 
   const applyDiagnosisResult = async (
@@ -2179,7 +2181,7 @@ export default function ListingDiagnosis() {
       moduleKey: "listing-diagnosis",
       label: "本品Listing诊断",
       status: "running",
-      detail: "正在恢复后台AI诊断任务",
+      detail: "正在恢复诊断任务",
       path: "/listing-diagnosis",
     });
     pollDiagnosisTask(taskId)
@@ -2196,7 +2198,7 @@ export default function ListingDiagnosis() {
           if (formalGateMissing.length > 0) {
             setDiagnosisPhase("fetch_success");
             setShowAdvancedEditor(false);
-            toast.warning(`后台诊断结果已拦截：缺失 ${formalGateMissing.slice(0, 5).join("、")}，未恢复为正式报告。`);
+            toast.warning(`诊断结果已拦截：缺失 ${formalGateMissing.slice(0, 5).join("、")}，未恢复为正式报告。`);
             return;
           }
           applyDiagnosisResult(
@@ -2205,7 +2207,7 @@ export default function ListingDiagnosis() {
             restoredMeta || null,
             savedContext.diagPayload || { listing: restoredListing }
           );
-          toast.success("后台诊断已完成，结果已恢复");
+          toast.success("诊断已完成，结果已恢复");
           finishModuleTask(moduleTaskId, "completed", "本品诊断已恢复完成");
         }
       })
@@ -2213,7 +2215,7 @@ export default function ListingDiagnosis() {
         if (cancelled) return;
         localStorage.removeItem(LISTING_DIAGNOSIS_TASK_KEY);
         localStorage.removeItem(LISTING_DIAGNOSIS_TASK_CONTEXT_KEY);
-        const msg = err instanceof Error ? err.message : "后台诊断状态恢复失败";
+        const msg = err instanceof Error ? err.message : "诊断状态恢复失败";
         finishModuleTask(moduleTaskId, "failed", msg);
         toast.error(msg);
         setDiagnosisPhase("error");
@@ -2336,6 +2338,8 @@ export default function ListingDiagnosis() {
     image_count?: string;
     has_video?: boolean;
     has_a_plus?: boolean;
+    review_samples?: Array<Record<string, unknown>>;
+    review_intent_assets?: Record<string, unknown>;
     capture_quality?: FetchMeta["capture_quality"];
   }): { listing: ListingInput; meta: FetchMeta } | null => {
     if (!data.listing) return null;
@@ -2372,6 +2376,8 @@ export default function ListingDiagnosis() {
       image_count: data.image_count || "",
       has_video: data.has_video || false,
       has_a_plus: data.has_a_plus || false,
+      review_samples: data.review_samples || [],
+      review_intent_assets: data.review_intent_assets || {},
       capture_quality: data.capture_quality,
     };
     setFetchMeta(meta);
@@ -2400,17 +2406,17 @@ export default function ListingDiagnosis() {
     } else if (source === "local_browser_capture") {
       toast.success(`🌐 已从本地浏览器页面解析 ASIN: ${data.asin}，完整度 ${data.capture_quality?.completeness ?? "待确认"}%`, { duration: 5000 });
     } else if (source === "server_proxy_fetch") {
-      toast.success(`✅ 已通过服务器代理兜底抓取 ASIN: ${data.asin}，已自动保存`, { duration: 5000 });
+      toast.success(`已采集 ASIN: ${data.asin}，并自动保存`, { duration: 5000 });
     } else if (source === "manual_paste") {
       toast.success(`📋 已从粘贴内容解析出产品数据，已自动保存`, { duration: 5000 });
     } else if (["scraped", "amazon_scrape", "amazon_scrape_httpx", "amazon_scrape_mobile", "amazon_scrape_browser", "amazon_scrape_uc"].includes(source)) {
       toast.success(`✅ 已从Amazon真实页面抓取 ASIN: ${data.asin} 的Listing数据，已自动保存`, { duration: 5000 });
     } else if (source === "ai_search") {
-      toast.success(`🔍 已通过AI搜索验证 ASIN: ${data.asin} 的产品数据，已自动保存`, { duration: 5000 });
+      toast.success(`已完成 ASIN: ${data.asin} 的搜索验证，并自动保存`, { duration: 5000 });
     } else if (source === "ai_estimated") {
-      toast.warning(`⚠️ ASIN: ${data.asin} 的数据为AI估算，准确性有限，建议核实`, { duration: 6000 });
+      toast.warning(`ASIN: ${data.asin} 的数据为低置信度预检，建议核实`, { duration: 6000 });
     } else if (source === "ai_empty") {
-      toast.warning("AI未能获取到产品信息，请手动填写后再进行诊断", { duration: 6000 });
+      toast.warning("系统未能获取到产品信息，请手动填写后再进行诊断", { duration: 6000 });
     } else {
       toast.success(`已抓取 ASIN: ${data.asin || "unknown"} 的Listing信息，已自动保存`);
     }
@@ -2490,7 +2496,7 @@ export default function ListingDiagnosis() {
       }
 
       // ---- Phase 1: Backend proxy-fetch → get HTML → send to /parse-html ----
-      setFetchProgress("Phase 1/3：正在尝试服务器代理抓取，若受限会自动切换兜底链路");
+      setFetchProgress("正在尝试采集Amazon页面，若受限会自动切换备用方式");
       setFetchProgressValue(12);
       let phase1Success = false;
 
@@ -2536,7 +2542,7 @@ export default function ListingDiagnosis() {
       if (phase1Success) return;
 
       // ---- Phase 2: Same Amazon retrieval stack, then this page runs its own reverse diagnosis rules ----
-      setFetchProgress("Phase 2/3：真实页面抓取受限，正在用服务器抓取与AI搜索兜底");
+      setFetchProgress("页面采集受限，正在补充搜索验证");
       setFetchProgressValue(68);
       try {
         const res = await axios.post(
@@ -2552,13 +2558,13 @@ export default function ListingDiagnosis() {
           // Keep AI-estimated data low-confidence; it only feeds the reverse diagnosis after user-visible confirmation.
           if (source === "ai_estimated" || source === "ai_empty") {
             setFetchSource(source);
-            logScrapeAttempt(asin, detectedMp, "server_scrape", false, source, source === "ai_empty" ? "No data found" : "AI estimated only");
+            logScrapeAttempt(asin, detectedMp, "server_scrape", false, source, source === "ai_empty" ? "No data found" : "low confidence only");
             if (source === "ai_empty") {
               setDiagnosisPhase("fetch_failed");
               setShowAdvancedEditor(false);
               toast.error("无法获取该ASIN的产品数据，请检查ASIN或稍后重试。");
             } else {
-              toast.warning("服务器返回了AI低置信度估算数据，建议后续用真实抓取结果复核。");
+              toast.warning("服务器返回了低置信度预检数据，建议后续用完整采集结果复核。");
               const applied = applyFetchResult(data);
               if (applied?.listing.title) {
                 await handleDiagnose(applied.listing, applied.meta);
@@ -2592,7 +2598,7 @@ export default function ListingDiagnosis() {
         logScrapeAttempt(asin, detectedMp, "server_scrape", false, "failed", errMsg);
         if (axios.isAxiosError(serverErr)) {
           if (serverErr.code === "ECONNABORTED" || serverErr.message?.includes("timeout")) {
-            toast.error("服务器抓取或AI分析超过180秒，请稍后重试");
+            toast.error("服务器抓取或诊断生成超过180秒，请稍后重试");
           } else if (serverErr.response?.status === 400) {
             toast.error(serverErr.response?.data?.detail || "请求参数错误");
           } else {
@@ -2707,6 +2713,7 @@ export default function ListingDiagnosis() {
       bsrRank?: string;
       imageCount?: number;
       bullets?: string[];
+      reviews?: Array<Record<string, unknown>>;
       destination?: string;
     };
     try {
@@ -2743,6 +2750,7 @@ export default function ListingDiagnosis() {
           captured_bsr_rank: capture.bsrRank || "",
           captured_image_count: capture.imageCount ? String(capture.imageCount) : "",
           captured_bullets: capture.bullets || [],
+          captured_reviews: capture.reviews || [],
         },
         { headers: getAuthHeaders(), timeout: 90000 }
       );
@@ -2859,6 +2867,8 @@ export default function ListingDiagnosis() {
           image_count: activeFetchMeta?.image_count || activeListing.image_count || "",
           has_video: activeFetchMeta?.has_video || activeListing.has_video || false,
           has_a_plus: activeFetchMeta?.has_a_plus || activeListing.has_a_plus || false,
+          review_samples: activeFetchMeta?.review_samples || [],
+          review_intent_assets: activeFetchMeta?.review_intent_assets || {},
           top_competitor_count: 0,
           ad_clicks: 0,
           ad_orders: 0,
@@ -2880,8 +2890,8 @@ export default function ListingDiagnosis() {
         label: "本品Listing诊断",
         status: "running",
         detail: isNewLaunchListing(activeListing, activeFetchMeta)
-          ? "后台正在生成新品上架承接诊断"
-          : "后台正在生成Listing承接诊断报告",
+          ? "正在生成新品上架承接诊断"
+          : "正在生成Listing承接诊断报告",
         path: "/listing-diagnosis",
       });
       localStorage.setItem(LISTING_DIAGNOSIS_TASK_KEY, taskRes.data.task_id);
@@ -3063,7 +3073,7 @@ export default function ListingDiagnosis() {
     setResultTab("overview");
     setActiveTab("diagnose");
     setDiagnosisPhase("analyzed");
-    toast.success("已打开已保存本品诊断快照，未调用AI");
+    toast.success("已打开已保存本品诊断快照");
   };
 
   const deleteHistoryItem = async (id: number) => {
@@ -3607,7 +3617,7 @@ export default function ListingDiagnosis() {
                       {diagnosing && (
                         <span className="text-sm text-brand-600 flex items-center gap-2 sm:ml-2">
                           <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          AI 正在生成转化诊断报告，最多等待180秒...
+                          正在生成转化诊断报告，最多等待180秒...
                         </span>
                       )}
                     </div>
@@ -3620,13 +3630,13 @@ export default function ListingDiagnosis() {
                   <CardHeader className="pb-3">
                     <CardTitle className="text-sm flex items-center gap-2">
                       <ClipboardPaste className="w-4 h-4 text-brand-600" />
-                      文本采集兜底
+                      文本补充采集
                     </CardTitle>
                     <p className="text-xs text-gray-500">仅在本地采集或服务器抓取字段缺失时使用，解析后仍会走同一套完整性门槛。</p>
                   </CardHeader>
                   <CardContent className="space-y-4">
                     <Textarea
-                      placeholder="粘贴 Amazon 商品页 HTML 或页面可见文本。系统只解析证据字段，不用 AI 猜空字段。"
+                      placeholder="粘贴 Amazon 商品页 HTML 或页面可见文本。系统只解析证据字段，不自动猜空字段。"
                       value={manualPasteText}
                       onChange={(e) => setManualPasteText(e.target.value)}
                       className="bg-white border-gold-100 min-h-[160px] text-xs"
@@ -3676,7 +3686,7 @@ export default function ListingDiagnosis() {
                         <p className="text-sm font-bold text-red-600">⚠️ 产品名称不匹配警告</p>
                         <p className="text-xs text-red-600/80 mt-0.5">
                           {diagResult.product_mismatch_detail ||
-                            `AI返回的分析产品名称「${diagResult.analyzed_product_name}」与您输入的产品「${listing.title}」不一致。分析结果可能不准确，建议重新运行诊断。`}
+                            `诊断识别的产品名称「${diagResult.analyzed_product_name}」与您输入的产品「${listing.title}」不一致。分析结果可能不准确，建议重新运行诊断。`}
                         </p>
                       </div>
                     </div>
@@ -3768,7 +3778,7 @@ export default function ListingDiagnosis() {
                               <BarChart3 className="w-4 h-4 text-brand-600" />
                               <p className="text-sm font-semibold text-gray-600">市场验证</p>
                             </div>
-                            <p className="text-xs text-gray-500">市场验证数据将在AI分析完成后自动生成。如需更精确的数据，请在输入中填写价格、评分等信息。</p>
+                            <p className="text-xs text-gray-500">市场验证数据将在诊断完成后自动生成。如需更精确的数据，请在输入中填写价格、评分等信息。</p>
                           </Card>
                         )}
                       </div>
@@ -3813,7 +3823,7 @@ export default function ListingDiagnosis() {
                           <div className="mb-4">
                             <h3 className="text-sm font-semibold text-gray-700">Listing模块贡献图</h3>
                             <p className="mt-1 text-xs text-gray-500 leading-relaxed">
-                              行分用于定位标题、五点、图片、A+或后台词哪个模块拖后腿；列分会汇总到最终诊断分。价格、评论、BSR和广告数据属于验证参考，不和单个模块行分直接对比。
+                              行分用于定位标题、五点、图片、A+或Search Terms哪个模块拖后腿；列分会汇总到最终诊断分。价格、评论、BSR和广告数据属于验证参考，不和单个模块行分直接对比。
                             </p>
                           </div>
                           <div className="overflow-x-auto">
@@ -3877,7 +3887,7 @@ export default function ListingDiagnosis() {
                             <span className="px-2 py-0.5 rounded bg-emerald-500/60 text-gray-900">80-100</span>
                           </div>
                           <p className="mt-2 text-[11px] text-gray-500 leading-relaxed">
-                            若模块行分较高但验证参考较低，通常是价格、评论、BSR、销量或广告数据不足；若后台属性行分偏低，说明Search Terms、关系词、状态词证据不足，会影响平台识别和广告匹配。
+                            若模块行分较高但验证参考较低，通常是价格、评论、BSR、销量或广告数据不足；若Search Terms行分偏低，说明关系词、状态词证据不足，会影响平台识别和广告匹配。
                           </p>
                         </Card>
                       ) : (
@@ -4106,7 +4116,7 @@ export default function ListingDiagnosis() {
             {/* ==================== HISTORY TAB ==================== */}
             <TabsContent value="history" className="space-y-4">
               <div className="rounded-lg border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
-                历史记录为已保存诊断快照，查看详情只读取数据库，不会重新抓取页面或再次调用 AI。
+                历史记录为已保存诊断快照，查看详情只读取已保存数据，不会重新抓取页面或重新生成诊断。
               </div>
               {/* Stats Panel */}
               {historyStats && historyStats.total_count > 0 && (
@@ -4480,7 +4490,7 @@ function PriorityIssueTable({ rows }: { rows: PriorityIssue[] }) {
           <thead>
             <tr className="text-left text-xs text-gray-500 border-b border-gray-100">
               <th className="py-3 pr-3">问题位置</th>
-              <th className="py-3 pr-3">AI 判断</th>
+              <th className="py-3 pr-3">系统判断</th>
               <th className="py-3 pr-3">影响等级</th>
               <th className="py-3 pr-3">优先级</th>
               <th className="py-3">建议动作</th>
@@ -4556,7 +4566,7 @@ function ModuleDiagnosisCards({ result, listing }: { result: DiagnosisResult; li
     {
       title: "关键词匹配诊断",
       icon: <Search className="w-4 h-4 text-teal-600" />,
-      current: result.keyword_coverage?.coverage_summary || "检查标题、五点、A+和后台词是否语义一致，是否覆盖用户真实购买意图。",
+      current: result.keyword_coverage?.coverage_summary || "检查标题、五点、A+和Search Terms是否表达一致，是否覆盖用户真实购买意图。",
       suggestion: missingKeywords.length ? `建议补充：${missingKeywords.join(", ")}` : "继续保持核心词覆盖，并优先测试关系词和状态触发词。",
       example: `已覆盖：${coveredKeywords.join(", ") || "待识别"}；广告验证词：${adKeywords.join(", ") || "待生成"}`,
     },

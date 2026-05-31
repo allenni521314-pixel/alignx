@@ -437,7 +437,7 @@ export default function OptimizationSuggestions() {
     const reason = !validations.length
       ? "还没有广告验证记录进入回流。"
       : !bindingReady
-        ? "存在广告记录未绑定诊断假设，不能直接用于校准模型。"
+        ? "存在广告记录未绑定诊断假设，不能直接用于校准下一轮判断。"
         : !sampleReady
           ? "广告点击样本不足100次，容易把偶然波动误判成结论。"
           : completedCount === 0
@@ -854,7 +854,7 @@ export default function OptimizationSuggestions() {
                 <Card className="bg-white border-gray-200 p-5">
                   <div className="flex items-center gap-2">
                     <Database className="w-4 h-4 text-brand-600" />
-                    <p className="text-sm font-semibold text-gray-900">沉淀规则</p>
+                    <p className="text-sm font-semibold text-gray-900">沉淀经验</p>
                   </div>
                   <p className="text-sm text-gray-600 mt-3">
                     只有“假设已绑定 + 样本达标 + 结论已完成”的记录，才会写入可复用经验并校准下一轮诊断。
@@ -950,11 +950,11 @@ export default function OptimizationSuggestions() {
               </div>
 
               <Card className="bg-white border-gray-200 p-5 mb-6">
-                <h2 className="text-sm font-semibold text-gray-900 mb-3">复盘写入规则</h2>
+                <h2 className="text-sm font-semibold text-gray-900 mb-3">复盘写入标准</h2>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                   {[
                     { title: "成立项", text: "只有点击样本达标且CTR/CVR/ACOS表现一致改善，才进入可复用经验。" },
-                    { title: "未成立项", text: "先归因到点击、承接、价格信任、关键词意图或样本不足，不能直接推翻诊断模型。" },
+                    { title: "未成立项", text: "先归因到点击、承接、价格信任、关键词意图或样本不足，不能直接推翻本轮诊断。" },
                     { title: "下一轮", text: "每轮只改变一个核心变量，并把广告组、关键词组和Listing版本绑定到同一个假设ID。" },
                   ].map((item) => (
                     <div key={item.title} className="rounded-lg bg-gray-50 border border-gray-100 p-3">
@@ -1199,7 +1199,7 @@ export default function OptimizationSuggestions() {
               ))}
 
               <Card className="bg-white border-gray-200 p-5">
-                <h2 className="text-sm font-semibold text-gray-900 mb-3">下一轮执行规则</h2>
+                <h2 className="text-sm font-semibold text-gray-900 mb-3">下一轮执行标准</h2>
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
                   {[
                     { title: "先改高置信项", text: "优先执行P0/P1，不同时改多个卖点。" },

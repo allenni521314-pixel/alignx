@@ -1,16 +1,109 @@
 """
 Amazon skill toolbox adapters for AlignX.
 
-These helpers intentionally do not replace the COSMO/10-dimension judgment layer.
-They convert selected Amazon-Skills playbooks into downstream execution hints
-that can be attached to existing ASIN, Listing, ad validation, and execution
-modules.
+The toolbox is an internal orchestration layer. Public UI should receive plain
+seller-facing guidance only; skill names, model routing, and internal standards
+must stay out of the product surface.
 """
 
 from __future__ import annotations
 
 import re
 from typing import Any
+
+
+AMAZON_SKILL_GROUPS: dict[str, list[str]] = {
+    "selection": [
+        "amazon-product-research",
+        "amazon-niche-finder",
+        "amazon-sales-estimator",
+        "amazon-trending-products",
+        "amazon-seller-analytics",
+        "amazon-brand-analytics",
+    ],
+    "listing": [
+        "amazon-listing-optimization",
+        "amazon-listing-images",
+        "amazon-product-photography",
+        "amazon-a-plus-content",
+        "amazon-enhanced-brand-content",
+        "amazon-backend-keywords",
+        "amazon-search-optimization",
+        "amazon-storefront-design",
+        "amazon-international-listings",
+        "amazon-variation-strategy",
+        "amazon-product-bundling",
+    ],
+    "competition": [
+        "amazon-competitor-analysis",
+        "amazon-competitor-monitoring",
+        "amazon-keyword-research",
+        "amazon-rank-tracker",
+    ],
+    "ads": [
+        "amazon-ppc-campaign",
+        "amazon-advertising-strategy",
+        "amazon-display-ads",
+        "amazon-dayparting-strategy",
+        "amazon-negative-keywords",
+        "amazon-coupon-strategy",
+        "amazon-deal-finder",
+        "amazon-brand-tailored-promotions",
+    ],
+    "trust": [
+        "amazon-review-analyzer",
+        "amazon-review-strategy",
+        "amazon-return-reduction",
+        "amazon-product-compliance",
+        "amazon-category-ungating",
+        "amazon-brand-registry",
+        "amazon-suspension-appeal",
+        "amazon-vine-program",
+    ],
+    "commercial": [
+        "amazon-fba-calculator",
+        "amazon-profit-analyzer",
+        "amazon-buy-box",
+        "amazon-repricing-strategy",
+        "amazon-inventory-management",
+        "amazon-fba-prep",
+        "amazon-shipping-calculator",
+        "amazon-subscribe-save",
+        "amazon-seasonal-planning",
+        "amazon-global-selling",
+        "amazon-private-label",
+        "amazon-wholesale-sourcing",
+        "tariff-calculator-amazon",
+    ],
+}
+
+ALIGNX_CONTEXT_SKILL_GROUPS: dict[str, list[str]] = {
+    "asin": ["selection", "competition", "ads", "trust", "commercial"],
+    "asin_selection": ["selection", "competition", "ads", "trust", "commercial"],
+    "competitor": ["competition", "listing", "ads", "trust"],
+    "listing": ["listing", "ads", "trust"],
+    "prelaunch": ["listing", "ads", "trust", "commercial"],
+    "ad_validation": ["ads", "commercial", "trust"],
+    "execution": ["ads", "commercial"],
+    "feedback": ["trust", "ads", "listing", "commercial"],
+}
+
+PUBLIC_GROUP_LABELS: dict[str, str] = {
+    "selection": "选品判断",
+    "listing": "Listing承接",
+    "competition": "竞品拆解",
+    "ads": "广告验证",
+    "trust": "评论与风险",
+    "commercial": "利润与执行",
+}
+
+INTERNAL_TOOLBOX_KEYS = {
+    "source_skills",
+    "internal_skill_ids",
+    "skill_ids",
+    "internal_toolchain",
+    "_internal",
+}
 
 
 def _text(value: Any) -> str:
@@ -55,6 +148,10 @@ def _parse_float(value: Any, fallback: float = 0) -> float:
     return float(match.group(0))
 
 
+def _clamp_score(value: float, low: int = 0, high: int = 100) -> int:
+    return max(low, min(high, int(round(value))))
+
+
 def _keyword_pool(product_data: dict[str, Any], fallback_keywords: Any = None) -> list[str]:
     raw = fallback_keywords or product_data.get("main_keywords") or []
     if isinstance(raw, str):
@@ -73,6 +170,272 @@ def _keyword_pool(product_data: dict[str, Any], fallback_keywords: Any = None) -
         if len(result) >= 12:
             break
     return result
+
+
+def _context_groups(context: str) -> list[str]:
+    return ALIGNX_CONTEXT_SKILL_GROUPS.get(context, ALIGNX_CONTEXT_SKILL_GROUPS["listing"])
+
+
+def build_toolbox_invocation_plan(context: str = "asin") -> dict[str, Any]:
+    """Return the internal toolbox routing plan plus a safe public summary."""
+    groups = _context_groups(context)
+    internal_ids: list[str] = []
+    for group in groups:
+        internal_ids.extend(AMAZON_SKILL_GROUPS.get(group, []))
+    deduped_ids = list(dict.fromkeys(internal_ids))
+    return {
+        "context": context,
+        "capability_groups": [PUBLIC_GROUP_LABELS.get(group, group) for group in groups],
+        "public_summary": "系统会按当前业务场景调用对应运营能力，前台只展示诊断结论和下一步动作。",
+        "internal_skill_ids": deduped_ids,
+        "internal_group_count": len(groups),
+        "internal_skill_count": len(deduped_ids),
+    }
+
+
+def _strip_internal_fields(value: Any) -> Any:
+    if isinstance(value, list):
+        return [_strip_internal_fields(item) for item in value]
+    if not isinstance(value, dict):
+        return value
+    cleaned: dict[str, Any] = {}
+    for key, item in value.items():
+        if key in INTERNAL_TOOLBOX_KEYS:
+            continue
+        cleaned[key] = _strip_internal_fields(item)
+    return cleaned
+
+
+_REVIEW_STOPWORDS = {
+    "the", "and", "for", "with", "this", "that", "from", "into", "have", "has", "had",
+    "are", "was", "were", "you", "your", "our", "out", "all", "but", "not", "very",
+    "just", "more", "less", "than", "then", "they", "them", "its", "it's", "can",
+    "will", "would", "could", "should", "about", "after", "before", "when", "what",
+    "there", "their", "because", "only", "also", "really", "product", "item", "one",
+}
+
+_REVIEW_INTENT_PATTERNS: list[tuple[str, str, str]] = [
+    ("odor removal", "task", r"\b(odor|odour|smell|stink|ammonia|deodor|fresh|scent)\b"),
+    ("quiet operation", "attribute", r"\b(quiet|silent|noise|noisy|whisper)\b"),
+    ("safe for pets", "risk", r"\b(cat|cats|dog|dogs|pet|pets|kid|kids|safe|ozone|chemical)\b"),
+    ("easy setup", "task", r"\b(easy|simple|setup|install|use|clean|maintenance|filter)\b"),
+    ("small space fit", "scenario", r"\b(small|compact|bathroom|bedroom|kitchen|room|apartment|car|closet|home)\b"),
+    ("durability risk", "risk", r"\b(broke|broken|stopped|dead|defect|defective|cheap|quality|durable|last)\b"),
+    ("battery or power", "attribute", r"\b(battery|charge|charger|power|plug|usb|cord|voltage)\b"),
+    ("size and fit", "attribute", r"\b(size|fit|fits|large|small|dimension|space|room)\b"),
+    ("water or leak risk", "risk", r"\b(leak|water|wet|spill|waterproof|moisture)\b"),
+    ("value for money", "commercial", r"\b(price|expensive|cheap|value|worth|money|cost)\b"),
+]
+
+_POSITIVE_REVIEW_RE = re.compile(
+    r"\b(works|worked|effective|great|love|loved|perfect|easy|quiet|safe|fresh|"
+    r"recommend|helped|reduced|removed|excellent|happy|satisfied|worth)\b",
+    re.I,
+)
+_NEGATIVE_REVIEW_RE = re.compile(
+    r"\b(broke|broken|stopped|not work|doesn'?t work|didn'?t work|waste|return|"
+    r"refund|disappointed|smell|odor|noisy|cheap|danger|unsafe|leak|defective)\b",
+    re.I,
+)
+
+
+def _review_rating_value(value: Any) -> float:
+    if isinstance(value, dict):
+        for key in ("rating_value", "rating", "stars", "star_rating"):
+            parsed = _review_rating_value(value.get(key))
+            if parsed:
+                return parsed
+        return 0
+    rating = _parse_float(value)
+    return rating if 0 < rating <= 5 else 0
+
+
+def _review_polarity(title: str, body: str, rating_value: float) -> str:
+    text = f"{title} {body}".lower()
+    if rating_value >= 4:
+        return "positive"
+    if 0 < rating_value <= 3:
+        return "negative"
+    pos = len(_POSITIVE_REVIEW_RE.findall(text))
+    neg = len(_NEGATIVE_REVIEW_RE.findall(text))
+    if neg > pos:
+        return "negative"
+    if pos > 0:
+        return "positive"
+    return "neutral"
+
+
+def normalize_review_samples(value: Any, limit: int = 40) -> list[dict[str, Any]]:
+    """Normalize browser/server review snippets into a stable evidence ledger."""
+    samples: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in _as_list(value):
+        if isinstance(item, str):
+            raw: dict[str, Any] = {"body": item}
+        elif isinstance(item, dict):
+            raw = item
+        else:
+            continue
+
+        title = _text(raw.get("title") or raw.get("review_title")).strip()
+        body = _text(raw.get("body") or raw.get("text") or raw.get("content") or raw.get("review")).strip()
+        body = re.sub(r"\s+", " ", body)
+        if not title and not body:
+            continue
+        rating_value = _review_rating_value(raw)
+        fingerprint = re.sub(r"\W+", "", f"{title} {body}".lower())[:180]
+        if not fingerprint or fingerprint in seen:
+            continue
+        seen.add(fingerprint)
+        samples.append({
+            "rating": str(raw.get("rating") or raw.get("stars") or raw.get("star_rating") or "").strip(),
+            "rating_value": rating_value,
+            "title": title[:240],
+            "body": body[:1200],
+            "date": _text(raw.get("date")).strip()[:120],
+            "verified": bool(raw.get("verified")) if raw.get("verified") is not None else False,
+            "helpful": _text(raw.get("helpful")).strip()[:120],
+            "polarity": _review_polarity(title, body, rating_value),
+            "source": "review_sample",
+        })
+        if len(samples) >= limit:
+            break
+    return samples
+
+
+def _collect_review_samples(product_data: dict[str, Any]) -> list[dict[str, Any]]:
+    samples: list[dict[str, Any]] = []
+    for key in ("review_samples", "reviews", "positive_reviews", "low_star_reviews"):
+        samples.extend(normalize_review_samples(product_data.get(key), limit=40))
+    return normalize_review_samples(samples, limit=40)
+
+
+def _review_terms(text: str, limit: int = 18) -> list[str]:
+    words = [
+        w.lower()
+        for w in re.findall(r"[A-Za-z][A-Za-z0-9'-]{2,}", text)
+        if w.lower() not in _REVIEW_STOPWORDS
+    ]
+    phrases: list[str] = []
+    for n in (3, 2):
+        for i in range(max(0, len(words) - n + 1)):
+            phrase = " ".join(words[i : i + n])
+            if phrase not in phrases and not any(tok in _REVIEW_STOPWORDS for tok in phrase.split()):
+                phrases.append(phrase)
+            if len(phrases) >= limit:
+                break
+        if len(phrases) >= limit:
+            break
+    if len(phrases) < limit:
+        for word in words:
+            if word not in phrases:
+                phrases.append(word)
+            if len(phrases) >= limit:
+                break
+    return phrases[:limit]
+
+
+def build_review_intent_assets(product_data: dict[str, Any]) -> dict[str, Any]:
+    """Extract user-intent assets from review evidence for downstream diagnosis/ad validation."""
+    samples = _collect_review_samples(product_data)
+    positives = [item for item in samples if item.get("polarity") == "positive"]
+    negatives = [item for item in samples if item.get("polarity") == "negative"]
+    all_text = " ".join(f"{item.get('title', '')} {item.get('body', '')}" for item in samples)
+
+    intent_keywords: list[dict[str, Any]] = []
+    seen_keywords: set[str] = set()
+    for label, kind, pattern in _REVIEW_INTENT_PATTERNS:
+        matches = re.findall(pattern, all_text, flags=re.I)
+        if not matches:
+            continue
+        polarity = "negative" if any(_NEGATIVE_REVIEW_RE.search(f"{item.get('title', '')} {item.get('body', '')}") for item in negatives) and kind == "risk" else "neutral"
+        keyword = label
+        if keyword in seen_keywords:
+            continue
+        seen_keywords.add(keyword)
+        intent_keywords.append({
+            "keyword": keyword,
+            "type": kind,
+            "polarity": polarity,
+            "source": "review",
+            "evidence_count": len(matches),
+            "confidence": _clamp_score(55 + min(len(matches), 8) * 5),
+        })
+
+    positive_terms = _review_terms(" ".join(f"{item.get('title', '')} {item.get('body', '')}" for item in positives), 14)
+    negative_terms = _review_terms(" ".join(f"{item.get('title', '')} {item.get('body', '')}" for item in negatives), 14)
+    for term in positive_terms[:8]:
+        if term not in seen_keywords:
+            seen_keywords.add(term)
+            intent_keywords.append({
+                "keyword": term,
+                "type": "buying_reason",
+                "polarity": "positive",
+                "source": "review",
+                "evidence_count": 1,
+                "confidence": 62,
+            })
+    for term in negative_terms[:8]:
+        if term not in seen_keywords:
+            seen_keywords.add(term)
+            intent_keywords.append({
+                "keyword": term,
+                "type": "pain_point",
+                "polarity": "negative",
+                "source": "review",
+                "evidence_count": 1,
+                "confidence": 64,
+            })
+
+    buying_reasons: list[dict[str, Any]] = []
+    if positive_terms:
+        buying_reasons.append({
+            "reason": "好评反复验证的购买触发点",
+            "evidence_terms": positive_terms[:8],
+            "maps_to": ["需求承接", "Listing承接"],
+            "ad_metric": "CTR/CVR",
+        })
+    complaints: list[dict[str, Any]] = []
+    if negative_terms:
+        complaints.append({
+            "complaint": "评论暴露的反购买风险",
+            "severity": "high" if len(negatives) >= 4 else "medium",
+            "evidence_terms": negative_terms[:8],
+            "maps_to": ["风险消除", "验证参考"],
+            "ad_metric": "CVR/ACOS/退货率",
+        })
+
+    ad_keywords = [
+        {
+            "keyword": item["keyword"],
+            "keyword_type": "关系词" if item["type"] in {"scenario", "task"} else "状态词" if item["type"] == "risk" else "属性词",
+            "hypothesis": "用评论证据验证该词是否能带来更高CTR/CVR且不恶化ACOS。",
+            "metric": "CTR/CVR/ACOS",
+        }
+        for item in intent_keywords[:10]
+    ]
+
+    confidence = "high" if len(samples) >= 15 else "medium" if len(samples) >= 5 else "low"
+    return {
+        "schema": "alignx-review-intent-assets-v1",
+        "sample_count": len(samples),
+        "positive_sample_count": len(positives),
+        "negative_sample_count": len(negatives),
+        "intent_keywords": intent_keywords[:18],
+        "buying_reasons": buying_reasons,
+        "complaints": complaints,
+        "feature_requests": [
+            {"request": term, "source": "negative_review", "priority": "medium"}
+            for term in negative_terms[:5]
+        ],
+        "listing_actions": [
+            {"module": "bullets/images", "action": "把好评理由写成可验证承诺，把抱怨风险放进风险消除证据链。", "why": "评论是用户真实语言，不应只用标题和参数推断。"},
+            {"module": "ads", "action": "把高频好评词与痛点词拆成小预算广告假设。", "why": "用CTR、CVR和ACOS验证评论意图是否能承接流量。"},
+        ],
+        "ad_validation_keywords": ad_keywords,
+        "confidence": confidence,
+        "notes": [] if samples else ["未获得评论样本，仅能使用标题/五点/图片等Listing证据。"],
+    }
 
 
 def build_asin_selection_assist(report: dict[str, Any] | None) -> dict[str, Any]:
@@ -216,7 +579,7 @@ def build_listing_toolbox(product_data: dict[str, Any], scores: dict[str, Any] |
             "amazon-a-plus-content",
             "amazon-backend-keywords",
         ],
-        "role": "下游Listing执行工具箱，不改写COSMO/10维诊断主评分。",
+        "role": "把诊断问题转成可执行的Listing修改建议。",
         "issues": issues[:6],
         "actions": actions[:8],
         "keyword_coverage_hint": {
@@ -240,7 +603,7 @@ def build_ppc_toolbox(product_data: dict[str, Any], scores: dict[str, Any] | Non
 
     return {
         "source_skills": ["amazon-ppc-campaign", "amazon-negative-keywords", "amazon-advertising-strategy"],
-        "role": "把主诊断结论转成广告验证，不作为独立判断体系。",
+        "role": "把诊断结论转成小预算广告验证计划。",
         "campaign_blueprint": [
             {"campaign": "Auto Discovery", "purpose": "发现真实search term，验证平台把商品放进哪个语义池。"},
             {"campaign": "Manual Exact", "keywords": exact, "purpose": "验证核心身份词是否能高相关曝光和转化。"},
@@ -260,6 +623,7 @@ def build_ppc_toolbox(product_data: dict[str, Any], scores: dict[str, Any] | Non
 
 def build_review_toolbox(product_data: dict[str, Any]) -> dict[str, Any]:
     """Selected review rules from amazon-review-analyzer/return-reduction."""
+    review_assets = build_review_intent_assets(product_data)
     low_reviews = _as_list(product_data.get("low_star_reviews"))
     themes: list[str] = []
     review_text = _text(low_reviews).lower()
@@ -275,8 +639,13 @@ def build_review_toolbox(product_data: dict[str, Any]) -> dict[str, Any]:
 
     return {
         "source_skills": ["amazon-review-analyzer", "amazon-return-reduction", "amazon-review-strategy"],
-        "role": "评论只作为证据链和复盘材料，不替代主评分。",
+        "role": "把评论证据转成买家理由、抱怨和复盘动作。",
         "low_star_theme_candidates": themes[:6],
+        "review_intent_assets": review_assets,
+        "user_intent_keywords": review_assets.get("intent_keywords", [])[:12],
+        "buying_reasons": review_assets.get("buying_reasons", []),
+        "complaints": review_assets.get("complaints", []),
+        "ad_validation_keywords": review_assets.get("ad_validation_keywords", [])[:10],
         "actions": [
             "把竞品低星痛点转成我方图片/五点/A+必须回答的问题。",
             "好评支撑的卖点才允许进入广告承诺；未被评论验证的强承诺降级为测试假设。",
@@ -288,7 +657,7 @@ def build_review_toolbox(product_data: dict[str, Any]) -> dict[str, Any]:
 def build_competitor_toolbox(product_data: dict[str, Any], scores: dict[str, Any] | None = None) -> dict[str, Any]:
     return {
         "source_skills": ["amazon-competitor-analysis", "amazon-competitor-monitoring", "amazon-keyword-research"],
-        "role": "竞品工具箱只提炼可测试机会，不照搬竞品。",
+        "role": "把竞品强弱点转成我方可测试机会。",
         "semantic_gap_questions": [
             "竞品标题是否比我方更清楚表达商品身份？",
             "竞品图片是否证明了一个我方没有证明的用户任务？",
@@ -308,7 +677,7 @@ def build_execution_toolbox(ad_result: dict[str, Any] | None = None) -> dict[str
     ad_result = ad_result or {}
     return {
         "source_skills": ["amazon-ppc-campaign", "amazon-negative-keywords", "amazon-profit-analyzer"],
-        "role": "执行复盘工具箱用于解释广告结果并回流主判断。",
+        "role": "把广告执行数据转成保留、暂停、优化或复测动作。",
         "review_cadence": ["第7天看CTR/CPC/点击质量", "第14天看CVR/ACoS/订单", "第30天决定放量、否词或重写Listing"],
         "required_metrics": ["impressions", "clicks", "ctr", "cpc", "orders", "cvr", "acos", "spend", "sales"],
         "action_rules": [
@@ -326,21 +695,31 @@ def build_toolbox_enhancements(
     scores: dict[str, Any] | None = None,
     context: str = "asin",
     ad_result: dict[str, Any] | None = None,
+    include_internal: bool = False,
 ) -> dict[str, Any]:
     product_data = product_data or {}
     scores = scores or {}
-    enabled = {
-        "asin": ["competitor", "listing", "ppc", "review"],
-        "competitor": ["competitor", "listing", "ppc", "review"],
-        "listing": ["listing", "ppc", "review"],
-        "prelaunch": ["listing", "ppc"],
-        "ad_validation": ["ppc", "execution"],
-        "execution": ["execution"],
-    }.get(context, ["listing", "ppc"])
+    groups = _context_groups(context)
+    enabled: list[str] = []
+    if "competition" in groups:
+        enabled.append("competitor")
+    if "listing" in groups:
+        enabled.append("listing")
+    if "ads" in groups:
+        enabled.append("ppc")
+    if "trust" in groups:
+        enabled.append("review")
+    if "commercial" in groups or context in {"execution", "ad_validation"}:
+        enabled.append("execution")
+    enabled = list(dict.fromkeys(enabled))
+    plan = build_toolbox_invocation_plan(context)
 
     result: dict[str, Any] = {
-        "principle": "工具箱按需调用；AlignX COSMO/10维诊断仍是主判断结构。",
+        "principle": "按当前业务场景调用对应运营能力，前台只展示结论、原因、建议和下一步。",
         "context": context,
+        "capability_groups": plan.get("capability_groups", []),
+        "public_summary": plan.get("public_summary", ""),
+        "internal_toolchain": plan,
     }
     if "competitor" in enabled:
         result["competitor"] = build_competitor_toolbox(product_data, scores)
@@ -352,7 +731,7 @@ def build_toolbox_enhancements(
         result["review"] = build_review_toolbox(product_data)
     if "execution" in enabled:
         result["execution"] = build_execution_toolbox(ad_result)
-    return result
+    return result if include_internal else _strip_internal_fields(result)
 
 
 def merge_toolbox_into_ad_validation_plan(plan: dict[str, Any] | None, toolbox: dict[str, Any]) -> dict[str, Any]:
@@ -360,8 +739,8 @@ def merge_toolbox_into_ad_validation_plan(plan: dict[str, Any] | None, toolbox: 
     ppc = toolbox.get("ppc") if isinstance(toolbox, dict) else None
     if not isinstance(ppc, dict):
         return plan
-    plan.setdefault("toolbox_source", "amazon-ppc-campaign")
-    plan.setdefault("toolbox_principle", "广告计划只验证主诊断假设，不改写主判断。")
+    plan.setdefault("toolbox_source", "诊断建议")
+    plan.setdefault("toolbox_principle", "广告计划只验证本轮诊断假设，不替代最终投放判断。")
     if not plan.get("campaign_blueprint"):
         plan["campaign_blueprint"] = ppc.get("campaign_blueprint", [])
     if not plan.get("negative_seed"):
