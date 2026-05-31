@@ -446,7 +446,7 @@ export default function AsinManager() {
   const [top40DeepDiveAsin, setTop40DeepDiveAsin] = useState<string | null>(null);
 
   // Fetch history state
-  const [showHistory, setShowHistory] = useState(false);
+  const [showHistory, setShowHistory] = useState(true);
   const [fetchHistoryItems, setFetchHistoryItems] = useState<ActionSnapshot[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const isTop40Busy = scraplingLoading || top40Analyzing;
@@ -2085,6 +2085,10 @@ export default function AsinManager() {
     }
   };
 
+  useEffect(() => {
+    if (!authLoading) loadFetchHistory();
+  }, [authLoading]);
+
   const toggleHistory = () => {
     if (!showHistory) loadFetchHistory();
     setShowHistory(!showHistory);
@@ -2198,36 +2202,19 @@ export default function AsinManager() {
             tone="blue"
           />
 
-          {/* Tabs: ASIN库 / ASIN机会池 */}
-          <div className="mb-5 inline-flex rounded-2xl bg-gray-100/80 p-1">
-            <button
-              onClick={() => setActiveTab("library")}
-              className={`flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-sm font-medium transition-all ${
-                activeTab === "library"
-                  ? "bg-white text-gray-950 shadow-sm"
-                  : "text-gray-500 hover:text-gray-800"
-              }`}
-            >
-              <Package className="w-3.5 h-3.5" />
-              全部ASIN
-              <span className="ml-0.5 rounded-full bg-gray-200/80 px-1.5 py-0.5 text-[10px] text-gray-600">
-                {libraryCount}
-              </span>
-            </button>
-            <button
-              onClick={() => setActiveTab("pool")}
-              className={`flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-sm font-medium transition-all ${
-                activeTab === "pool"
-                  ? "bg-white text-gray-950 shadow-sm"
-                  : "text-gray-500 hover:text-gray-800"
-              }`}
-            >
-              <Sparkles className="w-3.5 h-3.5" />
-              ASIN机会池
-              <span className="ml-0.5 rounded-full bg-gray-200/80 px-1.5 py-0.5 text-[10px] text-gray-600">
-                {poolCount}
-              </span>
-            </button>
+          {/* Site selector */}
+          <div className="mb-4 rounded-2xl border border-gray-200/70 bg-white/80 p-4 shadow-sm">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-[180px_1fr] sm:items-center">
+              <div>
+                <p className="text-sm font-semibold text-gray-950">站点选择</p>
+                <p className="mt-0.5 text-xs text-gray-500">决定抓取域名、币种和历史归属。</p>
+              </div>
+              <MarketplaceSelect
+                value={autoImportMarketplace}
+                onChange={setAutoImportMarketplace}
+                triggerClassName="h-11 w-full rounded-xl border-gray-200 bg-gray-50 sm:max-w-[220px]"
+              />
+            </div>
           </div>
 
           {/* Auto Import Panel */}
@@ -2272,15 +2259,7 @@ export default function AsinManager() {
 
               {importMode === "single" ? (
                 <div className="space-y-3">
-                <div className="grid grid-cols-1 gap-3 lg:grid-cols-[180px_1fr_auto] lg:items-end">
-                  <div>
-                    <Label className="text-xs font-medium text-gray-500">站点</Label>
-                    <MarketplaceSelect
-                      value={autoImportMarketplace}
-                      onChange={setAutoImportMarketplace}
-                      triggerClassName="mt-1 h-11 w-full rounded-xl border-gray-200 bg-gray-50"
-                    />
-                  </div>
+                <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1fr_auto] lg:items-end">
                   <div>
                     <Label className="text-xs font-medium text-gray-500">ASIN</Label>
                     <Input
@@ -2786,6 +2765,43 @@ export default function AsinManager() {
                 </Button>
               </div>
             </Card>
+          )}
+
+          {/* History / Library list selector */}
+          {!showForm && (
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <div className="inline-flex rounded-2xl bg-gray-100/80 p-1">
+                <button
+                  onClick={() => setActiveTab("library")}
+                  className={`flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-sm font-medium transition-all ${
+                    activeTab === "library"
+                      ? "bg-white text-gray-950 shadow-sm"
+                      : "text-gray-500 hover:text-gray-800"
+                  }`}
+                >
+                  <Package className="w-3.5 h-3.5" />
+                  历史ASIN
+                  <span className="ml-0.5 rounded-full bg-gray-200/80 px-1.5 py-0.5 text-[10px] text-gray-600">
+                    {libraryCount}
+                  </span>
+                </button>
+                <button
+                  onClick={() => setActiveTab("pool")}
+                  className={`flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-sm font-medium transition-all ${
+                    activeTab === "pool"
+                      ? "bg-white text-gray-950 shadow-sm"
+                      : "text-gray-500 hover:text-gray-800"
+                  }`}
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  机会池
+                  <span className="ml-0.5 rounded-full bg-gray-200/80 px-1.5 py-0.5 text-[10px] text-gray-600">
+                    {poolCount}
+                  </span>
+                </button>
+              </div>
+              <span className="hidden text-xs text-gray-500 sm:inline">最近保存和评分结果在下方列表查看。</span>
+            </div>
           )}
 
           {/* Search, Batch Actions, History Toggle */}

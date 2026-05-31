@@ -1543,6 +1543,10 @@ export default function CompetitorAnalysis() {
     }
   };
 
+  useEffect(() => {
+    if (!authLoading) void loadHistory();
+  }, [authLoading]);
+
   const loadFormalHistoryByAsin = async (asinRaw: string, mp?: string): Promise<AnalysisResult | null> => {
     const asin = (extractAsinFromUrl(asinRaw) || asinRaw || "").trim().toUpperCase();
     if (!asin || asin.length !== 10) return null;
@@ -1683,14 +1687,8 @@ export default function CompetitorAnalysis() {
             <MarketplaceSelect value={marketplace} onChange={setMarketplace} />
           </div>
 
-          <Tabs
-            value={activeTab}
-            onValueChange={(value) => {
-              setActiveTab(value);
-              if (value === "history") void loadHistory();
-            }}
-          >
-            <TabsList className="bg-gray-50 border border-gray-200 mb-6">
+          <Tabs value="single" onValueChange={setActiveTab}>
+            <TabsList className="hidden">
               <TabsTrigger value="single" className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600">
                 <Search className="w-4 h-4 mr-2" />
                 竞品Listing分析
@@ -1750,7 +1748,7 @@ export default function CompetitorAnalysis() {
               </Card>
 
               {/* Unanalyzed state */}
-              {!singleResult && !analyzing && (
+              {false && !singleResult && !analyzing && (
                 <div className="space-y-6">
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                     {[
@@ -1872,6 +1870,58 @@ export default function CompetitorAnalysis() {
               )}
             </TabsContent>
           </Tabs>
+
+          <Card className="mt-6 rounded-2xl border-gray-200/70 bg-white/85 shadow-sm">
+            <CardContent className="p-5">
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-sm font-semibold text-gray-950">历史分析列表</h2>
+                  <p className="mt-0.5 text-xs text-gray-500">查看已保存竞品诊断，不重新抓取或生成。</p>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void loadHistory()}
+                  className="h-9 rounded-xl border-gray-200 bg-white text-gray-600 hover:bg-gray-100"
+                >
+                  <History className="mr-1.5 h-3.5 w-3.5" />
+                  刷新
+                </Button>
+              </div>
+              {historyLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-5 w-5 animate-spin text-gray-400" />
+                </div>
+              ) : history.length === 0 ? (
+                <div className="rounded-xl bg-gray-50 px-4 py-8 text-center text-sm text-gray-500">
+                  暂无分析历史
+                </div>
+              ) : (
+                <div className="divide-y divide-gray-100">
+                  {history.slice(0, 8).map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => void viewHistorySnapshot(item)}
+                      className="flex w-full items-center justify-between gap-4 py-3 text-left hover:bg-gray-50/70"
+                    >
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-xs font-semibold text-gray-900">{item.asin}</span>
+                          <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] text-gray-500">{item.marketplace || "US"}</span>
+                        </div>
+                        <p className="mt-1 truncate text-sm text-gray-600">{item.product_title || "已保存竞品诊断"}</p>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-3 text-xs text-gray-500">
+                        <span>均分 {getAvgScore(item.scores)}</span>
+                        <span>{item.created_at ? new Date(item.created_at).toLocaleString("zh-CN", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : ""}</span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
 
           <NextStepActions
             currentStep="竞品诊断"

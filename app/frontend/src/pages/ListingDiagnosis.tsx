@@ -2959,6 +2959,10 @@ export default function ListingDiagnosis() {
     loadScrapeStats();
   };
 
+  useEffect(() => {
+    if (!authLoading) loadHistory("", "");
+  }, [authLoading]);
+
   const loadHistoryDetail = async (id: number) => {
     if (historyViewId === id) {
       // Toggle off
@@ -3238,17 +3242,23 @@ export default function ListingDiagnosis() {
             tone="indigo"
           />
 
-          <Card className="bg-white border-gray-200 mb-6">
+          <div className="mb-4 rounded-2xl border border-gray-200/70 bg-white/80 p-4 shadow-sm">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-[180px_1fr] sm:items-center">
+              <div>
+                <p className="text-sm font-semibold text-gray-950">站点选择</p>
+                <p className="mt-0.5 text-xs text-gray-500">先确定站点，再抓取 Listing 数据。</p>
+              </div>
+              <MarketplaceSelect
+                value={marketplace}
+                onChange={updateListingMarketplace}
+                triggerClassName="h-11 w-full rounded-xl border-gray-200 bg-gray-50 sm:max-w-[220px]"
+              />
+            </div>
+          </div>
+
+          <Card className="bg-white border-gray-200 mb-6 rounded-2xl">
             <CardContent className="p-5">
               <div className="flex flex-col lg:flex-row lg:items-end gap-3">
-                <div className="lg:w-[280px]">
-                  <label className="text-xs text-gray-500 mb-1.5 block">站点</label>
-                  <MarketplaceSelect
-                    value={marketplace}
-                    onChange={updateListingMarketplace}
-                    triggerClassName="h-11"
-                  />
-                </div>
                 <div className="flex-1">
                   <label className="text-xs text-gray-500 mb-1.5 block">ASIN 或 Amazon 商品链接</label>
                   <Input
@@ -3322,11 +3332,62 @@ export default function ListingDiagnosis() {
             </CardContent>
           </Card>
 
+          <Card className="mb-6 rounded-2xl border-gray-200/70 bg-white/85 shadow-sm">
+            <CardContent className="p-5">
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-sm font-semibold text-gray-950">历史分析列表</h2>
+                  <p className="mt-0.5 text-xs text-gray-500">查看已保存承接诊断，打开历史不会重新抓取。</p>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => loadHistory(historySearch, historyMpFilter)}
+                  className="h-9 rounded-xl border-gray-200 bg-white text-gray-600 hover:bg-gray-100"
+                >
+                  <History className="mr-1.5 h-3.5 w-3.5" />
+                  刷新
+                </Button>
+              </div>
+              {historyLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-5 w-5 animate-spin text-gray-400" />
+                </div>
+              ) : history.length === 0 ? (
+                <div className="rounded-xl bg-gray-50 px-4 py-8 text-center text-sm text-gray-500">
+                  暂无诊断历史
+                </div>
+              ) : (
+                <div className="divide-y divide-gray-100">
+                  {history.slice(0, 6).map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => loadHistoryDetail(item.id)}
+                      className="flex w-full items-center justify-between gap-4 py-3 text-left hover:bg-gray-50/70"
+                    >
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-semibold text-gray-900">承接诊断</span>
+                          <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] text-gray-500">{item.marketplace || "US"}</span>
+                        </div>
+                        <p className="mt-1 truncate text-sm text-gray-600">{item.listing_title || "已保存承接诊断"}</p>
+                      </div>
+                      <span className="shrink-0 text-xs text-gray-500">
+                        {item.created_at ? new Date(item.created_at).toLocaleString("zh-CN", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : ""}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
           <Tabs value={activeTab} onValueChange={setActiveTab}>
 
             {/* ==================== DIAGNOSE TAB ==================== */}
             <TabsContent value="diagnose" className="space-y-6">
-              {diagnosisPhase === "idle" && !hasMeaningfulListingData(listing) && !diagResult && (
+              {false && diagnosisPhase === "idle" && !hasMeaningfulListingData(listing) && !diagResult && (
                 <Card className="border-brand-100 bg-brand-50">
                   <CardContent className="p-5">
                     <div className="flex items-start gap-3">
