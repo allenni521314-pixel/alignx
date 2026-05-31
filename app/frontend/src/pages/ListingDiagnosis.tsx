@@ -64,7 +64,6 @@ import {
 import { toast } from "sonner";
 import axios from "axios";
 import { getAuthHeaders } from "@/lib/auth-headers";
-import { AsinPicker, type AsinProduct } from "@/components/AsinPicker";
 import { getAllProducts, getCompetitorInsights, updateProductLifecycle, saveTimelineEvent, saveActionSnapshot, type CompetitorInsight, type ActionSnapshot } from "@/lib/workflow-api";
 import { client } from "@/lib/api";
 import { finishModuleTask, removeModuleTask, upsertModuleTask } from "@/lib/module-task-store";
@@ -3290,28 +3289,6 @@ export default function ListingDiagnosis() {
                     <History className="w-4 h-4 mr-1.5" />
                     最新结果
                   </Button>
-                  <AsinPicker
-                    onSelect={(product: AsinProduct) => {
-                      setSelectedListingAsin(product.asin || "");
-                      setSelectedProductId(product.id > 0 ? product.id : null);
-                      setListing((prev) => ({
-                        ...prev,
-                        asin: product.asin || "",
-                        title: product.title || "",
-                        bullet_points: product.bullet_points || "",
-                        a_plus_content: product.a_plus_content || "",
-                        backend_keywords: product.search_keywords || "",
-                        category: product.category || "",
-                        price: product.price ? String(product.price) : "",
-                        marketplace,
-                      }));
-                      setDiagnosisPhase("fetch_success");
-                      toast.success(`已从历史诊断导入 ${product.asin}`);
-                    }}
-                    buttonLabel="导入历史"
-                    snapshotModuleKeys={["listing_diagnosis"]}
-                    onSnapshotLoad={(snapshot) => loadSnapshotAsCurrentDiagnosis(snapshot)}
-                  />
                 </div>
               </div>
 
