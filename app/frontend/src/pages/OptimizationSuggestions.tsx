@@ -712,7 +712,7 @@ export default function OptimizationSuggestions() {
   return (
     <div className="flex h-screen bg-gray-50 text-gray-900">
       <AppSidebar />
-      <main className="flex-1 overflow-y-auto">
+      <main className="flex-1 overflow-y-auto bg-[#f5f5f7]">
         <div className="p-4 sm:p-6 lg:p-8 max-w-6xl mx-auto pt-14 md:pt-6">
           <h1 className="text-xl sm:text-2xl font-bold mb-4 flex items-center gap-2">
             <PageIcon className="w-5 h-5 text-emerald-600" />

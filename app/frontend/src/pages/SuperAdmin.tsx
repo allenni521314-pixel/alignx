@@ -190,7 +190,7 @@ export default function SuperAdmin() {
     return (
       <div className="flex h-screen bg-gray-50 text-gray-900">
         <AppSidebar />
-        <main className="flex-1 overflow-y-auto">
+        <main className="flex-1 overflow-y-auto bg-[#f5f5f7]">
           <div className="max-w-2xl mx-auto pt-20 px-6">
             <Card className="p-10 text-center">
               <Shield className="w-14 h-14 text-gray-300 mx-auto mb-4" />
@@ -226,7 +226,7 @@ export default function SuperAdmin() {
     return (
       <div className="flex h-screen bg-gray-50 text-gray-900">
         <AppSidebar />
-        <main className="flex-1 overflow-y-auto">
+        <main className="flex-1 overflow-y-auto bg-[#f5f5f7]">
           <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto pt-14 md:pt-6">
             {/* Back + header */}
             <div className="mb-6">
@@ -437,7 +437,7 @@ export default function SuperAdmin() {
   return (
     <div className="flex h-screen bg-gray-50 text-gray-900">
       <AppSidebar />
-      <main className="flex-1 overflow-y-auto">
+      <main className="flex-1 overflow-y-auto bg-[#f5f5f7]">
         <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto pt-14 md:pt-6">
           {/* Header */}
           <div className="mb-6">

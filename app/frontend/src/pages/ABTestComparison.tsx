@@ -508,9 +508,9 @@ export default function ABTestComparison() {
   const canEnterAdExecution = Boolean(result && resultSource !== "frontend_local_fallback");
 
   return (
-    <div className="flex h-screen bg-white text-gray-900">
+    <div className="flex h-screen bg-[#f5f5f7] text-gray-900">
       <AppSidebar />
-      <main className="flex-1 overflow-y-auto">
+      <main className="flex-1 overflow-y-auto bg-[#f5f5f7]">
         <div className="p-4 sm:p-6 max-w-7xl mx-auto pt-14 md:pt-6">
           <div className="mb-6 sm:mb-8">
             <h1 className="text-xl sm:text-2xl font-bold flex items-center gap-2">

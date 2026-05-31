@@ -213,7 +213,7 @@ export default function Settings() {
   return (
     <div className="flex h-screen bg-gray-50 text-gray-900">
       <AppSidebar />
-      <main className="flex-1 overflow-y-auto">
+      <main className="flex-1 overflow-y-auto bg-[#f5f5f7]">
         <div className="p-4 sm:p-8 max-w-6xl mx-auto pt-14 md:pt-8">
           <div className="mb-6">
             <h1 className="text-2xl font-bold">系统设置</h1>

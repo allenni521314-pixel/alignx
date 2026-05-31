@@ -40,29 +40,27 @@ export function PageHeader({
   ];
 
   return (
-    <div className="mb-4 rounded-lg border border-gray-200 bg-white/85 px-3 py-2.5 shadow-sm">
-      <div className="flex flex-col gap-2 xl:flex-row xl:items-center">
+    <div className="mb-5 rounded-2xl border border-gray-200/70 bg-white/75 px-4 py-3 shadow-[0_12px_36px_rgba(15,23,42,0.045)] backdrop-blur">
+      <div className="flex flex-col gap-3">
         <div className="flex min-w-0 flex-1 items-start gap-2">
-          <span className={`mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md border ${toneClass}`}>
+          <span className={`mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full border ${toneClass}`}>
             <Info className="h-3.5 w-3.5" />
           </span>
           <div className="min-w-0">
-            <p className="text-[11px] font-semibold leading-4 text-gray-500">运营目标</p>
-            <p className="text-sm font-semibold leading-5 text-gray-900">{objective}</p>
+            <p className="text-[11px] font-medium leading-4 text-gray-400">运营目标</p>
+            <p className="text-[15px] font-semibold leading-5 text-gray-950">{objective}</p>
           </div>
         </div>
 
-        <div className="grid min-w-0 grid-cols-1 gap-1.5 md:grid-cols-2 xl:w-[58%] xl:grid-cols-4">
+        <div className="flex min-w-0 flex-wrap gap-1.5 border-t border-gray-100 pt-2">
           {flowItems.map((item) => (
             <div
               key={item.label}
-              className="flex min-w-0 items-start gap-1.5 rounded-md border border-gray-100 bg-gray-50/70 px-2 py-1.5"
+              className="flex min-w-0 items-center gap-1.5 rounded-full bg-gray-50/90 px-2.5 py-1.5"
             >
-              <item.icon className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-gray-400" />
-              <div className="min-w-0">
-                <p className="text-[10px] font-semibold leading-3 text-gray-400">{item.label}</p>
-                <p className="mt-0.5 text-[11px] leading-4 text-gray-600">{item.text}</p>
-              </div>
+              <item.icon className="h-3.5 w-3.5 flex-shrink-0 text-gray-300" />
+              <span className="text-[10px] font-medium text-gray-400">{item.label}</span>
+              <span className="max-w-[260px] truncate text-[11px] text-gray-600">{item.text}</span>
             </div>
           ))}
         </div>

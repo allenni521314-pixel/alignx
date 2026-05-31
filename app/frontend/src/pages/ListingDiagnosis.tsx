@@ -3209,7 +3209,7 @@ export default function ListingDiagnosis() {
   return (
     <div className="flex h-screen bg-gray-50 text-gray-900">
       <AppSidebar />
-      <main className="flex-1 overflow-y-auto">
+      <main className="flex-1 overflow-y-auto bg-[#f5f5f7]">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-8 pt-14 md:pt-8">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-3">
             <div>

@@ -244,16 +244,16 @@ export function AppSidebar() {
             onClick={() => !isDisabled && handleNav(item.path)}
             disabled={isDisabled}
             className={cn(
-              "relative flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium transition-all duration-200 group",
+              "relative flex w-full items-center gap-2.5 rounded-xl border px-2.5 py-2 text-[13px] font-medium transition-all duration-200 group",
               isDisabled
                 ? "text-gray-400 cursor-not-allowed opacity-50"
                 : isActive
-                  ? "border border-brand-100 bg-brand-50 text-brand-900 shadow-sm shadow-brand-100/50"
-                  : "border border-transparent text-gray-600 hover:border-gray-100 hover:bg-gray-50 hover:text-gray-900"
+                  ? "border-gray-200 bg-gray-100/90 text-gray-950 shadow-sm"
+                  : "border-transparent text-gray-600 hover:bg-gray-100/75 hover:text-gray-950"
             )}
           >
             {isActive && (
-              <span className="absolute left-0 top-2 bottom-2 w-0.5 rounded-r-full bg-brand-600" />
+              <span className="absolute left-1 top-2 bottom-2 w-0.5 rounded-full bg-gray-950" />
             )}
             <item.icon
               className={cn(
@@ -261,8 +261,8 @@ export function AppSidebar() {
                 isDisabled
                   ? "text-gray-400"
                   : isActive
-                    ? "text-brand-700"
-                    : "text-gray-400 group-hover:text-brand-600"
+                    ? "text-gray-950"
+                    : "text-gray-400 group-hover:text-gray-700"
               )}
             />
             {showLabel && (
@@ -308,7 +308,7 @@ export function AppSidebar() {
   const sidebarContent = (
     <aside
       className={cn(
-        "h-screen flex-shrink-0 border-r border-gray-100 bg-white/95 flex flex-col transition-all duration-300",
+        "h-screen flex-shrink-0 border-r border-gray-200/60 bg-white/85 backdrop-blur-xl flex flex-col transition-all duration-300",
         isMobile ? "w-64" : collapsed ? "w-16" : "w-64"
       )}
     >
@@ -345,18 +345,18 @@ export function AppSidebar() {
               <button
                 onClick={() => handleNav("/dashboard")}
                 className={cn(
-                  "w-full flex items-center gap-2.5 px-2.5 py-2.5 rounded-md text-[13px] font-semibold transition-all duration-200 group border",
+                  "w-full flex items-center gap-2.5 px-2.5 py-2.5 rounded-xl text-[13px] font-semibold transition-all duration-200 group border",
                   location.pathname === "/dashboard"
-                    ? "border-brand-100 bg-brand-900 text-white shadow-sm"
-                    : "border-transparent text-gray-700 hover:bg-brand-50 hover:text-brand-700 hover:border-brand-100"
+                    ? "border-gray-900 bg-gray-950 text-white shadow-sm"
+                    : "border-transparent text-gray-700 hover:bg-gray-100/80 hover:text-gray-950"
                 )}
               >
                 <div
                   className={cn(
                     "w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors",
                     location.pathname === "/dashboard"
-                      ? "bg-white/20"
-                      : "bg-brand-50 group-hover:bg-brand-100"
+                      ? "bg-white/15"
+                      : "bg-gray-100 group-hover:bg-white"
                   )}
                 >
                   <CalendarCheck
@@ -364,7 +364,7 @@ export function AppSidebar() {
                       "w-4 h-4",
                       location.pathname === "/dashboard"
                         ? "text-white"
-                        : "text-brand-600"
+                        : "text-gray-700"
                     )}
                   />
                 </div>
@@ -393,7 +393,7 @@ export function AppSidebar() {
                     groupActive ? group.activeColor : "text-gray-400"
                   )}
                 >
-                  <span className="inline-flex h-4 min-w-4 items-center justify-center rounded border border-current/20 px-1 text-[10px] leading-none">
+                  <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full border border-current/20 px-1 text-[10px] leading-none">
                     {group.stage || "设"}
                   </span>
                   <group.icon className="w-3 h-3" />

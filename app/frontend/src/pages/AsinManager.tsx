@@ -2171,9 +2171,9 @@ export default function AsinManager() {
   };
 
   return (
-    <div className="flex h-screen bg-white text-gray-900">
+    <div className="flex h-screen bg-[#f5f5f7] text-gray-900">
       <AppSidebar />
-      <main className="flex-1 overflow-y-auto">
+      <main className="flex-1 overflow-y-auto bg-[#f5f5f7]">
         <div className="p-4 sm:p-6 max-w-5xl mx-auto pt-14 md:pt-6">
           {/* Header */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 sm:mb-8 gap-3">
@@ -2199,32 +2199,32 @@ export default function AsinManager() {
           />
 
           {/* Tabs: ASIN库 / ASIN机会池 */}
-          <div className="flex gap-1 mb-4 bg-gray-50 rounded-lg p-1 w-fit">
+          <div className="mb-5 inline-flex rounded-2xl bg-gray-100/80 p-1">
             <button
               onClick={() => setActiveTab("library")}
-              className={`px-4 py-2 rounded-md text-sm font-medium transition-all flex items-center gap-1.5 ${
+              className={`flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-sm font-medium transition-all ${
                 activeTab === "library"
-                  ? "bg-white text-red-600 shadow-sm"
-                  : "text-red-400 hover:text-red-600 hover:bg-gray-100"
+                  ? "bg-white text-gray-950 shadow-sm"
+                  : "text-gray-500 hover:text-gray-800"
               }`}
             >
               <Package className="w-3.5 h-3.5" />
               全部ASIN
-              <span className="text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full ml-0.5">
+              <span className="ml-0.5 rounded-full bg-gray-200/80 px-1.5 py-0.5 text-[10px] text-gray-600">
                 {libraryCount}
               </span>
             </button>
             <button
               onClick={() => setActiveTab("pool")}
-              className={`px-4 py-2 rounded-md text-sm font-medium transition-all flex items-center gap-1.5 ${
+              className={`flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-sm font-medium transition-all ${
                 activeTab === "pool"
-                  ? "bg-white text-green-600 shadow-sm"
-                  : "text-green-400 hover:text-green-600 hover:bg-gray-100"
+                  ? "bg-white text-gray-950 shadow-sm"
+                  : "text-gray-500 hover:text-gray-800"
               }`}
             >
               <Sparkles className="w-3.5 h-3.5" />
               ASIN机会池
-              <span className="text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full ml-0.5">
+              <span className="ml-0.5 rounded-full bg-gray-200/80 px-1.5 py-0.5 text-[10px] text-gray-600">
                 {poolCount}
               </span>
             </button>
@@ -2232,68 +2232,57 @@ export default function AsinManager() {
 
           {/* Auto Import Panel */}
           {showAutoImport && !showForm && (
-            <Card className="bg-white border-amber-500/20 p-4 mb-5">
-              <div className="flex items-center justify-between mb-3">
-                <h2 className="text-base font-semibold flex items-center gap-2">
-                  <CloudDownload className="w-5 h-5 text-amber-600" />
-                  新ASIN验证
-                </h2>
-              </div>
-
-              {/* Import mode tabs */}
-              <div className="flex gap-1 mb-3 bg-gray-50 rounded-lg p-1 w-fit">
-                <button
-                  onClick={() => setImportMode("single")}
-                  className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all ${
-                    importMode === "single"
-                      ? "bg-amber-600/80 text-gray-900"
-                      : "text-gray-500 hover:text-gray-900 hover:bg-gray-100"
-                  }`}
-                >
-                  单ASIN
-                </button>
-                <button
-                  onClick={() => setImportMode("top40")}
-                  className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all ${
-                    importMode === "top40"
-                      ? "bg-amber-600/80 text-gray-900"
-                      : "text-gray-500 hover:text-gray-900 hover:bg-gray-100"
-                  }`}
-                >
-                  Top40机会
-                </button>
-              </div>
-
-              {/* Marketplace selector + Auto-fetch toggle */}
-              <div className="flex flex-col lg:flex-row lg:items-end gap-3 mb-3">
-                <div>
-                  <Label className="text-gray-500 text-sm">站点</Label>
-                  <MarketplaceSelect
-                    value={autoImportMarketplace}
-                    onChange={setAutoImportMarketplace}
-                    triggerClassName="mt-1 w-[200px]"
-                  />
+            <Card className="mb-6 rounded-3xl border-gray-200/70 bg-white/90 p-5 shadow-[0_18px_50px_rgba(15,23,42,0.06)]">
+              <div className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                <div className="flex items-center gap-3">
+                  <span className="flex h-9 w-9 items-center justify-center rounded-2xl bg-gray-100 text-gray-700">
+                    <CloudDownload className="h-4 w-4" />
+                  </span>
+                  <div>
+                    <h2 className="text-base font-semibold text-gray-950">新ASIN验证</h2>
+                    <p className="mt-0.5 text-xs text-gray-500">
+                      抓取真实页面数据，保存后进入选品判断。
+                    </p>
+                  </div>
                 </div>
-                {importMode === "single" && (
-                  <label className="flex items-center gap-2 cursor-pointer pb-2">
-                    <input
-                      type="checkbox"
-                      checked={autoFetch}
-                      onChange={(e) => setAutoFetch(e.target.checked)}
-                      className="w-4 h-4 rounded border-gray-200 bg-gray-50 text-amber-500 focus:ring-amber-500"
-                    />
-                    <span className="text-sm text-gray-500">
-                      自动保存到ASIN库
-                    </span>
-                  </label>
-                )}
+
+                <div className="inline-flex w-fit rounded-2xl bg-gray-100/80 p-1">
+                  <button
+                    onClick={() => setImportMode("single")}
+                    className={`rounded-xl px-3.5 py-2 text-sm font-medium transition-all ${
+                      importMode === "single"
+                        ? "bg-white text-gray-950 shadow-sm"
+                        : "text-gray-500 hover:text-gray-800"
+                    }`}
+                  >
+                    单ASIN
+                  </button>
+                  <button
+                    onClick={() => setImportMode("top40")}
+                    className={`rounded-xl px-3.5 py-2 text-sm font-medium transition-all ${
+                      importMode === "top40"
+                        ? "bg-white text-gray-950 shadow-sm"
+                        : "text-gray-500 hover:text-gray-800"
+                    }`}
+                  >
+                    Top40机会
+                  </button>
+                </div>
               </div>
 
               {importMode === "single" ? (
                 <div className="space-y-3">
-                <div className="flex gap-3 items-end">
-                  <div className="flex-1">
-                    <Label className="text-gray-500 text-sm">ASIN</Label>
+                <div className="grid grid-cols-1 gap-3 lg:grid-cols-[180px_1fr_auto] lg:items-end">
+                  <div>
+                    <Label className="text-xs font-medium text-gray-500">站点</Label>
+                    <MarketplaceSelect
+                      value={autoImportMarketplace}
+                      onChange={setAutoImportMarketplace}
+                      triggerClassName="mt-1 h-11 w-full rounded-xl border-gray-200 bg-gray-50"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs font-medium text-gray-500">ASIN</Label>
                     <Input
                       value={autoImportAsin}
                       onChange={(e) => setAutoImportAsin(e.target.value)}
@@ -2302,13 +2291,13 @@ export default function AsinManager() {
                           handleSingleAutoImport();
                       }}
                       placeholder="输入ASIN，如 B0XXXXXXXXX"
-                      className="mt-1 bg-gray-50 border-gray-200 text-gray-900"
+                      className="mt-1 h-11 rounded-xl border-gray-200 bg-gray-50 text-gray-900 shadow-none"
                     />
                   </div>
                   <Button
                     onClick={handleSingleAutoImport}
                     disabled={autoImportLoading || !autoImportAsin.trim()}
-                    className="bg-amber-600 hover:bg-amber-500 text-white"
+                    className="h-11 rounded-xl bg-gray-950 px-5 text-white hover:bg-gray-800"
                   >
                     {autoImportLoading ? (
                       <Loader2 className="w-4 h-4 mr-1 animate-spin" />
@@ -2320,33 +2309,35 @@ export default function AsinManager() {
                       : "抓取数据"}
                   </Button>
                 </div>
-                <div className="rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-semibold text-emerald-800 flex items-center gap-2">
-                      <ShieldCheck className="w-4 h-4" />
-                      抓取后生成选品决策
+
+                <div className="flex flex-col gap-3 rounded-2xl bg-gray-50 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+                  <label className="flex cursor-pointer items-center gap-2 text-sm text-gray-600">
+                    <input
+                      type="checkbox"
+                      checked={autoFetch}
+                      onChange={(e) => setAutoFetch(e.target.checked)}
+                      className="h-4 w-4 rounded border-gray-300 text-gray-900 focus:ring-gray-900"
+                    />
+                    自动保存到ASIN库
+                  </label>
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                    <p className="text-xs text-gray-500">
+                      保存后验证 BSR、评论、自然排名、广告位与促销信号。
                     </p>
-                    <p className="text-xs text-gray-600 mt-0.5">
-                      保存到 ASIN 库，并验证 BSR、评论、自然排名、广告位与促销信号。
-                    </p>
-                    {!autoImportAsin.trim() && (
-                      <p className="text-xs text-emerald-700 mt-1">
-                        已保存ASIN可在产品行查看选品决策。
-                      </p>
-                    )}
+                    <Button
+                      onClick={handleSingleAutoImportAndValidate}
+                      disabled={autoImportLoading || !autoImportAsin.trim()}
+                      variant="outline"
+                      className="h-10 shrink-0 rounded-xl border-gray-200 bg-white text-gray-900 hover:bg-gray-100"
+                    >
+                      {autoImportLoading ? (
+                        <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                      ) : (
+                        <ShieldCheck className="w-4 h-4 mr-1" />
+                      )}
+                      保存并验证
+                    </Button>
                   </div>
-                  <Button
-                    onClick={handleSingleAutoImportAndValidate}
-                    disabled={autoImportLoading || !autoImportAsin.trim()}
-                    className="bg-emerald-700 hover:bg-emerald-600 text-white shrink-0"
-                  >
-                    {autoImportLoading ? (
-                      <Loader2 className="w-4 h-4 mr-1 animate-spin" />
-                    ) : (
-                      <ShieldCheck className="w-4 h-4 mr-1" />
-                    )}
-                    保存并验证
-                  </Button>
                 </div>
                 </div>
               ) : (

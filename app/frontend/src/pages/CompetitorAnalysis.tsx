@@ -1632,7 +1632,7 @@ export default function CompetitorAnalysis() {
     return (
       <div className="flex h-screen bg-gray-50 text-gray-900">
         <AppSidebar />
-        <main className="flex-1 overflow-y-auto">
+        <main className="flex-1 overflow-y-auto bg-[#f5f5f7]">
           <div className="max-w-6xl mx-auto px-6 py-8">
             <div className="mb-8 space-y-3">
               <div className="h-8 w-80 max-w-full rounded-lg bg-gray-100 animate-pulse" />
@@ -1655,11 +1655,11 @@ export default function CompetitorAnalysis() {
   return (
     <div className="flex h-screen bg-gray-50 text-gray-900">
       <AppSidebar />
-      <main className="flex-1 overflow-y-auto">
+      <main className="flex-1 overflow-y-auto bg-[#f5f5f7]">
         <div className="max-w-6xl mx-auto px-6 py-8">
           {/* Header */}
           <div className="mb-8">
-            <h1 className="text-2xl font-bold bg-gradient-to-r from-brand-400 to-gold-400 bg-clip-text text-transparent">
+            <h1 className="text-2xl font-bold text-gray-950">
               输入竞品 ASIN，拆解它为什么卖得好
             </h1>
             <p className="text-gray-500 mt-1">
