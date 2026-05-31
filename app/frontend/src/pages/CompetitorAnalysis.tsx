@@ -3,6 +3,7 @@ import { useEffect, useState, useCallback } from "react";
 import { AppSidebar } from "@/components/AppSidebar";
 import { PageHeader } from "@/components/PageHeader";
 import { NextStepActions } from "@/components/NextStepActions";
+import { MarketplaceSelect, MARKETPLACE_OPTIONS } from "@/components/MarketplaceSelect";
 import { useRequireAuth } from "@/hooks/useRequireAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -360,14 +361,6 @@ const COLORS = [
   { color: "rgba(234, 179, 8, 1)", fill: "rgba(234, 179, 8, 0.15)" },
   { color: "rgba(168, 85, 247, 1)", fill: "rgba(168, 85, 247, 0.15)" },
   { color: "rgba(236, 72, 153, 1)", fill: "rgba(236, 72, 153, 0.15)" },
-];
-
-const MARKETPLACE_OPTIONS = [
-  { value: "US", label: "🇺🇸 美国站", domain: "www.amazon.com" },
-  { value: "JP", label: "🇯🇵 日本站", domain: "www.amazon.co.jp" },
-  { value: "DE", label: "🇩🇪 德国站", domain: "www.amazon.de" },
-  { value: "UK", label: "🇬🇧 英国站", domain: "www.amazon.co.uk" },
-  { value: "CA", label: "🇨🇦 加拿大站", domain: "www.amazon.ca" },
 ];
 
 const KEYWORD_TYPE_LABELS: Record<string, string> = {
@@ -1685,24 +1678,9 @@ export default function CompetitorAnalysis() {
           />
 
           {/* Marketplace Selector */}
-          <div className="flex items-center gap-2 mb-6">
-            <span className="text-sm text-gray-500">站点：</span>
-            <div className="flex gap-2">
-              {MARKETPLACE_OPTIONS.map((opt) => (
-                <button
-                  key={opt.value}
-                  onClick={() => setMarketplace(opt.value)}
-                  title={`抓取 ${opt.domain} 的竞品页面`}
-                  className={`px-3 py-1.5 rounded-lg text-sm transition-all ${
-                    marketplace === opt.value
-                      ? "bg-brand-100 text-brand-600 border border-brand-200"
-                      : "bg-gray-50 text-gray-500 border border-gray-100 hover:bg-brand-50"
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
+          <div className="mb-6 w-[220px]">
+            <label className="text-xs text-gray-500 mb-1.5 block">站点</label>
+            <MarketplaceSelect value={marketplace} onChange={setMarketplace} />
           </div>
 
           <Tabs

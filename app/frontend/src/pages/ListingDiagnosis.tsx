@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { AppSidebar } from "@/components/AppSidebar";
 import { PageHeader } from "@/components/PageHeader";
 import { NextStepActions } from "@/components/NextStepActions";
+import { MarketplaceSelect, MARKETPLACE_OPTIONS } from "@/components/MarketplaceSelect";
 import { useRequireAuth } from "@/hooks/useRequireAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -493,14 +494,6 @@ const TWO_RULER_DIMENSIONS: Record<string, (keyof Scores)[]> = {
   carrier: ["differentiation", "risk_elimination", "subjective_properties", "function_expression", "compatibility"],
   validation: ["market_trend"],
 };
-
-const MARKETPLACE_OPTIONS = [
-  { value: "US", label: "🇺🇸 美国站", domain: "www.amazon.com" },
-  { value: "JP", label: "🇯🇵 日本站", domain: "www.amazon.co.jp" },
-  { value: "DE", label: "🇩🇪 德国站", domain: "www.amazon.de" },
-  { value: "UK", label: "🇬🇧 英国站", domain: "www.amazon.co.uk" },
-  { value: "CA", label: "🇨🇦 加拿大站", domain: "www.amazon.ca" },
-];
 
 /* ------------------------------------------------------------------ */
 /*  Marketplace Domain Map                                             */
@@ -3250,22 +3243,11 @@ export default function ListingDiagnosis() {
               <div className="flex flex-col lg:flex-row lg:items-end gap-3">
                 <div className="lg:w-[280px]">
                   <label className="text-xs text-gray-500 mb-1.5 block">站点</label>
-                  <div className="grid grid-cols-2 gap-2">
-                    {MARKETPLACE_OPTIONS.map((opt) => (
-                      <button
-                        key={opt.value}
-                        onClick={() => updateListingMarketplace(opt.value)}
-                        title={`抓取 ${opt.domain} 的 Listing 数据`}
-                        className={`px-3 py-2 rounded-lg text-sm transition-all border ${
-                          marketplace === opt.value
-                            ? "bg-brand-100 text-brand-600 border-brand-200"
-                            : "bg-gray-50 text-gray-500 border-gray-100 hover:bg-brand-50"
-                        }`}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
+                  <MarketplaceSelect
+                    value={marketplace}
+                    onChange={updateListingMarketplace}
+                    triggerClassName="h-11"
+                  />
                 </div>
                 <div className="flex-1">
                   <label className="text-xs text-gray-500 mb-1.5 block">ASIN 或 Amazon 商品链接</label>

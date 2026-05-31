@@ -3,6 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import { AppSidebar } from "@/components/AppSidebar";
 import { PageHeader } from "@/components/PageHeader";
 import { NextStepActions } from "@/components/NextStepActions";
+import { MarketplaceSelect, MARKETPLACE_BY_VALUE } from "@/components/MarketplaceSelect";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -56,19 +57,6 @@ import {
   removeModuleTask,
   upsertModuleTask,
 } from "@/lib/module-task-store";
-
-const MARKETPLACE_OPTIONS = [
-  { value: "US", label: "🇺🇸 美国站", domain: "www.amazon.com", currency: "$" },
-  { value: "JP", label: "🇯🇵 日本站", domain: "www.amazon.co.jp", currency: "¥" },
-  { value: "DE", label: "🇩🇪 德国站", domain: "www.amazon.de", currency: "€" },
-  { value: "UK", label: "🇬🇧 英国站", domain: "www.amazon.co.uk", currency: "£" },
-  { value: "CA", label: "🇨🇦 加拿大站", domain: "www.amazon.ca", currency: "C$" },
-] as const;
-
-const MARKETPLACE_BY_VALUE = MARKETPLACE_OPTIONS.reduce(
-  (map, item) => ({ ...map, [item.value]: item }),
-  {} as Record<string, (typeof MARKETPLACE_OPTIONS)[number]>
-);
 
 const getAmazonProductUrl = (asin: string, marketplace = "US") => {
   const site = MARKETPLACE_BY_VALUE[marketplace] || MARKETPLACE_BY_VALUE.US;
@@ -2280,25 +2268,11 @@ export default function AsinManager() {
               <div className="flex flex-col lg:flex-row lg:items-end gap-3 mb-3">
                 <div>
                   <Label className="text-gray-500 text-sm">站点</Label>
-                  <Select
+                  <MarketplaceSelect
                     value={autoImportMarketplace}
-                    onValueChange={setAutoImportMarketplace}
-                  >
-                    <SelectTrigger className="mt-1 bg-gray-50 border-gray-200 text-gray-900 w-[200px]">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent className="bg-white border-gray-200">
-                      {MARKETPLACE_OPTIONS.map((m) => (
-                        <SelectItem
-                          key={m.value}
-                          value={m.value}
-                          className="text-gray-900 hover:bg-brand-50"
-                        >
-                          {m.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                    onChange={setAutoImportMarketplace}
+                    triggerClassName="mt-1 w-[200px]"
+                  />
                 </div>
                 {importMode === "single" && (
                   <label className="flex items-center gap-2 cursor-pointer pb-2">
