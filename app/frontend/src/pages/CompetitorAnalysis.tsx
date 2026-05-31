@@ -1971,15 +1971,21 @@ function ToolboxList({ title, items, tone = "gray" }: { title: string; items?: s
 /* ---- Sub-tab navigation for single result ---- */
 
 const RESULT_TABS = [
-  { key: "overview", label: "总览", icon: Search },
-  { key: "score", label: "10维诊断", icon: Target },
-  { key: "listing-breakdown", label: "广告转化拆解", icon: FileText },
-  { key: "keywords", label: "关键词结构", icon: Zap },
-  { key: "review-pain", label: "评论痛点", icon: MessageSquare },
-  { key: "strategy", label: "借鉴策略", icon: AlertCircle },
+  { key: "overview", label: "竞品打法", icon: Search },
+  { key: "strategy", label: "借鉴动作", icon: AlertCircle },
+  { key: "score", label: "评分依据", icon: Target },
+  { key: "listing-breakdown", label: "转化拆解", icon: FileText },
+  { key: "keywords", label: "词路结构", icon: Zap },
+  { key: "review-pain", label: "差评机会", icon: MessageSquare },
 ] as const;
 
 type ResultTabKey = (typeof RESULT_TABS)[number]["key"];
+const RESULT_TAB_KEYS = RESULT_TABS.map((tab) => tab.key) as ResultTabKey[];
+
+function resolveInitialResultTab(): ResultTabKey {
+  const tab = new URLSearchParams(window.location.search).get("tab");
+  return RESULT_TAB_KEYS.includes(tab as ResultTabKey) ? tab as ResultTabKey : "overview";
+}
 
 function SingleResultView({
   result,
@@ -1990,7 +1996,7 @@ function SingleResultView({
   expanded: boolean;
   setExpanded: (v: boolean) => void;
 }) {
-  const [resultTab, setResultTab] = useState<ResultTabKey>("overview");
+  const [resultTab, setResultTab] = useState<ResultTabKey>(resolveInitialResultTab);
   const scores = getEffectiveScores(result);
   const scorePayloadMissing = !hasAnyScore(scores);
   const radarData = scoresToRadarData(result.asin, scores, 0);
@@ -2069,7 +2075,12 @@ function SingleResultView({
           return (
             <button
               key={tab.key}
-              onClick={() => setResultTab(tab.key)}
+              onClick={() => {
+                setResultTab(tab.key);
+                const url = new URL(window.location.href);
+                url.searchParams.set("tab", tab.key);
+                window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+              }}
               className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-all ${
                 isActive
                   ? "bg-brand-100 text-brand-600 shadow-sm shadow-brand-100"
@@ -2088,16 +2099,60 @@ function SingleResultView({
       {/* --- 总览 Tab --- */}
       {resultTab === "overview" && (
         <>
-          {/* Product Info + Radar */}
+          <Card className="bg-white border-brand-100">
+            <CardContent className="p-5">
+              <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant="outline" className="font-mono text-brand-600 border-brand-200">
+                      {result.asin}
+                    </Badge>
+                    <DataSourceBadge source={effectiveDataSource} confidence={dataConfidence} />
+                  </div>
+                  <h3 className="mt-3 text-lg font-bold text-gray-900">竞品打法结论</h3>
+                  <p className="mt-2 text-sm text-gray-600 leading-relaxed">
+                    {report?.overall_summary || "先判断该竞品靠什么获得点击、转化和Amazon匹配，再决定我方借鉴、避开或差异化。"}
+                  </p>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 lg:min-w-[460px]">
+                  <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
+                    <p className="text-[11px] text-gray-500">价格</p>
+                    <p className="mt-1 text-sm font-semibold text-gray-900">{formatPrice(pd) || "—"}</p>
+                  </div>
+                  <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
+                    <p className="text-[11px] text-gray-500">评分/评论</p>
+                    <p className="mt-1 text-sm font-semibold text-gray-900">{pd.rating || "—"} / {pd.review_count || "—"}</p>
+                  </div>
+                  <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
+                    <p className="text-[11px] text-gray-500">BSR</p>
+                    <p className="mt-1 text-sm font-semibold text-gray-900">{pd.bsr_rank ? `#${pd.bsr_rank}` : "—"}</p>
+                  </div>
+                  <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
+                    <p className="text-[11px] text-gray-500">月销信号</p>
+                    <p className="mt-1 text-sm font-semibold text-gray-900">{pd.bought_count || pd.amazon_bought_count || pd.estimated_monthly_sales || "—"}</p>
+                  </div>
+                </div>
+              </div>
+
+              {report?.improvement_suggestions && report.improvement_suggestions.length > 0 && (
+                <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+                  {report.improvement_suggestions.slice(0, 3).map((item, idx) => (
+                    <div key={idx} className="rounded-lg border border-brand-100 bg-brand-50 p-3">
+                      <p className="text-[11px] font-semibold text-brand-600">动作 {idx + 1}</p>
+                      <p className="mt-1 text-sm text-gray-700 leading-relaxed">{item}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
           <div className="grid grid-cols-1 gap-6">
             <Card className="bg-gray-50 border-gray-200">
-              <CardHeader>
+              <CardHeader className="pb-3">
                 <CardTitle className="text-lg flex items-center gap-2">
-                  <Badge variant="outline" className="font-mono text-brand-600 border-brand-200">
-                    {result.asin}
-                  </Badge>
-                  产品信息
-                  <DataSourceBadge source={effectiveDataSource} confidence={dataConfidence} />
+                  <FileText className="w-5 h-5 text-brand-600" />
+                  竞品依据
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
@@ -2105,15 +2160,14 @@ function SingleResultView({
                   <span className="text-sm text-gray-500">标题：</span>
                   <span className="text-sm text-gray-600">{pd.title || result.product_title}</span>
                 </div>
-                {/* Official Amazon Bought Count - Prominent Display */}
                 {(pd.bought_count || pd.amazon_bought_count) && (
-                  <div className="bg-amber-50 border border-amber-500/25 rounded-lg p-3 flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
+                  <div className="bg-amber-50 border border-amber-500/25 rounded-lg px-3 py-2 flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
                       <TrendingUp className="w-5 h-5 text-amber-600" />
                     </div>
                     <div>
                       <div className="text-xs text-amber-600/80 font-medium">Amazon官方购买人数</div>
-                      <div className="text-lg font-bold text-amber-600">
+                      <div className="text-base font-bold text-amber-600">
                         {pd.bought_count || pd.amazon_bought_count}
                       </div>
                     </div>
@@ -2139,16 +2193,16 @@ function SingleResultView({
                   <InfoItem label="A+" value={pd.has_a_plus ? `✅ 有${pd.aplus_image_count ? `（${pd.aplus_image_count}张图）` : ""}` : "❌ 无"} />
                 </div>
                 {pd.bullet_points && pd.bullet_points.length > 0 && (
-                  <div>
-                    <span className="text-sm text-gray-500 block mb-1">五点描述：</span>
-                    <ul className="text-xs text-gray-600 space-y-1">
+                  <details className="rounded-lg border border-gray-100 bg-white px-3 py-2">
+                    <summary className="cursor-pointer text-sm font-medium text-gray-600">展开五点描述</summary>
+                    <ul className="mt-2 text-xs text-gray-600 space-y-1">
                       {pd.bullet_points.map((bp, i) => (
                         <li key={i} className="flex gap-1">
                           <span className="text-brand-600">•</span> {bp}
                         </li>
                       ))}
                     </ul>
-                  </div>
+                  </details>
                 )}
                 {displayKeywords.length > 0 && (
                   <div>
