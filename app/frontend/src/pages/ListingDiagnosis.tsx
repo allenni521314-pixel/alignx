@@ -3670,21 +3670,6 @@ export default function ListingDiagnosis() {
               {/* Diagnosis Results */}
               {diagResult && (
                 <div className="space-y-6">
-                  <DiagnosisExecutiveReport
-                    result={diagResult}
-                    weightedTotal={weightedTotal}
-                    contentScore={contentScore}
-                    marketScore={marketValidation?.market_total}
-                  />
-
-                  <ListingHypothesisLoopPanel result={diagResult} listing={listing} />
-
-                  <DiagnosisTraceBar result={diagResult} />
-
-                  <PriorityIssueTable rows={buildPriorityIssues(diagResult)} />
-
-                  <ModuleDiagnosisCards result={diagResult} listing={listing} />
-
                   {/* Product Mismatch Warning */}
                   {diagResult.product_mismatch && (
                     <div className="flex items-start gap-3 p-3 rounded-lg bg-red-500/15 border border-red-200">
@@ -3725,11 +3710,36 @@ export default function ListingDiagnosis() {
                       </TabsTrigger>
                     </TabsList>
 
-                    {/* ===== OVERVIEW TAB (Radar + Score + Market) ===== */}
+                    {/* ===== OVERVIEW TAB ===== */}
                     <TabsContent value="overview" className="mt-4 space-y-6">
-                      {/* Score + Radar + Market row */}
-                      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                        {/* Overall Score */}
+                      <DiagnosisExecutiveReport
+                        result={diagResult}
+                        weightedTotal={weightedTotal}
+                        contentScore={contentScore}
+                        marketScore={marketValidation?.market_total}
+                      />
+
+                      <PriorityIssueTable rows={buildPriorityIssues(diagResult)} />
+
+                      <Card className="bg-gray-50 border-gray-200">
+                        <CardContent className="pt-6">
+                          <h3 className="text-lg font-bold text-gray-900 mb-2">优先项</h3>
+                          <p className="text-sm text-gray-500 leading-relaxed">{diagResult.overall_summary}</p>
+                        </CardContent>
+                      </Card>
+
+                      <BackendJudgmentPanel result={diagResult} />
+                      <PrecisionConfidencePanel integrity={diagResult.data_integrity} />
+                      <DiagnosisTraceBar result={diagResult} />
+                    </TabsContent>
+
+                    <TabsContent value="hypotheses" className="mt-4">
+                      <ListingHypothesisLoopPanel result={diagResult} listing={listing} />
+                    </TabsContent>
+
+                    {/* ===== 10 Dimension Scores ===== */}
+                    <TabsContent value="scores" className="mt-4">
+                      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
                         <Card className="bg-gray-50 border-gray-200 p-5 flex flex-col items-center justify-center">
                           <p className="text-sm text-gray-500 mb-3">综合评分</p>
                           <div className="relative w-28 h-28">
@@ -3743,7 +3753,6 @@ export default function ListingDiagnosis() {
                             </div>
                           </div>
                           <p className="text-lg font-bold mt-2" style={{ color: getGradeColor(grade) }}>等级 {grade}</p>
-                          {/* Score breakdown */}
                           <div className="w-full mt-4 space-y-2">
                             <div className="flex items-center justify-between text-xs">
                               <span className="text-brand-600">内容质量 (65%)</span>
@@ -3769,14 +3778,12 @@ export default function ListingDiagnosis() {
                           </div>
                         </Card>
 
-                        {/* Radar Chart */}
                         {radarScores.length > 0 && (
                           <Card className="bg-gray-50 border-gray-200 p-5 flex items-center justify-center">
                             <RadarChart scores={radarScores} size={220} />
                           </Card>
                         )}
 
-                        {/* Market Validation Panel */}
                         {marketValidation ? (
                           <MarketValidationPanel mv={marketValidation} />
                         ) : (
@@ -3790,24 +3797,6 @@ export default function ListingDiagnosis() {
                         )}
                       </div>
 
-                      {/* Overall Summary */}
-                      <BackendJudgmentPanel result={diagResult} />
-                      <PrecisionConfidencePanel integrity={diagResult.data_integrity} />
-
-                      <Card className="bg-gray-50 border-gray-200">
-                        <CardContent className="pt-6">
-                          <h3 className="text-lg font-bold text-gray-900 mb-2">优先项</h3>
-                          <p className="text-sm text-gray-500 leading-relaxed">{diagResult.overall_summary}</p>
-                        </CardContent>
-                      </Card>
-                    </TabsContent>
-
-                    <TabsContent value="hypotheses" className="mt-4">
-                      <ListingHypothesisLoopPanel result={diagResult} listing={listing} />
-                    </TabsContent>
-
-                    {/* ===== 10 Dimension Scores ===== */}
-                    <TabsContent value="scores" className="mt-4">
                       <div className="mb-4">
                         <TwoRulerSummary scores={diagResult.scores} marketScore={marketValidation?.market_total} />
                       </div>
@@ -3982,6 +3971,8 @@ export default function ListingDiagnosis() {
 
                     {/* ===== Optimization Suggestions ===== */}
                     <TabsContent value="suggestions" className="mt-4 space-y-4">
+                      <ModuleDiagnosisCards result={diagResult} listing={listing} />
+
                       {diagResult.suggestions && (
                         <>
                           {diagResult.suggestions.title_rewrite && (
