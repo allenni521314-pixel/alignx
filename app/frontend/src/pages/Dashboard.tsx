@@ -722,19 +722,19 @@ export default function Dashboard() {
           rank: 1,
           module: "先守住广告预算",
           priority: "P0",
-          status: adGate?.judgment_status === "unattributed" ? "先别判成败" : "先别放量",
+          status: adGate?.judgment_status === "unattributed" ? "待归因" : "暂缓放量",
           evidence: adGate?.blocking_reason || adGate?.required_next_action || "广告样本还不够，现在放大预算容易把偶然波动当成结论。",
-          action: adGate?.judgment_status === "unattributed" ? "先绑定假设" : "继续跑到100点击",
+          action: adGate?.judgment_status === "unattributed" ? "绑定假设" : "补足100点击",
           path: adGate?.judgment_status === "unattributed" ? "/ad-analytics?view=records" : "/ad-analytics?view=validation",
           icon: Megaphone,
           color: "amber",
         }
       : {
           rank: 1,
-          module: "复盘这轮钱",
+          module: "投放复盘",
           priority: feedbackReady ? "P0" : "P1",
-          status: feedbackReady ? "马上沉淀经验" : reviewBlocked ? "先补复盘记录" : "等广告验证",
-          evidence: reviewGate?.blocking_reason || hitLearning?.basis || "只有把命中/未命中写回系统，下一轮才知道该放量、停词还是回Listing改承接。",
+          status: feedbackReady ? "沉淀经验" : reviewBlocked ? "补充复盘" : "等待验证",
+          evidence: reviewGate?.blocking_reason || hitLearning?.basis || "只有将命中/未命中写回系统，下一轮才能判断放量、暂停或承接修正。",
           action: reviewBlocked ? "补齐复盘记录" : "复盘命中原因",
           path: "/optimization-suggestions?view=data-feedback",
           icon: Database,
@@ -747,9 +747,9 @@ export default function Dashboard() {
         rank: 2,
         module: "回Listing改承接",
         priority: topAction?.level || "P1",
-        status: chief?.current_stage?.includes("复盘") ? "按复盘修正" : "先找转化卡点",
-        evidence: topAction?.action || "先找出标题、主图、五点、A+里哪个环节拖累点击或转化，再决定要不要投广告验证。",
-        action: "找出先改哪里",
+        status: chief?.current_stage?.includes("复盘") ? "按复盘修正" : "定位转化问题",
+        evidence: topAction?.action || "定位标题、主图、五点、A+中影响点击或转化的环节，再决定是否进入广告验证。",
+        action: "确认优先项",
         path: "/listing-diagnosis",
         icon: Stethoscope,
         color: "blue",
@@ -767,9 +767,9 @@ export default function Dashboard() {
       },
       {
         rank: 4,
-        module: "确认ASIN值不值得测",
+        module: "评估ASIN机会",
         priority: "P2",
-        status: stages.get("selection")?.status === "completed" ? "已进机会池" : "先别投入",
+        status: stages.get("selection")?.status === "completed" ? "已进机会池" : "暂缓投入",
         evidence: stages.get("selection")?.summary || "先判断这个ASIN有没有需求、利润和竞争空间，再决定是否继续投入Listing和广告预算。",
         action: "看是否值得测",
         path: "/asin-manager",
@@ -824,10 +824,10 @@ export default function Dashboard() {
           {/* Hero Header */}
           <div className="mb-8">
             <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">
-              今天先做哪件事能赚钱或止损
+              今日运营决策
             </h1>
             <p className="text-gray-500 mt-2 text-sm sm:text-base max-w-3xl">
-              先找最该处理的ASIN、Listing或广告动作，再用真实点击和订单验证，避免凭感觉烧预算。
+              聚焦ASIN、Listing与广告的优先动作，并用真实点击和订单验证。
             </p>
           </div>
 
@@ -893,7 +893,7 @@ export default function Dashboard() {
                   今日运营指令
                 </h2>
                 <p className="text-xs text-gray-500 mt-1">
-                  先处理 P0：该停词就停词，该补样本就补样本，该回Listing改承接就先改承接。
+                  优先处理 P0：暂停低效词、补足样本或修正Listing承接。
                 </p>
               </div>
               {agentDecision && (

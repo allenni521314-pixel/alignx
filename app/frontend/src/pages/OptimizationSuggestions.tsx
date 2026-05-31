@@ -474,7 +474,7 @@ export default function OptimizationSuggestions() {
     }
     if (!feedbackQuality.sampleReady) {
       return [
-        { label: "继续跑量记录", path: "/ad-analytics?view=records", variant: "default" as const },
+        { label: "补样本记录", path: "/ad-analytics?view=records", variant: "default" as const },
         { label: "查看效果验证", path: "/ad-analytics?view=validation", variant: "outline" as const },
       ];
     }
@@ -580,7 +580,7 @@ export default function OptimizationSuggestions() {
     const blockedReason = !feedbackQuality.bindingReady
       ? "广告记录还没有完整绑定诊断假设，下一轮会失去归因依据。"
       : !feedbackQuality.sampleReady
-        ? "广告点击样本未满100次，下一轮优先继续跑量而不是改Listing。"
+        ? "广告点击样本未满100次，下一轮优先补足样本，不调整Listing。"
         : !feedbackQuality.completedCount
           ? "还没有完成命中/未命中判断，不能把动作写入下一轮。"
           : "复盘结论尚未满足沉淀条件。";
@@ -591,7 +591,7 @@ export default function OptimizationSuggestions() {
         ? `优先从 ${primaryOwner} 开始，最高优先级为 ${highestPriority}；执行时只改一个核心变量并绑定同一假设ID。`
         : blockedReason,
       nextAction: ready
-        ? "按优先级执行第一项，完成修改后回到广告验证跑小预算测试。"
+        ? "按优先级执行第一项，完成修改后进入广告验证。"
         : "先补齐数据回流和复盘判定，再生成下一轮动作。",
     };
   }, [
@@ -795,7 +795,7 @@ export default function OptimizationSuggestions() {
                         样本门槛：广告点击达到100次后再判定
                       </span>
                     </div>
-	                    <h2 className="text-lg font-semibold text-gray-900 mt-3">这轮钱能不能沉淀经验</h2>
+	                    <h2 className="text-lg font-semibold text-gray-900 mt-3">投放经验沉淀</h2>
                     <p className="text-sm text-gray-600 mt-2">{feedbackQuality.reason}</p>
                   </div>
                   <div className="flex flex-wrap gap-2 shrink-0">
@@ -817,10 +817,10 @@ export default function OptimizationSuggestions() {
 
                 <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mt-5">
                   {[
-	                    { label: "第几轮花钱", value: String(liveFeedbackStats.rounds), desc: "当前版本链路" },
+	                    { label: "投放轮次", value: String(liveFeedbackStats.rounds), desc: "当前版本链路" },
 	                    { label: "点击够不够", value: formatNumber(feedbackQuality.totalClicks), desc: feedbackQuality.sampleReady ? "可以判断" : "未满100次" },
 	                    { label: "是否知道在测什么", value: `${feedbackQuality.assignedCount}/${hypothesisValidations.length || 0}`, desc: feedbackQuality.bindingReady ? "已绑定卖点" : "需要补齐" },
-	                    { label: "能复盘几项", value: String(feedbackQuality.completedCount), desc: "放量/停词" },
+	                    { label: "有效复盘项", value: String(feedbackQuality.completedCount), desc: "放量/暂停" },
 	                    { label: "放量胜率", value: feedbackQuality.completedCount ? `${feedbackQuality.hitRate}%` : liveFeedbackStats.hitRate, desc: "只算已完成假设" },
                   ].map((item) => (
                     <div key={item.label} className="rounded-lg bg-gray-50 border border-gray-100 p-3">
@@ -839,25 +839,25 @@ export default function OptimizationSuggestions() {
 	                    <p className="text-sm font-semibold text-gray-900">先确认在测哪个卖点</p>
                   </div>
                   <p className="text-sm text-gray-600 mt-3">
-	                    {workflowChain?.product?.asin || "当前产品"} 的 Listing改动、广告关键词组和A/B变量必须绑定同一个假设ID，否则不能判断该放量还是停。
+	                    {workflowChain?.product?.asin || "当前产品"} 的 Listing改动、广告关键词组和A/B变量必须绑定同一个假设ID，否则无法判断放量或暂停。
                   </p>
                 </Card>
                 <Card className="bg-white border-gray-200 p-5">
                   <div className="flex items-center gap-2">
                     <BarChart3 className="w-4 h-4 text-amber-600" />
-	                    <p className="text-sm font-semibold text-gray-900">先别急着下结论</p>
+	                    <p className="text-sm font-semibold text-gray-900">暂缓判定</p>
                   </div>
                   <p className="text-sm text-gray-600 mt-3">
-	                    先看点击是否满100，再看CTR、CVR、ACOS和订单贡献；未满样本只记录趋势，不沉淀经验。
+	                    先校验点击是否满100，再评估CTR、CVR、ACOS和订单贡献；未满样本只记录趋势。
                   </p>
                 </Card>
                 <Card className="bg-white border-gray-200 p-5">
                   <div className="flex items-center gap-2">
                     <Database className="w-4 h-4 text-brand-600" />
-	                    <p className="text-sm font-semibold text-gray-900">只沉淀能复用的经验</p>
+	                    <p className="text-sm font-semibold text-gray-900">沉淀可复用经验</p>
                   </div>
                   <p className="text-sm text-gray-600 mt-3">
-	                    只有“卖点已绑定 + 样本达标 + 能解释放量/停词原因”的记录，才会校准下一轮运营动作。
+	                    只有“卖点已绑定 + 样本达标 + 能解释放量/暂停原因”的记录，才会校准下一轮运营动作。
                   </p>
                 </Card>
               </div>
@@ -950,12 +950,12 @@ export default function OptimizationSuggestions() {
               </div>
 
               <Card className="bg-white border-gray-200 p-5 mb-6">
-	                <h2 className="text-sm font-semibold text-gray-900 mb-3">哪些结论能指导下一轮花钱</h2>
+	                <h2 className="text-sm font-semibold text-gray-900 mb-3">下一轮投放依据</h2>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                   {[
 	                    { title: "可以放量", text: "点击样本达标且CTR/CVR/ACOS表现一致改善，才允许进入可复用经验。" },
 	                    { title: "先停或先改", text: "先归因到点击、承接、价格信任、关键词意图或样本不足，不能直接否定整个Listing方向。" },
-	                    { title: "下一轮别混改", text: "每轮只改一个核心变量，并把广告组、关键词组和Listing版本绑定到同一个假设ID。" },
+	                    { title: "单变量修改", text: "每轮只改一个核心变量，并把广告组、关键词组和Listing版本绑定到同一个假设ID。" },
                   ].map((item) => (
                     <div key={item.title} className="rounded-lg bg-gray-50 border border-gray-100 p-3">
                       <p className="text-sm font-semibold text-gray-900">{item.title}</p>
@@ -970,8 +970,8 @@ export default function OptimizationSuggestions() {
           {view === "data-feedback" && (
             <Card className="bg-white border-gray-200 mb-6 overflow-hidden">
               <div className="p-5 border-b border-gray-100">
-	                <h2 className="text-sm font-semibold text-gray-900">这轮钱买到了什么经验</h2>
-	                <p className="text-xs text-gray-500 mt-1">按假设ID追踪每一轮改动、广告指标、放量/停词状态和下一步动作。</p>
+	                <h2 className="text-sm font-semibold text-gray-900">投放复盘记录</h2>
+	                <p className="text-xs text-gray-500 mt-1">按假设ID追踪每一轮改动、广告指标、放量/暂停状态和下一步动作。</p>
               </div>
               <div className="divide-y divide-gray-100">
                 {liveFeedbackRecords.length ? liveFeedbackRecords.map((record) => (
@@ -990,7 +990,7 @@ export default function OptimizationSuggestions() {
                       <p className="text-sm text-gray-700">{record.after}</p>
                     </div>
                     <div>
-	                      <p className="text-[11px] text-gray-400">花钱后的指标</p>
+	                      <p className="text-[11px] text-gray-400">投放指标</p>
                       <p className="text-sm text-gray-700">{record.metric}</p>
                     </div>
                     <Badge
@@ -1007,7 +1007,7 @@ export default function OptimizationSuggestions() {
                   </div>
                 )) : (
                   <div className="p-6 text-sm text-gray-500">
-	                    暂时还没有能指导下一轮花钱的记录。先粘贴或上传Amazon广告报表，再绑定卖点假设，满100点击后再复盘。
+	                    暂无可指导下一轮投放的记录。请先上传Amazon广告报表，绑定卖点假设，满100点击后再复盘。
                   </div>
                 )}
               </div>
@@ -1029,7 +1029,7 @@ export default function OptimizationSuggestions() {
                       {nextRoundQuality.ready ? "可执行" : "先补齐"}
                     </Badge>
                     <span className="text-xs text-gray-500">
-	                      下一轮只改一个核心变量，别混着改
+	                      下一轮单变量修改
                     </span>
                   </div>
                   <h2 className="text-lg font-semibold text-gray-900 mt-3">{nextRoundQuality.title}</h2>
@@ -1040,10 +1040,10 @@ export default function OptimizationSuggestions() {
                   {(nextRoundQuality.ready
                     ? [
 	                        { label: "先执行第一项", path: liveNextRoundActions[0]?.path || "/listing-diagnosis", variant: "default" as const },
-	                        { label: "建立小预算测试", path: "/ab-test-comparison", variant: "outline" as const },
+	                        { label: "建立验证投放", path: "/ab-test-comparison", variant: "outline" as const },
                       ]
                     : [
-	                        { label: "先看复盘结论", path: "/optimization-suggestions?view=conclusion", variant: "default" as const },
+	                        { label: "查看复盘结论", path: "/optimization-suggestions?view=conclusion", variant: "default" as const },
 	                        { label: "补齐广告花费和订单", path: "/ad-analytics?view=records", variant: "outline" as const },
                       ]).map((action) => (
                     <Button
@@ -1204,7 +1204,7 @@ export default function OptimizationSuggestions() {
                   {[
                     { title: "先改高置信项", text: "优先执行P0/P1，不同时改多个卖点。" },
                     { title: "保留对照组", text: "A版本保留原Listing，B版本只改一个变量。" },
-                    { title: "广告小预算验证", text: "固定竞价和关键词组，观察CTR、CVR、ACOS。" },
+                    { title: "广告验证投放", text: "固定竞价和关键词组，观察CTR、CVR、ACOS。" },
                     { title: "结果回流", text: "点击满100后回到效果验证和数据回流。" },
                   ].map((item) => (
                     <div key={item.title} className="rounded-lg bg-gray-50 border border-gray-100 p-3">

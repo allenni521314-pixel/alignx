@@ -75,9 +75,9 @@ interface ValidationGroup {
 }
 
 function inferValidationHitStatus(level: string) {
-  if (level === "可以小幅放量") return "已命中";
-  if (level === "继续跑量，别急着放大" || level === "先绑定假设，别判成败") return "待验证";
-  if (level === "别加预算，先改Listing承接") return "部分命中";
+  if (level === "小幅放量") return "已命中";
+  if (level === "样本不足" || level === "待归因") return "待验证";
+  if (level === "承接不足") return "部分命中";
   return "未命中";
 }
 
@@ -87,8 +87,8 @@ function inferValidationFailureReason(metrics: { impressions?: number; clicks?: 
   const ctr = Number(metrics.ctr || 0);
   const cvr = Number(metrics.cvr || 0);
   const acos = Number(metrics.acos || 0);
-  if (level === "可以小幅放量") return "none";
-  if (level === "先绑定假设，别判成败") return "unassigned_hypothesis";
+  if (level === "小幅放量") return "none";
+  if (level === "待归因") return "unassigned_hypothesis";
   if (clicks < 100) return "sample_not_enough";
   if (impressions >= 1000 && ctr < 0.25) return "image_click_gap";
   if (ctr < 0.4) return "keyword_mismatch";
@@ -586,46 +586,46 @@ export default function AdAnalytics() {
     const ctrNum = Number(validationMetrics.ctr);
     if (!validationMetrics.assigned) {
       return {
-        level: "先绑定假设，别判成败",
+        level: "待归因",
         color: "text-amber-700 bg-amber-50 border-amber-200",
         icon: AlertTriangle,
-        summary: "这组广告还不知道在验证哪个Listing假设，现在判命中/失败会污染系统经验。先补 hypothesis_id 和 keyword_group_id。",
-        actions: ["先绑定假设ID", "按卖点/场景拆开关键词组", "绑定后再判断能不能放量"],
+        summary: "当前广告数据未绑定Listing假设，暂不进入命中/失败判断。请补充 hypothesis_id 与 keyword_group_id。",
+        actions: ["绑定假设ID", "拆分关键词组", "归因后再判断放量"],
       };
     }
     if (validationClicks < 100) {
       return {
-        level: "继续跑量，别急着放大",
+        level: "样本不足",
         color: "text-amber-700 bg-amber-50 border-amber-200",
         icon: AlertTriangle,
-        summary: `「${validationHypothesisLabel}」目前只有 ${validationClicks} 次点击，低于100次最低样本。现在不要加预算，也不要急着停。`,
-        actions: ["继续跑到100次点击", "保持Listing版本和关键词结构不变", "先别扩大预算或暂停测试"],
+        summary: `「${validationHypothesisLabel}」当前 ${validationClicks} 次点击，低于100次最低样本，暂不放量或暂停。`,
+        actions: ["补足100次点击", "保持版本稳定", "暂缓放量"],
       };
     }
     if (cvrNum >= 8 && (acosNum <= 35 || Number(validationMetrics.sales || 0) === 0)) {
       return {
-        level: "可以小幅放量",
+        level: "小幅放量",
         color: "text-emerald-700 bg-emerald-50 border-emerald-200",
         icon: CheckCircle2,
-        summary: `「${validationHypothesisLabel}」在「${validationKeywordGroupLabel}」里转化承接成立，可以作为有效卖点继续测试放量。`,
-        actions: ["小幅提高高转化词预算", "保留当前Listing承诺表达", "把命中原因写回复盘"],
+        summary: `「${validationHypothesisLabel}」在「${validationKeywordGroupLabel}」中转化承接成立，可进入小幅放量。`,
+        actions: ["提高优质词预算", "保留当前表达", "沉淀命中原因"],
       };
     }
     if (ctrNum > 0.4 && cvrNum < 5) {
       return {
-        level: "别加预算，先改Listing承接",
+        level: "承接不足",
         color: "text-teal-700 bg-teal-50 border-teal-200",
         icon: AlertTriangle,
-        summary: `「${validationHypothesisLabel}」能带来点击，但详情页、价格、评价或承诺可信度没有接住订单。`,
-        actions: ["回Listing检查主图/五点/A+承接", "复核价格和评价信任", "先保留点击词但别继续加预算"],
+        summary: `「${validationHypothesisLabel}」点击成立，但详情页、价格、评价或承诺可信度承接不足。`,
+        actions: ["复核Listing承接", "检查价格与信任", "暂缓加预算"],
       };
     }
     return {
-      level: "停低效词，重做测试",
+      level: "暂停低效词",
       color: "text-red-700 bg-red-50 border-red-200",
       icon: AlertTriangle,
-      summary: "这组词既没有证明点击，也没有证明转化。继续烧预算意义不大，需要换词或重做Listing首屏假设。",
-      actions: ["暂停低效关键词", "重做A/B测试计划", "回Listing复核用户需求缺口"],
+      summary: "当前关键词未证明点击或转化，需要调整关键词结构或Listing首屏假设。",
+      actions: ["暂停低效关键词", "重建测试计划", "复核需求缺口"],
     };
   })();
 
@@ -739,12 +739,12 @@ export default function AdAnalytics() {
             <div>
               <h1 className="text-xl sm:text-2xl font-bold flex items-center gap-2">
                 <BarChart3 className="w-5 h-5 sm:w-6 sm:h-6 text-amber-600" />
-                {isValidationView ? "这组广告能不能放量" : "录入广告花费和订单"}
+                {isValidationView ? "广告放量判断" : "广告数据录入"}
               </h1>
               <p className="text-gray-500 mt-1 text-sm">
                 {isValidationView
-                  ? "看清楚该放量、停词，还是回Listing改承接"
-                  : "把每轮广告数据录准，后面才能判断钱花得值不值"}
+                  ? "判断放量、暂停或Listing承接修正"
+                  : "记录每轮曝光、点击、花费、订单和销售额"}
               </p>
             </div>
             {isValidationView ? (
@@ -761,11 +761,11 @@ export default function AdAnalytics() {
 
           {isValidationView ? (
             <PageHeader
-              objective="判断这轮广告该放量、停词还是回Listing改承接"
+              objective="判断广告放量、暂停或承接修正"
               inputSource="执行记录中的曝光、点击、花费、订单、销售额"
-              process="先看是否绑定假设和满100点击，再看CTR、CVR、ACOS、ROAS"
-              outputTarget="放量/停词/改Listing/继续跑样本的明确动作"
-              action="把命中或失败原因写回复盘"
+              process="先校验假设绑定和100点击样本，再评估CTR、CVR、ACOS、ROAS"
+              outputTarget="放量、暂停、承接修正或补样本动作"
+              action="沉淀命中或失败原因"
               feedback="用真实投放结果校准下一轮运营动作"
               tone="orange"
             />
@@ -774,9 +774,9 @@ export default function AdAnalytics() {
               objective="把广告花费、点击和订单录准"
               inputSource="粘贴/上传Amazon广告报表为主；API授权同步为正式版能力"
               process="按产品、假设、关键词组和轮次记录真实指标"
-              outputTarget="可追溯的烧钱记录和关键词表现明细"
-              action="去判断该放量、停词还是改Listing"
-              feedback="为复盘这轮钱花得值不值提供事实"
+              outputTarget="可追溯的投放记录和关键词表现明细"
+              action="进入广告放量判断"
+              feedback="为投放复盘提供事实依据"
               tone="cyan"
             />
           )}
@@ -847,7 +847,7 @@ export default function AdAnalytics() {
                     {importMode === "upload" ? "上传报表解析" : "粘贴广告报表"}
                   </h3>
                   <p className="text-sm text-gray-500 mt-1">
-                    先选择产品，再粘贴 Amazon Ads 报表表格；系统会按表头识别曝光、点击、花费、订单和销售额。
+                    选择产品后粘贴 Amazon Ads 报表；系统会按表头识别曝光、点击、花费、订单和销售额。
                   </p>
                 </div>
                 <Button variant="outline" onClick={() => { setImportMode(null); setImportText(""); }}>
@@ -1024,7 +1024,7 @@ export default function AdAnalytics() {
                   </Button>
                   <Button asChild className="bg-emerald-600 hover:bg-emerald-500 text-white">
                     <a href="/optimization-suggestions?view=data-feedback">
-                      复盘这轮钱
+                      投放复盘
                     </a>
                   </Button>
                 </div>
@@ -1037,7 +1037,7 @@ export default function AdAnalytics() {
                 </div>
                 <div className="rounded-lg bg-gray-50 border border-gray-100 p-3">
                   <div className="flex items-center justify-between">
-                    <p className="text-xs text-gray-500">能不能下判断</p>
+                    <p className="text-xs text-gray-500">判定条件</p>
                     <span className="text-xs font-semibold text-gray-700">{Number(validationMetrics.clicks || 0)}/100 点击</span>
                   </div>
                   <div className="h-2 bg-white rounded-full overflow-hidden mt-2">
@@ -1045,7 +1045,7 @@ export default function AdAnalytics() {
                   </div>
                 </div>
                 <div className="rounded-lg bg-gray-50 border border-gray-100 p-3">
-                  <p className="text-xs text-gray-500">花钱后的表现</p>
+                  <p className="text-xs text-gray-500">投放表现</p>
                   <p className="text-sm font-semibold text-gray-900 mt-1">CTR {validationMetrics.ctr}% · CVR {validationMetrics.cvr}%</p>
                   <p className="text-[11px] text-gray-400 mt-1">ACoS {validationMetrics.acos}%</p>
                 </div>
@@ -1065,9 +1065,9 @@ export default function AdAnalytics() {
                   <AlertTriangle className="w-5 h-5 text-amber-700" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-semibold text-gray-900">先选一个产品，别把不同ASIN混着算</h3>
+                  <h3 className="text-sm font-semibold text-gray-900">请选择单一产品</h3>
                   <p className="text-sm text-gray-600 mt-1">
-                    广告判断必须按单个ASIN/产品对齐，否则CTR、CVR、ACoS混在一起，会误导放量和停词动作。
+                    广告判断必须按单个ASIN/产品对齐，避免CTR、CVR、ACoS混算。
                   </p>
                 </div>
               </div>
@@ -1078,7 +1078,7 @@ export default function AdAnalytics() {
             <Card className="bg-white border-gray-200 p-5 mb-4 sm:mb-6">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
                 <div>
-                  <h3 className="text-sm font-semibold text-gray-900">每个卖点该放量还是停</h3>
+                  <h3 className="text-sm font-semibold text-gray-900">假设放量判断</h3>
                   <p className="text-xs text-gray-500 mt-1">按“卖点假设 + 关键词组 + 轮次”看结果，避免多个实验混在一起。</p>
                 </div>
                 <span className="text-xs text-gray-400">
@@ -1101,7 +1101,7 @@ export default function AdAnalytics() {
                   <tbody>
                     {validationGroups.map((group) => {
                       const status = group.clicks < 100
-	                        ? "继续跑量"
+                        ? "补样本"
 	                        : Number(group.cvr) >= 8 && (Number(group.acos) <= 35 || group.sales === 0)
 	                          ? "可放量"
 	                          : "先停/先改";
@@ -1123,7 +1123,7 @@ export default function AdAnalytics() {
                             <span className={`inline-flex px-2 py-1 rounded-full text-xs border ${
 	                              status === "可放量"
 	                                ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-	                                : status === "继续跑量"
+                                : status === "补样本"
 	                                  ? "bg-amber-50 text-amber-700 border-amber-200"
                                   : "bg-red-50 text-red-700 border-red-200"
                             }`}>

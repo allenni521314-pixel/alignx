@@ -3222,10 +3222,10 @@ export default function ListingDiagnosis() {
             <div>
               <h1 className="text-xl sm:text-2xl font-bold flex items-center gap-2">
                 <ClipboardCheck className="w-5 h-5 sm:w-6 sm:h-6 text-brand-600" />
-                先找Listing转化卡点
+                Listing承接诊断
               </h1>
               <p className="text-gray-500 mt-1 text-sm">
-                输入ASIN，直接判断先改标题、主图、五点、A+，还是先别放大广告。
+                输入ASIN，判断标题、主图、五点、A+与广告承接优先级。
               </p>
             </div>
             {diagResult && (
@@ -3236,12 +3236,12 @@ export default function ListingDiagnosis() {
           </div>
 
           <PageHeader
-            objective="找出Listing先改哪里，避免广告继续为错误承接买流量"
+            objective="定位Listing承接优先级，避免无效广告承接"
             inputSource="站点、ASIN/Amazon链接、标题、主图/副图、五点、A+、价格、评分、评论、关键词"
-            process="按买家意图、平台识别和转化承接定位点击/CVR卡点"
-            outputTarget="先改模块、预算保护动作、广告验证词组和失败回流规则"
-            action="先执行P0改动，再用小预算验证"
-            feedback="每次改动留快照，用广告数据判断该放量还是继续改"
+            process="按买家意图、平台识别和转化承接定位点击/CVR问题"
+            outputTarget="优先模块、预算保护动作、广告验证词组和失败回流规则"
+            action="执行P0改动，并进入广告验证"
+            feedback="保留改动快照，用广告数据判断放量或继续优化"
             tone="indigo"
           />
 
@@ -3284,9 +3284,9 @@ export default function ListingDiagnosis() {
                     className="bg-brand-600 hover:bg-brand-700 text-white h-11 px-6"
                   >
                     {fetching ? (
-                      <><Loader2 className="w-4 h-4 mr-1.5 animate-spin" />正在找卡点</>
+                      <><Loader2 className="w-4 h-4 mr-1.5 animate-spin" />分析中</>
                     ) : (
-                      <><Zap className="w-4 h-4 mr-1.5" />开始找卡点</>
+                      <><Zap className="w-4 h-4 mr-1.5" />开始分析</>
                     )}
                   </Button>
                   <Button
@@ -3353,14 +3353,14 @@ export default function ListingDiagnosis() {
                       </div>
                       <div className="flex-1">
                         <p className="text-sm text-gray-600 leading-relaxed max-w-4xl">
-                          输入你的 ASIN，AlignX 会直接指出标题、主图、副图、五点、A+、价格、评分、评论和关键词里，哪一项最该先动。
+	                          输入ASIN后，AlignX会定位标题、主图、副图、五点、A+、价格、评分、评论和关键词的承接优先级。
                         </p>
                         <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                           {[
-                            "找出不转化主因：主图 / 标题 / 价格 / 关键词 / 信任不足",
-                            "确认 Listing 是否接住买家搜索意图",
-                            "输出先改项，不给泛泛建议",
-                            "改完用小预算验证转化变化",
+	                            "定位转化阻碍：主图 / 标题 / 价格 / 关键词 / 信任不足",
+	                            "确认 Listing 是否承接买家搜索意图",
+	                            "输出优先项，避免泛泛建议",
+	                            "改动后验证转化变化",
                           ].map((item) => (
                             <div key={item} className="rounded-lg border border-brand-100 bg-white px-3 py-2 text-xs text-gray-700">
                               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 inline mr-1.5" />
@@ -3380,8 +3380,8 @@ export default function ListingDiagnosis() {
                     <div className="flex items-start gap-3">
                       <AlertTriangle className="w-5 h-5 text-amber-600 mt-0.5" />
                       <div>
-                        <h3 className="text-sm font-semibold text-gray-900">没抓全Listing，先手动补核心字段。</h3>
-                        <p className="text-xs text-gray-600 mt-1">补标题和五点后仍可判断先改哪里，但置信度会低于真实页面抓取。</p>
+	                        <h3 className="text-sm font-semibold text-gray-900">Listing字段不完整，请补充核心字段。</h3>
+	                        <p className="text-xs text-gray-600 mt-1">补充标题和五点后仍可生成判断，但置信度低于真实页面抓取。</p>
                         <Button
                           type="button"
                           variant="outline"
@@ -3404,7 +3404,7 @@ export default function ListingDiagnosis() {
                       <div>
                         <CardTitle className="text-base flex items-center gap-2">
                           <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-                          先确认能不能下判断
+	                          判定条件
                         </CardTitle>
                         <p className="text-xs text-gray-500 mt-1">先判断标题、图片和五点是否能承接流量；价格/评论/BSR缺失只降低市场证据置信度。</p>
                       </div>
@@ -3538,7 +3538,7 @@ export default function ListingDiagnosis() {
                             <Badge variant="outline">完整度 {fetchMeta.capture_quality.completeness ?? 0}%</Badge>
                             <Badge variant={formalGateMissing.length === 0 ? "default" : "secondary"}>
                               {formalGateMissing.length === 0
-                                ? isNewLaunchMode ? "新品可先看承接" : marketEvidenceMissing.length > 0 ? "先看承接" : "可下正式判断"
+	                                ? isNewLaunchMode ? "新品承接可判定" : marketEvidenceMissing.length > 0 ? "承接可判定" : "可正式判定"
                                 : "仅低置信预检"}
                             </Badge>
                             <Button
@@ -3572,13 +3572,13 @@ export default function ListingDiagnosis() {
                     )}
                     {formalGateMissing.length > 0 && !fetchMeta?.capture_quality && (
                       <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                        现在不能判断先改哪里。请先补齐：
+	                        当前无法判定优先项。请先补齐：
                         <span className="font-semibold"> {formalGateMissing.join("、")} </span>
                       </div>
                     )}
                     {formalGateMissing.length === 0 && marketEvidenceMissing.length > 0 && !fetchMeta?.capture_quality && (
                       <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                        {isNewLaunchMode ? "已识别为新品上架，可先判断Listing承接；" : "可先判断新品Listing承接；"}
+	                        {isNewLaunchMode ? "已识别为新品上架，可判断Listing承接；" : "可判断新品Listing承接；"}
                         缺失的市场证据会降低置信度：
                         <span className="font-semibold"> {marketEvidenceMissing.join("、")} </span>
                       </div>
@@ -3635,7 +3635,7 @@ export default function ListingDiagnosis() {
                       {diagnosing && (
                         <span className="text-sm text-brand-600 flex items-center gap-2 sm:ml-2">
                           <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          正在判断先改哪里，最多等待180秒...
+	                          正在生成承接判断，最多等待180秒...
                         </span>
                       )}
                     </div>
@@ -3703,7 +3703,7 @@ export default function ListingDiagnosis() {
                   <Tabs value={resultTab} onValueChange={setResultTab}>
                     <TabsList className="bg-gray-50 border border-gray-200 flex-wrap">
                       <TabsTrigger value="overview" className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600 text-xs sm:text-sm">
-                        先改哪里
+                        优先项
                       </TabsTrigger>
                       <TabsTrigger value="scores" className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600 text-xs sm:text-sm">
                         承接评分
@@ -3712,13 +3712,13 @@ export default function ListingDiagnosis() {
                         验证假设
                       </TabsTrigger>
                       <TabsTrigger value="heatmap" className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600 text-xs sm:text-sm">
-                        模块卡点
+                        模块问题
                       </TabsTrigger>
                       <TabsTrigger value="keywords" className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600 text-xs sm:text-sm">
                         补哪些词
                       </TabsTrigger>
                       <TabsTrigger value="suggestions" className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600 text-xs sm:text-sm">
-                        马上怎么改
+                        优化动作
                       </TabsTrigger>
                       <TabsTrigger value="adkeywords" className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600 text-xs sm:text-sm">
                         验证词组
@@ -3796,7 +3796,7 @@ export default function ListingDiagnosis() {
 
                       <Card className="bg-gray-50 border-gray-200">
                         <CardContent className="pt-6">
-                          <h3 className="text-lg font-bold text-gray-900 mb-2">先改哪里</h3>
+                          <h3 className="text-lg font-bold text-gray-900 mb-2">优先项</h3>
                           <p className="text-sm text-gray-500 leading-relaxed">{diagResult.overall_summary}</p>
                         </CardContent>
                       </Card>
@@ -3828,7 +3828,7 @@ export default function ListingDiagnosis() {
                       {elementsData.length > 0 ? (
                         <Card className="bg-gray-50 border-gray-200 p-5">
                           <div className="mb-4">
-                            <h3 className="text-sm font-semibold text-gray-700">Listing模块卡点图</h3>
+                            <h3 className="text-sm font-semibold text-gray-700">Listing模块问题图</h3>
                             <p className="mt-1 text-xs text-gray-500 leading-relaxed">
                               行分用于定位标题、五点、图片、A+或Search Terms哪个模块拖后腿；列分会汇总到最终承接分。价格、评论、BSR和广告数据属于验证参考，不和单个模块行分直接对比。
                             </p>
@@ -3899,7 +3899,7 @@ export default function ListingDiagnosis() {
                         </Card>
                       ) : (
                         <Card className="bg-gray-50 border-gray-200 p-8 text-center">
-                          <p className="text-gray-500 text-sm">暂无模块卡点数据</p>
+                          <p className="text-gray-500 text-sm">暂无模块问题数据</p>
                         </Card>
                       )}
                     </TabsContent>
@@ -4083,16 +4083,16 @@ export default function ListingDiagnosis() {
                               <CardContent className="pt-4">
                                 <div className="flex items-center gap-2 mb-2">
                                   <Megaphone className="w-4 h-4 text-brand-600" />
-                                  <span className="text-sm font-medium text-gray-600">先拿这些词小预算验证</span>
+                                  <span className="text-sm font-medium text-gray-600">广告验证词组</span>
                                 </div>
                                 <p className="text-sm text-gray-500">{diagResult.ad_keywords.ad_summary}</p>
                               </CardContent>
                             </Card>
                           )}
 
-                          <AdKeywordSection title="可优先测试的转化词" subtitle="小预算先测转化" keywords={sanitizeAdKeywordList(diagResult.ad_keywords.high_conversion, listing.title || diagResult.listing_title, "high_conversion")} accentColor="emerald" />
-                          <AdKeywordSection title="用来探流量的词" subtitle="只控预算，不先放量" keywords={sanitizeAdKeywordList(diagResult.ad_keywords.traffic, listing.title || diagResult.listing_title, "traffic")} accentColor="blue" />
-                          <AdKeywordSection title="长尾精准测试词" subtitle="低竞争，先看CVR" keywords={sanitizeAdKeywordList(diagResult.ad_keywords.long_tail, listing.title || diagResult.listing_title, "long_tail")} accentColor="purple" />
+                          <AdKeywordSection title="转化验证词" subtitle="验证CVR" keywords={sanitizeAdKeywordList(diagResult.ad_keywords.high_conversion, listing.title || diagResult.listing_title, "high_conversion")} accentColor="emerald" />
+                          <AdKeywordSection title="流量验证词" subtitle="控制预算" keywords={sanitizeAdKeywordList(diagResult.ad_keywords.traffic, listing.title || diagResult.listing_title, "traffic")} accentColor="blue" />
+                          <AdKeywordSection title="长尾验证词" subtitle="观察CVR" keywords={sanitizeAdKeywordList(diagResult.ad_keywords.long_tail, listing.title || diagResult.listing_title, "long_tail")} accentColor="purple" />
 
                           {diagResult.ad_keywords.negative && diagResult.ad_keywords.negative.length > 0 && (
                             <Card className="bg-gray-50 border-red-500/20">
@@ -4444,24 +4444,24 @@ function DiagnosisExecutiveReport({
           <div>
             <div className="flex flex-wrap gap-2 mb-3">
               <Badge className={shouldModify ? "bg-red-50 text-red-700 border-red-200" : "bg-emerald-50 text-emerald-700 border-emerald-200"} variant="outline">
-                {shouldModify ? "先改Listing" : "可小预算验证"}
+                {shouldModify ? "优化Listing" : "可验证"}
               </Badge>
               <Badge className={recommendAdValidation ? "bg-brand-50 text-brand-700 border-brand-200" : "bg-amber-50 text-amber-700 border-amber-200"} variant="outline">
-                {recommendAdValidation ? "去小预算验证" : "先补承接再投"}
+                {recommendAdValidation ? "进入验证" : "补强承接"}
               </Badge>
             </div>
             <h3 className="text-lg font-bold text-gray-900">运营结论</h3>
             <p className="mt-2 text-sm text-gray-600 leading-relaxed">
               {result.overall_summary ||
-                "当前 Listing 先别放大广告，先确认点击承接、搜索意图和信任证明是否完整。"}
+                "当前 Listing 需先确认点击承接、搜索意图和信任证明是否完整。"}
             </p>
             <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
               <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
-                <p className="text-[11px] text-gray-500">最先拖累转化</p>
+                <p className="text-[11px] text-gray-500">主要转化阻碍</p>
                 <p className="mt-1 text-sm font-semibold text-gray-900">{topIssue?.position || "待诊断"}</p>
               </div>
               <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 md:col-span-2">
-                <p className="text-[11px] text-gray-500">第一优先动作</p>
+                <p className="text-[11px] text-gray-500">优先动作</p>
                 <p className="mt-1 text-sm font-semibold text-gray-900">{priorityDirection}</p>
               </div>
             </div>
@@ -4489,18 +4489,18 @@ function PriorityIssueTable({ rows }: { rows: PriorityIssue[] }) {
       <CardHeader className="pb-3">
         <CardTitle className="text-base flex items-center gap-2">
           <Target className="w-5 h-5 text-brand-600" />
-          先改清单
+          优先清单
         </CardTitle>
       </CardHeader>
       <CardContent className="overflow-x-auto">
         <table className="w-full min-w-[820px] text-sm">
           <thead>
             <tr className="text-left text-xs text-gray-500 border-b border-gray-100">
-              <th className="py-3 pr-3">卡点位置</th>
+              <th className="py-3 pr-3">问题位置</th>
               <th className="py-3 pr-3">为什么影响转化</th>
-              <th className="py-3 pr-3">影响钱的位置</th>
+              <th className="py-3 pr-3">指标影响</th>
               <th className="py-3 pr-3">优先级</th>
-              <th className="py-3">马上怎么改</th>
+              <th className="py-3">优化动作</th>
             </tr>
           </thead>
           <tbody>
@@ -4536,49 +4536,49 @@ function ModuleDiagnosisCards({ result, listing }: { result: DiagnosisResult; li
 
   const modules = [
     {
-      title: "标题怎么改",
+      title: "标题优化",
       icon: <FileText className="w-4 h-4 text-brand-600" />,
       current: result.analysis?.product_identity || result.analysis?.function_expression || "检查核心关键词是否前置、品牌词是否合理、卖点表达是否清晰。",
       suggestion: result.suggestions?.title_rewrite || "按品牌 + 核心关键词 + 关键属性 + 规格/数量 + 适用场景重写，避免堆砌关键词。",
       example: result.suggestions?.title_rewrite || listing.title || "等待生成优化后标题示例。",
     },
     {
-      title: "主图怎么提高点击",
+      title: "主图点击优化",
       icon: <Image className="w-4 h-4 text-emerald-600" />,
       current: result.analysis?.product_identity || "检查产品主体、白底合规、占比、核心功能表达和竞品差异。",
       suggestion: "主图只负责点击：真实商品、主体清晰、无干扰文字，核心差异用视觉而不是大段文案表达。",
       example: "改版方向：提高产品占比，突出核心形态或关键差异，避免道具、边框、水印和夸张场景。",
     },
     {
-      title: "副图怎么补转化证据",
+      title: "副图证据补强",
       icon: <Image className="w-4 h-4 text-teal-600" />,
       current: result.analysis?.scenario_expression || "检查副图是否覆盖核心场景、功能解释、对比图、尺寸图、使用步骤和信任证明。",
       suggestion: "建议顺序：核心卖点图 → 场景图 → 尺寸/结构图 → 对比图 → 风险消除/信任图 → 使用步骤图。",
       example: "缺失类型优先补：场景图、尺寸图、对比图、信任证明图。",
     },
     {
-      title: "五点怎么打消顾虑",
+      title: "五点顾虑消除",
       icon: <List className="w-4 h-4 text-amber-600" />,
       current: result.analysis?.function_expression || `当前识别 ${bullets.length} 条五点，重点检查是否按痛点、功能、场景、信任和差异化排序。`,
       suggestion: result.suggestions?.bullet_points_optimization?.[0] || "每条五点只讲一个购买理由，前两条解决最大犹豫点，后面补场景、信任和风险消除。",
       example: result.suggestions?.bullet_points_optimization?.slice(0, 3).join(" / ") || "等待生成优化后五点示例。",
     },
     {
-      title: "A+怎么提高信任",
+      title: "A+信任补强",
       icon: <Star className="w-4 h-4 text-gold-600" />,
       current: result.analysis?.psychology_benefit || "检查A+是否讲清品牌信任、场景图、对比图、差异化和主图/五点承接。",
       suggestion: result.suggestions?.a_plus_suggestions || "A+按品牌信任、技术/材质解释、场景教育、对比证明、售后风险消除组织。",
       example: "建议模块：品牌信任 → 核心差异 → 使用场景 → 对比证据 → FAQ/售后承诺。",
     },
     {
-      title: "关键词该补哪些意图",
+      title: "关键词意图补充",
       icon: <Search className="w-4 h-4 text-teal-600" />,
       current: result.keyword_coverage?.coverage_summary || "检查标题、五点、A+和Search Terms是否表达一致，是否覆盖用户真实购买意图。",
       suggestion: missingKeywords.length ? `建议补充：${missingKeywords.join(", ")}` : "继续保持核心词覆盖，并优先测试关系词和状态触发词。",
       example: `已覆盖：${coveredKeywords.join(", ") || "待识别"}；广告验证词：${adKeywords.join(", ") || "待生成"}`,
     },
     {
-      title: "先补信任还是降价",
+      title: "价格信任判断",
       icon: <Shield className="w-4 h-4 text-red-600" />,
       current: result.analysis?.risk_elimination || "检查价格是否被评分、评论、保修、认证、安全和售后信息支撑。",
       suggestion: "不要先盲目降价。先补强信任证明和承诺证据，再用广告验证价格与转化的关系。",
@@ -4591,7 +4591,7 @@ function ModuleDiagnosisCards({ result, listing }: { result: DiagnosisResult; li
       <CardHeader className="pb-3">
         <CardTitle className="text-base flex items-center gap-2">
           <BarChart3 className="w-5 h-5 text-brand-600" />
-          各模块马上怎么改
+          模块优化动作
         </CardTitle>
       </CardHeader>
       <CardContent className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -4603,7 +4603,7 @@ function ModuleDiagnosisCards({ result, listing }: { result: DiagnosisResult; li
             </h4>
             <div className="mt-3 space-y-3 text-sm">
               <div>
-                <p className="text-[11px] text-gray-500 mb-1">当前卡点</p>
+                <p className="text-[11px] text-gray-500 mb-1">当前问题</p>
                 <p className="text-gray-700 leading-relaxed">{module.current}</p>
               </div>
               <div>
@@ -4611,7 +4611,7 @@ function ModuleDiagnosisCards({ result, listing }: { result: DiagnosisResult; li
                 <p className="text-gray-700 leading-relaxed">{module.suggestion}</p>
               </div>
               <div className="rounded-lg bg-white border border-gray-100 p-3">
-                <p className="text-[11px] text-gray-500 mb-1">改法示例 / 下一步</p>
+                <p className="text-[11px] text-gray-500 mb-1">示例 / 下一步</p>
                 <p className="text-gray-700 leading-relaxed">{module.example}</p>
               </div>
             </div>
@@ -4681,12 +4681,12 @@ function HistoryDetailView({
       {/* Sub-tabs */}
       <Tabs value={resultTab} onValueChange={setResultTab}>
         <TabsList className="bg-gray-50 border border-gray-200 flex-wrap">
-          <TabsTrigger value="overview" className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600 text-xs">先改哪里</TabsTrigger>
+          <TabsTrigger value="overview" className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600 text-xs">优先项</TabsTrigger>
           <TabsTrigger value="scores" className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600 text-xs">承接评分</TabsTrigger>
           <TabsTrigger value="judgment" className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600 text-xs">运营判断</TabsTrigger>
-          <TabsTrigger value="heatmap" className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600 text-xs">模块卡点</TabsTrigger>
+          <TabsTrigger value="heatmap" className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600 text-xs">模块问题</TabsTrigger>
           <TabsTrigger value="keywords" className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600 text-xs">补哪些词</TabsTrigger>
-          <TabsTrigger value="suggestions" className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600 text-xs">马上怎么改</TabsTrigger>
+          <TabsTrigger value="suggestions" className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600 text-xs">优化动作</TabsTrigger>
           <TabsTrigger value="adkeywords" className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600 text-xs">验证词组</TabsTrigger>
         </TabsList>
 
