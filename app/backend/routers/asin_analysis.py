@@ -443,6 +443,16 @@ async def _get_cached_asin_analysis(
     record = result.scalar_one_or_none()
     if not record:
         return None
+    return await _analysis_record_to_response(record, marketplace, db, user_id)
+
+
+async def _analysis_record_to_response(
+    record: Any,
+    marketplace: str,
+    db: AsyncSession,
+    user_id: str | list[str],
+) -> AnalyzeAsinResponse | None:
+    """Build the full API response from a saved ASIN analysis record."""
     try:
         product_data = json.loads(record.product_data or "{}")
     except Exception:
@@ -478,15 +488,7 @@ async def _get_cached_asin_analysis(
     shared_snapshot = await _find_shared_listing_score_snapshot(record.asin, marketplace, product_data, db, user_id)
     if shared_snapshot:
         scores = shared_snapshot["asin_scores"]
-        analysis_report["scores"] = shared_snapshot["score_aliases"]
-        analysis_report["canonical_10d_scores"] = shared_snapshot["canonical_scores"]
-        analysis_report["score_basis"] = "amazon_skill_10d_canonical_shared_listing_snapshot"
-        analysis_report["shared_score_source"] = {
-            "type": shared_snapshot["source"],
-            "id": shared_snapshot["source_id"],
-            "similarity": shared_snapshot["similarity"],
-        }
-        analysis_report["market_reality_caps"] = shared_snapshot["market_reality_caps"]
+        _apply_shared_listing_snapshot(analysis_report, shared_snapshot)
     if not analysis_report.get("listing_breakdown"):
         analysis_report["listing_breakdown"] = _build_listing_breakdown(product_data, analysis_report)
     analysis_report["toolbox_enhancements"] = analysis_report.get("toolbox_enhancements") or build_toolbox_enhancements(
@@ -509,6 +511,29 @@ async def _get_cached_asin_analysis(
     )
 
 
+def _apply_shared_listing_snapshot(scoring_data: dict, shared_snapshot: dict) -> None:
+    """Apply the saved Listing 10D judgment as the canonical source for the same ASIN."""
+    scoring_data["scores"] = shared_snapshot["score_aliases"]
+    scoring_data["canonical_10d_scores"] = shared_snapshot["canonical_scores"]
+    scoring_data["score_basis"] = "amazon_skill_10d_canonical_shared_listing_snapshot"
+    scoring_data["shared_score_source"] = {
+        "type": shared_snapshot["source"],
+        "id": shared_snapshot["source_id"],
+        "similarity": shared_snapshot["similarity"],
+    }
+    scoring_data["market_reality_caps"] = shared_snapshot["market_reality_caps"]
+
+    shared_analysis = shared_snapshot.get("analysis")
+    if isinstance(shared_analysis, dict) and shared_analysis:
+        existing_analysis = scoring_data.get("analysis") if isinstance(scoring_data.get("analysis"), dict) else {}
+        merged_analysis = dict(existing_analysis)
+        for key, value in shared_analysis.items():
+            if value not in (None, "", [], {}):
+                merged_analysis[key] = value
+        if merged_analysis:
+            scoring_data["analysis"] = merged_analysis
+
+
 async def _find_shared_listing_score_snapshot(
     asin: str,
     marketplace: str,
@@ -516,7 +541,7 @@ async def _find_shared_listing_score_snapshot(
     db: AsyncSession,
     user_id: str | list[str],
 ) -> dict | None:
-    """Reuse listing diagnosis 10D scores when the same ASIN/evidence was already diagnosed."""
+    """Reuse the latest saved Listing 10D judgment for the same ASIN/user/marketplace."""
     asin = (asin or "").strip().upper()
     if not asin:
         return None
@@ -544,8 +569,6 @@ async def _find_shared_listing_score_snapshot(
         if not input_asin:
             continue
         similarity = product_evidence_similarity(product_data, input_data)
-        if similarity.get("score", 0) < 0.62:
-            continue
         raw_scores = diagnosis_report.get("canonical_10d_scores") or diagnosis_report.get("scores") or {
             "function_expression": record.score_function_expression or 0,
             "scenario_expression": record.score_scenario_expression or 0,
@@ -571,6 +594,7 @@ async def _find_shared_listing_score_snapshot(
             "score_aliases": {**asin_scores, **canonical_scores},
             "market_reality_caps": diagnosis_report.get("market_reality_caps") or aligned["market_reality_caps"],
             "similarity": similarity,
+            "analysis": diagnosis_report.get("analysis") if isinstance(diagnosis_report.get("analysis"), dict) else {},
         }
     return None
 
@@ -1350,15 +1374,7 @@ async def _analyze_single_asin_with_scraped(
     shared_snapshot = await _find_shared_listing_score_snapshot(asin, marketplace, product_data, db, user_id)
     if shared_snapshot:
         scores = shared_snapshot["asin_scores"]
-        scoring_data["scores"] = shared_snapshot["score_aliases"]
-        scoring_data["canonical_10d_scores"] = shared_snapshot["canonical_scores"]
-        scoring_data["score_basis"] = "amazon_skill_10d_canonical_shared_listing_snapshot"
-        scoring_data["shared_score_source"] = {
-            "type": shared_snapshot["source"],
-            "id": shared_snapshot["source_id"],
-            "similarity": shared_snapshot["similarity"],
-        }
-        scoring_data["market_reality_caps"] = shared_snapshot["market_reality_caps"]
+        _apply_shared_listing_snapshot(scoring_data, shared_snapshot)
     scoring_data = operator_agent.attach_result_metadata(
         scoring_data,
         alignment_context,
@@ -1773,6 +1789,29 @@ async def get_analysis_history(
         })
 
     return {"items": items, "total": result["total"]}
+
+
+@router.get("/history/{analysis_id}", response_model=AnalyzeAsinResponse)
+async def get_analysis_history_detail(
+    analysis_id: int,
+    current_user: UserResponse = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get one saved ASIN analysis with the full diagnosis payload."""
+    svc = Asin_analysesService(db)
+    record = await svc.get_by_id(analysis_id, user_id=str(current_user.id))
+    if not record:
+        raise HTTPException(status_code=404, detail="历史诊断不存在")
+
+    response = await _analysis_record_to_response(
+        record,
+        record.marketplace or "US",
+        db,
+        str(current_user.id),
+    )
+    if not response:
+        raise HTTPException(status_code=404, detail="历史诊断缺少完整评分，请重新分析")
+    return response
 
 
 # ================================================================== #

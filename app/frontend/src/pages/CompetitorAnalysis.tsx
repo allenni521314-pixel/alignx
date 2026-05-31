@@ -848,6 +848,168 @@ function getCompetitorAction(score: number): string {
   return "攻击漏洞";
 }
 
+function getCompetitorImpactMetrics(key: keyof Scores): string {
+  const map: Record<keyof Scores, string> = {
+    functionality: "CTR / CVR / ACOS",
+    scenario: "CTR / CPC / 广告相关性",
+    user_profile: "CTR / CVR / 无效点击率",
+    emotional: "CVR / 详情页停留 / Review",
+    risk_elimination: "CVR / 退货 / 差评",
+    differentiation: "CTR / CVR / CPC",
+    product_identity: "自然相关性 / 广告匹配 / CPC",
+    compatibility: "CVR / 退货 / 长尾词",
+    subjective_properties: "CTR / CVR / 评论验证",
+    market_trend: "测试优先级 / 关键词扩展",
+  };
+  return map[key];
+}
+
+function scoreReasonLabel(score: number): string {
+  if (score >= 82) return "高分原因";
+  if (score >= 65) return "主要扣分点";
+  return "低分原因";
+}
+
+function compactAnalysisText(value: unknown, maxLength = 300): string {
+  if (!value) return "";
+  let text = "";
+  if (Array.isArray(value)) {
+    text = value.map((item) => (typeof item === "string" ? item : JSON.stringify(item))).join("；");
+  } else if (typeof value === "object") {
+    text = Object.values(value as Record<string, unknown>)
+      .map((item) => (typeof item === "string" ? item : Array.isArray(item) ? item.join("；") : ""))
+      .filter(Boolean)
+      .join("；");
+  } else {
+    text = String(value);
+  }
+  text = text
+    .replace(/[{}[\]"]/g, "")
+    .replace(/\s+/g, " ")
+    .replace(/\\n/g, " ")
+    .trim();
+  if (!text) return "";
+  return text.length > maxLength ? `${text.slice(0, maxLength)}...` : text;
+}
+
+function fallbackCompetitorReason(key: keyof Scores, score: number): string {
+  const meta = COMPETITOR_RULER_META[key];
+  if (score >= 82) {
+    return `竞品在“${meta.evidenceFocus}”上证据较完整，说明它已经把用户购买理由和平台可识别信息连起来。`;
+  }
+  if (score >= 65) {
+    return `竞品已经表达了“${meta.evidenceFocus}”，但证据链还不够完整，容易出现点击有了但转化承接不足。`;
+  }
+  return `竞品在“${meta.evidenceFocus}”上缺少清晰证据，用户或Amazon难以确认这个购买理由。`;
+}
+
+const COMPETITOR_ANALYSIS_ALIASES: Record<keyof Scores, string[]> = {
+  functionality: ["functionality", "function_expression", "function"],
+  emotional: ["emotional", "psychology_benefit", "psychology"],
+  scenario: ["scenario", "scenario_expression"],
+  user_profile: ["user_profile", "identity_fit", "identity"],
+  differentiation: ["differentiation"],
+  market_trend: ["market_trend", "trend"],
+  product_identity: ["product_identity", "product_id"],
+  compatibility: ["compatibility"],
+  subjective_properties: ["subjective_properties", "subjective"],
+  risk_elimination: ["risk_elimination", "risk"],
+};
+
+function pickCompetitorAnalysis(report: AnalysisReport | undefined, key: keyof Scores): unknown {
+  if (!report?.analysis) return "";
+  for (const alias of COMPETITOR_ANALYSIS_ALIASES[key]) {
+    const value = report.analysis[alias];
+    if (compactAnalysisText(value, 20)) return value;
+  }
+  return "";
+}
+
+function buildCompetitorDimensionReason(
+  key: keyof Scores,
+  score: number,
+  report?: AnalysisReport,
+): string {
+  const analysis = compactAnalysisText(pickCompetitorAnalysis(report, key));
+  return analysis || fallbackCompetitorReason(key, score);
+}
+
+function hasVisibleReportContent(report?: Partial<AnalysisReport>): boolean {
+  if (!report) return false;
+  const summary = compactAnalysisText(report.overall_summary, 40);
+  const suggestions = Array.isArray(report.improvement_suggestions)
+    ? report.improvement_suggestions.filter((item) => compactAnalysisText(item, 20))
+    : [];
+  return Boolean(summary || suggestions.length);
+}
+
+function CompetitorDimensionCard({
+  dim,
+  score,
+  report,
+}: {
+  dim: (typeof DIMENSIONS)[number];
+  score: number;
+  report?: AnalysisReport;
+}) {
+  const [open, setOpen] = useState(true);
+  const key = dim.key as keyof Scores;
+  const meta = COMPETITOR_RULER_META[key];
+  const reason = buildCompetitorDimensionReason(key, score, report);
+  const statusClass =
+    score >= 80
+      ? "border-emerald-200 bg-emerald-50"
+      : score >= 60
+        ? "border-amber-200 bg-amber-50"
+        : "border-red-200 bg-red-50";
+
+  return (
+    <div className={`rounded-lg border p-4 ${statusClass}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-semibold text-gray-900">{dim.label}</span>
+            <Badge variant="outline" className="bg-white text-[10px] text-gray-600">
+              {meta.layer}
+            </Badge>
+          </div>
+          <p className="mt-2 text-xs text-gray-600">
+            判断重点：{meta.intentScale}；{meta.platformScale}
+          </p>
+        </div>
+        <span className={`text-2xl font-bold ${competitorScoreColor(score)}`}>{score}</span>
+      </div>
+      <div className="mt-3 h-1.5 rounded-full bg-white/80 overflow-hidden">
+        <div className={`h-full rounded-full ${competitorScoreBar(score)}`} style={{ width: `${score}%` }} />
+      </div>
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="mt-3 flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-gray-700"
+      >
+        {open ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+        {open ? "收起分析" : "查看分析"}
+      </button>
+      {open && (
+        <div className="mt-3 border-l-2 border-gray-200 pl-3 text-sm text-gray-700 leading-relaxed space-y-2">
+          <p>
+            <span className="font-semibold text-gray-900">{scoreReasonLabel(score)}：</span>
+            {reason}
+          </p>
+          <p>
+            <span className="font-semibold text-gray-900">影响指标：</span>
+            {getCompetitorImpactMetrics(key)}
+          </p>
+          <p className="text-brand-700">
+            <span className="font-semibold">我方动作：</span>
+            {getCompetitorAction(score)}，{meta.actionHint}。
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function CompetitorTwoRulerSummary({ scores }: { scores: Scores }) {
   const cards = [
     {
@@ -1337,6 +1499,13 @@ export default function CompetitorAnalysis() {
         getActionSnapshots({ module_key: "competitor_analysis", limit: 120 }),
       ]);
 
+      const analysisRows = analysisRes
+        .map((item) => ({ ...item, scores: normalizeScores(item.scores), source: "analysis" as const }))
+        .filter((item) => item.asin && hasAnyScore(item.scores));
+
+      const analysisIds = new Set(analysisRows.map((item) => item.id));
+      const analysisAsins = new Set(analysisRows.map((item) => String(item.asin || "").toUpperCase()));
+
       const snapshotRows: HistoryItem[] = snapshots
         .map((snapshot) => {
           const output = snapshot.output_snapshot as Partial<AnalysisResult> | undefined;
@@ -1354,16 +1523,12 @@ export default function CompetitorAnalysis() {
             snapshot,
           };
         })
-        .filter((item): item is HistoryItem => Boolean(item));
-
-      const snapshotRecordIds = new Set(
-        snapshots
-          .map((snapshot) => snapshot.source_record_id)
-          .filter((id): id is number => typeof id === "number")
-      );
-      const analysisRows = analysisRes
-        .filter((item) => !snapshotRecordIds.has(item.id))
-        .map((item) => ({ ...item, scores: normalizeScores(item.scores), source: "analysis" as const }));
+        .filter((item): item is HistoryItem => {
+          if (!item) return false;
+          const sourceRecordId = item.snapshot?.source_record_id;
+          if (typeof sourceRecordId === "number" && analysisIds.has(sourceRecordId)) return false;
+          return !analysisAsins.has(String(item.asin || "").toUpperCase());
+        });
 
       setHistory([...snapshotRows, ...analysisRows].sort((a, b) => {
         const aTime = a.created_at ? new Date(a.created_at).getTime() : 0;
@@ -1386,13 +1551,14 @@ export default function CompetitorAnalysis() {
     const scores = getEffectiveScores(output || {});
     if (output?.asin && hasAnyScore(scores)) {
       const loaded = sanitizeAnalysisKeywords(output as AnalysisResult);
-      setSingleResult(loaded);
-      setSingleAsin(loaded.asin || "");
-      setExpandedReport(false);
-      setActiveTab("single");
       if (isIncompleteSavedResult(loaded)) {
-        toast.warning("这是旧残缺快照，请点击开始分析重新抓取完整数据");
+        toast.warning("这是旧残缺快照，请从分析历史打开正式诊断，或重新分析该ASIN");
+        return;
       } else {
+        setSingleResult(loaded);
+        setSingleAsin(loaded.asin || "");
+        setExpandedReport(false);
+        setActiveTab("single");
         toast.success("已打开已保存竞品诊断快照");
       }
       return;
@@ -1400,35 +1566,28 @@ export default function CompetitorAnalysis() {
     toast.error("该快照不是完整竞品诊断结果，请从分析历史打开");
   };
 
-  const viewHistorySnapshot = (item: HistoryItem) => {
+  const viewHistorySnapshot = async (item: HistoryItem) => {
     if (item.snapshot) {
       loadSnapshotAsAnalysis(item.snapshot);
       return;
     }
-    const snapshot: AnalysisResult = {
-      asin: item.asin,
-      marketplace: item.marketplace,
-      product_title: item.product_title || item.asin,
-      product_data: {
-        title: item.product_title || item.asin,
-        _data_source: "saved_history_snapshot",
-        data_notes: "历史快照：只读取已保存评分，不重新抓取Amazon页面，也不重新生成诊断。",
-      },
-      scores: item.scores,
-      analysis_report: {
-        scores: item.scores,
-        analysis: Object.fromEntries(DIMENSIONS.map((dim) => [dim.key, "来自历史快照的已保存评分。"])) as Record<string, string>,
-        overall_summary: "这是已保存的竞品诊断快照，查看时不会重新抓取或重新生成诊断。",
-        improvement_suggestions: ["如需最新市场数据，请手动点击开始分析生成新一轮记录。"],
-      },
-      data_source: "saved_history_snapshot",
-      id: item.id,
-    };
-    setSingleResult(snapshot);
-    setSingleAsin(item.asin || "");
-    setExpandedReport(false);
-    setActiveTab("single");
-    toast.warning("已加载简略历史评分；如需完整拆解请重新抓取分析");
+    try {
+      const res = await axios.get(`/api/v1/asin-analysis/history/${item.id}`, {
+        headers: getAuthHeaders(),
+        timeout: 30000,
+      });
+      const loaded = sanitizeAnalysisKeywords(res.data as AnalysisResult);
+      if (!loaded.asin || !hasAnyScore(getEffectiveScores(loaded))) {
+        throw new Error("history detail missing scores");
+      }
+      setSingleResult(loaded);
+      setSingleAsin(loaded.asin || "");
+      setExpandedReport(false);
+      setActiveTab("single");
+      toast.success("已打开已保存竞品诊断");
+    } catch {
+      toast.error("历史诊断不完整，请重新分析该ASIN");
+    }
   };
 
   if (authLoading) {
@@ -1642,7 +1801,7 @@ export default function CompetitorAnalysis() {
                             {item.marketplace}
                           </Badge>
                           <Badge variant="outline" className="text-xs border-emerald-200 text-emerald-700">
-                            {item.source === "snapshot" ? "完整快照" : "简略历史"}
+                            {item.source === "snapshot" ? "完整快照" : "正式诊断"}
                           </Badge>
                         </div>
                         <div className="flex items-center gap-4">
@@ -1655,10 +1814,10 @@ export default function CompetitorAnalysis() {
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() => viewHistorySnapshot(item)}
+                            onClick={() => void viewHistorySnapshot(item)}
                             className="h-8 border-gray-200 text-gray-600 hover:text-brand-600"
                           >
-                            查看快照
+                            打开诊断
                           </Button>
                         </div>
                       </CardContent>
@@ -1785,6 +1944,7 @@ function SingleResultView({
   const platformEcoRisk = hasPlatformEcoRisk(pd);
   const ratingHistogram = normalizeRatingHistogram(pd.rating_histogram);
   const compliance = result.amazon_compliance || report?.amazon_compliance;
+  const reportHasVisibleContent = hasVisibleReportContent(report);
 
   return (
     <div className="space-y-6">
@@ -1939,7 +2099,7 @@ function SingleResultView({
           </div>
 
           {/* Report Summary (collapsible) */}
-          {report && (
+          {reportHasVisibleContent && (
             <Card className="bg-gray-50 border-gray-200">
               <CardHeader>
                 <button
@@ -2011,39 +2171,10 @@ function SingleResultView({
                   <div className="flex justify-center">
                     <RadarChartMulti datasets={[radarData]} size={340} />
                   </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {DIMENSIONS.map((dim) => {
                       const score = (scores as Record<string, number>)[dim.key] || 0;
-                      const meta = COMPETITOR_RULER_META[dim.key as keyof Scores];
-                      return (
-                        <div
-                          key={dim.key}
-                          className={`rounded-lg border p-3 ${
-                            score >= 80
-                              ? "border-emerald-200 text-emerald-700 bg-emerald-50"
-                              : score >= 60
-                                ? "border-amber-200 text-amber-700 bg-amber-50"
-                                : "border-red-200 text-red-700 bg-red-50"
-                          }`}
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="flex items-center gap-2">
-                              <span className="font-semibold text-gray-900">{dim.label}</span>
-                              <Badge variant="outline" className="bg-white text-[10px]">{meta.layer}</Badge>
-                            </div>
-                            <span className={`text-lg font-bold ${competitorScoreColor(score)}`}>{score}</span>
-                          </div>
-                          <div className="mt-2 h-1.5 rounded-full bg-white/70 overflow-hidden">
-                            <div className={`h-full rounded-full ${competitorScoreBar(score)}`} style={{ width: `${score}%` }} />
-                          </div>
-                          <div className="mt-2 text-xs text-gray-600 leading-relaxed space-y-1">
-                            <p><span className="font-semibold">需求：</span>{meta.intentScale}</p>
-                            <p><span className="font-semibold">平台：</span>{meta.platformScale}</p>
-                            <p><span className="font-semibold">证据：</span>{meta.evidenceFocus}</p>
-                            <p className="text-brand-700"><span className="font-semibold">我方动作：</span>{getCompetitorAction(score)}，{meta.actionHint}</p>
-                          </div>
-                        </div>
-                      );
+                      return <CompetitorDimensionCard key={dim.key} dim={dim} score={score} report={report} />;
                     })}
                   </div>
                 </>
