@@ -1,3 +1,5 @@
+import { AUTH_TOKEN_KEY } from "@/lib/auth-session";
+
 /**
  * Shared utility to get authentication headers for API calls.
  * AlignX beta user data is keyed by email-code auth only. Do not silently fall
@@ -5,7 +7,7 @@
  * historical user_id in the same browser.
  */
 export function getAuthHeaders(): Record<string, string> {
-  const alignxToken = localStorage.getItem("alignx_token");
+  const alignxToken = localStorage.getItem(AUTH_TOKEN_KEY);
   if (alignxToken) {
     return { Authorization: `Bearer ${alignxToken}` };
   }
@@ -17,5 +19,5 @@ export function getAuthHeaders(): Record<string, string> {
  * Get the raw token string (for non-axios usage).
  */
 export function getAuthToken(): string | null {
-  return localStorage.getItem("alignx_token") || null;
+  return localStorage.getItem(AUTH_TOKEN_KEY) || null;
 }

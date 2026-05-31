@@ -1,3 +1,4 @@
+import hashlib
 import json
 from datetime import datetime
 from typing import Any, Optional
@@ -17,6 +18,7 @@ from services.agent_chain import AgentNodeRunRequest, get_agent_node_status, run
 from services.agent_decision_system import build_agent_decision_system
 from services.cosmo_operator_agent import CosmoOperatorAgent
 from services.judgment_feedback_rounds import JudgmentFeedbackRoundService
+from services.model_invocation_contract import UNIFIED_JUDGMENT_STANDARD
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -40,6 +42,18 @@ def _dt(value: Any) -> Optional[str]:
     if isinstance(value, datetime):
         return value.isoformat()
     return str(value)
+
+
+def _tenant_scope(current_user: UserResponse, scope_user_ids: list[str]) -> dict:
+    email = (current_user.email or "").strip().lower()
+    email_hash = hashlib.sha256(email.encode("utf-8")).hexdigest()[:12] if email else ""
+    return {
+        "scope_type": "normalized_email",
+        "current_user_id": str(current_user.id),
+        "email_hash": email_hash,
+        "scope_user_count": len(scope_user_ids),
+        "is_isolated": True,
+    }
 
 
 def _stage(
@@ -163,6 +177,109 @@ def _stage_evidence_meta(stage: dict, ad_totals: Optional[dict] = None, timeline
         "ai_role": meta.get("ai_role", "alignx_agent"),
         "ai_used": False,
         "ai_status": "待接入真实模型，当前为规则化判断 + 结构化数据证据。",
+    }
+
+
+def _stage_judgment_gate(stage: dict, ad_totals: Optional[dict] = None, timeline_count: int = 0) -> dict:
+    """Apply the unified judgment standard to a workflow stage.
+
+    The gate is read-only metadata. It does not change scores or persisted data;
+    it tells downstream agents whether the stage can affect final decisions or
+    long-term learning.
+    """
+
+    key = stage.get("key")
+    status = stage.get("status", "missing")
+    result = stage.get("result") or {}
+    ad_totals = ad_totals or {}
+    evidence_tier_map = {
+        "selection": "listing_facts",
+        "launch_check": "listing_facts",
+        "listing_diagnosis": "semantic_reasoning",
+        "ab_test": "semantic_reasoning",
+        "ad_validation": "market_feedback",
+        "review": "market_feedback",
+    }
+
+    gate = {
+        "standard_key": UNIFIED_JUDGMENT_STANDARD.key,
+        "evidence_tier": evidence_tier_map.get(key, "model_inference"),
+        "can_influence_final_decision": status == "completed",
+        "can_enter_learning_memory": False,
+        "judgment_status": "ready" if status == "completed" else "missing",
+        "blocking_reason": "",
+        "required_next_action": "",
+        "rules_applied": [],
+    }
+
+    def block(reason: str, action: str, status_value: str = "blocked") -> dict:
+        gate["can_influence_final_decision"] = False
+        gate["can_enter_learning_memory"] = False
+        gate["judgment_status"] = status_value
+        gate["blocking_reason"] = reason
+        gate["required_next_action"] = action
+        return gate
+
+    if status != "completed":
+        gate["rules_applied"].append("missing_stage_low_confidence")
+        return block("该节点暂无完整记录，不能进入最终高置信判断。", stage.get("next_action") or "先补齐该节点数据。", "missing")
+
+    if key in {"selection", "launch_check", "listing_diagnosis", "ab_test"}:
+        gate["rules_applied"].append("structured_record_can_support_decision")
+        return gate
+
+    if key == "ad_validation":
+        clicks = ad_totals.get("clicks", 0) or 0
+        assigned_count = result.get("assigned_hypothesis_count", 0) or 0
+        unassigned_count = result.get("unassigned_record_count", 0) or 0
+        gate["rules_applied"].append("ad_records_require_hypothesis_id")
+        if assigned_count <= 0:
+            return block(
+                "广告记录未绑定诊断假设，不能判断诊断命中或失败。",
+                "先给广告计划、关键词组或搜索词记录补齐 hypothesis_id。",
+                "unattributed",
+            )
+        if clicks < 100:
+            gate["judgment_status"] = "pending_sample"
+            gate["can_influence_final_decision"] = False
+            gate["blocking_reason"] = f"假设级广告点击样本 {clicks}，少于100，不能判定命中或失败。"
+            gate["required_next_action"] = "继续小预算拉样本，或缩小关键词组噪音后再验证。"
+            gate["rules_applied"].append("sample_under_100_pending_only")
+            return gate
+        gate["can_enter_learning_memory"] = unassigned_count == 0
+        gate["rules_applied"].append("market_feedback_can_validate_hypothesis")
+        if unassigned_count:
+            gate["required_next_action"] = "仍有未归因广告记录，建议补齐后再沉淀完整命中率。"
+        return gate
+
+    if key == "review":
+        gate["rules_applied"].append("feedback_loop_requires_persisted_events")
+        if timeline_count <= 0:
+            return block("复盘记录尚未沉淀，不能进入长期学习记忆。", "执行动作后写入复盘记录。", "no_feedback")
+        gate["can_enter_learning_memory"] = True
+        return gate
+
+    return gate
+
+
+def _workflow_judgment_summary(stages: list[dict]) -> dict:
+    gates = [stage.get("judgment_gate", {}) for stage in stages]
+    blocked = [
+        {
+            "stage_key": stage.get("key"),
+            "title": stage.get("title"),
+            "reason": stage.get("judgment_gate", {}).get("blocking_reason"),
+            "next_action": stage.get("judgment_gate", {}).get("required_next_action"),
+        }
+        for stage in stages
+        if stage.get("judgment_gate", {}).get("blocking_reason")
+    ]
+    return {
+        "standard_key": UNIFIED_JUDGMENT_STANDARD.key,
+        "decision_ready_count": sum(1 for gate in gates if gate.get("can_influence_final_decision")),
+        "learning_ready_count": sum(1 for gate in gates if gate.get("can_enter_learning_memory")),
+        "blocked_count": len(blocked),
+        "blocked_stages": blocked,
     }
 
 
@@ -303,6 +420,24 @@ def _hypothesis_validations(ads: list[Ad_data]) -> list[dict]:
     )
 
 
+def _ad_binding_candidates(validations: list[dict]) -> list[dict]:
+    candidates = []
+    for item in validations:
+        if item.get("hypothesis_id") != "unassigned":
+            continue
+        candidates.append(
+            {
+                "keyword_group_id": item.get("keyword_group_id"),
+                "optimization_round": item.get("optimization_round"),
+                "keywords": item.get("keywords", []),
+                "metrics": item.get("metrics", {}),
+                "record_count": item.get("record_count", 0),
+                "required_action": "绑定到某个 validation_hypothesis_id 后，才允许进入命中/未命中判断。",
+            }
+        )
+    return candidates
+
+
 async def _build_chain(product: Products, user_ids: list[str], db: AsyncSession) -> dict:
     asin_analysis = await _first(
         db,
@@ -347,6 +482,7 @@ async def _build_chain(product: Products, user_ids: list[str], db: AsyncSession)
 
     ad_totals = _ad_metrics(ads)
     hypothesis_validations = _hypothesis_validations(ads)
+    ad_binding_candidates = _ad_binding_candidates(hypothesis_validations)
     assigned_validations = [item for item in hypothesis_validations if item["hypothesis_id"] != "unassigned"]
 
     stages = [
@@ -437,6 +573,7 @@ async def _build_chain(product: Products, user_ids: list[str], db: AsyncSession)
             result={
                 **ad_totals,
                 "hypothesis_validations": hypothesis_validations,
+                "binding_candidates": ad_binding_candidates,
                 "assigned_hypothesis_count": len(assigned_validations),
                 "unassigned_record_count": sum(
                     item["record_count"] for item in hypothesis_validations if item["hypothesis_id"] == "unassigned"
@@ -470,6 +607,7 @@ async def _build_chain(product: Products, user_ids: list[str], db: AsyncSession)
     completed = sum(1 for stage in stages if stage["status"] == "completed")
     for stage in stages:
         stage["evidence_meta"] = _stage_evidence_meta(stage, ad_totals=ad_totals, timeline_count=len(timeline))
+        stage["judgment_gate"] = _stage_judgment_gate(stage, ad_totals=ad_totals, timeline_count=len(timeline))
 
     product_payload = {
         "id": product.id,
@@ -492,6 +630,7 @@ async def _build_chain(product: Products, user_ids: list[str], db: AsyncSession)
         "completed_stages": completed,
         "total_stages": len(stages),
         "integrity_score": round(completed / len(stages) * 100),
+        "judgment_summary": _workflow_judgment_summary(stages),
         "stages": stages,
         "agent_decision": build_agent_decision_system(decision_product_payload, stages),
     }
@@ -512,15 +651,24 @@ async def get_current_workflow_chain(
     if not product:
         return {
             "product": None,
+            "tenant_scope": _tenant_scope(current_user, scope_user_ids),
             "chain_status": "empty",
             "completed_stages": 0,
             "total_stages": 6,
             "integrity_score": 0,
+            "judgment_summary": {
+                "standard_key": UNIFIED_JUDGMENT_STANDARD.key,
+                "decision_ready_count": 0,
+                "learning_ready_count": 0,
+                "blocked_count": 0,
+                "blocked_stages": [],
+            },
             "stages": [],
             "agent_decision": None,
             "agent_nodes": [],
         }
     chain = await _build_chain(product, scope_user_ids, db)
+    chain["tenant_scope"] = _tenant_scope(current_user, scope_user_ids)
     chain["agent_nodes"] = get_agent_node_status(chain)
     return chain
 
@@ -539,6 +687,7 @@ async def get_product_workflow_chain(
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
     chain = await _build_chain(product, scope_user_ids, db)
+    chain["tenant_scope"] = _tenant_scope(current_user, scope_user_ids)
     chain["agent_nodes"] = get_agent_node_status(chain)
     return chain
 

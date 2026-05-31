@@ -83,6 +83,7 @@ interface FiveDHistoryItem {
 
 interface WorkflowChain {
   product?: {
+    id?: number;
     asin: string;
     title: string;
   };
@@ -90,6 +91,18 @@ interface WorkflowChain {
   completed_stages: number;
   total_stages: number;
   integrity_score: number;
+  judgment_summary?: {
+    standard_key: string;
+    decision_ready_count: number;
+    learning_ready_count: number;
+    blocked_count: number;
+    blocked_stages: Array<{
+      stage_key: string;
+      title: string;
+      reason: string;
+      next_action: string;
+    }>;
+  };
   stages: Array<{
     key: string;
     title: string;
@@ -109,6 +122,16 @@ interface WorkflowChain {
       ai_role: string;
       ai_used: boolean;
       ai_status: string;
+    };
+    judgment_gate?: {
+      standard_key: string;
+      evidence_tier: string;
+      can_influence_final_decision: boolean;
+      can_enter_learning_memory: boolean;
+      judgment_status: string;
+      blocking_reason: string;
+      required_next_action: string;
+      rules_applied: string[];
     };
   }>;
   agent_decision?: {
@@ -171,6 +194,23 @@ interface WorkflowChain {
       reusable_learning: string;
       next_iteration: string;
       likely_failure_reason: string;
+      binding_candidates?: Array<{
+        keyword_group_id?: string;
+        optimization_round?: number;
+        keywords: string[];
+        metrics: {
+          impressions?: number;
+          clicks?: number;
+          spend?: number;
+          orders?: number;
+          sales?: number;
+          ctr?: number;
+          cvr?: number;
+          acos?: number;
+        };
+        record_count: number;
+        required_action: string;
+      }>;
     };
     listing_version_contract: {
       current_round: number;
@@ -179,6 +219,10 @@ interface WorkflowChain {
     };
   };
 }
+
+type AdBindingCandidate = NonNullable<
+  NonNullable<WorkflowChain["agent_decision"]>["hit_rate_learning"]["binding_candidates"]
+>[number];
 
 const EMPTY_CHIEF_DECISION: NonNullable<WorkflowChain["agent_decision"]>["chief_decision"] = {
   current_stage: "今日决策",
@@ -196,6 +240,7 @@ const EMPTY_HIT_RATE_LEARNING: NonNullable<WorkflowChain["agent_decision"]>["hit
   reusable_learning: "暂无可复用结论。",
   next_iteration: "等待下一轮优化。",
   likely_failure_reason: "暂无",
+  binding_candidates: [],
 };
 
 const EMPTY_LISTING_VERSION_CONTRACT: NonNullable<WorkflowChain["agent_decision"]>["listing_version_contract"] = {
@@ -220,7 +265,13 @@ function normalizeWorkflowChain(raw: WorkflowChain | null | undefined): Workflow
         validation_hypotheses: Array.isArray(raw.agent_decision.validation_hypotheses)
           ? raw.agent_decision.validation_hypotheses
           : [],
-        hit_rate_learning: raw.agent_decision.hit_rate_learning || EMPTY_HIT_RATE_LEARNING,
+        hit_rate_learning: {
+          ...EMPTY_HIT_RATE_LEARNING,
+          ...(raw.agent_decision.hit_rate_learning || {}),
+          binding_candidates: Array.isArray(raw.agent_decision.hit_rate_learning?.binding_candidates)
+            ? raw.agent_decision.hit_rate_learning.binding_candidates
+            : [],
+        },
         listing_version_contract:
           raw.agent_decision.listing_version_contract || EMPTY_LISTING_VERSION_CONTRACT,
       }
@@ -457,6 +508,7 @@ export default function Dashboard() {
   const [timelineLoading, setTimelineLoading] = useState(true);
   const [selectedProductId, setSelectedProductId] = useState<number>(0);
   const [workflowChain, setWorkflowChain] = useState<WorkflowChain | null>(null);
+  const [bindingKey, setBindingKey] = useState("");
 
   const goTo = (path: string) => {
     if (path.includes("?")) {
@@ -522,6 +574,39 @@ export default function Dashboard() {
     }
   };
 
+  const bindHypothesis = async (
+    candidate: AdBindingCandidate,
+    hypothesisId: string
+  ) => {
+    const productId = workflowChain?.product?.id;
+    if (!productId) {
+      toast.error("当前商品缺少 product_id，无法绑定广告假设");
+      return;
+    }
+    const key = `${candidate.keyword_group_id || "default"}-${candidate.optimization_round || 1}-${hypothesisId}`;
+    setBindingKey(key);
+    try {
+      const res = await axios.post(
+        "/api/v1/entities/ad_data/bind-hypothesis",
+        {
+          product_id: productId,
+          hypothesis_id: hypothesisId,
+          keyword_group_id: candidate.keyword_group_id,
+          optimization_round: candidate.optimization_round,
+          only_unassigned: true,
+        },
+        { headers: getAuthHeaders() }
+      );
+      const count = res.data?.updated_count || 0;
+      toast.success(`已绑定 ${count} 条广告记录`);
+      await loadWorkflowChain();
+    } catch (e) {
+      toast.error(getApiErrorMessage(e));
+    } finally {
+      setBindingKey("");
+    }
+  };
+
   const loadFiveDScores = useCallback(async () => {
     setFiveDLoading(true);
     try {
@@ -569,6 +654,8 @@ export default function Dashboard() {
   const actionPriority = agentDecision?.action_priority || [];
   const chiefDecision = agentDecision?.chief_decision || EMPTY_CHIEF_DECISION;
   const hitRateLearning = agentDecision?.hit_rate_learning || EMPTY_HIT_RATE_LEARNING;
+  const bindingCandidates = hitRateLearning.binding_candidates || [];
+  const judgmentSummary = workflowChain?.judgment_summary;
   const listingVersionContract = agentDecision?.listing_version_contract || EMPTY_LISTING_VERSION_CONTRACT;
 
   // 6D derived data
@@ -624,19 +711,38 @@ export default function Dashboard() {
     const hitLearning = hitRateLearning;
     const chief = agentDecision?.chief_decision;
     const stages = new Map(workflowStages.map((stage) => [stage.key, stage]));
+    const adGate = stages.get("ad_validation")?.judgment_gate;
+    const reviewGate = stages.get("review")?.judgment_gate;
+    const adBlocked = Boolean(adGate?.blocking_reason);
+    const reviewBlocked = Boolean(reviewGate?.blocking_reason);
+    const feedbackReady = Boolean(reviewGate?.can_enter_learning_memory || hitLearning?.status === "已命中");
+
+    const firstAction = adBlocked || adGate?.judgment_status === "pending_sample"
+      ? {
+          rank: 1,
+          module: "广告验证",
+          priority: "P0",
+          status: adGate?.judgment_status === "unattributed" ? "需绑定假设" : "继续验证",
+          evidence: adGate?.blocking_reason || adGate?.required_next_action || "广告样本尚未达到后端判定标准。",
+          action: adGate?.judgment_status === "unattributed" ? "绑定假设ID" : "进入执行记录",
+          path: adGate?.judgment_status === "unattributed" ? "/ad-analytics?view=records" : "/ad-analytics?view=validation",
+          icon: Megaphone,
+          color: "amber",
+        }
+      : {
+          rank: 1,
+          module: "数据回流",
+          priority: feedbackReady ? "P0" : "P1",
+          status: feedbackReady ? "必须回流" : reviewBlocked ? "需复盘记录" : "等待验证",
+          evidence: reviewGate?.blocking_reason || hitLearning?.basis || "效果验证完成后再进入数据回流，不能跳过复盘层。",
+          action: reviewBlocked ? "补齐复盘记录" : "进入数据回流",
+          path: "/optimization-suggestions?view=data-feedback",
+          icon: Database,
+          color: "emerald",
+        };
 
     return [
-      {
-        rank: 1,
-        module: "数据回流",
-        priority: "P0",
-        status: hitLearning?.status === "已命中" ? "必须回流" : "等待验证",
-        evidence: hitLearning?.basis || "效果验证完成后必须先进入数据回流，不能跳过复盘层。",
-        action: "进入数据回流",
-        path: "/optimization-suggestions?view=data-feedback",
-        icon: Database,
-        color: "emerald",
-      },
+      firstAction,
       {
         rank: 2,
         module: "本品诊断",
@@ -651,11 +757,11 @@ export default function Dashboard() {
       {
         rank: 3,
         module: "广告验证",
-        priority: "P1",
-        status: stages.get("ad_validation")?.status === "completed" ? "已验证" : "待验证",
-        evidence: validationHypotheses[0]?.hypothesis || "诊断结论需要通过广告点击、转化和ACOS验证。",
-        action: stages.get("ad_validation")?.status === "completed" ? "查看效果验证" : "进入执行记录",
-        path: stages.get("ad_validation")?.status === "completed" ? "/ad-analytics?view=validation" : "/ad-analytics?view=records",
+        priority: adBlocked ? "P0" : "P1",
+        status: adBlocked ? "未达标" : stages.get("ad_validation")?.status === "completed" ? "已验证" : "待验证",
+        evidence: adGate?.blocking_reason || validationHypotheses[0]?.hypothesis || "诊断结论需要通过广告点击、转化和ACOS验证。",
+        action: adBlocked ? adGate?.required_next_action || "补齐广告验证" : stages.get("ad_validation")?.status === "completed" ? "查看效果验证" : "进入执行记录",
+        path: adGate?.judgment_status === "unattributed" ? "/ad-analytics?view=records" : "/ad-analytics?view=validation",
         icon: Megaphone,
         color: "amber",
       },
@@ -852,6 +958,22 @@ export default function Dashboard() {
                   </span>
                 </div>
               </div>
+              {judgmentSummary && (
+                <div className="mb-4 grid gap-3 md:grid-cols-3">
+                  <div className="rounded-lg border border-emerald-100 bg-emerald-50 p-3">
+                    <p className="text-[11px] font-semibold text-emerald-700">可参与最终判断</p>
+                    <p className="mt-1 text-2xl font-bold text-emerald-800">{judgmentSummary.decision_ready_count}</p>
+                  </div>
+                  <div className="rounded-lg border border-teal-100 bg-teal-50 p-3">
+                    <p className="text-[11px] font-semibold text-teal-700">可进入学习记忆</p>
+                    <p className="mt-1 text-2xl font-bold text-teal-800">{judgmentSummary.learning_ready_count}</p>
+                  </div>
+                  <div className="rounded-lg border border-amber-100 bg-amber-50 p-3">
+                    <p className="text-[11px] font-semibold text-amber-700">阻塞节点</p>
+                    <p className="mt-1 text-2xl font-bold text-amber-800">{judgmentSummary.blocked_count}</p>
+                  </div>
+                </div>
+              )}
               <div className="grid md:grid-cols-6 gap-3">
                 {workflowStages.map((stage) => (
                   <div key={stage.key} className="rounded-lg border border-gray-200 bg-gray-50 p-3">
@@ -864,6 +986,16 @@ export default function Dashboard() {
                       <div className="flex flex-wrap gap-1.5">
                         <Badge variant="outline" className={confidenceBadgeClass(stage.evidence_meta?.confidence)}>
                           置信度 {stage.evidence_meta?.confidence || "低"}
+                        </Badge>
+                        <Badge
+                          variant="outline"
+                          className={
+                            stage.judgment_gate?.can_influence_final_decision
+                              ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                              : "bg-amber-50 text-amber-700 border-amber-200"
+                          }
+                        >
+                          {stage.judgment_gate?.judgment_status || "missing"}
                         </Badge>
                         <Badge variant="outline" className="bg-white text-gray-600 border-gray-200">
                           {stage.evidence_meta?.ai_used ? "已生成" : "结构判断"}
@@ -878,6 +1010,11 @@ export default function Dashboard() {
                       <p className="text-[10px] text-gray-400">
                         {stage.evidence_meta?.source_ref || `${stage.source_table}${stage.source_id ? ` #${stage.source_id}` : ""}`}
                       </p>
+                      {stage.judgment_gate?.blocking_reason && (
+                        <div className="rounded-md border border-amber-100 bg-amber-50 p-2 text-[10px] leading-relaxed text-amber-800">
+                          {stage.judgment_gate.blocking_reason}
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -993,6 +1130,64 @@ export default function Dashboard() {
                       </div>
                     </div>
                   </div>
+                  {bindingCandidates.length > 0 && validationHypotheses.length > 0 && (
+                    <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4">
+                      <div className="mb-3 flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-semibold text-amber-900">广告验证需要绑定诊断假设</p>
+                          <p className="mt-1 text-xs leading-relaxed text-amber-700">
+                            未绑定的广告数据只能算未归因流量，不能用于判断诊断命中或失败。
+                          </p>
+                        </div>
+                        <Badge className="bg-white text-amber-700 border-amber-200">
+                          {bindingCandidates.length} 组待绑定
+                        </Badge>
+                      </div>
+                      <div className="space-y-3">
+                        {bindingCandidates.slice(0, 3).map((candidate) => {
+                          const candidateKey = `${candidate.keyword_group_id || "default"}-${candidate.optimization_round || 1}`;
+                          return (
+                            <div key={candidateKey} className="rounded-md border border-amber-100 bg-white p-3">
+                              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                                <div>
+                                  <p className="text-xs font-semibold text-gray-900">
+                                    {candidate.keyword_group_id || "default"} · 第 {candidate.optimization_round || 1} 轮
+                                  </p>
+                                  <p className="mt-1 text-[11px] text-gray-500">
+                                    {candidate.record_count} 条记录 · 点击 {candidate.metrics?.clicks || 0} · CVR {candidate.metrics?.cvr || 0}% · ACOS {candidate.metrics?.acos || 0}%
+                                  </p>
+                                  <div className="mt-2 flex flex-wrap gap-1.5">
+                                    {(candidate.keywords || []).slice(0, 4).map((keyword) => (
+                                      <span key={keyword} className="rounded-md bg-gray-100 px-2 py-1 text-[10px] text-gray-600">
+                                        {keyword}
+                                      </span>
+                                    ))}
+                                  </div>
+                                </div>
+                                <div className="flex flex-wrap gap-2 lg:justify-end">
+                                  {validationHypotheses.slice(0, 3).map((hypothesis) => {
+                                    const key = `${candidateKey}-${hypothesis.id}`;
+                                    return (
+                                      <Button
+                                        key={hypothesis.id}
+                                        size="sm"
+                                        variant="outline"
+                                        className="bg-white border-amber-200 text-amber-800 hover:bg-amber-100"
+                                        disabled={bindingKey === key}
+                                        onClick={() => void bindHypothesis(candidate, hypothesis.id)}
+                                      >
+                                        {bindingKey === key ? "绑定中..." : `绑定 ${hypothesis.id}`}
+                                      </Button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                   {actionPriority.length > 0 && (
                     <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-4">
                       <div className="flex items-center justify-between gap-3 mb-3">

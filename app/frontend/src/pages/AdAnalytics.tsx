@@ -583,6 +583,15 @@ export default function AdAnalytics() {
     const cvrNum = Number(validationMetrics.cvr);
     const acosNum = Number(validationMetrics.acos);
     const ctrNum = Number(validationMetrics.ctr);
+    if (!validationMetrics.assigned) {
+      return {
+        level: "未归因",
+        color: "text-amber-700 bg-amber-50 border-amber-200",
+        icon: AlertTriangle,
+        summary: "当前广告数据尚未绑定具体诊断假设，不能判断命中或失败。请先补齐 hypothesis_id 与 keyword_group_id。",
+        actions: ["回到执行记录绑定假设ID", "按诊断假设拆分关键词组", "绑定后再进入效果验证"],
+      };
+    }
     if (validationClicks < 100) {
       return {
         level: "数据不足",
@@ -669,7 +678,7 @@ export default function AdAnalytics() {
       .then(() => finishModuleTask(moduleTaskId, "completed", "广告验证结论已回流"))
       .catch(() => finishModuleTask(moduleTaskId, "failed", "广告验证结论回流失败"))
       .finally(() => window.setTimeout(() => removeModuleTask(moduleTaskId), 1200));
-    if (selectedProductId && selectedProductId !== "all") {
+    if (selectedProductId && selectedProductId !== "all" && validationMetrics.assigned) {
       upsertAdValidationFeedbackRound({
         product_id: Number(selectedProductId),
         asin: selectedProduct?.asin,

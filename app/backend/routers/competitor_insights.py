@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import get_db
 from services.competitor_insights import Competitor_insightsService
-from dependencies.auth import get_current_user
+from dependencies.auth import get_current_user, get_user_scope_ids
 from schemas.auth import UserResponse
 
 # Set up logging
@@ -114,12 +114,13 @@ async def query_competitor_insightss(
             except json.JSONDecodeError:
                 raise HTTPException(status_code=400, detail="Invalid query JSON format")
         
+        scope_user_ids = await get_user_scope_ids(current_user, db)
         result = await service.get_list(
             skip=skip, 
             limit=limit,
             query_dict=query_dict,
             sort=sort,
-            user_id=str(current_user.id),
+            user_id=scope_user_ids,
         )
         logger.debug(f"Found {result['total']} competitor_insightss")
         return result
@@ -153,12 +154,13 @@ async def query_competitor_insightss_all(
             except json.JSONDecodeError:
                 raise HTTPException(status_code=400, detail="Invalid query JSON format")
 
+        scope_user_ids = await get_user_scope_ids(current_user, db)
         result = await service.get_list(
             skip=skip,
             limit=limit,
             query_dict=query_dict,
             sort=sort,
-            user_id=str(current_user.id)
+            user_id=scope_user_ids
         )
         logger.debug(f"Found {result['total']} competitor_insightss")
         return result
@@ -181,7 +183,8 @@ async def get_competitor_insights(
     
     service = Competitor_insightsService(db)
     try:
-        result = await service.get_by_id(id, user_id=str(current_user.id))
+        scope_user_ids = await get_user_scope_ids(current_user, db)
+        result = await service.get_by_id(id, user_id=scope_user_ids)
         if not result:
             logger.warning(f"Competitor_insights with id {id} not found")
             raise HTTPException(status_code=404, detail="Competitor_insights not found")
@@ -261,7 +264,8 @@ async def update_competitor_insightss_batch(
         for item in request.items:
             # Only include non-None values for partial updates
             update_dict = {k: v for k, v in item.updates.model_dump().items() if v is not None}
-            result = await service.update(item.id, update_dict, user_id=str(current_user.id))
+            scope_user_ids = await get_user_scope_ids(current_user, db)
+            result = await service.update(item.id, update_dict, user_id=scope_user_ids)
             if result:
                 results.append(result)
         
@@ -287,7 +291,8 @@ async def update_competitor_insights(
     try:
         # Only include non-None values for partial updates
         update_dict = {k: v for k, v in data.model_dump().items() if v is not None}
-        result = await service.update(id, update_dict, user_id=str(current_user.id))
+        scope_user_ids = await get_user_scope_ids(current_user, db)
+        result = await service.update(id, update_dict, user_id=scope_user_ids)
         if not result:
             logger.warning(f"Competitor_insights with id {id} not found for update")
             raise HTTPException(status_code=404, detail="Competitor_insights not found")
@@ -318,7 +323,8 @@ async def delete_competitor_insightss_batch(
     
     try:
         for item_id in request.ids:
-            success = await service.delete(item_id, user_id=str(current_user.id))
+            scope_user_ids = await get_user_scope_ids(current_user, db)
+            success = await service.delete(item_id, user_id=scope_user_ids)
             if success:
                 deleted_count += 1
         
@@ -341,7 +347,8 @@ async def delete_competitor_insights(
     
     service = Competitor_insightsService(db)
     try:
-        success = await service.delete(id, user_id=str(current_user.id))
+        scope_user_ids = await get_user_scope_ids(current_user, db)
+        success = await service.delete(id, user_id=scope_user_ids)
         if not success:
             logger.warning(f"Competitor_insights with id {id} not found for deletion")
             raise HTTPException(status_code=404, detail="Competitor_insights not found")

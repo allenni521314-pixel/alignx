@@ -6,9 +6,12 @@ from datetime import datetime, date
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import get_db
+from models.ad_data import Ad_data
+from models.products import Products
 from services.ad_data import Ad_dataService
 from dependencies.auth import get_current_user, get_user_scope_ids
 from schemas.auth import UserResponse
@@ -106,6 +109,24 @@ class Ad_dataBatchUpdateRequest(BaseModel):
 class Ad_dataBatchDeleteRequest(BaseModel):
     """Batch delete request"""
     ids: List[int]
+
+
+class Ad_dataBindHypothesisRequest(BaseModel):
+    """Bind ad records to a validation hypothesis."""
+    product_id: int
+    hypothesis_id: str
+    ids: Optional[List[int]] = None
+    keyword_group_id: Optional[str] = None
+    optimization_round: Optional[int] = None
+    only_unassigned: bool = True
+
+
+class Ad_dataBindHypothesisResponse(BaseModel):
+    updated_count: int
+    hypothesis_id: str
+    product_id: int
+    updated_ids: List[int]
+    skipped_count: int
 
 
 # ---------- Routes ----------
@@ -293,6 +314,70 @@ async def update_ad_datas_batch(
         await db.rollback()
         logger.error(f"Error in batch update: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Batch update failed: {str(e)}")
+
+
+@router.post("/bind-hypothesis", response_model=Ad_dataBindHypothesisResponse)
+async def bind_ad_data_hypothesis(
+    request: Ad_dataBindHypothesisRequest,
+    current_user: UserResponse = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Bind a product's ad records to a diagnosis validation hypothesis.
+
+    Use this for the core AlignX loop: diagnosis hypothesis -> ad validation ->
+    feedback learning. By default it only updates unattributed records so older
+    verified attribution is not overwritten accidentally.
+    """
+
+    hypothesis_id = request.hypothesis_id.strip()
+    if not hypothesis_id:
+        raise HTTPException(status_code=400, detail="hypothesis_id is required")
+    if not request.ids and not request.keyword_group_id:
+        raise HTTPException(status_code=400, detail="ids or keyword_group_id is required")
+
+    scope_user_ids = await get_user_scope_ids(current_user, db)
+    product_result = await db.execute(
+        select(Products.id).where(
+            Products.id == request.product_id,
+            Products.user_id.in_(scope_user_ids),
+        )
+    )
+    if not product_result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Product not found in current email identity scope")
+
+    stmt = select(Ad_data).where(
+        Ad_data.user_id.in_(scope_user_ids),
+        Ad_data.product_id == request.product_id,
+    )
+    if request.ids:
+        stmt = stmt.where(Ad_data.id.in_(request.ids))
+    if request.keyword_group_id:
+        stmt = stmt.where(Ad_data.keyword_group_id == request.keyword_group_id)
+    if request.optimization_round is not None:
+        stmt = stmt.where(Ad_data.optimization_round == request.optimization_round)
+    if request.only_unassigned:
+        stmt = stmt.where((Ad_data.hypothesis_id.is_(None)) | (Ad_data.hypothesis_id == "") | (Ad_data.hypothesis_id == "unassigned"))
+
+    try:
+        result = await db.execute(stmt)
+        records = list(result.scalars().all())
+        updated_ids: List[int] = []
+        for record in records:
+            record.hypothesis_id = hypothesis_id
+            updated_ids.append(record.id)
+        await db.commit()
+        skipped_count = max(0, len(request.ids or []) - len(updated_ids)) if request.ids else 0
+        return Ad_dataBindHypothesisResponse(
+            updated_count=len(updated_ids),
+            hypothesis_id=hypothesis_id,
+            product_id=request.product_id,
+            updated_ids=updated_ids,
+            skipped_count=skipped_count,
+        )
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"Error binding ad_data hypothesis: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Bind hypothesis failed: {str(e)}")
 
 
 @router.put("/{id}", response_model=Ad_dataResponse)

@@ -17,7 +17,7 @@ import httpx
 from openai import AsyncOpenAI
 from pydantic import BaseModel, Field
 from services.ai_usage import record_ai_usage
-from services.model_invocation_contract import workflow_summary
+from services.model_invocation_contract import judgment_standard_summary, workflow_summary
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +75,30 @@ class AgentNextStep(BaseModel):
     reason: str
 
 
+class AgentEvidenceSource(BaseModel):
+    source_type: str
+    source_ref: str
+    evidence_tier: str
+    confidence: ConfidenceLevel
+    summary: str
+
+
+class AgentValidationHypothesis(BaseModel):
+    hypothesis_id: str
+    hypothesis: str
+    metric_rule: str
+    observation_window: str
+    required_sample: str
+
+
+class AgentLearningUpdate(BaseModel):
+    can_enter_learning_memory: bool
+    hit_status: str
+    miss_reason: str
+    reusable_learning: str
+    next_round_action: str
+
+
 class AgentDecisionResult(BaseModel):
     score: int = Field(..., ge=0, le=100)
     confidence: ConfidenceLevel
@@ -82,6 +106,18 @@ class AgentDecisionResult(BaseModel):
     actions: list[AgentAction]
     next_step: AgentNextStep
     risk_level: RiskLevel
+    evidence_sources: list[AgentEvidenceSource] = Field(default_factory=list)
+    validation_hypotheses: list[AgentValidationHypothesis] = Field(default_factory=list)
+    learning_update: AgentLearningUpdate = Field(
+        default_factory=lambda: AgentLearningUpdate(
+            can_enter_learning_memory=False,
+            hit_status="待验证",
+            miss_reason="",
+            reusable_learning="",
+            next_round_action="",
+        )
+    )
+    blocked_by: list[str] = Field(default_factory=list)
 
 
 class AgentResponse(BaseModel):
@@ -140,6 +176,10 @@ class AIGatewayService:
     @staticmethod
     def workflow_contract() -> list[dict[str, object]]:
         return workflow_summary()
+
+    @staticmethod
+    def judgment_standard() -> dict[str, object]:
+        return judgment_standard_summary()
 
     def select_model(self, depth: DecisionDepth) -> str:
         if depth == "light":
@@ -200,7 +240,11 @@ class AIGatewayService:
             '  "problems": [{"title": "问题", "evidence": "依据", "impact": "影响", "priority": "P0" | "P1" | "P2"}],\n'
             '  "actions": [{"title": "动作", "target_module": "模块", "reason": "原因", "validation": "验证方式"}],\n'
             '  "next_step": {"module": "下一模块", "path": "前端路径", "reason": "原因"},\n'
-            '  "risk_level": "low" | "medium" | "high"\n'
+            '  "risk_level": "low" | "medium" | "high",\n'
+            '  "evidence_sources": [{"source_type": "来源类型", "source_ref": "表/记录/字段", "evidence_tier": "market_feedback|buyer_voice|listing_facts|semantic_reasoning|model_inference", "confidence": "low|medium|high", "summary": "证据摘要"}],\n'
+            '  "validation_hypotheses": [{"hypothesis_id": "hypothesis-1", "hypothesis": "要验证的判断", "metric_rule": "命中/失败规则", "observation_window": "观察周期", "required_sample": "最小样本要求"}],\n'
+            '  "learning_update": {"can_enter_learning_memory": false, "hit_status": "待验证|已命中|未命中", "miss_reason": "失败原因", "reusable_learning": "可复用经验", "next_round_action": "下一轮动作"},\n'
+            '  "blocked_by": ["缺失或阻塞原因"]\n'
             "}\n"
             "不要输出 diagnosis、suggestions、summary 等额外顶层字段。"
         )
@@ -304,6 +348,81 @@ class AIGatewayService:
         except (TypeError, ValueError):
             score_int = 70
 
+        raw_evidence = raw.get("evidence_sources") or raw.get("evidence") or raw.get("sources") or []
+        if isinstance(raw_evidence, dict):
+            raw_evidence = [raw_evidence]
+        evidence_sources: list[AgentEvidenceSource] = []
+        for item in raw_evidence[:5]:
+            if not isinstance(item, dict):
+                item = {"summary": str(item)}
+            evidence_sources.append(
+                AgentEvidenceSource(
+                    source_type=str(item.get("source_type") or item.get("type") or "model_inference"),
+                    source_ref=str(item.get("source_ref") or item.get("ref") or item.get("source") or "agent_output"),
+                    evidence_tier=str(item.get("evidence_tier") or item.get("tier") or "model_inference"),
+                    confidence=self._safe_confidence(item.get("confidence")),
+                    summary=str(item.get("summary") or item.get("evidence") or item.get("reason") or "模型未提供明确证据摘要。"),
+                )
+            )
+        if not evidence_sources:
+            evidence_sources.append(
+                AgentEvidenceSource(
+                    source_type="agent_normalized_output",
+                    source_ref="ai_gateway._normalize_agent_result",
+                    evidence_tier="model_inference",
+                    confidence="low",
+                    summary="模型未提供结构化证据来源，系统已降为低置信度模型推理。",
+                )
+            )
+
+        raw_hypotheses = raw.get("validation_hypotheses") or raw.get("hypotheses") or raw.get("tests") or []
+        if isinstance(raw_hypotheses, dict):
+            raw_hypotheses = [raw_hypotheses]
+        validation_hypotheses: list[AgentValidationHypothesis] = []
+        for index, item in enumerate(raw_hypotheses[:5], start=1):
+            if not isinstance(item, dict):
+                item = {"hypothesis": str(item)}
+            validation_hypotheses.append(
+                AgentValidationHypothesis(
+                    hypothesis_id=str(item.get("hypothesis_id") or item.get("id") or f"hypothesis-{index}"),
+                    hypothesis=str(item.get("hypothesis") or item.get("statement") or "Listing动作后，核心广告指标应改善。"),
+                    metric_rule=str(item.get("metric_rule") or item.get("decision_rule") or "点击>=100后，CVR提升且ACOS不恶化视为初步命中。"),
+                    observation_window=str(item.get("observation_window") or "7-14天"),
+                    required_sample=str(item.get("required_sample") or "假设级点击至少100次"),
+                )
+            )
+        if not validation_hypotheses:
+            validation_hypotheses.append(
+                AgentValidationHypothesis(
+                    hypothesis_id="hypothesis-1",
+                    hypothesis=actions[0].validation if actions else "补齐证据后再生成验证假设。",
+                    metric_rule="点击少于100只能待验证；点击达到100后再判断CTR、CVR、ACOS。",
+                    observation_window="7-14天",
+                    required_sample="假设级点击至少100次",
+                )
+            )
+
+        raw_learning = raw.get("learning_update") or raw.get("learning") or {}
+        if not isinstance(raw_learning, dict):
+            raw_learning = {}
+        learning_update = AgentLearningUpdate(
+            can_enter_learning_memory=bool(raw_learning.get("can_enter_learning_memory", False)),
+            hit_status=str(raw_learning.get("hit_status") or "待验证"),
+            miss_reason=str(raw_learning.get("miss_reason") or raw_learning.get("failure_reason") or ""),
+            reusable_learning=str(raw_learning.get("reusable_learning") or ""),
+            next_round_action=str(raw_learning.get("next_round_action") or raw_learning.get("next_action") or ""),
+        )
+
+        raw_blocked = raw.get("blocked_by") or raw.get("blockers") or []
+        if isinstance(raw_blocked, str):
+            blocked_by = [raw_blocked]
+        elif isinstance(raw_blocked, list):
+            blocked_by = [str(item) for item in raw_blocked if str(item).strip()]
+        else:
+            blocked_by = []
+        if not evidence_sources or evidence_sources[0].confidence == "low":
+            blocked_by.append("缺少结构化证据来源，不能进入高置信最终判断。")
+
         return AgentDecisionResult(
             score=score_int,
             confidence=self._safe_confidence(raw.get("confidence")),
@@ -315,6 +434,10 @@ class AIGatewayService:
                 reason=str(raw_next.get("reason") or "进入广告验证，用真实流量验证诊断假设。"),
             ),
             risk_level=self._safe_risk(raw.get("risk_level") or raw.get("risk")),
+            evidence_sources=evidence_sources,
+            validation_hypotheses=validation_hypotheses,
+            learning_update=learning_update,
+            blocked_by=list(dict.fromkeys(blocked_by)),
         )
 
     def dry_run(self, request: AgentRequest) -> AgentResponse:
@@ -350,6 +473,32 @@ class AIGatewayService:
                     path="/ad-analytics?view=ab-test-plan",
                     reason="当前诊断应进入 A/B 测试计划，用真实流量验证假设。",
                 ),
+                evidence_sources=[
+                    AgentEvidenceSource(
+                        source_type="dry_run_payload",
+                        source_ref="agent_request.payload",
+                        evidence_tier="model_inference",
+                        confidence="low",
+                        summary="当前为dry run，仅用于验证Agent输出契约，不进入高置信判断。",
+                    )
+                ],
+                validation_hypotheses=[
+                    AgentValidationHypothesis(
+                        hypothesis_id="hypothesis-dry-run",
+                        hypothesis="补齐结构化证据后，Listing动作应能通过广告指标验证。",
+                        metric_rule="点击少于100只标记待验证；点击达到100后判断CTR、CVR和ACOS。",
+                        observation_window="7-14天",
+                        required_sample="假设级点击至少100次",
+                    )
+                ],
+                learning_update=AgentLearningUpdate(
+                    can_enter_learning_memory=False,
+                    hit_status="待验证",
+                    miss_reason="dry_run不能作为学习结果",
+                    reusable_learning="",
+                    next_round_action="配置真实模型并补齐证据后重新运行Agent。",
+                ),
+                blocked_by=["dry_run模式不能进入学习记忆。"],
             ),
             usage=None,
         )
@@ -369,6 +518,7 @@ class AIGatewayService:
             "payload": request.payload,
             "required_flow": "Scraping事实 -> 规则结构化 -> BGE语义召回 -> BGE重排 -> DeepSeek判断 -> 快照保存 -> 广告验证回流",
             "model_contract": self.workflow_contract(),
+            "unified_judgment_standard": self.judgment_standard(),
         }
 
         try:

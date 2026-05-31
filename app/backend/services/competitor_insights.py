@@ -1,5 +1,5 @@
 import logging
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Sequence
 
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -32,7 +32,7 @@ class Competitor_insightsService:
             logger.error(f"Error creating competitor_insights: {str(e)}")
             raise
 
-    async def check_ownership(self, obj_id: int, user_id: str) -> bool:
+    async def check_ownership(self, obj_id: int, user_id: str | Sequence[str]) -> bool:
         """Check if user owns this record"""
         try:
             obj = await self.get_by_id(obj_id, user_id=user_id)
@@ -41,12 +41,15 @@ class Competitor_insightsService:
             logger.error(f"Error checking ownership for competitor_insights {obj_id}: {str(e)}")
             return False
 
-    async def get_by_id(self, obj_id: int, user_id: Optional[str] = None) -> Optional[Competitor_insights]:
+    async def get_by_id(self, obj_id: int, user_id: Optional[str | Sequence[str]] = None) -> Optional[Competitor_insights]:
         """Get competitor_insights by ID (user can only see their own records)"""
         try:
             query = select(Competitor_insights).where(Competitor_insights.id == obj_id)
             if user_id:
-                query = query.where(Competitor_insights.user_id == user_id)
+                if isinstance(user_id, (list, tuple, set)):
+                    query = query.where(Competitor_insights.user_id.in_(list(user_id)))
+                else:
+                    query = query.where(Competitor_insights.user_id == user_id)
             result = await self.db.execute(query)
             return result.scalar_one_or_none()
         except Exception as e:
@@ -57,7 +60,7 @@ class Competitor_insightsService:
         self, 
         skip: int = 0, 
         limit: int = 20, 
-        user_id: Optional[str] = None,
+        user_id: Optional[str | Sequence[str]] = None,
         query_dict: Optional[Dict[str, Any]] = None,
         sort: Optional[str] = None,
     ) -> Dict[str, Any]:
@@ -67,8 +70,13 @@ class Competitor_insightsService:
             count_query = select(func.count(Competitor_insights.id))
             
             if user_id:
-                query = query.where(Competitor_insights.user_id == user_id)
-                count_query = count_query.where(Competitor_insights.user_id == user_id)
+                if isinstance(user_id, (list, tuple, set)):
+                    scope_ids = list(user_id)
+                    query = query.where(Competitor_insights.user_id.in_(scope_ids))
+                    count_query = count_query.where(Competitor_insights.user_id.in_(scope_ids))
+                else:
+                    query = query.where(Competitor_insights.user_id == user_id)
+                    count_query = count_query.where(Competitor_insights.user_id == user_id)
             
             if query_dict:
                 for field, value in query_dict.items():
@@ -103,7 +111,7 @@ class Competitor_insightsService:
             logger.error(f"Error fetching competitor_insights list: {str(e)}")
             raise
 
-    async def update(self, obj_id: int, update_data: Dict[str, Any], user_id: Optional[str] = None) -> Optional[Competitor_insights]:
+    async def update(self, obj_id: int, update_data: Dict[str, Any], user_id: Optional[str | Sequence[str]] = None) -> Optional[Competitor_insights]:
         """Update competitor_insights (requires ownership)"""
         try:
             obj = await self.get_by_id(obj_id, user_id=user_id)
@@ -123,7 +131,7 @@ class Competitor_insightsService:
             logger.error(f"Error updating competitor_insights {obj_id}: {str(e)}")
             raise
 
-    async def delete(self, obj_id: int, user_id: Optional[str] = None) -> bool:
+    async def delete(self, obj_id: int, user_id: Optional[str | Sequence[str]] = None) -> bool:
         """Delete competitor_insights (requires ownership)"""
         try:
             obj = await self.get_by_id(obj_id, user_id=user_id)

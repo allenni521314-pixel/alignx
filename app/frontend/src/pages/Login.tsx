@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
@@ -10,6 +10,7 @@ import { useAuth } from "@/contexts/AuthContext";
 
 export default function Login() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user, loading: authLoading, sendEmailCode, emailLogin } = useAuth();
   const [storeName, setStoreName] = useState("");
   const [email, setEmail] = useState("");
@@ -22,11 +23,18 @@ export default function Login() {
   const [sendingCode, setSendingCode] = useState(false);
   const [loading, setLoading] = useState(false);
 
+  const redirectTarget = (() => {
+    const stateFrom = (location.state as { from?: string } | null)?.from;
+    const queryFrom = new URLSearchParams(location.search).get("from");
+    const target = stateFrom || queryFrom || "/dashboard";
+    return target.startsWith("/login") ? "/dashboard" : target;
+  })();
+
   useEffect(() => {
     if (!authLoading && user) {
-      navigate("/dashboard", { replace: true });
+      navigate(redirectTarget, { replace: true });
     }
-  }, [authLoading, navigate, user]);
+  }, [authLoading, navigate, redirectTarget, user]);
 
   useEffect(() => {
     try {
@@ -125,7 +133,7 @@ export default function Login() {
         localStorage.removeItem("alignx_trial_user");
         localStorage.removeItem("alignx_terms_accepted");
       }
-      navigate("/dashboard");
+      navigate(redirectTarget);
     } catch (err: unknown) {
       const message =
         typeof err === "object" && err && "message" in err

@@ -97,6 +97,13 @@ def get_effective_user_id(current_user: UserResponse, view_all: bool = False) ->
     return str(current_user.id)
 
 
+def get_canonical_email_user_id(email: str) -> str:
+    normalized = (email or "").strip().lower()
+    if not normalized:
+        return ""
+    return f"email_{hashlib.sha256(normalized.encode('utf-8')).hexdigest()[:20]}"
+
+
 async def get_user_scope_ids(current_user: UserResponse, db: AsyncSession) -> list[str]:
     """Return user ids that belong to the same normalized email identity.
 
@@ -109,6 +116,10 @@ async def get_user_scope_ids(current_user: UserResponse, db: AsyncSession) -> li
     email = (current_user.email or "").strip().lower()
     if not email:
         return list(ids)
+
+    canonical_email_id = get_canonical_email_user_id(email)
+    if canonical_email_id:
+        ids.add(canonical_email_id)
 
     result = await db.execute(select(User.id).where(func.lower(User.email) == email))
     ids.update(str(row[0]) for row in result.all() if row and row[0])

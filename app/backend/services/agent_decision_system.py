@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from services.cosmo_operator_agent import CosmoOperatorAgent
+from services.model_invocation_contract import judgment_standard_summary
 
 
 def _num(value: Any, default: float = 0) -> float:
@@ -168,6 +169,7 @@ def build_agent_decision_system(product: dict, stages: list[dict]) -> dict:
     ad_result = ad_validation.get("result", {}) or {}
     timeline_events = review.get("result", {}).get("events", []) or []
     hypothesis_validations = ad_result.get("hypothesis_validations", []) or []
+    binding_candidates = ad_result.get("binding_candidates", []) or []
     assigned_hypothesis_validations = [
         item for item in hypothesis_validations if item.get("hypothesis_id") != "unassigned"
     ]
@@ -479,6 +481,8 @@ def build_agent_decision_system(product: dict, stages: list[dict]) -> dict:
         "version": "agent-decision-architecture-v1",
         "mode": "deterministic_rules_no_ai_call",
         "decision_standard": CosmoOperatorAgent.public_standard_meta("feedback_loop"),
+        "unified_judgment_standard": judgment_standard_summary(),
+        "decision_standard": CosmoOperatorAgent.public_standard_meta("feedback_loop"),
         "agent_roles": [
             {"key": "selection_agent", "name": "选品判断Agent", "responsibility": "判断ASIN是否值得进入机会池"},
             {"key": "launch_agent", "name": "上新检测Agent", "responsibility": "判断Listing上架前是否具备条件"},
@@ -503,6 +507,7 @@ def build_agent_decision_system(product: dict, stages: list[dict]) -> dict:
             "next_iteration": next_iteration,
             "likely_failure_reason": likely_failure_reason,
             "hypothesis_validations": hypothesis_validations,
+            "binding_candidates": binding_candidates,
             "assigned_hypothesis_count": len(assigned_hypothesis_validations),
             "completed_hypothesis_count": completed_hypothesis_count,
         },

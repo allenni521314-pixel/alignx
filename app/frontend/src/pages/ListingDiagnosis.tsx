@@ -64,7 +64,7 @@ import { toast } from "sonner";
 import axios from "axios";
 import { getAuthHeaders } from "@/lib/auth-headers";
 import { AsinPicker, type AsinProduct } from "@/components/AsinPicker";
-import { getCompetitorInsights, updateProductLifecycle, saveTimelineEvent, saveActionSnapshot, type CompetitorInsight, type ActionSnapshot } from "@/lib/workflow-api";
+import { getAllProducts, getCompetitorInsights, updateProductLifecycle, saveTimelineEvent, saveActionSnapshot, type CompetitorInsight, type ActionSnapshot } from "@/lib/workflow-api";
 import { client } from "@/lib/api";
 import { finishModuleTask, removeModuleTask, upsertModuleTask } from "@/lib/module-task-store";
 
@@ -2027,6 +2027,7 @@ export default function ListingDiagnosis() {
   const [fetchProgressValue, setFetchProgressValue] = useState(0);
   const [fetchElapsed, setFetchElapsed] = useState(0);
   const [selectedListingAsin, setSelectedListingAsin] = useState("");
+  const [selectedProductId, setSelectedProductId] = useState<number | null>(null);
   const [diagnosisPhase, setDiagnosisPhase] = useState<DiagnosisPhase>("idle");
   const [showAdvancedEditor, setShowAdvancedEditor] = useState(false);
   const [localCaptureImporting, setLocalCaptureImporting] = useState(false);
@@ -2133,24 +2134,40 @@ export default function ListingDiagnosis() {
 
     toast.success("诊断完成！");
     const scores = result.scores || {};
-    updateProductLifecycle(0, "strategy").catch(() => {});
+    const activeAsin = activeFetchMeta?.asin || selectedListingAsin || activeListing.asin || "";
+    const activeTitle = activeListing.title || "";
+    let workflowProductId = selectedProductId && selectedProductId > 0 ? selectedProductId : null;
+    if (!workflowProductId && (activeAsin || activeTitle)) {
+      const products = await getAllProducts(100);
+      const titleKey = activeTitle.toLowerCase().replace(/\s+/g, " ").trim().slice(0, 120);
+      const matched = products.find((product: { id?: number; asin?: string; title?: string }) =>
+        (activeAsin && product.asin === activeAsin) ||
+        (titleKey && (product.title || "").toLowerCase().replace(/\s+/g, " ").trim().slice(0, 120) === titleKey)
+      );
+      workflowProductId = matched?.id || null;
+    }
+    if (workflowProductId) {
+      updateProductLifecycle(workflowProductId, "strategy").catch(() => {});
+    }
     const totalScore = Object.values(scores).reduce((s: number, v) => s + (Number(v) || 0), 0);
     const avgScore = Math.round(totalScore / Math.max(Object.keys(scores).length, 1));
-    saveTimelineEvent({
-      product_id: 0,
-      step_name: "Listing诊断",
-      action_timestamp: new Date().toISOString(),
-      listing_score: avgScore,
-      score_details: JSON.stringify(scores),
-      optimization_round: 1,
-    }).catch(() => {});
+    if (workflowProductId) {
+      saveTimelineEvent({
+        product_id: workflowProductId,
+        step_name: "Listing诊断",
+        action_timestamp: new Date().toISOString(),
+        listing_score: avgScore,
+        score_details: JSON.stringify(scores),
+        optimization_round: 1,
+      }).catch(() => {});
+    }
     saveActionSnapshot({
       module_key: "listing_diagnosis",
       module_name: "本品诊断",
       action_key: "diagnose_listing",
       action_name: "本品Listing诊断",
-      product_id: 0,
-      asin: activeFetchMeta?.asin || selectedListingAsin || activeListing.asin || "",
+      product_id: workflowProductId,
+      asin: activeAsin,
       title: activeListing.title,
       input_snapshot: diagPayload,
       output_snapshot: result,
@@ -3284,6 +3301,7 @@ export default function ListingDiagnosis() {
                   <AsinPicker
                     onSelect={(product: AsinProduct) => {
                       setSelectedListingAsin(product.asin || "");
+                      setSelectedProductId(product.id > 0 ? product.id : null);
                       setListing((prev) => ({
                         ...prev,
                         asin: product.asin || "",
@@ -3666,17 +3684,6 @@ export default function ListingDiagnosis() {
                   <PriorityIssueTable rows={buildPriorityIssues(diagResult)} />
 
                   <ModuleDiagnosisCards result={diagResult} listing={listing} />
-
-                  {/* Analyzed Product Info Card */}
-                  {listing.title && (
-                    <div className="flex items-center gap-3 p-3 rounded-lg bg-brand-50 border border-brand-500/20">
-                      <ClipboardCheck className="w-5 h-5 text-brand-600 flex-shrink-0" />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-brand-600">正在分析的产品</p>
-                        <p className="text-xs text-brand-600/80 mt-0.5 truncate">{listing.title}</p>
-                      </div>
-                    </div>
-                  )}
 
                   {/* Product Mismatch Warning */}
                   {diagResult.product_mismatch && (

@@ -87,10 +87,10 @@ const isPublicDeployment = () =>
   typeof window !== "undefined" && window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1";
 
 const productFetchSourceLabel = (source?: string) => {
-  if (source === "server_proxy_fetch") return "服务器页面采集";
+  if (source === "server_proxy_fetch") return "服务器代理兜底抓取";
   if (source === "local_browser_capture") return "本地浏览器页面采集";
-  if (source === "ai_estimated_low_confidence" || source === "低置信度补充分析") return "低置信度预检";
-  if (source?.includes("scrape") || source === "scraped") return "服务器页面采集";
+  if (source === "ai_estimated_low_confidence" || source === "低置信度补充分析") return "低置信度补充分析";
+  if (source?.includes("scrape") || source === "scraped") return "服务器真实抓取";
   return "商品信息提取";
 };
 
@@ -303,12 +303,6 @@ interface AsinDiagnosisTaskResponse {
 
 const ASIN_DIAGNOSIS_TASK_KEY = "alignx_active_asin_diagnosis_task_id";
 const ASIN_DIAGNOSIS_TASK_CONTEXT_KEY = "alignx_active_asin_diagnosis_task_context";
-const ASIN_TASK_POLL_INTERVAL_MS = 2000;
-const ASIN_FRONT_WAIT_MS = 60 * 1000;
-const ASIN_TASK_TIMEOUT_MS = 8 * 60 * 1000;
-const TOP40_TASK_TIMEOUT_SECONDS = 300;
-const ASIN_TASK_CONTINUE_MESSAGE = "处理时间较长，已继续保存进度。你可以先处理其他页面，回来后会自动接上。";
-const ASIN_TASK_TIMEOUT_MESSAGE = "ASIN分析处理时间过长，请稍后重试；如果连续失败，建议用本地浏览器采集。";
 
 interface AsinFetchProductData {
   asin: string;
@@ -340,32 +334,7 @@ interface ActiveAsinTaskContext {
   startedAt: string;
 }
 
-interface LocalBrowserCapture {
-  html?: string;
-  asin?: string;
-  marketplace?: string;
-  title?: string;
-  price?: string;
-  rating?: string;
-  reviewCount?: string;
-  bsrRank?: string;
-  imageCount?: number;
-  bullets?: string[];
-  reviews?: Array<Record<string, unknown>>;
-  destination?: string;
-}
-
 const asinModuleTaskId = (taskId: string) => `asin-diagnosis:${taskId}`;
-
-const parseTaskStartedAt = (startedAt?: string) => {
-  const time = startedAt ? new Date(startedAt).getTime() : 0;
-  return Number.isFinite(time) && time > 0 ? time : Date.now();
-};
-
-const getAsinTaskAgeMs = (startedAt?: string) => Math.max(0, Date.now() - parseTaskStartedAt(startedAt));
-
-const isAxiosTimeout = (error: unknown) =>
-  axios.isAxiosError(error) && (error.code === "ECONNABORTED" || /timeout/i.test(error.message || ""));
 
 const readActiveAsinTaskContext = (): ActiveAsinTaskContext | null => {
   try {
@@ -380,12 +349,6 @@ const readActiveAsinTaskContext = (): ActiveAsinTaskContext | null => {
 const clearActiveAsinTaskStorage = () => {
   localStorage.removeItem(ASIN_DIAGNOSIS_TASK_KEY);
   localStorage.removeItem(ASIN_DIAGNOSIS_TASK_CONTEXT_KEY);
-};
-
-const clearFailedAsinModuleTask = (moduleTaskId: string, message: string) => {
-  finishModuleTask(moduleTaskId, "failed", message);
-  clearActiveAsinTaskStorage();
-  window.setTimeout(() => removeModuleTask(moduleTaskId), 1200);
 };
 
 const productDataFromAsinTaskPayload = (
@@ -447,8 +410,6 @@ export default function AsinManager() {
   // Tab state: "library" = ASIN库, "pool" = ASIN机会池
   const [searchParams, setSearchParams] = useSearchParams();
   const urlTab = searchParams.get("tab");
-  const isLocalCaptureRoute = searchParams.get("localCapture") === "1";
-  const localCaptureAsin = (searchParams.get("asin") || "").trim().toUpperCase();
   const [activeTab, setActiveTabState] = useState<"library" | "pool">(
     urlTab === "pool" ? "pool" : "library"
   );
@@ -495,7 +456,6 @@ export default function AsinManager() {
   const [top40Analysis, setTop40Analysis] = useState<Top40MarketAnalysis | null>(null);
   const [top40Usage, setTop40Usage] = useState<Top40Usage | null>(null);
   const [top40DeepDiveAsin, setTop40DeepDiveAsin] = useState<string | null>(null);
-  const [pendingLocalCapture, setPendingLocalCapture] = useState<LocalBrowserCapture | null>(null);
 
   // Fetch history state
   const [showHistory, setShowHistory] = useState(false);
@@ -506,18 +466,14 @@ export default function AsinManager() {
   useEffect(() => {
     if (!autoImportLoading && !batchImportLoading && !scraplingLoading && !top40Analyzing) return;
     const startedAt = Date.now();
-    const targetSeconds = scraplingLoading || top40Analyzing
-      ? TOP40_TASK_TIMEOUT_SECONDS
-      : isLocalCaptureRoute
-        ? 180
-        : ASIN_FRONT_WAIT_MS / 1000;
+    const targetSeconds = scraplingLoading || top40Analyzing ? 300 : 60;
     const timer = window.setInterval(() => {
-      const elapsed = Math.min(targetSeconds, Math.floor((Date.now() - startedAt) / 1000));
+      const elapsed = Math.floor((Date.now() - startedAt) / 1000);
       setAutoImportElapsed(elapsed);
       setAutoImportProgress((current) => Math.max(current, Math.min(92, Math.round((elapsed / targetSeconds) * 92))));
     }, 1000);
     return () => window.clearInterval(timer);
-  }, [autoImportLoading, batchImportLoading, scraplingLoading, top40Analyzing, isLocalCaptureRoute]);
+  }, [autoImportLoading, batchImportLoading, scraplingLoading, top40Analyzing]);
 
   // Refresh single product
   const [refreshingId, setRefreshingId] = useState<number | null>(null);
@@ -756,9 +712,9 @@ export default function AsinManager() {
     upsertModuleTask({
       id: moduleTaskId,
       moduleKey: "asin-manager",
-      label: `机会评分 ${product.asin}`,
+      label: `6维评分 ${product.asin}`,
       status: "running",
-      detail: "正在生成选品判断",
+      detail: "AI优先分析，硬规则兜底",
       path: "/asin-manager",
     });
     try {
@@ -793,9 +749,9 @@ export default function AsinManager() {
         setExpandedScoreAsin(product.asin);
         saveActionSnapshot({
           module_key: "asin_selection",
-          module_name: "ASIN机会判断",
+          module_name: "6维选品",
           action_key: "six_dimension_score",
-          action_name: "ASIN机会评分",
+          action_name: "ASIN 6维选品评分",
           product_id: product.id,
           asin: product.asin,
           title: product.title,
@@ -806,8 +762,10 @@ export default function AsinManager() {
           ai_called: result.ai_called !== false,
           source_record_table: "asin_analyses",
         }).catch(() => {});
-        toast.success(`${product.asin} 机会判断完成: ${result.total_score}分`);
-        finishModuleTask(moduleTaskId, "completed", "机会评分完成");
+        toast.success(
+          `${product.asin} 6维决策完成: ${result.total_score}分 · ${result.decision || "已生成"} · ${result.pool_status === "opportunity_pool" ? "进入机会池" : "未进机会池"}`
+        );
+        finishModuleTask(moduleTaskId, "completed", "6维评分完成");
       } else {
         finishModuleTask(moduleTaskId, "failed", "评分失败");
         toast.error("评分失败，请重试");
@@ -853,200 +811,132 @@ export default function AsinManager() {
     return { product: created as Product, mode: "created" as const };
   };
 
-  function readStoredLocalBrowserCapture() {
-    const raw = localStorage.getItem("alignx_local_browser_capture");
-    if (!raw) return null;
-    try {
-      const capture = JSON.parse(raw) as LocalBrowserCapture;
-      if (capture.destination && capture.destination !== "asin") {
-        localStorage.removeItem("alignx_local_browser_capture");
-        return null;
-      }
-      if (!capture.html || !capture.asin) return null;
-      return { ...capture, asin: capture.asin.trim().toUpperCase() };
-    } catch {
-      localStorage.removeItem("alignx_local_browser_capture");
-      return null;
-    }
-  }
-
-  function resolveLocalBrowserCapture() {
-    const stored = readStoredLocalBrowserCapture();
-    if (stored) return stored;
-    if (pendingLocalCapture?.html && pendingLocalCapture.asin) {
-      return { ...pendingLocalCapture, asin: pendingLocalCapture.asin.trim().toUpperCase() };
-    }
-    return null;
-  }
-
-  function requestPendingLocalCapture() {
-    window.dispatchEvent(new Event("alignx-request-pending-capture"));
-  }
-
-  function showMissingLocalCaptureMessage() {
-    requestPendingLocalCapture();
-    toast.warning("未收到页面数据，请回到 Amazon 商品页重新点击发送。");
-    setAutoImportMessage("等待页面数据");
-  }
-
-  async function processLocalBrowserCapture(capture: LocalBrowserCapture, options: { validate?: boolean } = {}) {
-    if (!capture.html || !capture.asin) {
-      showMissingLocalCaptureMessage();
-      return null;
-    }
-
-    const asin = capture.asin.trim().toUpperCase();
-    const mp = capture.marketplace || autoImportMarketplace || "US";
-    const moduleTaskId = `asin-local-capture:${asin}`;
-    localStorage.removeItem("alignx_local_browser_capture");
-    setPendingLocalCapture({ ...capture, asin });
-    setAutoImportAsin(asin);
-    setAutoImportMarketplace(mp);
-    setAutoImportLoading(true);
-    setAutoImportElapsed(0);
-    setAutoImportProgress(28);
-    setAutoImportMessage("正在读取页面内容并保存到ASIN库");
-    upsertModuleTask({
-      id: moduleTaskId,
-      moduleKey: "asin-manager",
-      label: `本地采集分析 ${asin}`,
-      status: "running",
-      detail: "正在读取当前Amazon页面并保存记录",
-      path: "/asin-manager",
-    });
-
-    try {
-      const res = await axios.post(
-        `${getLongRunningApiBase()}/api/v1/asin-analysis/parse-html-analyze`,
-        {
-          asin,
-          marketplace: mp,
-          html: capture.html,
-          source: "local_browser_capture",
-          captured_title: capture.title || "",
-          captured_price: capture.price || "",
-          captured_rating: capture.rating || "",
-          captured_review_count: capture.reviewCount || "",
-          captured_bsr_rank: capture.bsrRank || "",
-          captured_image_count: capture.imageCount ? String(capture.imageCount) : "",
-          captured_bullets: capture.bullets || [],
-          captured_reviews: capture.reviews || [],
-        },
-        { headers: getAuthHeaders(), timeout: 180000 }
-      );
-      const d = res.data;
-      if (!d?.success || !d.product_data) {
-        const msg = d?.error || "本地采集解析失败";
-        finishModuleTask(moduleTaskId, "failed", msg);
-        toast.error(msg);
-        return null;
-      }
-
-      const pd = d.product_data || {};
-      const productData: Omit<Product, "id" | "created_at" | "marketplace"> = {
-        asin: d.asin || asin,
-        title: pd.title || d.product_title || capture.title || asin,
-        bullet_points: Array.isArray(pd.bullet_points) ? pd.bullet_points.join("\n") : pd.bullet_points || "",
-        a_plus_content: pd.description_summary || pd.aplus_content || "",
-        search_keywords: Array.isArray(pd.main_keywords) ? pd.main_keywords.join(", ") : pd.main_keywords || "",
-        price: parseFloat(String(pd.price || capture.price || "").replace(/[^0-9.]/g, "")) || 0,
-        review_count: parseInt(String(pd.review_count || capture.reviewCount || "").replace(/[^0-9]/g, ""), 10) || 0,
-        rating: parseFloat(String(pd.rating || capture.rating || "")) || 0,
-        category: pd.category || "",
-      };
-
-      setAutoImportProgress(options.validate ? 74 : 88);
-      const saved = await saveProductToLibrary(productData);
-      const savedProduct = { ...saved.product, marketplace: mp };
-      setAsinMarketplaceMap((prev) => ({ ...prev, [productData.asin]: mp }));
-      setProducts((prev) => {
-        const existingIndex = prev.findIndex((product) => product.asin === productData.asin);
-        if (existingIndex >= 0) {
-          const next = [...prev];
-          next[existingIndex] = savedProduct;
-          return next;
-        }
-        return [savedProduct, ...prev];
-      });
-
-      const shouldStartValidation = Boolean(options.validate);
-      setAutoImportMessage(
-        shouldStartValidation
-          ? "已保存到ASIN库，关键词验证会继续完成"
-          : "已保存到ASIN库"
-      );
-      setAutoImportProgress(94);
-
-      saveActionSnapshot({
-        module_key: "asin_selection",
-        module_name: "ASIN选品",
-        action_key: shouldStartValidation ? "local_capture_save_start_keyword_validation" : "local_browser_capture_import",
-        action_name: shouldStartValidation ? "本地页面保存并启动关键词验证" : "本地页面写入ASIN库",
-        product_id: saved.product.id,
-        asin: productData.asin,
-        title: productData.title,
-        input_snapshot: { asin, marketplace: mp, destination: capture.destination || "asin" },
-        output_snapshot: { product: productData, marketplace: mp, capture_quality: pd.capture_quality, keyword_sales_validation: null },
-        data_source: "本地浏览器页面采集",
-        confidence: "high",
-        ai_called: true,
-        source_record_table: "products",
-        source_record_id: saved.product.id,
-      }).catch(() => {});
-
-      setAutoImportProgress(100);
-      setPendingLocalCapture(null);
-      finishModuleTask(moduleTaskId, "completed", shouldStartValidation ? "已保存，关键词验证继续进行" : "本地采集写入完成");
-      await loadProducts();
-      toast.success(
-        shouldStartValidation
-          ? `${productData.asin} 已${saved.mode === "updated" ? "更新" : "保存"}，关键词验证正在继续`
-          : `已用本地浏览器采集${saved.mode === "updated" ? "更新" : "保存"} ${productData.asin}`
-      );
-      if (shouldStartValidation) {
-        startBackgroundKeywordValidation(productData, mp, saved.product.id);
-      }
-      return { productData, savedProduct, report: null };
-    } catch (err) {
-      const msg = axios.isAxiosError(err) ? err.response?.data?.detail || err.message : "本地采集分析失败";
-      finishModuleTask(moduleTaskId, "failed", msg);
-      toast.error(msg);
-      return null;
-    } finally {
-      setAutoImportLoading(false);
-      setAutoImportProgress(0);
-      setAutoImportElapsed(0);
-      setAutoImportMessage("");
-      window.setTimeout(() => removeModuleTask(moduleTaskId), 1200);
-    }
-  }
-
   useEffect(() => {
     if (authLoading) return;
     const consumeLocalBrowserCapture = async () => {
-      const capture = readStoredLocalBrowserCapture();
-      if (!capture) {
-        if (isLocalCaptureRoute) {
-          if (localCaptureAsin) setAutoImportAsin(localCaptureAsin);
-          requestPendingLocalCapture();
-          setAutoImportMessage("等待页面数据");
-        }
+      const raw = localStorage.getItem("alignx_local_browser_capture");
+      if (!raw) return;
+      let capture: {
+        html?: string;
+        asin?: string;
+        marketplace?: string;
+        title?: string;
+        price?: string;
+        rating?: string;
+        reviewCount?: string;
+        bsrRank?: string;
+        imageCount?: number;
+        bullets?: string[];
+        destination?: string;
+      };
+      try {
+        capture = JSON.parse(raw);
+      } catch {
+        localStorage.removeItem("alignx_local_browser_capture");
         return;
       }
-      setPendingLocalCapture(capture);
-      setAutoImportAsin(capture.asin || localCaptureAsin);
-      setAutoImportMarketplace(capture.marketplace || autoImportMarketplace || "US");
-      await processLocalBrowserCapture(capture, { validate: true });
+      if (capture.destination && capture.destination !== "asin") return;
+      if (!capture.html || !capture.asin) return;
+
+      localStorage.removeItem("alignx_local_browser_capture");
+      const mp = capture.marketplace || autoImportMarketplace || "US";
+      const moduleTaskId = `asin-local-capture:${capture.asin}`;
+      setAutoImportAsin(capture.asin);
+      setAutoImportMarketplace(mp);
+      setAutoImportLoading(true);
+      setAutoImportProgress(45);
+      setAutoImportMessage("正在用本地浏览器采集证据写入ASIN选品库");
+      upsertModuleTask({
+        id: moduleTaskId,
+        moduleKey: "asin-manager",
+        label: `本地采集写入 ${capture.asin}`,
+        status: "running",
+        detail: "正在解析本地浏览器页面并写入ASIN库",
+        path: "/asin-manager",
+      });
+      try {
+        const res = await axios.post(
+          `${getLongRunningApiBase()}/api/v1/asin-analysis/parse-html-analyze`,
+          {
+            asin: capture.asin,
+            marketplace: mp,
+            html: capture.html,
+            source: "local_browser_capture",
+            captured_title: capture.title || "",
+            captured_price: capture.price || "",
+            captured_rating: capture.rating || "",
+            captured_review_count: capture.reviewCount || "",
+            captured_bsr_rank: capture.bsrRank || "",
+            captured_image_count: capture.imageCount ? String(capture.imageCount) : "",
+            captured_bullets: capture.bullets || [],
+          },
+          { headers: getAuthHeaders(), timeout: 180000 }
+        );
+        const d = res.data;
+        if (!d?.success || !d.product_data) {
+          const msg = d?.error || "本地采集解析失败";
+          finishModuleTask(moduleTaskId, "failed", msg);
+          toast.error(msg);
+          return;
+        }
+        const pd = d.product_data || {};
+        const productData: Omit<Product, "id" | "created_at" | "marketplace"> = {
+          asin: d.asin || capture.asin,
+          title: pd.title || d.product_title || capture.title || capture.asin,
+          bullet_points: Array.isArray(pd.bullet_points) ? pd.bullet_points.join("\n") : pd.bullet_points || "",
+          a_plus_content: pd.description_summary || pd.aplus_content || "",
+          search_keywords: Array.isArray(pd.main_keywords) ? pd.main_keywords.join(", ") : pd.main_keywords || "",
+          price: parseFloat(String(pd.price || capture.price || "").replace(/[^0-9.]/g, "")) || 0,
+          review_count: parseInt(String(pd.review_count || capture.reviewCount || "").replace(/[^0-9]/g, ""), 10) || 0,
+          rating: parseFloat(String(pd.rating || capture.rating || "")) || 0,
+          category: pd.category || "",
+        };
+        const saved = await saveProductToLibrary(productData);
+        const savedProduct = { ...saved.product, marketplace: mp };
+        setAsinMarketplaceMap((prev) => ({ ...prev, [productData.asin]: mp }));
+        setProducts((prev) => {
+          const existingIndex = prev.findIndex((product) => product.asin === productData.asin);
+          if (existingIndex >= 0) {
+            const next = [...prev];
+            next[existingIndex] = savedProduct;
+            return next;
+          }
+          return [savedProduct, ...prev];
+        });
+        saveActionSnapshot({
+          module_key: "asin_selection",
+          module_name: "ASIN选品",
+          action_key: "local_browser_capture_import",
+          action_name: "本地浏览器采集写入ASIN库",
+          asin: productData.asin,
+          title: productData.title,
+          input_snapshot: { asin: capture.asin, marketplace: mp },
+          output_snapshot: { ...productData, marketplace: mp, capture_quality: pd.capture_quality },
+          data_source: "本地浏览器页面采集",
+          confidence: "high",
+          ai_called: true,
+          source_record_table: "products",
+        }).catch(() => {});
+        setAutoImportProgress(100);
+        finishModuleTask(moduleTaskId, "completed", "本地采集写入完成");
+        toast.success(`已用本地浏览器采集${saved.mode === "updated" ? "更新" : "保存"} ${productData.asin}`);
+      } catch (err) {
+        const msg = axios.isAxiosError(err) ? err.response?.data?.detail || err.message : "本地采集写入失败";
+        finishModuleTask(moduleTaskId, "failed", msg);
+        toast.error(msg);
+      } finally {
+        setAutoImportLoading(false);
+        setAutoImportMessage("");
+        window.setTimeout(() => removeModuleTask(moduleTaskId), 1200);
+      }
     };
 
     consumeLocalBrowserCapture();
-    const onCapture = () => {
-      consumeLocalBrowserCapture();
-    };
+    const onCapture = () => consumeLocalBrowserCapture();
     window.addEventListener("alignx-local-browser-capture", onCapture);
     return () => window.removeEventListener("alignx-local-browser-capture", onCapture);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authLoading, isLocalCaptureRoute, localCaptureAsin]);
+  }, [authLoading]);
 
   const handleTop40DeepDive = async (item: ScraplingTop40Item) => {
     if (!item.asin) {
@@ -1170,11 +1060,7 @@ export default function AsinManager() {
     }
   };
 
-  const validateImportedProduct = async (
-    productData: Omit<Product, "id" | "created_at" | "marketplace">,
-    marketplace: string,
-    timeoutMs = 180000
-  ) => {
+  const validateImportedProduct = async (productData: Omit<Product, "id" | "created_at" | "marketplace">, marketplace: string) => {
     const targetKeywords = (productData.search_keywords || "")
       .split(/[,，;\n]+/)
       .map((kw) => kw.trim())
@@ -1191,7 +1077,7 @@ export default function AsinManager() {
         inventory_status: outOfStockAsins[productData.asin] ? "out_of_stock" : "",
         is_own_product: Boolean(outOfStockAsins[productData.asin]),
       },
-      { headers: getAuthHeaders(), timeout: timeoutMs }
+      { headers: getAuthHeaders(), timeout: 180000 }
     );
     const normalizedReport = normalizeKeywordSalesReport(res.data);
     setKeywordValidationResults((prev) => ({ ...prev, [productData.asin]: normalizedReport }));
@@ -1199,50 +1085,8 @@ export default function AsinManager() {
     return normalizedReport;
   };
 
-  const startBackgroundKeywordValidation = (
-    productData: Omit<Product, "id" | "created_at" | "marketplace">,
-    marketplace: string,
-    productId?: number
-  ) => {
-    const asin = productData.asin;
-    setValidatingKeywordAsin(asin);
-    validateImportedProduct(productData, marketplace, 120000)
-      .then((report) => {
-        saveActionSnapshot({
-          module_key: "asin_selection",
-          module_name: "ASIN选品",
-          action_key: "keyword_sales_validation_after_local_capture",
-          action_name: "本地页面保存后的关键词验证",
-          product_id: productId,
-          asin,
-          title: productData.title,
-          input_snapshot: { asin, marketplace, target_keywords: productData.search_keywords },
-          output_snapshot: { keyword_sales_validation: report },
-          data_source: "关键词搜索快照",
-          confidence: report.keyword_sales_score >= 65 ? "medium" : "low",
-          ai_called: true,
-          source_record_table: "asin_keyword_sales_validation_reports",
-          source_record_id: productId,
-        }).catch(() => {});
-        toast.success(`${asin} 关键词验证完成：${Math.round(report.keyword_sales_score || 0)}分`);
-      })
-      .catch(() => {
-        toast.warning(`${asin} 关键词验证暂未完成，可稍后点击产品右侧重新验证`);
-      })
-      .finally(() => {
-        setValidatingKeywordAsin((current) => (current === asin ? null : current));
-      });
-  };
-
   useEffect(() => {
     if (authLoading) return;
-    if (isLocalCaptureRoute) {
-      const taskId = localStorage.getItem(ASIN_DIAGNOSIS_TASK_KEY);
-      const context = readActiveAsinTaskContext();
-      if (taskId) removeModuleTask(context?.moduleTaskId || asinModuleTaskId(taskId));
-      clearActiveAsinTaskStorage();
-      return;
-    }
     const taskId = localStorage.getItem(ASIN_DIAGNOSIS_TASK_KEY);
     if (!taskId) return;
 
@@ -1264,81 +1108,47 @@ export default function AsinManager() {
     const moduleTaskId = context.moduleTaskId || asinModuleTaskId(taskId);
 
     const recoverTask = async () => {
-      if (getAsinTaskAgeMs(context.startedAt) >= ASIN_TASK_TIMEOUT_MS) {
-        clearFailedAsinModuleTask(moduleTaskId, ASIN_TASK_TIMEOUT_MESSAGE);
-        toast.error(ASIN_TASK_TIMEOUT_MESSAGE);
-        return;
-      }
-
       setAutoImportLoading(true);
       setAutoImportElapsed(0);
       setAutoImportProgress(20);
-      setAutoImportMessage(`正在接上 ${context.asin} 的分析进度`);
+      setAutoImportMessage(`正在恢复 ${context.asin} 的后台抓取分析任务`);
       upsertModuleTask({
         id: moduleTaskId,
         moduleKey: "asin-manager",
         label: `ASIN抓取分析 ${context.asin}`,
         status: "running",
-        detail: "切换页面后继续接上分析",
+        detail: "用户切换页面后继续恢复后台任务",
         path: "/asin-manager",
         startedAt: context.startedAt,
       });
 
       try {
         let task: AsinDiagnosisTaskResponse | null = null;
-        let notifiedSlow = getAsinTaskAgeMs(context.startedAt) >= ASIN_FRONT_WAIT_MS;
-        if (notifiedSlow) {
-          setAutoImportMessage(ASIN_TASK_CONTINUE_MESSAGE);
-        }
-        while (getAsinTaskAgeMs(context.startedAt) < ASIN_TASK_TIMEOUT_MS) {
+        for (let attempt = 0; attempt < 180; attempt += 1) {
           if (cancelled) return;
-          const remainingMs = ASIN_TASK_TIMEOUT_MS - getAsinTaskAgeMs(context.startedAt);
-          try {
-            const statusRes = await axios.get<AsinDiagnosisTaskResponse>(
-              `${apiBase}/api/v1/diagnosis-tasks/${taskId}`,
-              { headers: getAuthHeaders(), timeout: Math.max(3000, Math.min(10000, remainingMs)) }
-            );
-            task = statusRes.data;
-          } catch (err) {
-            if (isAxiosTimeout(err)) {
-              await new Promise((resolve) => window.setTimeout(resolve, ASIN_TASK_POLL_INTERVAL_MS));
-              continue;
-            }
-            throw err;
-          }
+          const statusRes = await axios.get<AsinDiagnosisTaskResponse>(
+            `${apiBase}/api/v1/diagnosis-tasks/${taskId}`,
+            { headers: getAuthHeaders(), timeout: 30000 }
+          );
+          task = statusRes.data;
           if (task.status === "completed") break;
           if (task.status === "failed") {
-            throw new Error(task.error_message || "ASIN分析任务失败");
+            throw new Error(task.error_message || "ASIN后台任务失败");
           }
-          if (!notifiedSlow && getAsinTaskAgeMs(context.startedAt) >= ASIN_FRONT_WAIT_MS) {
-            notifiedSlow = true;
-            setAutoImportMessage(ASIN_TASK_CONTINUE_MESSAGE);
-            upsertModuleTask({
-              id: moduleTaskId,
-              moduleKey: "asin-manager",
-              label: `ASIN抓取分析 ${context.asin}`,
-              status: "running",
-              detail: ASIN_TASK_CONTINUE_MESSAGE,
-              path: "/asin-manager",
-              startedAt: context.startedAt,
-            });
-          }
-          const elapsedRatio = Math.min(1, getAsinTaskAgeMs(context.startedAt) / ASIN_FRONT_WAIT_MS);
-          setAutoImportProgress((current) => Math.min(92, Math.max(current, 20 + Math.round(elapsedRatio * 72))));
-          await new Promise((resolve) => window.setTimeout(resolve, ASIN_TASK_POLL_INTERVAL_MS));
+          setAutoImportProgress((current) => Math.min(92, Math.max(current, 20 + attempt)));
+          await new Promise((resolve) => window.setTimeout(resolve, 2000));
         }
 
         if (cancelled) return;
         if (!task || task.status !== "completed" || !task.result_payload) {
-          clearFailedAsinModuleTask(moduleTaskId, ASIN_TASK_TIMEOUT_MESSAGE);
-          toast.error(ASIN_TASK_TIMEOUT_MESSAGE);
+          toast.warning("ASIN后台任务仍在运行，稍后返回ASIN选品页会继续恢复");
           return;
         }
 
         const normalized = productDataFromAsinTaskPayload(task.result_payload, context.asin);
         const productData = normalized.data;
         const sourceLabel = productFetchSourceLabel(normalized.source);
-        const isLowConfidence = sourceLabel === "低置信度预检";
+        const isLowConfidence = sourceLabel === "低置信度补充分析";
         setAutoImportProgress(88);
         setAutoImportMessage(`已恢复 ${productData.asin} 抓取结果，正在写入ASIN库`);
 
@@ -1359,7 +1169,7 @@ export default function AsinManager() {
           setAsinMarketplaceMap((prev) => ({ ...prev, [productData.asin]: context.marketplace }));
           saveActionSnapshot({
             module_key: "asin_selection",
-            module_name: "ASIN机会判断",
+            module_name: "6维选品",
             action_key: "recover_refresh_asin_product",
             action_name: "恢复并刷新ASIN产品数据",
             product_id: context.productId,
@@ -1373,7 +1183,7 @@ export default function AsinManager() {
             source_record_table: "products",
             source_record_id: context.productId,
           }).catch(() => {});
-          toast.success(`${productData.asin} 刷新已完成`);
+          toast.success(`${productData.asin} 后台刷新已完成`);
         } else {
           const saved = await saveProductToLibrary(productData);
           const savedProduct = { ...saved.product, marketplace: context.marketplace };
@@ -1389,9 +1199,9 @@ export default function AsinManager() {
           });
           saveActionSnapshot({
             module_key: "asin_selection",
-            module_name: "ASIN机会判断",
+            module_name: "6维选品",
             action_key: "recover_fetch_asin_product",
-            action_name: "恢复ASIN抓取并保存",
+            action_name: "恢复ASIN后台抓取并保存",
             product_id: saved.product.id,
             asin: productData.asin,
             title: productData.title,
@@ -1423,23 +1233,24 @@ export default function AsinManager() {
               source_record_table: "asin_keyword_sales_validation_reports",
             }).catch(() => {});
           }
-          toast.success(`${productData.asin} 抓取已${saved.mode === "updated" ? "更新" : "保存"}`);
+          toast.success(`${productData.asin} 后台抓取已${saved.mode === "updated" ? "更新" : "保存"}`);
         }
 
         setAutoImportProgress(100);
         await loadProducts();
         clearActiveAsinTaskStorage();
-        finishModuleTask(moduleTaskId, "completed", "ASIN分析任务已恢复完成");
+        finishModuleTask(moduleTaskId, "completed", "ASIN后台任务已恢复完成");
         window.setTimeout(() => removeModuleTask(moduleTaskId), 1200);
       } catch (e: unknown) {
         const msg = axios.isAxiosError(e)
           ? e.response?.data?.detail || e.message
           : e instanceof Error
             ? e.message
-            : "ASIN分析任务恢复失败";
+            : "ASIN后台任务恢复失败";
         if (!cancelled) {
           toast.error(msg);
-          clearFailedAsinModuleTask(moduleTaskId, msg);
+          finishModuleTask(moduleTaskId, "failed", msg);
+          clearActiveAsinTaskStorage();
         }
       } finally {
         if (!cancelled) {
@@ -1601,52 +1412,26 @@ export default function AsinManager() {
       moduleKey: "asin-manager",
       label: `ASIN抓取分析 ${asin}`,
       status: "running",
-      detail: "正在抓取Amazon页面并生成选品判断",
+      detail: "后台正在抓取Amazon页面并生成选品判断",
       path: "/asin-manager",
-      startedAt: taskContext.startedAt,
     });
     let task = taskRes.data;
-    const pollStartedAt = Date.now();
-    let notifiedSlow = false;
-    while (Date.now() - pollStartedAt < ASIN_TASK_TIMEOUT_MS) {
-      const remainingMs = ASIN_TASK_TIMEOUT_MS - (Date.now() - pollStartedAt);
-      try {
-        const statusRes = await axios.get<AsinDiagnosisTaskResponse>(
-          `${apiBase}/api/v1/diagnosis-tasks/${taskRes.data.task_id}`,
-          { headers: getAuthHeaders(), timeout: Math.max(3000, Math.min(10000, remainingMs)) }
-        );
-        task = statusRes.data;
-      } catch (err) {
-        if (isAxiosTimeout(err)) {
-          await new Promise((resolve) => window.setTimeout(resolve, ASIN_TASK_POLL_INTERVAL_MS));
-          continue;
-        }
-        throw err;
-      }
+    for (let attempt = 0; attempt < 180; attempt += 1) {
+      const statusRes = await axios.get<AsinDiagnosisTaskResponse>(
+        `${apiBase}/api/v1/diagnosis-tasks/${taskRes.data.task_id}`,
+        { headers: getAuthHeaders(), timeout: 30000 }
+      );
+      task = statusRes.data;
       if (task.status === "completed") break;
       if (task.status === "failed") {
-        const message = task.error_message || "ASIN分析任务失败";
-        clearFailedAsinModuleTask(moduleTaskId, message);
-        throw new Error(message);
+        finishModuleTask(moduleTaskId, "failed", task.error_message || "ASIN分析任务失败");
+        clearActiveAsinTaskStorage();
+        throw new Error(task.error_message || "ASIN分析任务失败");
       }
-      if (!notifiedSlow && Date.now() - pollStartedAt >= ASIN_FRONT_WAIT_MS) {
-        notifiedSlow = true;
-        setAutoImportMessage(ASIN_TASK_CONTINUE_MESSAGE);
-        upsertModuleTask({
-          id: moduleTaskId,
-          moduleKey: "asin-manager",
-          label: `ASIN抓取分析 ${asin}`,
-          status: "running",
-          detail: ASIN_TASK_CONTINUE_MESSAGE,
-          path: "/asin-manager",
-          startedAt: taskContext.startedAt,
-        });
-      }
-      await new Promise((resolve) => window.setTimeout(resolve, ASIN_TASK_POLL_INTERVAL_MS));
+      await new Promise((resolve) => window.setTimeout(resolve, 2000));
     }
     if (task.status !== "completed" || !task.result_payload) {
-      clearFailedAsinModuleTask(moduleTaskId, ASIN_TASK_TIMEOUT_MESSAGE);
-      throw new Error(ASIN_TASK_TIMEOUT_MESSAGE);
+      throw new Error("ASIN分析仍在后台运行，请稍后刷新查看");
     }
     finishModuleTask(moduleTaskId, "completed", "ASIN抓取分析已完成");
     window.setTimeout(() => removeModuleTask(moduleTaskId), 1200);
@@ -1666,7 +1451,7 @@ export default function AsinManager() {
     context: Partial<Omit<ActiveAsinTaskContext, "taskId" | "moduleTaskId" | "asin" | "marketplace" | "startedAt">> = {}
   ): Promise<AsinFetchResult> => {
     if (isPublicDeployment()) {
-      setAutoImportMessage("正在提取商品信息并生成分析结果；时间较长时可先处理其他页面");
+      setAutoImportMessage("正在提取商品信息并生成分析结果，通常需要 10-40 秒");
       setAutoImportProgress(35);
       try {
         const serverResult = await fetchAsinViaAI(asin, marketplace, context);
@@ -1675,7 +1460,7 @@ export default function AsinManager() {
       } catch (e: unknown) {
         const msg = axios.isAxiosError(e)
           ? e.code === "ECONNABORTED"
-            ? ASIN_TASK_TIMEOUT_MESSAGE
+            ? "公网服务器分析超时，请稍后重试。"
             : e.response?.data?.detail || "商品分析失败"
           : e instanceof Error
             ? e.message
@@ -1686,7 +1471,7 @@ export default function AsinManager() {
 
     // Phase 1: backend proxy fetch. True local-browser capture is handled by
     // Listing diagnosis manual HTML capture; this source stays medium-confidence.
-    setAutoImportMessage("正在提取Amazon商品页面信息；时间较长时可先处理其他页面");
+    setAutoImportMessage("正在提取Amazon商品页面信息，通常需要 20-30 秒");
     setAutoImportProgress(22);
     try {
       const proxyRes = await axios.post(
@@ -1738,8 +1523,8 @@ export default function AsinManager() {
       // fall through
     }
 
-    // Phase 2 + 3: Backend server scrape first, then low-confidence mode when real data is unavailable.
-    setAutoImportMessage("正在补充商品信息并标记置信度");
+    // Phase 2 + 3: Backend server scrape first, then AI fallback when real data is unavailable.
+    setAutoImportMessage("正在补充商品信息并生成低置信度标记");
     setAutoImportProgress(62);
     try {
       const aiResult = await fetchAsinViaAI(asin, marketplace, context);
@@ -1748,8 +1533,8 @@ export default function AsinManager() {
     } catch (e: unknown) {
       const msg = axios.isAxiosError(e)
         ? e.code === "ECONNABORTED"
-          ? ASIN_TASK_TIMEOUT_MESSAGE
-          : e.response?.data?.detail || "商品分析失败"
+          ? "分析超过180秒，请稍后重试；如果连续失败，说明Amazon页面抓取或模型响应过慢。"
+          : e.response?.data?.detail || "AI分析失败"
         : e instanceof Error
           ? e.message
           : "请求失败";
@@ -1764,19 +1549,10 @@ export default function AsinManager() {
       toast.error("请输入ASIN");
       return;
     }
-    if (isLocalCaptureRoute) {
-      const capture = resolveLocalBrowserCapture();
-      if (!capture) {
-        showMissingLocalCaptureMessage();
-        return;
-      }
-      await processLocalBrowserCapture(capture, { validate: false });
-      return;
-    }
     setAutoImportLoading(true);
     setAutoImportProgress(3);
     setAutoImportElapsed(0);
-    setAutoImportMessage("正在抓取并分析；时间较长时可先处理其他页面");
+    setAutoImportMessage("准备开始抓取分析，预计 60 秒内完成");
     try {
       const result = await smartFetchAsin(asin, autoImportMarketplace, {
         intent: "single_import",
@@ -1796,7 +1572,7 @@ export default function AsinManager() {
         };
 
         const sourceLabel = productFetchSourceLabel(result.source);
-        const isLowConfidence = sourceLabel === "低置信度预检";
+        const isLowConfidence = sourceLabel === "低置信度补充分析";
         const snapshotProductData = { ...productData, marketplace: autoImportMarketplace };
 
         if (autoFetch) {
@@ -1808,7 +1584,7 @@ export default function AsinManager() {
             }));
             saveActionSnapshot({
               module_key: "asin_selection",
-              module_name: "ASIN机会判断",
+              module_name: "6维选品",
               action_key: "fetch_asin_product",
               action_name: "ASIN抓取并保存",
               asin,
@@ -1854,15 +1630,6 @@ export default function AsinManager() {
     const asin = autoImportAsin.trim().toUpperCase();
     if (!asin) {
       toast.error("请输入ASIN");
-      return;
-    }
-    if (isLocalCaptureRoute) {
-      const capture = resolveLocalBrowserCapture();
-      if (!capture) {
-        showMissingLocalCaptureMessage();
-        return;
-      }
-      await processLocalBrowserCapture(capture, { validate: true });
       return;
     }
     setAutoImportLoading(true);
@@ -1939,7 +1706,7 @@ export default function AsinManager() {
     setBatchImportLoading(true);
     setAutoImportProgress(3);
     setAutoImportElapsed(0);
-    setAutoImportMessage("准备批量抓取分析，耗时较长时会持续保存进度");
+    setAutoImportMessage("准备批量抓取分析，单个 ASIN 通常约 60 秒");
     let savedCount = 0;
     const failedAsins: string[] = [];
     try {
@@ -1974,7 +1741,7 @@ export default function AsinManager() {
               }));
               saveActionSnapshot({
                 module_key: "asin_selection",
-                module_name: "ASIN机会判断",
+                module_name: "6维选品",
                 action_key: "batch_fetch_asin_product",
                 action_name: "批量ASIN抓取并保存",
                 asin,
@@ -1982,8 +1749,8 @@ export default function AsinManager() {
                 input_snapshot: { asin, marketplace: autoImportMarketplace },
                 output_snapshot: { ...productData, marketplace: autoImportMarketplace },
                 data_source: productFetchSourceLabel(result.source),
-                confidence: productFetchSourceLabel(result.source) === "低置信度预检" ? "low" : "high",
-                ai_called: productFetchSourceLabel(result.source) === "低置信度预检",
+                confidence: productFetchSourceLabel(result.source) === "低置信度补充分析" ? "low" : "high",
+                ai_called: productFetchSourceLabel(result.source) === "低置信度补充分析",
                 source_record_table: "products",
               }).catch(() => {});
               savedCount++;
@@ -2208,7 +1975,7 @@ export default function AsinManager() {
       moduleKey: "asin-manager",
       label: `Top40机会分析 ${keyword}`,
       status: "running",
-      detail: "正在生成市场机会判断",
+      detail: "AI优先推理市场机会，规则兜底",
       path: "/asin-manager",
     });
     try {
@@ -2287,10 +2054,10 @@ export default function AsinManager() {
           },
         });
         const sourceLabel = productFetchSourceLabel(result.source);
-        const isLowConfidence = sourceLabel === "低置信度预检";
+        const isLowConfidence = sourceLabel === "低置信度补充分析";
         saveActionSnapshot({
           module_key: "asin_selection",
-          module_name: "ASIN机会判断",
+          module_name: "6维选品",
           action_key: "refresh_asin_product",
           action_name: "刷新ASIN产品数据",
           product_id: product.id,
@@ -2428,16 +2195,16 @@ export default function AsinManager() {
                 ASIN库
               </h1>
               <p className="text-gray-500 mt-1 text-sm">
-                集中管理你的Amazon产品 · 按总分、风险和关键限制分流机会池 · 各诊断工具可直接引用
+                集中管理你的Amazon产品 · 按总分、风险和一票否决规则分流机会池 · 各诊断工具可直接引用
               </p>
             </div>
           </div>
 
           <PageHeader
-            objective="集中管理你的Amazon产品ASIN，判断能不能做、风险在哪里、下一步去哪"
+            objective="集中管理你的Amazon产品ASIN，用AI主判和规则硬闸门判断能不能做、风险在哪里、下一步去哪"
             inputSource="关键词Top40竞品快照 / 单个ASIN补充抓取"
-            process="先保存真实数据，再判断需求、搜索、竞争、差异化、商业和风险信号"
-            outputTarget="机会判断 · 关键限制 · 下一步动作"
+            process="真实数据先打底，AI推理6维主判；规则只做缺字段、合规、利润和风险硬兜底"
+            outputTarget="决策结论 · 机会池状态 · 一票否决 · 动态下一步动作"
             action="按可进入、小预算测试、改良后进入、淘汰避坑等路径分流"
             feedback="上线后的广告验证和复盘结果回流到下一轮选品判断"
             tone="blue"
@@ -2550,24 +2317,6 @@ export default function AsinManager() {
 
               {importMode === "single" ? (
                 <div className="space-y-3">
-                {isLocalCaptureRoute && (
-                  <div className="rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-3">
-                    <p className="text-sm font-semibold text-emerald-800 flex items-center gap-2">
-                      <ShieldCheck className="w-4 h-4" />
-                      当前页面导入
-                    </p>
-                    <p className="text-xs text-gray-600 mt-1">
-                      正在使用你刚打开的 Amazon 商品页内容。未收到页面内容时，请回 Amazon 商品页重新点击发送。
-                    </p>
-                    <p className="text-xs text-emerald-700 mt-1">
-                      {pendingLocalCapture?.asin
-                        ? `已收到 ${pendingLocalCapture.asin} 的页面内容。`
-                        : localCaptureAsin
-                          ? `正在等待 ${localCaptureAsin} 的页面内容。`
-                          : "正在等待页面内容。"}
-                    </p>
-                  </div>
-                )}
                 <div className="flex gap-3 items-end">
                   <div className="flex-1">
                     <Label className="text-gray-500 text-sm">ASIN</Label>
@@ -2593,12 +2342,8 @@ export default function AsinManager() {
                       <CloudDownload className="w-4 h-4 mr-1" />
                     )}
                     {autoImportLoading
-                      ? isLocalCaptureRoute
-                        ? "正在读取页面..."
-                        : "正在抓取真实数据..."
-                      : isLocalCaptureRoute
-                        ? "使用页面内容分析"
-                        : "开始抓取真实数据"}
+                      ? "正在抓取真实数据..."
+                      : "开始抓取真实数据"}
                   </Button>
                 </div>
                 <div className="rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -2626,7 +2371,7 @@ export default function AsinManager() {
                     ) : (
                       <ShieldCheck className="w-4 h-4 mr-1" />
                     )}
-                    {isLocalCaptureRoute ? "保存并验证" : "抓取保存并验证"}
+                    抓取保存并验证
                   </Button>
                 </div>
                 </div>
@@ -2698,7 +2443,7 @@ export default function AsinManager() {
                       <span>生成推荐切入价带和后续验证动作</span>
                     </div>
                     <div className="mt-3 rounded-md border border-amber-100 bg-white px-3 py-2 text-[11px] text-amber-800">
-                      Top40 是关键词样本池，不会自动写入 ASIN库。点击表格里的「加入ASIN库并评分」后，才会保存到 ASIN库并进入机会判断、关键词验证和后续诊断闭环。
+                      Top40 是关键词样本池，不会自动写入 ASIN库。点击表格里的「加入ASIN库并评分」后，才会保存到 ASIN库并进入 6维评分、关键词验证和后续诊断闭环。
                     </div>
                     {top40Usage && (
                       <div className="mt-3 rounded-md border border-amber-100 bg-white px-3 py-2 text-[11px] text-gray-600">
@@ -2756,7 +2501,7 @@ export default function AsinManager() {
                             <div className="rounded-md border border-emerald-100 bg-white px-3 py-3">
                               <p className="text-xs text-gray-500">结论</p>
                               <p className="text-sm font-semibold text-emerald-800 mt-1">{top40Analysis.headline}</p>
-                              <p className="text-[11px] text-gray-500 mt-1">{top40Analysis.analysisSource === "ai" ? "智能判断" : "保守判断"}</p>
+                              <p className="text-[11px] text-gray-500 mt-1">{top40Analysis.analysisSource === "ai" ? "AI分析" : "规则兜底"}</p>
                             </div>
                             <div className="rounded-md border border-gray-200 bg-white px-3 py-3">
                               <p className="text-xs text-gray-500">中位价格</p>
@@ -2904,15 +2649,7 @@ export default function AsinManager() {
                       {autoImportMessage || "正在抓取并分析 ASIN 数据"}
                       {batchImportCurrent ? ` · 当前 ${batchImportCurrent}` : ""}
                     </span>
-                    <span className="shrink-0">
-                      {isLocalCaptureRoute
-                        ? "正在处理"
-                        : isTop40Busy
-                          ? `${autoImportElapsed}s / ${TOP40_TASK_TIMEOUT_SECONDS}s`
-                          : autoImportElapsed >= ASIN_FRONT_WAIT_MS / 1000
-                            ? "继续处理中"
-                            : `${autoImportElapsed}s`}
-                    </span>
+                    <span className="shrink-0">{autoImportElapsed}s / {isTop40Busy ? "300s" : "60s"}</span>
                   </div>
                   <div className="mt-2 h-2 overflow-hidden rounded-full bg-white">
                     <div
@@ -3251,7 +2988,7 @@ export default function AsinManager() {
                     机会池暂无产品
                   </h3>
                   <p className="text-gray-500 text-sm mb-4">
-                    对ASIN库中的产品进行机会判断，只有证据、风险和进入门槛同时达标才会进入机会池
+                    对ASIN库中的产品进行6维决策，只有总分、风险和一票否决同时达标才会进入机会池
                   </p>
                   <Button
                     variant="outline"
@@ -3483,7 +3220,7 @@ export default function AsinManager() {
                               </div>
                               <p className="text-xs text-gray-500 mt-1">销量来源风险雷达：交叉查看库存可售、BSR、评论、自然排名、广告位与促销信号。</p>
 	                              <p className="text-[11px] text-gray-400 mt-1">
-	                                数据来源：{keywordReport.keyword_rank_summary?.rank_data_source === "scrapling_top40_search" ? "核心词Top40搜索快照" : "系统估算快照"}
+	                                数据来源：{keywordReport.keyword_rank_summary?.rank_data_source === "scrapling_top40_search" ? "Scrapling核心词Top40搜索快照" : "规则估算快照"}
 	                              </p>
                               <label className="mt-2 inline-flex items-center gap-2 text-xs text-red-700">
                                 <Checkbox

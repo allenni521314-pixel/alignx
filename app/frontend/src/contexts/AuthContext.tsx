@@ -7,6 +7,12 @@ import React, {
   ReactNode,
 } from 'react';
 import axios from 'axios';
+import {
+  AUTH_TOKEN_KEY,
+  AUTH_USER_KEY,
+  clearAuthStorage,
+  installAuthSessionHandlers,
+} from '@/lib/auth-session';
 
 interface User {
   id: string;
@@ -26,9 +32,6 @@ interface AuthContextType {
   refetch: () => Promise<void>;
   isAdmin: boolean;
 }
-
-const AUTH_TOKEN_KEY = 'alignx_token';
-const AUTH_USER_KEY = 'alignx_user';
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
@@ -96,8 +99,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           }
         } catch {
           // Token expired or invalid, clear storage
-          localStorage.removeItem(AUTH_TOKEN_KEY);
-          localStorage.removeItem(AUTH_USER_KEY);
+          clearAuthStorage();
         }
       }
 
@@ -178,12 +180,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const logout = useCallback(async () => {
     try {
       setError(null);
-
-      // Clear AlignX auth data
-      localStorage.removeItem(AUTH_TOKEN_KEY);
-      localStorage.removeItem(AUTH_USER_KEY);
-      localStorage.removeItem('token');
-
+      clearAuthStorage();
       setUser(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Logout failed');
@@ -193,6 +190,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   useEffect(() => {
     checkAuthStatus();
   }, [checkAuthStatus]);
+
+  useEffect(() => {
+    return installAuthSessionHandlers(() => {
+      setUser(null);
+      setError("登录已过期，请重新登录");
+    });
+  }, []);
 
   const value: AuthContextType = {
     user,

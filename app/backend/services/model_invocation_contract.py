@@ -47,6 +47,105 @@ class WorkflowContract:
     steps: tuple[PipelineStep, ...]
 
 
+@dataclass(frozen=True)
+class EvidenceTier:
+    key: str
+    name: str
+    priority: int
+    purpose: str
+    examples: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class JudgmentQuestion:
+    key: str
+    question: str
+    required_output: str
+
+
+@dataclass(frozen=True)
+class LearningSignal:
+    key: str
+    source: str
+    updates: str
+
+
+@dataclass(frozen=True)
+class UnifiedJudgmentStandard:
+    key: str
+    name: str
+    evidence_priority: tuple[EvidenceTier, ...]
+    required_questions: tuple[JudgmentQuestion, ...]
+    decision_rules: tuple[str, ...]
+    learning_signals: tuple[LearningSignal, ...]
+
+
+UNIFIED_JUDGMENT_STANDARD = UnifiedJudgmentStandard(
+    key="alignx_unified_judgment_v1",
+    name="AlignX统一判断标准",
+    evidence_priority=(
+        EvidenceTier(
+            key="market_feedback",
+            name="真实市场反馈",
+            priority=1,
+            purpose="最终校验诊断是否被真实流量和成交支持",
+            examples=("ad CTR/CVR/ACOS", "orders", "search term performance", "refund/return signals"),
+        ),
+        EvidenceTier(
+            key="buyer_voice",
+            name="买家声音",
+            priority=2,
+            purpose="识别真实购买动机、痛点、犹豫点和未披露副作用",
+            examples=("reviews", "Q&A", "buyer complaints", "positive purchase reasons"),
+        ),
+        EvidenceTier(
+            key="listing_facts",
+            name="Listing事实",
+            priority=3,
+            purpose="确认标题、五点、图片、A+、价格、类目、库存和合规基础是否完整",
+            examples=("title", "bullets", "images", "A+ content", "price", "category"),
+        ),
+        EvidenceTier(
+            key="semantic_reasoning",
+            name="语义与因果推理",
+            priority=4,
+            purpose="判断平台是否理解商品、买家是否理解价值、因果承诺是否可信",
+            examples=("COSMO relations", "Rufus questions", "causal claims", "vector mapping"),
+        ),
+        EvidenceTier(
+            key="model_inference",
+            name="模型推理",
+            priority=5,
+            purpose="在证据充分时综合判断；证据不足时只能输出假设或待验证",
+            examples=("agent decision", "LLM summary", "strategy recommendation"),
+        ),
+    ),
+    required_questions=(
+        JudgmentQuestion("problem", "当前最重要的问题是什么？", "problem title + impacted metric"),
+        JudgmentQuestion("evidence", "证据来自哪里，强度如何？", "source table/ref + confidence + sample size"),
+        JudgmentQuestion("cause", "为什么这个问题会影响点击、转化或广告效率？", "causal explanation"),
+        JudgmentQuestion("action", "应该执行什么动作？", "specific listing/ad/review action"),
+        JudgmentQuestion("validation", "如何验证动作是否有效？", "hypothesis_id + metric rule + observation window"),
+        JudgmentQuestion("learning", "验证结果如何回流到下一轮？", "hit_status + miss_reason + reusable learning"),
+    ),
+    decision_rules=(
+        "没有事实来源的建议只能作为低置信度假设，不能进入P0动作。",
+        "广告记录未绑定hypothesis_id时，只能标记未归因，不能判定诊断命中或失败。",
+        "假设级点击少于100时，只能输出待验证，不能输出未命中。",
+        "真实广告/成交/退货反馈优先级高于评论，评论优先级高于Listing语义推理，语义推理优先级高于模型总结。",
+        "规则兜底、样本不足、mock/demo数据必须显式标记，不能伪装成AI主判断。",
+        "每个复盘结论必须写入hit_status、miss_reason和下一轮action，否则不进入学习记忆。",
+    ),
+    learning_signals=(
+        LearningSignal("hypothesis_hit", "ad_validation", "提升相似假设和关键词意图的权重"),
+        LearningSignal("hypothesis_miss", "ad_validation", "降低对应诊断路径权重并记录失败原因"),
+        LearningSignal("sample_not_enough", "ad_validation", "保持假设中立，继续拉样本或缩小关键词组"),
+        LearningSignal("review_gap", "review_validation", "把未承接痛点回填到Listing诊断和广告假设"),
+        LearningSignal("version_result", "optimization_timeline", "把Listing改动前后效果写入ASIN长期记忆"),
+    ),
+)
+
+
 ASIN_SELECTION_CONTRACT = WorkflowContract(
     key="asin_selection",
     name="ASIN选品决策",
@@ -146,3 +245,38 @@ def workflow_summary() -> list[dict[str, object]]:
         }
         for contract in WORKFLOW_CONTRACTS.values()
     ]
+
+
+def judgment_standard_summary() -> dict[str, object]:
+    standard = UNIFIED_JUDGMENT_STANDARD
+    return {
+        "key": standard.key,
+        "name": standard.name,
+        "evidence_priority": [
+            {
+                "key": item.key,
+                "name": item.name,
+                "priority": item.priority,
+                "purpose": item.purpose,
+                "examples": list(item.examples),
+            }
+            for item in standard.evidence_priority
+        ],
+        "required_questions": [
+            {
+                "key": item.key,
+                "question": item.question,
+                "required_output": item.required_output,
+            }
+            for item in standard.required_questions
+        ],
+        "decision_rules": list(standard.decision_rules),
+        "learning_signals": [
+            {
+                "key": item.key,
+                "source": item.source,
+                "updates": item.updates,
+            }
+            for item in standard.learning_signals
+        ],
+    }

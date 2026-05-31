@@ -161,7 +161,7 @@ def _super_admin_emails() -> set[str]:
 
 
 def _email_debug_enabled() -> bool:
-    raw = getattr(settings, "email_code_debug", "true")
+    raw = getattr(settings, "email_code_debug", "false")
     return str(raw).lower() in {"1", "true", "yes", "on"}
 
 

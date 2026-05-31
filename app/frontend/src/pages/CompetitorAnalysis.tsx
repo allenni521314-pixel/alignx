@@ -30,7 +30,7 @@ import {
 import { toast } from "sonner";
 import axios from "axios";
 import { getAuthHeaders } from "@/lib/auth-headers";
-import { saveCompetitorInsight, updateProductLifecycle, saveTimelineEvent, saveActionSnapshot, getActionSnapshots, type ActionSnapshot } from "@/lib/workflow-api";
+import { getAllProducts, saveCompetitorInsight, updateProductLifecycle, saveTimelineEvent, saveActionSnapshot, getActionSnapshots, type ActionSnapshot } from "@/lib/workflow-api";
 import { finishModuleTask, removeModuleTask, upsertModuleTask } from "@/lib/module-task-store";
 
 /* ------------------------------------------------------------------ */
@@ -1088,6 +1088,12 @@ export default function CompetitorAnalysis() {
 
   const [analyzeProgress, setAnalyzeProgress] = useState("");
 
+  const resolveCurrentWorkflowProductId = async () => {
+    const products = await getAllProducts(1);
+    const currentProduct = products[0] as { id?: number } | undefined;
+    return currentProduct?.id && currentProduct.id > 0 ? currentProduct.id : null;
+  };
+
   /* ---- Analysis helpers (no public CORS proxies) ---- */
 
   /**
@@ -1433,32 +1439,33 @@ export default function CompetitorAnalysis() {
           const strengths = report?.improvement_suggestions?.slice(0, 3).join("; ") || "";
           const weaknesses = report?.improvement_suggestions?.slice(3, 6).join("; ") || "";
           const radarJson = JSON.stringify(cleanResult.scores || {});
-          saveCompetitorInsight({
-            product_id: 0,
-            competitor_asin: cleanResult.asin,
-            strengths,
-            weaknesses,
-            gaps: "",
-            suggestions: (report?.overall_summary || "").substring(0, 5000),
-            radar_scores: radarJson,
-          }).catch(() => {});
-          // Update lifecycle stage
-          updateProductLifecycle(0, "strategy").catch(() => {});
-          // Save timeline event
-          saveTimelineEvent({
-            product_id: 0,
-            step_name: "竞品分析",
-            action_timestamp: new Date().toISOString(),
-            listing_score: 0,
-            score_details: "{}",
-            optimization_round: 1,
-          }).catch(() => {});
+          const workflowProductId = await resolveCurrentWorkflowProductId();
+          if (workflowProductId) {
+            saveCompetitorInsight({
+              product_id: workflowProductId,
+              competitor_asin: cleanResult.asin,
+              strengths,
+              weaknesses,
+              gaps: "",
+              suggestions: (report?.overall_summary || "").substring(0, 5000),
+              radar_scores: radarJson,
+            }).catch(() => {});
+            updateProductLifecycle(workflowProductId, "strategy").catch(() => {});
+            saveTimelineEvent({
+              product_id: workflowProductId,
+              step_name: "竞品分析",
+              action_timestamp: new Date().toISOString(),
+              listing_score: 0,
+              score_details: "{}",
+              optimization_round: 1,
+            }).catch(() => {});
+          }
           saveActionSnapshot({
             module_key: "competitor_analysis",
             module_name: "竞品诊断",
             action_key: "analyze_competitor_listing",
             action_name: "竞品Listing分析",
-            product_id: 0,
+            product_id: workflowProductId,
             asin: cleanResult.asin,
             title: cleanResult.product_title,
             input_snapshot: { asin, marketplace: mp },

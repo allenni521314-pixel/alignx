@@ -7,8 +7,11 @@ changing current business modules or frontend navigation.
 
 import logging
 
-from fastapi import APIRouter, HTTPException, status
+from dependencies.auth import get_current_user
+from fastapi import APIRouter, Depends, HTTPException, status
+from schemas.auth import UserResponse
 from services.ai_gateway import AgentRequest, AgentResponse, AIGatewayService, AIGatewayStatus
+from services.model_invocation_contract import judgment_standard_summary
 
 logger = logging.getLogger(__name__)
 
@@ -21,8 +24,14 @@ async def get_ai_gateway_status():
     return AIGatewayService().status()
 
 
+@router.get("/judgment-standard")
+async def get_judgment_standard():
+    """Return the unified evidence, decision, and learning standard for AlignX agents."""
+    return judgment_standard_summary()
+
+
 @router.post("/agent", response_model=AgentResponse)
-async def run_ai_agent(request: AgentRequest):
+async def run_ai_agent(request: AgentRequest, _current_user: UserResponse = Depends(get_current_user)):
     """
     Run an AlignX decision agent.
 

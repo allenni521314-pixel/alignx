@@ -323,7 +323,7 @@ function buildLocalABResult(a: VariantForm, b: VariantForm, reason = "完整对�
       "验证优先看CTR、CVR、ACOS是否同向改善，避免只看点击不看转化。",
       "若CTR提升但CVR不升，说明主图/标题吸引成立，但详情页承接或价格信任不足。",
     ],
-    text_report: `${reason}\n\nA均分：${avgA.toFixed(1)}，B均分：${avgB.toFixed(1)}。${winner === "tie" ? "两版差距较小，建议真实流量验证。" : `${winner}版本在需求承接、因果解释或历史CVR上更强。`} 下一步进入执行记录，建立广告验证任务。`,
+    text_report: `${reason}\n\nA均分：${avgA.toFixed(1)}，B均分：${avgB.toFixed(1)}。${winner === "tie" ? "两版差距较小" : `${winner}版本在需求承接、因果解释或历史CVR上更强`}。本地兜底只能作为临时参考，需要重新获得后端AI或规则判断后再建立广告验证任务。`,
     model_used: "frontend_local_rules",
     judgment_source: "frontend_local_fallback",
     data_source: "frontend_local_fallback",
@@ -505,6 +505,7 @@ export default function ABTestComparison() {
         : resultSource === "frontend_local_fallback"
           ? "临时判断"
           : "判断来源待确认";
+  const canEnterAdExecution = Boolean(result && resultSource !== "frontend_local_fallback");
 
   return (
     <div className="flex h-screen bg-white text-gray-900">
@@ -739,9 +740,11 @@ export default function ABTestComparison() {
 
           <NextStepActions
             currentStep="测试计划"
-            actions={[
-              { label: "进入执行记录", path: "/ad-analytics?view=records", variant: "default" },
-            ]}
+            actions={
+              canEnterAdExecution
+                ? [{ label: "进入执行记录", path: "/ad-analytics?view=records", variant: "default" }]
+                : [{ label: "先完成后端判断", path: "/ab-test-comparison", variant: "outline" }]
+            }
           />
         </div>
       </main>
