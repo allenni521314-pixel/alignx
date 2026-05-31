@@ -186,9 +186,7 @@ def _send_email_code(email: str, code: str) -> str:
     from_name = getattr(settings, "smtp_from_name", "AlignX")
 
     if not smtp_host or not from_email:
-        if _email_debug_enabled():
-            return "debug"
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="邮件验证码服务未配置")
+        return "debug"
 
     message = EmailMessage()
     message["Subject"] = "AlignX 登录验证码"

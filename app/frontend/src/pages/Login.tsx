@@ -87,7 +87,11 @@ export default function Login() {
     try {
       const res = await sendEmailCode(base.cleanEmail, base.cleanStoreName);
       setCodeSent(true);
-      setNotice(res.debugCode ? `验证码：${res.debugCode}` : "验证码已发送，请查看邮箱");
+      if (res.debugCode) {
+        setError(`验证码：${res.debugCode}`);
+      } else {
+        setNotice("验证码已发送，请查看邮箱");
+      }
     } catch (err: unknown) {
       const message =
         typeof err === "object" && err && "message" in err
