@@ -148,20 +148,21 @@ const navGroups: NavGroup[] = [
   },
 ];
 
-const LEGACY_TASKS: Array<{ storageKey: string; moduleKey: ModuleTaskKey }> = [
-  { storageKey: "alignx_active_asin_diagnosis_task_id", moduleKey: "asin-manager" },
-  { storageKey: "alignx_active_listing_diagnosis_task_id", moduleKey: "listing-diagnosis" },
-];
+const pathOnly = (path: string) => path.split("?")[0];
+
+const navPathCounts = navGroups
+  .flatMap((group) => group.items.map((item) => pathOnly(item.path)))
+  .reduce<Record<string, number>>((counts, pathname) => {
+    counts[pathname] = (counts[pathname] || 0) + 1;
+    return counts;
+  }, {});
+
+const isSharedPath = (pathname: string) => (navPathCounts[pathname] || 0) > 1;
 
 const readTaskCounts = () => {
   const counts: Record<string, number> = {};
   listActiveModuleTasks().forEach((task) => {
     counts[task.moduleKey] = (counts[task.moduleKey] || 0) + 1;
-  });
-  LEGACY_TASKS.forEach((task) => {
-    if (localStorage.getItem(task.storageKey)) {
-      counts[task.moduleKey] = Math.max(1, counts[task.moduleKey] || 0);
-    }
   });
   return counts;
 };
@@ -200,8 +201,24 @@ export function AppSidebar() {
     window.location.reload();
   };
 
+  const showLabel = !collapsed || isMobile;
+
+  /* Check if nav item is active */
+  const isNavActive = (itemPath: string) => {
+    const [pathname, query = ""] = itemPath.split("?");
+    if (location.pathname !== pathname) return false;
+    if (!query || !isSharedPath(pathname)) return true;
+
+    const expected = new URLSearchParams(query);
+    const current = new URLSearchParams(location.search);
+    for (const [key, value] of expected.entries()) {
+      if (current.get(key) !== value) return false;
+    }
+    return true;
+  };
+
   const handleNav = (path: string) => {
-    if (location.pathname + location.search === path) {
+    if (isNavActive(path)) {
       if (isMobile) setMobileOpen(false);
       return;
     }
@@ -209,24 +226,9 @@ export function AppSidebar() {
     if (isMobile) setMobileOpen(false);
   };
 
-  const showLabel = !collapsed || isMobile;
-
-  /* Check if nav item is active */
-  const isNavActive = (itemPath: string) => {
-    if (itemPath.includes("?")) {
-      return location.pathname + location.search === itemPath;
-    }
-    return location.pathname === itemPath;
-  };
-
   /* Check if a group contains the active page */
   const isGroupActive = (group: NavGroup) => {
-    return group.items.some((item) => {
-      if (item.path.includes("?")) {
-        return location.pathname + location.search === item.path;
-      }
-      return location.pathname === item.path;
-    });
+    return group.items.some((item) => isNavActive(item.path));
   };
 
   /* Render a single nav button */
@@ -234,6 +236,7 @@ export function AppSidebar() {
     const isActive = isNavActive(item.path);
     const isDisabled = item.disabled === true;
     const activeTaskCount = taskCounts[item.moduleKey] || 0;
+    const showTaskBadge = activeTaskCount > 0 && !isActive;
     return (
       <Tooltip key={item.path} delayDuration={0}>
         <TooltipTrigger asChild>
@@ -267,20 +270,20 @@ export function AppSidebar() {
                     (即将上线)
                   </span>
                 )}
-                {activeTaskCount > 0 && (
+                {showTaskBadge && (
                   <span
                     className={cn(
                       "ml-auto inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold",
                       isActive ? "bg-white/20 text-white" : "bg-emerald-50 text-emerald-700"
                     )}
-                    title="该模块有任务正在运行"
+                    title="该模块有分析正在进行"
                   >
                     {activeTaskCount}
                   </span>
                 )}
               </span>
             )}
-            {!showLabel && activeTaskCount > 0 && (
+            {!showLabel && showTaskBadge && (
               <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-emerald-500 ring-2 ring-white" />
             )}
           </button>
@@ -291,7 +294,7 @@ export function AppSidebar() {
             className="bg-white text-gray-900 border-gray-200"
           >
             {item.label}
-            {activeTaskCount > 0 ? ` · ${activeTaskCount} 个任务运行中` : ""}
+            {showTaskBadge ? ` · ${activeTaskCount} 个分析进行中` : ""}
             {isDisabled ? " (即将上线)" : ""}
           </TooltipContent>
         )}
