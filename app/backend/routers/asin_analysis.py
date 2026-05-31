@@ -469,6 +469,8 @@ async def _get_cached_asin_analysis(
         product_data,
     )
     scores = aligned["asin_scores"]
+    if not _has_positive_scores(scores):
+        return None
     analysis_report["scores"] = aligned["scores"]
     analysis_report["canonical_10d_scores"] = aligned["canonical_scores"]
     analysis_report["score_basis"] = "amazon_skill_10d_canonical"
@@ -1026,6 +1028,19 @@ def _clamp_score(value: float, low: int = 35, high: int = 88) -> int:
     return max(low, min(high, round(value)))
 
 
+def _has_positive_scores(scores: Any) -> bool:
+    """True when a score payload contains at least one usable non-zero dimension."""
+    if not isinstance(scores, dict):
+        return False
+    for value in scores.values():
+        try:
+            if float(value or 0) > 0:
+                return True
+        except (TypeError, ValueError):
+            continue
+    return False
+
+
 def _rule_based_competitor_scoring(asin: str, marketplace: str, scraped_data: dict) -> tuple[dict, dict]:
     """Build a non-AI diagnostic result from real scraped fields when the model fails.
 
@@ -1304,12 +1319,34 @@ async def _analyze_single_asin_with_scraped(
         product_data["data_notes"] = "AI兜底估算，需以本地浏览器页面采集、服务器抓取或人工核实为准。"
 
     product_data["main_keywords"] = _clean_original_english_keywords(product_data.get("main_keywords"), product_data, 10)
+    if not _has_positive_scores(scoring_data.get("scores") or scores):
+        logger.warning(f"Empty score payload for {asin}; using conservative rule scoring from captured evidence")
+        _, fallback_scoring_data = _rule_based_competitor_scoring(asin, marketplace, {**scraped_data, **product_data})
+        fallback_scoring_data["fallback_reason"] = "本次未生成完整评分，已根据已抓取页面证据生成保守诊断。"
+        if scoring_data.get("overall_summary"):
+            fallback_scoring_data["overall_summary"] = scoring_data["overall_summary"]
+        if scoring_data.get("improvement_suggestions"):
+            fallback_scoring_data["improvement_suggestions"] = scoring_data["improvement_suggestions"]
+        scoring_data = fallback_scoring_data
+        scores = scoring_data["scores"]
+
     aligned_scores = CosmoOperatorAgent.align_scores(scoring_data.get("scores") or scores, product_data)
     scores = aligned_scores["asin_scores"]
     scoring_data["scores"] = aligned_scores["scores"]
     scoring_data["canonical_10d_scores"] = aligned_scores["canonical_scores"]
     scoring_data["score_basis"] = "amazon_skill_10d_canonical"
     scoring_data["market_reality_caps"] = aligned_scores["market_reality_caps"]
+    if not _has_positive_scores(scores):
+        logger.warning(f"Aligned score payload still empty for {asin}; forcing conservative rule scoring")
+        _, fallback_scoring_data = _rule_based_competitor_scoring(asin, marketplace, {**scraped_data, **product_data})
+        fallback_scoring_data["fallback_reason"] = "本次未生成完整评分，已根据已抓取页面证据生成保守诊断。"
+        aligned_scores = CosmoOperatorAgent.align_scores(fallback_scoring_data["scores"], product_data)
+        scores = aligned_scores["asin_scores"]
+        scoring_data = fallback_scoring_data
+        scoring_data["scores"] = aligned_scores["scores"]
+        scoring_data["canonical_10d_scores"] = aligned_scores["canonical_scores"]
+        scoring_data["score_basis"] = "amazon_skill_10d_canonical_rule_repair"
+        scoring_data["market_reality_caps"] = aligned_scores["market_reality_caps"]
     shared_snapshot = await _find_shared_listing_score_snapshot(asin, marketplace, product_data, db, user_id)
     if shared_snapshot:
         scores = shared_snapshot["asin_scores"]

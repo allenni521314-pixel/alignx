@@ -812,6 +812,10 @@ function getEffectiveScores(result: Partial<AnalysisResult> & { output_snapshot?
   return normalizeScores(result.scores || report?.scores);
 }
 
+function hasUsableScores(result: Partial<AnalysisResult> & { output_snapshot?: unknown }): boolean {
+  return hasAnyScore(getEffectiveScores(result));
+}
+
 function getAvgScore(scores: Scores): number {
   const normalized = normalizeScores(scores);
   const vals = SCORE_KEYS.map((key) => normalized[key]).filter((v) => typeof v === "number");
@@ -947,7 +951,12 @@ export default function CompetitorAnalysis() {
           if (serverDataSource === "ai_estimated" || serverDataSource === "ai_estimated_low_confidence") {
             toast.warning("未获取到完整页面数据，已生成低置信度预检，建议后续复核。");
           }
-          return sanitizeAnalysisKeywords(res.data as AnalysisResult);
+          const clean = sanitizeAnalysisKeywords(res.data as AnalysisResult);
+          if (!hasUsableScores(clean)) {
+            toast.error("本次诊断没有生成完整评分，请重新分析。");
+            return null;
+          }
+          return clean;
         }
 
         toast.error("服务器返回了意外的数据格式，请重试");
@@ -999,7 +1008,18 @@ export default function CompetitorAnalysis() {
           );
           const data = res.data;
 
-          if (data?.success && data.scores) {
+          const parsedResult = sanitizeAnalysisKeywords({
+            asin: data?.asin,
+            marketplace: mp,
+            product_title: data?.product_title,
+            product_data: data?.product_data,
+            scores: data?.scores,
+            analysis_report: data?.analysis_report,
+            data_source: data?.data_source || "server_proxy_fetch",
+            id: data?.id,
+          } as AnalysisResult);
+
+          if (data?.success && hasUsableScores(parsedResult)) {
             return sanitizeAnalysisKeywords({
               asin: data.asin,
               marketplace: mp,
@@ -1035,7 +1055,12 @@ export default function CompetitorAnalysis() {
         if (serverDataSource === "ai_estimated" || serverDataSource === "ai_estimated_low_confidence") {
           toast.warning("未获取到完整页面数据，已生成低置信度预检，建议后续复核。");
         }
-        return sanitizeAnalysisKeywords(res.data as AnalysisResult);
+        const clean = sanitizeAnalysisKeywords(res.data as AnalysisResult);
+        if (!hasUsableScores(clean)) {
+          toast.error("本次诊断没有生成完整评分，请重新分析。");
+          return null;
+        }
+        return clean;
       }
 
       toast.error("服务器返回了意外的数据格式，请重试");
@@ -1128,7 +1153,17 @@ export default function CompetitorAnalysis() {
         { headers: getAuthHeaders(), timeout: 120000 }
       );
       const data = res.data;
-      if (data?.success && data.scores) {
+      const parsedResult = sanitizeAnalysisKeywords({
+        asin: data?.asin,
+        marketplace: capture.marketplace || marketplace,
+        product_title: data?.product_title,
+        product_data: data?.product_data,
+        scores: data?.scores,
+        analysis_report: data?.analysis_report,
+        data_source: data?.data_source || "local_browser_capture",
+        id: data?.id,
+      } as AnalysisResult);
+      if (data?.success && hasUsableScores(parsedResult)) {
         setSingleResult(sanitizeAnalysisKeywords({
           asin: data.asin,
           marketplace: capture.marketplace || marketplace,
@@ -1142,8 +1177,8 @@ export default function CompetitorAnalysis() {
         finishModuleTask(moduleTaskId, "completed", "竞品本地采集分析完成");
         toast.success("已用本地浏览器采集证据完成竞品诊断");
       } else {
-        finishModuleTask(moduleTaskId, "failed", data?.error || "本地采集解析失败");
-        toast.error(data?.error || "本地采集解析失败");
+        finishModuleTask(moduleTaskId, "failed", data?.error || "本次诊断没有生成完整评分，请重新分析");
+        toast.error(data?.error || "本次诊断没有生成完整评分，请重新分析");
       }
     } catch (err) {
       const msg = axios.isAxiosError(err)
@@ -1212,6 +1247,11 @@ export default function CompetitorAnalysis() {
 
       if (result) {
         const cleanResult = sanitizeAnalysisKeywords(result);
+        if (!hasUsableScores(cleanResult)) {
+          finishModuleTask(moduleTaskId, "failed", "本次诊断没有生成完整评分");
+          toast.error("本次诊断没有生成完整评分，请重新分析。");
+          return;
+        }
         setSingleResult(cleanResult);
         const source = cleanResult.data_source;
         if (source === "server_proxy_fetch") {
@@ -1946,61 +1986,68 @@ function SingleResultView({
             <CardHeader>
               <CardTitle className="text-lg flex items-center justify-between">
                 <span>竞品10维诊断</span>
-                <span className="text-2xl font-bold text-brand-600">{avgScore}分</span>
+                <span className={`text-2xl font-bold ${scorePayloadMissing ? "text-amber-600" : "text-brand-600"}`}>
+                  {scorePayloadMissing ? "待生成" : `${avgScore}分`}
+                </span>
               </CardTitle>
               <p className="text-xs text-gray-500">
                 先判断竞品为什么被用户选择、为什么被Amazon匹配，再用10维诊断反查我方该借鉴、避开、攻击还是差异化。
               </p>
             </CardHeader>
             <CardContent className="space-y-5">
-              {scorePayloadMissing && (
-                <div className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+              {scorePayloadMissing ? (
+                <div className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
                   <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
                   <div>
-                    <p className="font-medium">当前快照缺少10维诊断数据</p>
-                    <p className="mt-1 text-amber-700">这不是Top40搜索快照造成的，请重新运行本竞品诊断或从完整历史记录打开。</p>
+                    <p className="font-medium">还没有完整诊断结果</p>
+                    <p className="mt-1 text-amber-700">
+                      系统不会用空数据给出评分。请重新点击“开始分析”，或从分析历史打开完整结果。
+                    </p>
                   </div>
                 </div>
-              )}
-              <CompetitorTwoRulerSummary scores={scores} />
-              <div className="flex justify-center">
-                <RadarChartMulti datasets={[radarData]} size={340} />
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {DIMENSIONS.map((dim) => {
-                  const score = (scores as Record<string, number>)[dim.key] || 0;
-                  const meta = COMPETITOR_RULER_META[dim.key as keyof Scores];
-                  return (
-                    <div
-                      key={dim.key}
-                      className={`rounded-lg border p-3 ${
-                        score >= 80
-                          ? "border-emerald-200 text-emerald-700 bg-emerald-50"
-                          : score >= 60
-                            ? "border-amber-200 text-amber-700 bg-amber-50"
-                            : "border-red-200 text-red-700 bg-red-50"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2">
-                          <span className="font-semibold text-gray-900">{dim.label}</span>
-                          <Badge variant="outline" className="bg-white text-[10px]">{meta.layer}</Badge>
+              ) : (
+                <>
+                  <CompetitorTwoRulerSummary scores={scores} />
+                  <div className="flex justify-center">
+                    <RadarChartMulti datasets={[radarData]} size={340} />
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {DIMENSIONS.map((dim) => {
+                      const score = (scores as Record<string, number>)[dim.key] || 0;
+                      const meta = COMPETITOR_RULER_META[dim.key as keyof Scores];
+                      return (
+                        <div
+                          key={dim.key}
+                          className={`rounded-lg border p-3 ${
+                            score >= 80
+                              ? "border-emerald-200 text-emerald-700 bg-emerald-50"
+                              : score >= 60
+                                ? "border-amber-200 text-amber-700 bg-amber-50"
+                                : "border-red-200 text-red-700 bg-red-50"
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              <span className="font-semibold text-gray-900">{dim.label}</span>
+                              <Badge variant="outline" className="bg-white text-[10px]">{meta.layer}</Badge>
+                            </div>
+                            <span className={`text-lg font-bold ${competitorScoreColor(score)}`}>{score}</span>
+                          </div>
+                          <div className="mt-2 h-1.5 rounded-full bg-white/70 overflow-hidden">
+                            <div className={`h-full rounded-full ${competitorScoreBar(score)}`} style={{ width: `${score}%` }} />
+                          </div>
+                          <div className="mt-2 text-xs text-gray-600 leading-relaxed space-y-1">
+                            <p><span className="font-semibold">需求：</span>{meta.intentScale}</p>
+                            <p><span className="font-semibold">平台：</span>{meta.platformScale}</p>
+                            <p><span className="font-semibold">证据：</span>{meta.evidenceFocus}</p>
+                            <p className="text-brand-700"><span className="font-semibold">我方动作：</span>{getCompetitorAction(score)}，{meta.actionHint}</p>
+                          </div>
                         </div>
-                        <span className={`text-lg font-bold ${competitorScoreColor(score)}`}>{score}</span>
-                      </div>
-                      <div className="mt-2 h-1.5 rounded-full bg-white/70 overflow-hidden">
-                        <div className={`h-full rounded-full ${competitorScoreBar(score)}`} style={{ width: `${score}%` }} />
-                      </div>
-                      <div className="mt-2 text-xs text-gray-600 leading-relaxed space-y-1">
-                        <p><span className="font-semibold">需求：</span>{meta.intentScale}</p>
-                        <p><span className="font-semibold">平台：</span>{meta.platformScale}</p>
-                        <p><span className="font-semibold">证据：</span>{meta.evidenceFocus}</p>
-                        <p className="text-brand-700"><span className="font-semibold">我方动作：</span>{getCompetitorAction(score)}，{meta.actionHint}</p>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
             </CardContent>
           </Card>
       )}
@@ -2161,6 +2208,7 @@ function SingleResultView({
 
             {/* Per-dimension weak areas */}
             {(() => {
+              if (scorePayloadMissing) return null;
               const weakDims = DIMENSIONS.filter(
                 (d) => ((scores as Record<string, number>)[d.key] || 0) < 70
               );
