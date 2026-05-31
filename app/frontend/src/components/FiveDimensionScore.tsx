@@ -557,7 +557,7 @@ export function FiveDimensionScoreCard({
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <span className="font-semibold text-sm">选品机会判断</span>
+              <span className="font-semibold text-sm">选品决策</span>
               <ScoreBadge score={result.total_score} size="sm" />
               <span className={`text-[10px] px-1.5 py-0.5 rounded border ${getTone(poolStatus)}`}>
                 {poolLabels[poolStatus] || poolStatus}
@@ -586,6 +586,22 @@ export function FiveDimensionScoreCard({
       {expanded && (
         <div className="border-t border-gray-100 p-4 space-y-4">
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-2">
+            <div className={`rounded-lg border p-3 ${getTone(publicDecision)}`}>
+              <div className="text-[11px] opacity-80">下一步建议</div>
+              <div className="mt-1 text-base font-bold">{publicDecision}</div>
+            </div>
+            <div className={`rounded-lg border p-3 ${getTone(poolStatus)}`}>
+              <div className="text-[11px] opacity-80">机会分组</div>
+              <div className="mt-1 text-base font-bold">{poolLabels[poolStatus] || poolStatus}</div>
+            </div>
+            <div className={`rounded-lg border p-3 ${getTone(result.risk_level)}`}>
+              <div className="text-[11px] opacity-80">主要风险</div>
+              <div className="mt-1 text-base font-bold">{riskLabels[result.risk_level || ""] || result.risk_level || "中风险"}</div>
+            </div>
+            <div className={`rounded-lg border p-3 ${getTone(result.confidence_level)}`}>
+              <div className="text-[11px] opacity-80">判断置信度</div>
+              <div className="mt-1 text-base font-bold">{confidenceLabels[result.confidence_level || ""] || result.confidence_level || "低置信"}</div>
+            </div>
             <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
               <div className="text-[11px] text-gray-500 flex items-center gap-1">
                 <Database className="w-3.5 h-3.5" />
@@ -595,22 +611,6 @@ export function FiveDimensionScoreCard({
               <div className="mt-2 h-1.5 bg-white rounded-full overflow-hidden">
                 <div className="h-full bg-brand-500 rounded-full" style={{ width: `${completenessWidth}%` }} />
               </div>
-            </div>
-            <div className={`rounded-lg border p-3 ${getTone(result.confidence_level)}`}>
-              <div className="text-[11px] opacity-80">判断置信度</div>
-              <div className="mt-1 text-base font-bold">{confidenceLabels[result.confidence_level || ""] || result.confidence_level || "低置信"}</div>
-            </div>
-            <div className={`rounded-lg border p-3 ${getTone(result.risk_level)}`}>
-              <div className="text-[11px] opacity-80">主要风险</div>
-              <div className="mt-1 text-base font-bold">{riskLabels[result.risk_level || ""] || result.risk_level || "中风险"}</div>
-            </div>
-            <div className={`rounded-lg border p-3 ${getTone(publicDecision)}`}>
-              <div className="text-[11px] opacity-80">下一步建议</div>
-              <div className="mt-1 text-base font-bold">{publicDecision}</div>
-            </div>
-            <div className={`rounded-lg border p-3 ${getTone(poolStatus)}`}>
-              <div className="text-[11px] opacity-80">机会分组</div>
-              <div className="mt-1 text-base font-bold">{poolLabels[poolStatus] || poolStatus}</div>
             </div>
           </div>
 
@@ -661,7 +661,7 @@ export function FiveDimensionScoreCard({
                       </span>
                       <span className="flex items-center gap-2">
                         <span className="hidden sm:inline rounded border border-gray-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-gray-600">
-                          {expandedDim === dimKey ? "收起分析" : "查看分析"}
+                          {expandedDim === dimKey ? "收起依据" : "查看依据"}
                         </span>
                         <span className="font-semibold text-gray-700">{score}/20</span>
                         {expandedDim === dimKey ? (
@@ -839,10 +839,10 @@ export function FiveDScoreButton({
         size="sm"
         onClick={onClick}
         className="h-8 border-brand-200 bg-brand-50 px-3 text-brand-800 hover:bg-brand-100"
-      title="查看选品机会分析"
+      title="查看选品决策"
       >
         <Award className="w-3.5 h-3.5 mr-1.5" />
-        <span className="hidden sm:inline text-xs font-semibold mr-1.5">查看分析</span>
+        <span className="hidden sm:inline text-xs font-semibold mr-1.5">选品决策</span>
         <ScoreBadge score={score} />
       </Button>
     );
@@ -854,10 +854,10 @@ export function FiveDScoreButton({
       size="sm"
       onClick={onClick}
       className="text-brand-500 hover:text-brand-700 hover:bg-brand-50 h-8 px-2"
-      title="选品机会评分"
+      title="生成选品决策"
     >
       <Award className="w-3.5 h-3.5 mr-1" />
-      <span className="text-[11px]">机会评分</span>
+      <span className="text-[11px]">生成决策</span>
     </Button>
   );
 }

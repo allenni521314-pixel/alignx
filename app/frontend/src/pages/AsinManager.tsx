@@ -2244,16 +2244,16 @@ export default function AsinManager() {
 
           {/* Auto Import Panel */}
           {showAutoImport && !showForm && (
-            <Card className="bg-white border-amber-500/20 p-4 sm:p-6 mb-6">
-              <div className="flex items-center justify-between mb-4">
+            <Card className="bg-white border-amber-500/20 p-4 mb-5">
+              <div className="flex items-center justify-between mb-3">
                 <h2 className="text-base font-semibold flex items-center gap-2">
                   <CloudDownload className="w-5 h-5 text-amber-600" />
-                  ASIN选品抓取
+                  新ASIN验证
                 </h2>
               </div>
 
               {/* Import mode tabs */}
-              <div className="flex gap-1 mb-4 bg-gray-50 rounded-lg p-1 w-fit">
+              <div className="flex gap-1 mb-3 bg-gray-50 rounded-lg p-1 w-fit">
                 <button
                   onClick={() => setImportMode("single")}
                   className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all ${
@@ -2262,7 +2262,7 @@ export default function AsinManager() {
                       : "text-gray-500 hover:text-gray-900 hover:bg-gray-100"
                   }`}
                 >
-                  单个ASIN抓取
+                  单ASIN
                 </button>
                 <button
                   onClick={() => setImportMode("top40")}
@@ -2272,12 +2272,12 @@ export default function AsinManager() {
                       : "text-gray-500 hover:text-gray-900 hover:bg-gray-100"
                   }`}
                 >
-                  Top40机会分析
+                  Top40机会
                 </button>
               </div>
 
               {/* Marketplace selector + Auto-fetch toggle */}
-              <div className="flex items-end gap-4 mb-4">
+              <div className="flex flex-col lg:flex-row lg:items-end gap-3 mb-3">
                 <div>
                   <Label className="text-gray-500 text-sm">站点</Label>
                   <Select
@@ -2342,22 +2342,22 @@ export default function AsinManager() {
                       <CloudDownload className="w-4 h-4 mr-1" />
                     )}
                     {autoImportLoading
-                      ? "正在抓取真实数据..."
-                      : "开始抓取真实数据"}
+                      ? "抓取中..."
+                      : "抓取数据"}
                   </Button>
                 </div>
-                <div className="rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
                     <p className="text-sm font-semibold text-emerald-800 flex items-center gap-2">
                       <ShieldCheck className="w-4 h-4" />
-                      关键词销量验证
+                      抓取后生成选品决策
                     </p>
-                    <p className="text-xs text-gray-600 mt-1">
-                      抓取成功后自动保存到 ASIN 库，并交叉验证 BSR、评论、自然排名、广告位与促销信号。
+                    <p className="text-xs text-gray-600 mt-0.5">
+                      保存到 ASIN 库，并验证 BSR、评论、自然排名、广告位与促销信号。
                     </p>
                     {!autoImportAsin.trim() && (
                       <p className="text-xs text-emerald-700 mt-1">
-                        已保存的 ASIN 请点下方产品卡右侧的“查看验证报告”。
+                        已保存ASIN可在产品行查看选品决策。
                       </p>
                     )}
                   </div>
@@ -2371,7 +2371,7 @@ export default function AsinManager() {
                     ) : (
                       <ShieldCheck className="w-4 h-4 mr-1" />
                     )}
-                    抓取保存并验证
+                    保存并验证
                   </Button>
                 </div>
                 </div>
@@ -2664,7 +2664,7 @@ export default function AsinManager() {
               )}
 
               <p className="text-[10px] text-gray-600 mt-3">
-                ASIN分析会自动保存商品字段、评分和来源标记，低置信度结果建议人工复核后再决策。
+                系统会保存商品字段、评分和来源标记；低置信结果需复核后再进入机会池。
               </p>
             </Card>
           )}
