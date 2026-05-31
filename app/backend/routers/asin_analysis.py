@@ -1791,6 +1791,68 @@ async def get_analysis_history(
     return {"items": items, "total": result["total"]}
 
 
+@router.get("/history/by-asin/{asin}", response_model=AnalyzeAsinResponse)
+async def get_latest_analysis_history_by_asin(
+    asin: str,
+    marketplace: Optional[str] = None,
+    current_user: UserResponse = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get the latest complete saved ASIN diagnosis for this user.
+
+    This intentionally ignores old action snapshots or partial records so the UI
+    never renders a stale residual capture as a formal competitor diagnosis.
+    """
+    from sqlalchemy import select
+    from models.asin_analyses import Asin_analyses
+
+    normalized_asin = asin.strip().upper()
+    if not re.fullmatch(r"[A-Z0-9]{10}", normalized_asin):
+        raise HTTPException(status_code=422, detail="ASIN格式不正确")
+
+    query = (
+        select(Asin_analyses)
+        .where(Asin_analyses.user_id == str(current_user.id))
+        .where(Asin_analyses.asin == normalized_asin)
+        .where(Asin_analyses.analysis_report.isnot(None))
+        .order_by(Asin_analyses.id.desc())
+        .limit(20)
+    )
+    if marketplace:
+        query = query.where(Asin_analyses.marketplace == marketplace)
+
+    result = await db.execute(query)
+    records = result.scalars().all()
+    for record in records:
+        try:
+            product_data = json.loads(record.product_data or "{}")
+        except Exception:
+            product_data = {}
+        has_core_evidence = bool(
+            record.product_title
+            and (
+                product_data.get("price")
+                or product_data.get("rating")
+                or product_data.get("review_count")
+                or product_data.get("bullet_points")
+                or product_data.get("image_urls")
+            )
+        )
+        if not has_core_evidence:
+            continue
+
+        response = await _analysis_record_to_response(
+            record,
+            record.marketplace or marketplace or "US",
+            db,
+            str(current_user.id),
+        )
+        if response and _has_positive_scores(response.scores):
+            return response
+
+    raise HTTPException(status_code=404, detail="未找到完整历史诊断，请重新分析")
+
+
 @router.get("/history/{analysis_id}", response_model=AnalyzeAsinResponse)
 async def get_analysis_history_detail(
     analysis_id: int,

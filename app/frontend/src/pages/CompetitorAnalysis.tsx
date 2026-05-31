@@ -609,7 +609,8 @@ function isIncompleteSavedResult(result: AnalysisResult): boolean {
   const source = result.data_source || String((pd as Record<string, unknown>)._data_source || "");
   const title = String(pd.title || result.product_title || "");
   const lacksCoreData = !pd.price && !pd.rating && !pd.review_count && !pd.bullet_points?.length;
-  return source.includes("saved") && (lacksCoreData || title.includes("待确认"));
+  const staleSource = source.includes("saved") || source.includes("snapshot") || source.includes("cached");
+  return staleSource && (lacksCoreData || !title.trim() || title.includes("待确认"));
 }
 
 function hasPlatformEcoRisk(pd: ProductData): boolean {
@@ -1542,33 +1543,74 @@ export default function CompetitorAnalysis() {
     }
   };
 
-  const loadSnapshotAsAnalysis = (snapshot: ActionSnapshot) => {
+  const loadFormalHistoryByAsin = async (asinRaw: string, mp?: string): Promise<AnalysisResult | null> => {
+    const asin = (extractAsinFromUrl(asinRaw) || asinRaw || "").trim().toUpperCase();
+    if (!asin || asin.length !== 10) return null;
+    try {
+      const res = await axios.get(`/api/v1/asin-analysis/history/by-asin/${asin}`, {
+        headers: getAuthHeaders(),
+        params: { marketplace: mp || marketplace },
+        timeout: 30000,
+      });
+      const loaded = sanitizeAnalysisKeywords(res.data as AnalysisResult);
+      if (loaded.asin && hasUsableScores(loaded) && !isIncompleteSavedResult(loaded)) {
+        return loaded;
+      }
+    } catch {
+      // Missing formal history is expected for old residual action snapshots.
+    }
+    return null;
+  };
+
+  const openFormalHistoryResult = (loaded: AnalysisResult, message = "已打开正式历史诊断") => {
+    setSingleResult(loaded);
+    setSingleAsin(loaded.asin || "");
+    setExpandedReport(false);
+    setActiveTab("single");
+    toast.success(message);
+  };
+
+  const loadSnapshotAsAnalysis = async (snapshot: ActionSnapshot) => {
     const output = snapshot.output_snapshot as any;
     if (output?.my_product && Array.isArray(output?.competitors)) {
       toast.warning("旧版竞品对比快照已归档，本页仅保留单个竞品拆解快照。");
       return;
     }
+    const snapshotAsin = output?.asin || snapshot.asin || "";
+    const snapshotMarketplace = output?.marketplace || (snapshot.input_snapshot as { marketplace?: string } | undefined)?.marketplace || marketplace;
     const scores = getEffectiveScores(output || {});
     if (output?.asin && hasAnyScore(scores)) {
       const loaded = sanitizeAnalysisKeywords(output as AnalysisResult);
       if (isIncompleteSavedResult(loaded)) {
-        toast.warning("这是旧残缺快照，请从分析历史打开正式诊断，或重新分析该ASIN");
+        const formal = await loadFormalHistoryByAsin(loaded.asin || snapshotAsin, snapshotMarketplace);
+        if (formal) {
+          openFormalHistoryResult(formal, "已切换到正式历史诊断");
+          return;
+        }
+        setSingleResult(null);
+        setSingleAsin(loaded.asin || snapshotAsin);
+        setActiveTab("single");
+        toast.warning("这是旧残缺快照，请点击开始分析重新生成完整诊断");
         return;
       } else {
-        setSingleResult(loaded);
-        setSingleAsin(loaded.asin || "");
-        setExpandedReport(false);
-        setActiveTab("single");
-        toast.success("已打开已保存竞品诊断快照");
+        openFormalHistoryResult(loaded, "已打开已保存竞品诊断");
       }
       return;
     }
-    toast.error("该快照不是完整竞品诊断结果，请从分析历史打开");
+    const formal = await loadFormalHistoryByAsin(snapshotAsin, snapshotMarketplace);
+    if (formal) {
+      openFormalHistoryResult(formal, "已打开正式历史诊断");
+      return;
+    }
+    setSingleResult(null);
+    setSingleAsin(snapshotAsin);
+    setActiveTab("single");
+    toast.error("该快照不是完整竞品诊断结果，请重新分析该ASIN");
   };
 
   const viewHistorySnapshot = async (item: HistoryItem) => {
     if (item.snapshot) {
-      loadSnapshotAsAnalysis(item.snapshot);
+      await loadSnapshotAsAnalysis(item.snapshot);
       return;
     }
     try {
@@ -1580,11 +1622,7 @@ export default function CompetitorAnalysis() {
       if (!loaded.asin || !hasAnyScore(getEffectiveScores(loaded))) {
         throw new Error("history detail missing scores");
       }
-      setSingleResult(loaded);
-      setSingleAsin(loaded.asin || "");
-      setExpandedReport(false);
-      setActiveTab("single");
-      toast.success("已打开已保存竞品诊断");
+      openFormalHistoryResult(loaded, "已打开已保存竞品诊断");
     } catch {
       toast.error("历史诊断不完整，请重新分析该ASIN");
     }
@@ -1766,7 +1804,29 @@ export default function CompetitorAnalysis() {
                 </div>
               )}
 
-              {singleResult && <SingleResultView result={singleResult} expanded={expandedReport} setExpanded={setExpandedReport} />}
+              {singleResult && isIncompleteSavedResult(singleResult) && (
+                <Card className="border-amber-200 bg-amber-50">
+                  <CardContent className="p-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                    <div>
+                      <div className="flex items-center gap-2 text-amber-800 font-semibold">
+                        <AlertCircle className="w-5 h-5" />
+                        旧快照不可作为正式诊断
+                      </div>
+                      <p className="text-sm text-amber-700 mt-2">
+                        当前记录缺少标题、价格、评分、评论、五点或图片等核心证据，请重新分析该 ASIN。
+                      </p>
+                    </div>
+                    <Button onClick={handleAnalyze} disabled={analyzing} className="bg-brand-700 hover:bg-brand-800 text-white">
+                      {analyzing ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Zap className="w-4 h-4 mr-2" />}
+                      重新分析
+                    </Button>
+                  </CardContent>
+                </Card>
+              )}
+
+              {singleResult && !isIncompleteSavedResult(singleResult) && (
+                <SingleResultView result={singleResult} expanded={expandedReport} setExpanded={setExpandedReport} />
+              )}
             </TabsContent>
 
             {/* History */}
