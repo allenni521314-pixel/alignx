@@ -26,6 +26,10 @@ function formatDateTime(value: string | null | undefined) {
   }
 }
 
+function isNonGenerativeModel(envKey: string) {
+  return envKey === "AI_EMBEDDING_MODEL" || envKey === "RERANK_MODEL";
+}
+
 export function AIModelStatusPanel() {
   const [aiModels, setAIModels] = useState<AdminAIModelStatus | null>(null);
   const [probe, setProbe] = useState<AdminAIModelProbe | null>(null);
@@ -158,8 +162,8 @@ export function AIModelStatusPanel() {
                   <th className="text-left font-medium px-3 py-2">模型名称</th>
                   <th className="text-left font-medium px-3 py-2">真实调用</th>
                   <th className="text-right font-medium px-3 py-2">7日次数</th>
-                  <th className="text-right font-medium px-3 py-2">输入Token</th>
-                  <th className="text-right font-medium px-3 py-2">输出Token</th>
+                  <th className="text-right font-medium px-3 py-2">处理Token</th>
+                  <th className="text-right font-medium px-3 py-2">生成Token</th>
                   <th className="text-right font-medium px-3 py-2">总Token</th>
                   <th className="text-right font-medium px-3 py-2">估算金额</th>
                   <th className="text-left font-medium px-3 py-2">最后调用</th>
@@ -167,8 +171,9 @@ export function AIModelStatusPanel() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {aiModels.models.map((item) => {
-                  const probeRow = probeByModel.get(item.model);
+	                {aiModels.models.map((item) => {
+	                  const probeRow = probeByModel.get(item.model);
+	                  const nonGenerative = isNonGenerativeModel(item.env_key);
                   const liveStatus = probeRow
                     ? probeRow.ok
                       ? { text: "探针成功", className: "bg-emerald-50 text-emerald-700" }
@@ -202,12 +207,20 @@ export function AIModelStatusPanel() {
                       </td>
                       <td className="px-3 py-3 text-right font-semibold text-gray-900">{formatNumber(item.calls_7d)}</td>
                       <td className="px-3 py-3 text-right font-mono text-xs text-gray-700">{formatNumber(item.prompt_tokens_7d)}</td>
-                      <td className="px-3 py-3 text-right font-mono text-xs text-gray-700">{formatNumber(item.completion_tokens_7d)}</td>
+                      <td className="px-3 py-3 text-right font-mono text-xs text-gray-700">
+                        {nonGenerative ? (
+                          <span className="text-gray-400">无文本输出</span>
+                        ) : (
+                          formatNumber(item.completion_tokens_7d)
+                        )}
+                      </td>
                       <td className="px-3 py-3 text-right font-mono text-xs text-gray-900">{formatNumber(item.total_tokens_7d)}</td>
                       <td className="px-3 py-3 text-right font-semibold text-gold-700 whitespace-nowrap">
                         ¥{Number(item.estimated_cost_cny_7d || 0).toFixed(4)}
                         <div className="text-[11px] font-normal text-gray-400 mt-1">
-                          入¥{Number(item.input_cost_per_1m_cny || 0).toFixed(2)} / 出¥{Number(item.output_cost_per_1m_cny || 0).toFixed(2)}
+                          {nonGenerative
+                            ? `处理¥${Number(item.input_cost_per_1m_cny || 0).toFixed(2)}`
+                            : `入¥${Number(item.input_cost_per_1m_cny || 0).toFixed(2)} / 出¥${Number(item.output_cost_per_1m_cny || 0).toFixed(2)}`}
                         </div>
                       </td>
                       <td className="px-3 py-3 text-xs text-gray-600 whitespace-nowrap">
