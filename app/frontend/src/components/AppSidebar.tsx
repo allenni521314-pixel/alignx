@@ -74,7 +74,7 @@ const navGroups: NavGroup[] = [
     items: [
       {
         path: "/asin-manager",
-        label: "ASIN选品",
+        label: "选品决策",
         icon: Layers3,
         moduleKey: "asin-manager",
       },
@@ -89,19 +89,19 @@ const navGroups: NavGroup[] = [
     items: [
       {
         path: "/listing-launch-check",
-        label: "上新检测",
+        label: "上架准入",
         icon: Rocket,
         moduleKey: "listing-launch-check",
       },
       {
         path: "/competitor-analysis?tab=strategy",
-        label: "竞品诊断",
+        label: "竞品打法",
         icon: Swords,
         moduleKey: "competitor-analysis",
       },
       {
         path: "/listing-diagnosis",
-        label: "本品诊断",
+        label: "承接诊断",
         icon: Stethoscope,
         moduleKey: "listing-diagnosis",
       },
@@ -126,11 +126,11 @@ const navGroups: NavGroup[] = [
     color: "text-emerald-400",
     activeColor: "text-emerald-600",
     items: [
-      { path: "/optimization-suggestions?view=data-feedback", label: "验证回流", icon: Database, moduleKey: "optimization-suggestions" },
+      { path: "/optimization-suggestions?view=data-feedback", label: "数据回流", icon: Database, moduleKey: "optimization-suggestions" },
       { path: "/optimization-suggestions?view=conclusion", label: "复盘结论", icon: MessageSquareText, moduleKey: "optimization-suggestions" },
       {
         path: "/optimization-suggestions?view=next-round",
-        label: "下一轮优化",
+        label: "下一轮动作",
         icon: RotateCcw,
         moduleKey: "optimization-suggestions",
       },
@@ -232,7 +232,7 @@ export function AppSidebar() {
   };
 
   /* Render a single nav button */
-  const renderNavButton = (item: NavItem, groupColor: string) => {
+  const renderNavButton = (item: NavItem) => {
     const isActive = isNavActive(item.path);
     const isDisabled = item.disabled === true;
     const activeTaskCount = taskCounts[item.moduleKey] || 0;
@@ -244,22 +244,25 @@ export function AppSidebar() {
             onClick={() => !isDisabled && handleNav(item.path)}
             disabled={isDisabled}
             className={cn(
-              "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium transition-all duration-200 group relative",
+              "relative flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium transition-all duration-200 group",
               isDisabled
                 ? "text-gray-400 cursor-not-allowed opacity-50"
                 : isActive
-                  ? "bg-gray-900 text-white shadow-sm"
-                  : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
+                  ? "border border-brand-100 bg-brand-50 text-brand-900 shadow-sm shadow-brand-100/50"
+                  : "border border-transparent text-gray-600 hover:border-gray-100 hover:bg-gray-50 hover:text-gray-900"
             )}
           >
+            {isActive && (
+              <span className="absolute left-0 top-2 bottom-2 w-0.5 rounded-r-full bg-brand-600" />
+            )}
             <item.icon
               className={cn(
                 "w-[16px] h-[16px] flex-shrink-0 transition-colors",
                 isDisabled
                   ? "text-gray-400"
                   : isActive
-                    ? "text-white"
-                    : `group-hover:${groupColor}`
+                    ? "text-brand-700"
+                    : "text-gray-400 group-hover:text-brand-600"
               )}
             />
             {showLabel && (
@@ -274,7 +277,7 @@ export function AppSidebar() {
                   <span
                     className={cn(
                       "ml-auto inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold",
-                      isActive ? "bg-white/20 text-white" : "bg-emerald-50 text-emerald-700"
+                      isActive ? "bg-brand-100 text-brand-700" : "bg-emerald-50 text-emerald-700"
                     )}
                     title="该模块有分析正在进行"
                   >
@@ -305,12 +308,12 @@ export function AppSidebar() {
   const sidebarContent = (
     <aside
       className={cn(
-        "h-screen bg-white border-r border-gray-200 flex flex-col transition-all duration-300 flex-shrink-0",
-        isMobile ? "w-64" : collapsed ? "w-16" : "w-60"
+        "h-screen flex-shrink-0 border-r border-gray-100 bg-white/95 flex flex-col transition-all duration-300",
+        isMobile ? "w-64" : collapsed ? "w-16" : "w-64"
       )}
     >
       {/* Logo */}
-      <div className="h-14 flex items-center px-4 border-b border-gray-100">
+      <div className="h-16 flex items-center px-4 border-b border-gray-100">
         <button
           type="button"
           className="min-w-0 text-left"
@@ -334,18 +337,18 @@ export function AppSidebar() {
       </div>
 
       {/* Flow-based Navigation */}
-      <nav className="flex-1 py-2 px-2 overflow-y-auto">
+      <nav className="flex-1 overflow-y-auto px-2.5 py-3">
         {/* 今日决策 — standalone top button */}
-        <div className="mb-1">
+        <div className="mb-2">
           <Tooltip delayDuration={0}>
             <TooltipTrigger asChild>
               <button
                 onClick={() => handleNav("/dashboard")}
                 className={cn(
-                  "w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[13px] font-semibold transition-all duration-200 group",
+                  "w-full flex items-center gap-2.5 px-2.5 py-2.5 rounded-md text-[13px] font-semibold transition-all duration-200 group border",
                   location.pathname === "/dashboard"
-                    ? "bg-gradient-to-r from-brand-600 to-gold-600 text-white shadow-md shadow-brand-200"
-                    : "text-gray-700 hover:bg-brand-50 hover:text-brand-700 border border-transparent hover:border-brand-100"
+                    ? "border-brand-100 bg-brand-900 text-white shadow-sm"
+                    : "border-transparent text-gray-700 hover:bg-brand-50 hover:text-brand-700 hover:border-brand-100"
                 )}
               >
                 <div
@@ -382,19 +385,21 @@ export function AppSidebar() {
         {navGroups.map((group) => {
           const groupActive = isGroupActive(group);
           return (
-            <div key={group.title} className="mb-0.5">
+            <div key={group.title} className="mb-2.5">
               {showLabel && (
                 <div
                   className={cn(
-                    "px-3 pt-4 pb-1.5 text-[11px] font-bold tracking-wider uppercase select-none flex items-center gap-1.5 transition-colors",
+                    "flex select-none items-center gap-1.5 px-2.5 pb-1 pt-2.5 text-[11px] font-semibold transition-colors",
                     groupActive ? group.activeColor : "text-gray-400"
                   )}
                 >
-                  <span className="text-[13px]">{group.stage}</span>
+                  <span className="inline-flex h-4 min-w-4 items-center justify-center rounded border border-current/20 px-1 text-[10px] leading-none">
+                    {group.stage || "设"}
+                  </span>
                   <group.icon className="w-3 h-3" />
                   {group.title}
                   {groupActive && (
-                    <span className="ml-auto w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
+                    <span className="ml-auto h-1.5 w-1.5 rounded-full bg-current" />
                   )}
                 </div>
               )}
@@ -403,7 +408,7 @@ export function AppSidebar() {
               )}
               <div className="space-y-0.5">
                 {group.items.map((item) =>
-                  renderNavButton(item, group.activeColor)
+                  renderNavButton(item)
                 )}
               </div>
             </div>

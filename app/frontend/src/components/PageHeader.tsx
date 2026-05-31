@@ -20,40 +20,52 @@ export function PageHeader({
   tone = "indigo",
 }: PageHeaderProps) {
   const toneClass = {
-    blue: "bg-teal-50/70 border-teal-100",
-    teal: "bg-teal-50/70 border-teal-100",
-    violet: "bg-gold-50/70 border-gold-100",
-    indigo: "bg-brand-50/70 border-brand-100",
-    amber: "bg-amber-50/70 border-amber-100",
-    orange: "bg-orange-50/70 border-orange-100",
-    emerald: "bg-emerald-50/70 border-emerald-100",
-    cyan: "bg-teal-50/70 border-teal-100",
-    purple: "bg-gold-50/70 border-gold-100",
-    rose: "bg-rose-50/70 border-rose-100",
+    blue: "border-teal-100 bg-teal-50/45 text-teal-700",
+    teal: "border-teal-100 bg-teal-50/45 text-teal-700",
+    violet: "border-gold-100 bg-gold-50/45 text-gold-700",
+    indigo: "border-brand-100 bg-brand-50/45 text-brand-700",
+    amber: "border-amber-100 bg-amber-50/45 text-amber-700",
+    orange: "border-orange-100 bg-orange-50/45 text-orange-700",
+    emerald: "border-emerald-100 bg-emerald-50/45 text-emerald-700",
+    cyan: "border-teal-100 bg-teal-50/45 text-teal-700",
+    purple: "border-gold-100 bg-gold-50/45 text-gold-700",
+    rose: "border-rose-100 bg-rose-50/45 text-rose-700",
   }[tone];
 
-  const items = [
-    { label: "本页目标", text: objective, icon: Info, color: "text-brand-600", iconColor: "text-brand-500" },
-    { label: "输入", text: inputSource, icon: ArrowRight, color: "text-teal-600", iconColor: "text-teal-500" },
-    { label: "处理", text: process, icon: Activity, color: "text-teal-600", iconColor: "text-teal-500" },
-    { label: "输出", text: outputTarget, icon: CheckCircle2, color: "text-emerald-600", iconColor: "text-emerald-500" },
-    { label: "动作/反馈", text: `${action}；${feedback}`, icon: PlayCircle, color: "text-amber-600", iconColor: "text-amber-500" },
+  const flowItems = [
+    { label: "输入", text: inputSource, icon: ArrowRight },
+    { label: "判断", text: process, icon: Activity },
+    { label: "输出", text: outputTarget, icon: CheckCircle2 },
+    { label: "动作", text: `${action}；${feedback}`, icon: PlayCircle },
   ];
 
   return (
-    <div className={`${toneClass} border rounded-xl p-4 mb-6`}>
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3 text-sm">
-        {items.map((item) => (
-          <div key={item.label} className="flex items-start gap-2">
-            <item.icon className={`w-4 h-4 ${item.iconColor} mt-0.5 flex-shrink-0`} />
-            <div>
-              <span className={`${item.color} font-semibold text-xs uppercase tracking-wide`}>
-                {item.label}
-              </span>
-              <p className="text-gray-700 mt-0.5">{item.text}</p>
-            </div>
+    <div className="mb-4 rounded-lg border border-gray-200 bg-white/85 px-3 py-2.5 shadow-sm">
+      <div className="flex flex-col gap-2 xl:flex-row xl:items-center">
+        <div className="flex min-w-0 flex-1 items-start gap-2">
+          <span className={`mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md border ${toneClass}`}>
+            <Info className="h-3.5 w-3.5" />
+          </span>
+          <div className="min-w-0">
+            <p className="text-[11px] font-semibold leading-4 text-gray-500">运营目标</p>
+            <p className="text-sm font-semibold leading-5 text-gray-900">{objective}</p>
           </div>
-        ))}
+        </div>
+
+        <div className="grid min-w-0 grid-cols-1 gap-1.5 md:grid-cols-2 xl:w-[58%] xl:grid-cols-4">
+          {flowItems.map((item) => (
+            <div
+              key={item.label}
+              className="flex min-w-0 items-start gap-1.5 rounded-md border border-gray-100 bg-gray-50/70 px-2 py-1.5"
+            >
+              <item.icon className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-gray-400" />
+              <div className="min-w-0">
+                <p className="text-[10px] font-semibold leading-3 text-gray-400">{item.label}</p>
+                <p className="mt-0.5 text-[11px] leading-4 text-gray-600">{item.text}</p>
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
