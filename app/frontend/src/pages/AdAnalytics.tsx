@@ -75,9 +75,9 @@ interface ValidationGroup {
 }
 
 function inferValidationHitStatus(level: string) {
-  if (level === "测试成立") return "已命中";
-  if (level === "数据不足") return "待验证";
-  if (level === "点击成立，转化未成立") return "部分命中";
+  if (level === "可以小幅放量") return "已命中";
+  if (level === "继续跑量，别急着放大" || level === "先绑定假设，别判成败") return "待验证";
+  if (level === "别加预算，先改Listing承接") return "部分命中";
   return "未命中";
 }
 
@@ -87,7 +87,8 @@ function inferValidationFailureReason(metrics: { impressions?: number; clicks?: 
   const ctr = Number(metrics.ctr || 0);
   const cvr = Number(metrics.cvr || 0);
   const acos = Number(metrics.acos || 0);
-  if (level === "测试成立") return "none";
+  if (level === "可以小幅放量") return "none";
+  if (level === "先绑定假设，别判成败") return "unassigned_hypothesis";
   if (clicks < 100) return "sample_not_enough";
   if (impressions >= 1000 && ctr < 0.25) return "image_click_gap";
   if (ctr < 0.4) return "keyword_mismatch";
@@ -585,46 +586,46 @@ export default function AdAnalytics() {
     const ctrNum = Number(validationMetrics.ctr);
     if (!validationMetrics.assigned) {
       return {
-        level: "未归因",
+        level: "先绑定假设，别判成败",
         color: "text-amber-700 bg-amber-50 border-amber-200",
         icon: AlertTriangle,
-        summary: "当前广告数据尚未绑定具体诊断假设，不能判断命中或失败。请先补齐 hypothesis_id 与 keyword_group_id。",
-        actions: ["回到执行记录绑定假设ID", "按诊断假设拆分关键词组", "绑定后再进入效果验证"],
+        summary: "这组广告还不知道在验证哪个Listing假设，现在判命中/失败会污染系统经验。先补 hypothesis_id 和 keyword_group_id。",
+        actions: ["先绑定假设ID", "按卖点/场景拆开关键词组", "绑定后再判断能不能放量"],
       };
     }
     if (validationClicks < 100) {
       return {
-        level: "数据不足",
+        level: "继续跑量，别急着放大",
         color: "text-amber-700 bg-amber-50 border-amber-200",
         icon: AlertTriangle,
-        summary: `当前验证对象「${validationHypothesisLabel}」点击量为 ${validationClicks}，未达到100次点击的最低判定样本，暂不建议判断测试是否成立。`,
-        actions: ["继续跑量到100次点击以上", "保持预算、Listing版本和关键词结构稳定", "不要提前扩大预算或暂停测试"],
+        summary: `「${validationHypothesisLabel}」目前只有 ${validationClicks} 次点击，低于100次最低样本。现在不要加预算，也不要急着停。`,
+        actions: ["继续跑到100次点击", "保持Listing版本和关键词结构不变", "先别扩大预算或暂停测试"],
       };
     }
     if (cvrNum >= 8 && (acosNum <= 35 || Number(validationMetrics.sales || 0) === 0)) {
       return {
-        level: "测试成立",
+        level: "可以小幅放量",
         color: "text-emerald-700 bg-emerald-50 border-emerald-200",
         icon: CheckCircle2,
-        summary: `验证对象「${validationHypothesisLabel}」在「${validationKeywordGroupLabel}」中的转化承接表现较好，可沉淀为有效假设。`,
-        actions: ["扩大高转化关键词预算", "保留当前Listing承诺表达", "将结论回流到数据回流模块"],
+        summary: `「${validationHypothesisLabel}」在「${validationKeywordGroupLabel}」里转化承接成立，可以作为有效卖点继续测试放量。`,
+        actions: ["小幅提高高转化词预算", "保留当前Listing承诺表达", "把命中原因写回复盘"],
       };
     }
     if (ctrNum > 0.4 && cvrNum < 5) {
       return {
-        level: "点击成立，转化未成立",
+        level: "别加预算，先改Listing承接",
         color: "text-teal-700 bg-teal-50 border-teal-200",
         icon: AlertTriangle,
-        summary: `验证对象「${validationHypothesisLabel}」点击入口成立，但详情页、价格、评价或承诺可信度没有承接。`,
-        actions: ["回到本品诊断检查详情页承接", "复核价格和评价信任", "保留点击词但调整Listing表达"],
+        summary: `「${validationHypothesisLabel}」能带来点击，但详情页、价格、评价或承诺可信度没有接住订单。`,
+        actions: ["回Listing检查主图/五点/A+承接", "复核价格和评价信任", "先保留点击词但别继续加预算"],
       };
     }
     return {
-      level: "测试未成立",
+      level: "停低效词，重做测试",
       color: "text-red-700 bg-red-50 border-red-200",
       icon: AlertTriangle,
-      summary: "当前点击和转化都不足以支持原诊断假设，需要调整关键词或Listing首屏表达。",
-      actions: ["暂停低效关键词", "重做A/B测试计划", "回到Listing诊断复核缺失需求"],
+      summary: "这组词既没有证明点击，也没有证明转化。继续烧预算意义不大，需要换词或重做Listing首屏假设。",
+      actions: ["暂停低效关键词", "重做A/B测试计划", "回Listing复核用户需求缺口"],
     };
   })();
 
@@ -738,12 +739,12 @@ export default function AdAnalytics() {
             <div>
               <h1 className="text-xl sm:text-2xl font-bold flex items-center gap-2">
                 <BarChart3 className="w-5 h-5 sm:w-6 sm:h-6 text-amber-600" />
-                {isValidationView ? "广告效果验证" : "广告执行记录"}
+                {isValidationView ? "这组广告能不能放量" : "录入广告花费和订单"}
               </h1>
               <p className="text-gray-500 mt-1 text-sm">
                 {isValidationView
-                  ? "判断A/B测试和Listing诊断假设是否被广告数据验证"
-                  : "录入每一轮广告执行数据，为后续效果验证提供事实依据"}
+                  ? "看清楚该放量、停词，还是回Listing改承接"
+                  : "把每轮广告数据录准，后面才能判断钱花得值不值"}
               </p>
             </div>
             {isValidationView ? (
@@ -760,22 +761,22 @@ export default function AdAnalytics() {
 
           {isValidationView ? (
             <PageHeader
-              objective="验证Listing诊断假设是否带来点击、转化和投入产出改善"
+              objective="判断这轮广告该放量、停词还是回Listing改承接"
               inputSource="执行记录中的曝光、点击、花费、订单、销售额"
-              process="按CTR、CVR、ACOS、ROAS判断诊断假设是否成立"
-              outputTarget="效果验证结论、成立/未成立原因、下一步动作"
-              action="将验证结论送入数据回流"
-              feedback="用真实投放结果校准下一轮诊断和优化判断"
+              process="先看是否绑定假设和满100点击，再看CTR、CVR、ACOS、ROAS"
+              outputTarget="放量/停词/改Listing/继续跑样本的明确动作"
+              action="把命中或失败原因写回复盘"
+              feedback="用真实投放结果校准下一轮运营动作"
               tone="orange"
             />
           ) : (
             <PageHeader
-              objective="保存每一轮广告执行数据"
+              objective="把广告花费、点击和订单录准"
               inputSource="粘贴/上传Amazon广告报表为主；API授权同步为正式版能力"
-              process="结构化记录投放动作和实际指标"
-              outputTarget="可追溯的执行记录、关键词表现明细"
-              action="进入效果验证判断测试是否成立"
-              feedback="为效果验证和数据回流提供真实执行数据"
+              process="按产品、假设、关键词组和轮次记录真实指标"
+              outputTarget="可追溯的烧钱记录和关键词表现明细"
+              action="去判断该放量、停词还是改Listing"
+              feedback="为复盘这轮钱花得值不值提供事实"
               tone="cyan"
             />
           )}
@@ -1012,7 +1013,7 @@ export default function AdAnalytics() {
                     <validationConclusion.icon className="w-5 h-5" />
                   </div>
                   <div>
-                    <p className="text-xs text-gray-500">验证结论</p>
+                    <p className="text-xs text-gray-500">运营指令</p>
                     <h2 className="text-lg font-bold text-gray-900 mt-0.5">{validationConclusion.level}</h2>
                     <p className="text-sm text-gray-600 mt-1">{validationConclusion.summary}</p>
                   </div>
@@ -1023,20 +1024,20 @@ export default function AdAnalytics() {
                   </Button>
                   <Button asChild className="bg-emerald-600 hover:bg-emerald-500 text-white">
                     <a href="/optimization-suggestions?view=data-feedback">
-                      进入数据回流
+                      复盘这轮钱
                     </a>
                   </Button>
                 </div>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mt-4">
                 <div className="rounded-lg bg-gray-50 border border-gray-100 p-3">
-                  <p className="text-xs text-gray-500">验证对象</p>
+                  <p className="text-xs text-gray-500">正在验证的卖点</p>
                   <p className="text-sm font-semibold text-gray-900 mt-1">{validationHypothesisLabel}</p>
                   <p className="text-[11px] text-gray-400 mt-1">{validationKeywordGroupLabel}</p>
                 </div>
                 <div className="rounded-lg bg-gray-50 border border-gray-100 p-3">
                   <div className="flex items-center justify-between">
-                    <p className="text-xs text-gray-500">样本进度</p>
+                    <p className="text-xs text-gray-500">能不能下判断</p>
                     <span className="text-xs font-semibold text-gray-700">{Number(validationMetrics.clicks || 0)}/100 点击</span>
                   </div>
                   <div className="h-2 bg-white rounded-full overflow-hidden mt-2">
@@ -1044,7 +1045,7 @@ export default function AdAnalytics() {
                   </div>
                 </div>
                 <div className="rounded-lg bg-gray-50 border border-gray-100 p-3">
-                  <p className="text-xs text-gray-500">当前指标</p>
+                  <p className="text-xs text-gray-500">花钱后的表现</p>
                   <p className="text-sm font-semibold text-gray-900 mt-1">CTR {validationMetrics.ctr}% · CVR {validationMetrics.cvr}%</p>
                   <p className="text-[11px] text-gray-400 mt-1">ACoS {validationMetrics.acos}%</p>
                 </div>
@@ -1064,9 +1065,9 @@ export default function AdAnalytics() {
                   <AlertTriangle className="w-5 h-5 text-amber-700" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-semibold text-gray-900">请选择一个产品后再做效果验证</h3>
+                  <h3 className="text-sm font-semibold text-gray-900">先选一个产品，别把不同ASIN混着算</h3>
                   <p className="text-sm text-gray-600 mt-1">
-                    广告验证必须按单个ASIN/产品对齐，否则不同产品的CTR、CVR、ACoS会混在一起，影响下一轮诊断回流。
+                    广告判断必须按单个ASIN/产品对齐，否则CTR、CVR、ACoS混在一起，会误导放量和停词动作。
                   </p>
                 </div>
               </div>
@@ -1077,8 +1078,8 @@ export default function AdAnalytics() {
             <Card className="bg-white border-gray-200 p-5 mb-4 sm:mb-6">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
                 <div>
-                  <h3 className="text-sm font-semibold text-gray-900">假设级验证结果</h3>
-                  <p className="text-xs text-gray-500 mt-1">优先按“验证假设 + 关键词组 + 轮次”判断，避免多个实验混在一起。</p>
+                  <h3 className="text-sm font-semibold text-gray-900">每个卖点该放量还是停</h3>
+                  <p className="text-xs text-gray-500 mt-1">按“卖点假设 + 关键词组 + 轮次”看结果，避免多个实验混在一起。</p>
                 </div>
                 <span className="text-xs text-gray-400">
                   已绑定 {validationGroups.filter((group) => group.assigned).length} 组
@@ -1088,7 +1089,7 @@ export default function AdAnalytics() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="text-gray-500 border-b border-gray-100">
-                      <th className="text-left p-3 font-medium">假设</th>
+                      <th className="text-left p-3 font-medium">卖点假设</th>
                       <th className="text-left p-3 font-medium">关键词组</th>
                       <th className="text-right p-3 font-medium">点击</th>
                       <th className="text-right p-3 font-medium">CTR</th>
@@ -1100,10 +1101,10 @@ export default function AdAnalytics() {
                   <tbody>
                     {validationGroups.map((group) => {
                       const status = group.clicks < 100
-                        ? "待验证"
-                        : Number(group.cvr) >= 8 && (Number(group.acos) <= 35 || group.sales === 0)
-                          ? "已命中"
-                          : "未命中";
+	                        ? "继续跑量"
+	                        : Number(group.cvr) >= 8 && (Number(group.acos) <= 35 || group.sales === 0)
+	                          ? "可放量"
+	                          : "先停/先改";
                       return (
                         <tr key={`${group.hypothesis_id}-${group.keyword_group_id}-${group.optimization_round}`} className="border-b border-gray-100 hover:bg-gray-50">
                           <td className="p-3">
@@ -1120,10 +1121,10 @@ export default function AdAnalytics() {
                           <td className={`p-3 text-right ${Number(group.acos) > 35 ? "text-red-600" : "text-amber-600"}`}>{group.acos}%</td>
                           <td className="p-3">
                             <span className={`inline-flex px-2 py-1 rounded-full text-xs border ${
-                              status === "已命中"
-                                ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                                : status === "待验证"
-                                  ? "bg-amber-50 text-amber-700 border-amber-200"
+	                              status === "可放量"
+	                                ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+	                                : status === "继续跑量"
+	                                  ? "bg-amber-50 text-amber-700 border-amber-200"
                                   : "bg-red-50 text-red-700 border-red-200"
                             }`}>
                               {status}

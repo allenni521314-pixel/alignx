@@ -720,22 +720,22 @@ export default function Dashboard() {
     const firstAction = adBlocked || adGate?.judgment_status === "pending_sample"
       ? {
           rank: 1,
-          module: "广告验证",
+          module: "先守住广告预算",
           priority: "P0",
-          status: adGate?.judgment_status === "unattributed" ? "需绑定假设" : "继续验证",
-          evidence: adGate?.blocking_reason || adGate?.required_next_action || "广告样本尚未达到后端判定标准。",
-          action: adGate?.judgment_status === "unattributed" ? "绑定假设ID" : "进入执行记录",
+          status: adGate?.judgment_status === "unattributed" ? "先别判成败" : "先别放量",
+          evidence: adGate?.blocking_reason || adGate?.required_next_action || "广告样本还不够，现在放大预算容易把偶然波动当成结论。",
+          action: adGate?.judgment_status === "unattributed" ? "先绑定假设" : "继续跑到100点击",
           path: adGate?.judgment_status === "unattributed" ? "/ad-analytics?view=records" : "/ad-analytics?view=validation",
           icon: Megaphone,
           color: "amber",
         }
       : {
           rank: 1,
-          module: "数据回流",
+          module: "复盘这轮钱",
           priority: feedbackReady ? "P0" : "P1",
-          status: feedbackReady ? "必须回流" : reviewBlocked ? "需复盘记录" : "等待验证",
-          evidence: reviewGate?.blocking_reason || hitLearning?.basis || "效果验证完成后再进入数据回流，不能跳过复盘层。",
-          action: reviewBlocked ? "补齐复盘记录" : "进入数据回流",
+          status: feedbackReady ? "马上沉淀经验" : reviewBlocked ? "先补复盘记录" : "等广告验证",
+          evidence: reviewGate?.blocking_reason || hitLearning?.basis || "只有把命中/未命中写回系统，下一轮才知道该放量、停词还是回Listing改承接。",
+          action: reviewBlocked ? "补齐复盘记录" : "复盘命中原因",
           path: "/optimization-suggestions?view=data-feedback",
           icon: Database,
           color: "emerald",
@@ -745,33 +745,33 @@ export default function Dashboard() {
       firstAction,
       {
         rank: 2,
-        module: "本品诊断",
+        module: "回Listing改承接",
         priority: topAction?.level || "P1",
-        status: chief?.current_stage?.includes("复盘") ? "下一轮修正" : "待诊断",
-        evidence: topAction?.action || "上新检测、本品诊断和买家意图共同决定 Listing 修改优先级。",
-        action: "进入本品诊断",
+        status: chief?.current_stage?.includes("复盘") ? "按复盘修正" : "先找转化卡点",
+        evidence: topAction?.action || "先找出标题、主图、五点、A+里哪个环节拖累点击或转化，再决定要不要投广告验证。",
+        action: "找出先改哪里",
         path: "/listing-diagnosis",
         icon: Stethoscope,
         color: "blue",
       },
       {
         rank: 3,
-        module: "广告验证",
+        module: "用广告验证改动",
         priority: adBlocked ? "P0" : "P1",
-        status: adBlocked ? "未达标" : stages.get("ad_validation")?.status === "completed" ? "已验证" : "待验证",
-        evidence: adGate?.blocking_reason || validationHypotheses[0]?.hypothesis || "诊断结论需要通过广告点击、转化和ACOS验证。",
-        action: adBlocked ? adGate?.required_next_action || "补齐广告验证" : stages.get("ad_validation")?.status === "completed" ? "查看效果验证" : "进入执行记录",
+        status: adBlocked ? "先补条件" : stages.get("ad_validation")?.status === "completed" ? "可复盘" : "等数据",
+        evidence: adGate?.blocking_reason || validationHypotheses[0]?.hypothesis || "Listing判断必须用真实点击、转化和ACOS验证，避免凭感觉改页面。",
+        action: adBlocked ? adGate?.required_next_action || "补齐广告数据" : stages.get("ad_validation")?.status === "completed" ? "看能否放量" : "录入广告数据",
         path: adGate?.judgment_status === "unattributed" ? "/ad-analytics?view=records" : "/ad-analytics?view=validation",
         icon: Megaphone,
         color: "amber",
       },
       {
         rank: 4,
-        module: "选品决策",
+        module: "确认ASIN值不值得测",
         priority: "P2",
-        status: stages.get("selection")?.status === "completed" ? "已通过" : "待判断",
-        evidence: stages.get("selection")?.summary || "先判断 ASIN 是否值得进入机会池，再进入 Listing 上新检测。",
-        action: "查看机会判断",
+        status: stages.get("selection")?.status === "completed" ? "已进机会池" : "先别投入",
+        evidence: stages.get("selection")?.summary || "先判断这个ASIN有没有需求、利润和竞争空间，再决定是否继续投入Listing和广告预算。",
+        action: "看是否值得测",
         path: "/asin-manager",
         icon: Layers3,
         color: "indigo",
@@ -824,10 +824,10 @@ export default function Dashboard() {
           {/* Hero Header */}
           <div className="mb-8">
             <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">
-              商品转化循环工作台
+              今天先做哪件事能赚钱或止损
             </h1>
             <p className="text-gray-500 mt-2 text-sm sm:text-base max-w-3xl">
-              从ASIN和Listing诊断提出假设，用广告数据验证，再把命中结果回流到下一轮优化
+              先找最该处理的ASIN、Listing或广告动作，再用真实点击和订单验证，避免凭感觉烧预算。
             </p>
           </div>
 
@@ -890,10 +890,10 @@ export default function Dashboard() {
               <div>
                 <h2 className="text-base font-semibold text-gray-900 flex items-center gap-2">
                   <Target className="w-4.5 h-4.5 text-brand-600" />
-                  今日决策总图
+                  今日运营指令
                 </h2>
                 <p className="text-xs text-gray-500 mt-1">
-                  按当前闭环数据判断各模块处理优先级，先处理 P0，再进入下一轮分流。
+                  先处理 P0：该停词就停词，该补样本就补样本，该回Listing改承接就先改承接。
                 </p>
               </div>
               {agentDecision && (
