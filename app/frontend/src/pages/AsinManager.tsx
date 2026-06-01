@@ -48,7 +48,6 @@ import {
 } from "lucide-react";
 import {
   FiveDimensionScoreCard,
-  FiveDScoreButton,
   type FiveDScoreResult,
 } from "@/components/FiveDimensionScore";
 import { getActionSnapshots, saveActionSnapshot, type ActionSnapshot } from "@/lib/workflow-api";
@@ -989,7 +988,8 @@ export default function AsinManager() {
       setShowForm(false);
       setActiveTab("library");
       setSearchQuery(item.asin);
-      toast.success(`${item.asin} 已进入ASIN库，开始单品评分`);
+      await loadProducts();
+      toast.success(`${item.asin} 已进入历史ASIN库，开始单品评分`);
       await handleFiveDScore(savedProduct);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "单品深挖失败";
@@ -1666,6 +1666,10 @@ export default function AsinManager() {
       }).catch(() => {});
       setAutoImportAsin("");
       await loadProducts();
+      setActiveTab("library");
+      setSearchQuery(productData.asin);
+      setExpandedKeywordAsin(productData.asin);
+      await handleFiveDScore(saved.product);
       toast.success(`${productData.asin} 已${saved.mode === "updated" ? "更新" : "保存"}，关键词销量验证 ${Math.round(report.keyword_sales_score)} 分`);
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : "抓取保存并验证失败");
@@ -2267,14 +2271,14 @@ export default function AsinManager() {
                       onChange={(e) => setAutoImportAsin(e.target.value)}
                       onKeyDown={(e) => {
                         if (e.key === "Enter" && !autoImportLoading)
-                          handleSingleAutoImport();
+                          handleSingleAutoImportAndValidate();
                       }}
                       placeholder="输入ASIN，如 B0XXXXXXXXX"
                       className="mt-1 h-11 rounded-xl border-gray-200 bg-gray-50 text-gray-900 shadow-none"
                     />
                   </div>
                   <Button
-                    onClick={handleSingleAutoImport}
+                    onClick={handleSingleAutoImportAndValidate}
                     disabled={autoImportLoading || !autoImportAsin.trim()}
                     className="h-11 rounded-xl bg-gray-950 px-5 text-white hover:bg-gray-800"
                   >
@@ -2285,7 +2289,7 @@ export default function AsinManager() {
                     )}
                     {autoImportLoading
                       ? "抓取中..."
-                      : "抓取数据"}
+                      : "抓取并分析"}
                   </Button>
                 </div>
 
@@ -2301,21 +2305,8 @@ export default function AsinManager() {
                   </label>
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                     <p className="text-xs text-gray-500">
-                      保存后验证 BSR、评论、自然排名、广告位与促销信号。
+                      抓取后自动保存到历史 ASIN 库，验证 BSR、评论、自然排名、广告位与促销信号，并打开选品决策。
                     </p>
-                    <Button
-                      onClick={handleSingleAutoImportAndValidate}
-                      disabled={autoImportLoading || !autoImportAsin.trim()}
-                      variant="outline"
-                      className="h-10 shrink-0 rounded-xl border-gray-200 bg-white text-gray-900 hover:bg-gray-100"
-                    >
-                      {autoImportLoading ? (
-                        <Loader2 className="w-4 h-4 mr-1 animate-spin" />
-                      ) : (
-                        <ShieldCheck className="w-4 h-4 mr-1" />
-                      )}
-                      保存并验证
-                    </Button>
                   </div>
                 </div>
                 </div>
@@ -2800,23 +2791,23 @@ export default function AsinManager() {
                   </span>
                 </button>
               </div>
-              <span className="hidden text-xs text-gray-500 sm:inline">最近保存和评分结果在下方列表查看。</span>
+              <span className="hidden text-xs text-gray-500 sm:inline">点击 Top40 样本二次分析后，会自动进入历史 ASIN 库。</span>
             </div>
           )}
 
           {/* Search, Batch Actions, History Toggle */}
           {!showForm && products.length > 0 && (
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 mb-4">
-              <div className="relative flex-1">
+            <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div className="relative w-full sm:max-w-sm">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
                 <Input
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="搜索 ASIN、标题或类目..."
-                  className="bg-gray-50 border-gray-200 text-gray-900 pl-10"
+                  placeholder="筛选历史ASIN..."
+                  className="h-9 rounded-xl border-gray-200 bg-white pl-9 text-sm text-gray-900 shadow-none"
                 />
               </div>
-              <div className="flex gap-2">
+              <div className="flex justify-end gap-2">
                 {selectedIds.size > 0 && (
                   <Button
                     variant="destructive"
@@ -2835,9 +2826,9 @@ export default function AsinManager() {
                   variant="outline"
                   size="sm"
                   onClick={toggleHistory}
-                  className="border-gray-200 text-gray-600 hover:text-gray-900 hover:bg-gray-100 bg-transparent"
+                  className="h-9 rounded-xl border-gray-200 bg-white text-gray-600 hover:bg-gray-100 hover:text-gray-900"
                 >
-                  <History className="w-4 h-4 mr-1" /> 抓取历史
+                  <History className="w-4 h-4 mr-1" /> Top40快照
                   {showHistory ? (
                     <ChevronUp className="w-3 h-3 ml-1" />
                   ) : (
@@ -2852,19 +2843,21 @@ export default function AsinManager() {
           {showHistory && (
             <Card className="bg-white border-gray-200 p-4 mb-4">
               <h3 className="text-sm font-semibold text-gray-600 mb-3 flex items-center gap-2">
-                <History className="w-4 h-4 text-gray-500" /> 最近抓取记录
+                <History className="w-4 h-4 text-gray-500" /> Top40快照历史
               </h3>
               {historyLoading ? (
                 <div className="flex items-center justify-center py-4">
                   <Loader2 className="w-4 h-4 animate-spin text-gray-500" />
                 </div>
-              ) : fetchHistoryItems.length === 0 ? (
+              ) : fetchHistoryItems.filter((item) => item.action_key === "scrapling_top40_batch" || item.action_key === "top40_market_analysis").length === 0 ? (
                 <p className="text-xs text-gray-600 text-center py-4">
-                  暂无抓取记录
+                  暂无Top40快照
                 </p>
               ) : (
                 <div className="space-y-1.5 max-h-60 overflow-y-auto">
-                  {fetchHistoryItems.map((item) => (
+                  {fetchHistoryItems
+                    .filter((item) => item.action_key === "scrapling_top40_batch" || item.action_key === "top40_market_analysis")
+                    .map((item) => (
                     <div
                       key={item.id}
                       className="flex items-center justify-between px-3 py-2 rounded-lg bg-gray-50 border border-gray-100 text-xs"
@@ -3007,6 +3000,7 @@ export default function AsinManager() {
                 const keywordReport = keywordValidationResults[product.asin];
                 const isKeywordValidating = validatingKeywordAsin === product.asin;
                 const isKeywordExpanded = expandedKeywordAsin === product.asin;
+                const isDecisionBusy = isScoring || isKeywordValidating;
                 const marketplace = getProductMarketplace(product);
                 const marketplaceMeta = MARKETPLACE_BY_VALUE[marketplace] || MARKETPLACE_BY_VALUE.US;
 
@@ -3073,48 +3067,42 @@ export default function AsinManager() {
                           </div>
                         </div>
                         <div className="flex gap-1 sm:gap-2 flex-shrink-0 items-center">
-                          {/* 6D Score Button */}
-                          <FiveDScoreButton
-                            loading={isScoring}
-                            score={scoreResult?.total_score}
-                            onClick={() => {
-                              if (scoreResult) {
-                                setExpandedScoreAsin(isExpanded ? null : product.asin);
-                              } else {
-                                handleFiveDScore(product);
-                              }
-                            }}
-                          />
                           <Button
-                            variant={keywordReport ? "outline" : "ghost"}
+                            variant="outline"
                             size="sm"
-                            onClick={() => {
-                              if (keywordReport) {
-                                setExpandedKeywordAsin(isKeywordExpanded ? null : product.asin);
-                              } else {
-                                handleKeywordSalesValidation(product);
+                            onClick={async () => {
+                              const shouldCollapse = isExpanded || isKeywordExpanded;
+                              if (shouldCollapse) {
+                                setExpandedScoreAsin(null);
+                                setExpandedKeywordAsin(null);
+                                return;
                               }
+                              setExpandedScoreAsin(scoreResult ? product.asin : null);
+                              setExpandedKeywordAsin(keywordReport ? product.asin : null);
+                              if (!keywordReport) await handleKeywordSalesValidation(product);
+                              if (!scoreResult) await handleFiveDScore(product);
                             }}
-                            disabled={isKeywordValidating}
-                            className={
-                              keywordReport
-                                ? "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 h-8 px-3"
-                                : "text-gray-500 hover:text-emerald-700 h-8 px-2"
-                            }
-                            title={keywordReport ? "查看关键词销量验证报告" : "开始关键词销量验证"}
+                            disabled={isDecisionBusy}
+                            className="h-8 border-brand-200 bg-brand-50 px-3 text-brand-800 hover:bg-brand-100"
+                            title="查看选品决策与验证报告"
                           >
-                            {isKeywordValidating ? (
-                              <Loader2 className="w-4 h-4 animate-spin" />
+                            {isDecisionBusy ? (
+                              <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
                             ) : (
-                              <ShieldCheck className="w-4 h-4" />
+                              <Award className="w-3.5 h-3.5 mr-1.5" />
                             )}
-                            {keywordReport && (
-                              <span className="ml-1.5 text-xs font-semibold">
-                                {isKeywordExpanded ? "收起报告" : `查看验证报告 · ${Math.round(keywordReport.keyword_sales_score)}分`}
+                            <span className="hidden sm:inline text-xs font-semibold mr-1.5">
+                              {isExpanded || isKeywordExpanded ? "收起决策" : "选品决策"}
+                            </span>
+                            {scoreResult?.total_score !== undefined && (
+                              <span className="rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700">
+                                {scoreResult.total_score}分
                               </span>
                             )}
-                            {!keywordReport && !isKeywordValidating && (
-                              <span className="hidden sm:inline ml-1.5 text-xs font-semibold">关键词验证</span>
+                            {keywordReport && (
+                              <span className="ml-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700">
+                                验证{Math.round(keywordReport.keyword_sales_score)}分
+                              </span>
                             )}
                           </Button>
                           {keywordReport && (

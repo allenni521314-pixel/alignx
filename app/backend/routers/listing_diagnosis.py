@@ -2670,8 +2670,15 @@ async def get_diagnosis_history(
 
     items = []
     for item in rows:
+        asin = ""
+        try:
+            input_payload = json.loads(item.input_data or "{}")
+            asin = str(input_payload.get("asin") or "").strip().upper()
+        except (json.JSONDecodeError, TypeError, AttributeError):
+            asin = ""
         items.append({
             "id": item.id,
+            "asin": asin,
             "listing_title": item.listing_title,
             "marketplace": item.marketplace,
             "scores": {

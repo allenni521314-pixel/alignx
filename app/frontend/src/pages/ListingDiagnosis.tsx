@@ -330,6 +330,7 @@ interface DataIntegrity {
 
 interface HistoryItem {
   id: number;
+  asin?: string;
   listing_title: string;
   marketplace: string;
   scores: Scores;
@@ -3337,23 +3338,32 @@ export default function ListingDiagnosis() {
               ) : (
                 <div className="divide-y divide-gray-100">
                   {history.slice(0, 6).map((item) => (
-                    <button
+                    <div
                       key={item.id}
-                      type="button"
-                      onClick={() => loadHistoryDetail(item.id)}
-                      className="flex w-full items-center justify-between gap-4 py-3 text-left hover:bg-gray-50/70"
+                      className="flex w-full items-center justify-between gap-4 py-3"
                     >
                       <div className="min-w-0">
                         <div className="flex items-center gap-2">
-                          <span className="text-xs font-semibold text-gray-900">承接诊断</span>
+                          <span className="font-mono text-xs font-semibold text-gray-900">{item.asin || "ASIN待补"}</span>
                           <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] text-gray-500">{item.marketplace || "US"}</span>
                         </div>
                         <p className="mt-1 truncate text-sm text-gray-600">{item.listing_title || "已保存承接诊断"}</p>
                       </div>
-                      <span className="shrink-0 text-xs text-gray-500">
-                        {item.created_at ? new Date(item.created_at).toLocaleString("zh-CN", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : ""}
-                      </span>
-                    </button>
+                      <div className="flex shrink-0 items-center gap-3">
+                        <span className="text-xs text-gray-500">
+                          {item.created_at ? new Date(item.created_at).toLocaleString("zh-CN", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : ""}
+                        </span>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => loadHistoryDetail(item.id)}
+                          className="h-8 rounded-xl border-gray-200 bg-white px-3 text-xs font-semibold text-gray-700 hover:bg-gray-100"
+                        >
+                          查看报告
+                        </Button>
+                      </div>
+                    </div>
                   ))}
                 </div>
               )}
