@@ -2459,15 +2459,6 @@ function SingleResultView({
           </CardHeader>
           <CardContent className="space-y-4">
             <ToolboxList
-              title="可测试借鉴假设"
-              items={toolbox?.competitor?.borrow_as_hypothesis}
-              tone="blue"
-            />
-            <ToolboxList
-              title="竞品语义差距检查"
-              items={toolbox?.competitor?.semantic_gap_questions}
-            />
-            <ToolboxList
               title="广告验证蓝图"
               items={(toolbox?.ppc?.campaign_blueprint || []).map((item) =>
                 [item.campaign, item.purpose, Array.isArray(item.keywords) ? `关键词：${item.keywords.join(", ")}` : ""]
@@ -2514,34 +2505,6 @@ function SingleResultView({
               </div>
             )}
 
-            {/* Per-dimension weak areas */}
-            {(() => {
-              if (scorePayloadMissing) return null;
-              const weakDims = DIMENSIONS.filter(
-                (d) => ((scores as Record<string, number>)[d.key] || 0) < 70
-              );
-              if (weakDims.length === 0) return null;
-              return (
-                <div>
-                  <h4 className="text-sm font-medium text-gray-600 mb-2">需重点关注的维度</h4>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    {weakDims.map((dim) => {
-                      const score = (scores as Record<string, number>)[dim.key] || 0;
-                      const analysis = report?.analysis?.[dim.key] || "";
-                      return (
-                        <div key={dim.key} className="bg-red-500/5 border border-red-500/15 rounded-lg p-3">
-                          <div className="flex items-center justify-between mb-1">
-                            <span className="text-sm font-medium text-red-600">{dim.label}</span>
-                            <span className="text-sm font-bold text-red-600">{score}分</span>
-                          </div>
-                          {analysis && <p className="text-xs text-gray-500 leading-relaxed">{analysis}</p>}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            })()}
           </CardContent>
         </Card>
       )}
