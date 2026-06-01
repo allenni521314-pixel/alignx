@@ -14,17 +14,17 @@ import { versionLabel } from "@/lib/version";
 const valueCards = [
   {
     title: "少选错品",
-    desc: "判断 ASIN 是否值得继续投入。",
+    desc: "6维诊断、关键词销量验证，先判断 ASIN 是否值得投入。",
     icon: Layers3,
   },
   {
     title: "少无效改版",
-    desc: "定位 Listing 的流量承接问题。",
+    desc: "10维诊断，找出 Listing 哪里没有接住流量。",
     icon: ClipboardCheck,
   },
   {
     title: "少盲目烧广告",
-    desc: "看清广告数据验证的问题。",
+    desc: "关键词归因，看清广告数据验证了什么问题。",
     icon: Megaphone,
   },
 ];
