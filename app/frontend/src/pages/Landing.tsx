@@ -38,11 +38,6 @@ const plans = [
 
 export default function Landing() {
   const navigate = useNavigate();
-  const solutionCards = [
-    { title: "机会评估", desc: "识别低置信 ASIN。" },
-    { title: "承接诊断", desc: "定位 Listing 转化阻塞。" },
-    { title: "验证归因", desc: "判断广告数据指向的问题。" },
-  ];
 
   return (
     <div className="min-h-screen bg-[#f5f5f7] text-gray-950">
@@ -50,8 +45,7 @@ export default function Landing() {
         <div className="mx-auto flex h-12 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
           <AlignXLogo showWordmark markClassName="h-8 w-8 rounded-lg" wordmarkClassName="text-lg" />
           <div className="hidden items-center gap-7 text-sm font-medium text-gray-500 md:flex">
-            <a href="#capabilities" className="hover:text-gray-950">能力</a>
-            <a href="#solutions" className="hover:text-gray-950">方案</a>
+            <a href="#capabilities" className="hover:text-gray-950">好处</a>
             <a href="#pricing" className="hover:text-gray-950">定价</a>
           </div>
           <div className="flex items-center gap-3">
@@ -85,27 +79,7 @@ export default function Landing() {
 
         </section>
 
-        <section id="solutions" className="mx-auto max-w-6xl px-4 py-20 sm:px-6 lg:px-8">
-          <div className="grid gap-12 border-y border-black/5 py-16 lg:grid-cols-[0.32fr_1fr]">
-            <div className="max-w-sm">
-              <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">AlignX怎么做</h2>
-              <p className="mt-3 text-sm leading-6 text-gray-500">用三种判断，对应三个结果。</p>
-            </div>
-            <div className="grid gap-px overflow-hidden rounded-lg border border-black/5 bg-black/5 sm:grid-cols-2 lg:grid-cols-3">
-              {solutionCards.map((item, index) => (
-                <div key={item.title} className="flex min-h-32 flex-col justify-between bg-white p-5">
-                  <span className="text-xs font-semibold text-gold-700">{String(index + 1).padStart(2, "0")}</span>
-                  <div>
-                    <h3 className="text-sm font-semibold text-gray-950">{item.title}</h3>
-                    <p className="mt-3 text-sm leading-6 text-gray-500">{item.desc}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        <section id="pricing" className="mx-auto max-w-6xl px-4 pb-24 pt-16 sm:px-6 lg:px-8">
+        <section id="pricing" className="mx-auto max-w-6xl px-4 pb-24 pt-8 sm:px-6 lg:px-8">
           <div className="mb-10 text-center">
             <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">按需订阅，费用灵活</h2>
             <p className="mt-3 text-sm text-gray-500">按使用规模选择合适套餐。</p>
