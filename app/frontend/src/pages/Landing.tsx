@@ -46,7 +46,7 @@ const plans = [
 export default function Landing() {
   const navigate = useNavigate();
   const workflowSteps = ["抓取真实数据", "拦截低置信机会", "定位转化卡点", "生成验证动作", "记录命中结果", "排下一轮优先级"];
-  const heroSignals = ["库存风险", "转化卡点", "广告试错"];
+  const heroSignals = ["是否值得投", "先改哪里", "验证什么"];
   const decisionRows = [
     { label: "ASIN", input: "页面数据", output: "是否继续投入" },
     { label: "Listing", input: "内容与评论", output: "先处理的卡点" },
@@ -62,10 +62,9 @@ export default function Landing() {
             <a href="#capabilities" className="rounded-full px-4 py-2 hover:bg-gray-100 hover:text-gray-950">决策能力</a>
             <a href="#pricing" className="rounded-full px-4 py-2 hover:bg-gray-100 hover:text-gray-950">定价</a>
             <button onClick={() => navigate("/terms")} className="rounded-full px-4 py-2 hover:bg-gray-100 hover:text-gray-950">用户协议</button>
-            <button onClick={() => navigate("/login")} className="rounded-full px-4 py-2 hover:bg-gray-100 hover:text-gray-950">登录</button>
           </div>
-          <Button onClick={() => navigate("/register")} className="h-9 rounded-full bg-brand-800 px-5 text-white hover:bg-brand-700">
-            免费试用
+          <Button onClick={() => navigate("/login")} className="h-9 rounded-full bg-brand-800 px-5 text-white hover:bg-brand-700">
+            登录
           </Button>
         </div>
       </nav>
@@ -77,18 +76,15 @@ export default function Landing() {
               亚马逊运营判断工具
             </Badge>
             <h1 className="max-w-3xl text-4xl font-semibold leading-[1.04] tracking-tight text-gray-950 sm:text-5xl xl:text-6xl">
-              让选品、Listing、广告验证有判断依据
+              从ASIN判断到广告验证，形成一条决策链
             </h1>
             <p className="mt-6 max-w-xl text-base leading-8 text-gray-600">
-              AlignX帮卖家判断一个ASIN是否值得继续投入，Listing应先处理哪里，广告数据对应哪类问题。
+              先判断产品是否值得投入，再定位Listing卡点，最后用广告数据验证判断是否成立。
             </p>
             <div className="mt-8 flex flex-col gap-3 sm:flex-row">
               <Button onClick={() => navigate("/register")} size="lg" className="h-11 rounded-full bg-brand-800 px-6 text-white hover:bg-brand-700">
                 分析一个ASIN
                 <ArrowRight className="ml-2 h-4 w-4" />
-              </Button>
-              <Button onClick={() => navigate("/login")} size="lg" variant="outline" className="h-11 rounded-full border-gray-300 bg-white px-6">
-                登录
               </Button>
             </div>
             <div className="mt-10 grid max-w-lg grid-cols-3 divide-x divide-black/5 rounded-lg border border-black/5 bg-white/70 shadow-sm">
@@ -161,8 +157,8 @@ export default function Landing() {
         <section id="capabilities" className="mx-auto max-w-7xl px-4 pb-12 sm:px-6 lg:px-8">
           <div className="grid gap-6 border-y border-black/5 py-10 lg:grid-cols-[0.34fr_1fr]">
             <div>
-              <h2 className="text-2xl font-semibold tracking-tight">把数据变成下一步判断</h2>
-              <p className="mt-2 text-sm leading-6 text-gray-500">AlignX把页面数据、诊断结果、广告表现和复盘记录放到同一套判断标准里。</p>
+              <h2 className="text-2xl font-semibold tracking-tight">解决三个日常判断</h2>
+              <p className="mt-2 text-sm leading-6 text-gray-500">页面数据、Listing诊断和广告表现使用同一套判断标准。</p>
             </div>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               {valueCards.map((item) => (
@@ -178,7 +174,7 @@ export default function Landing() {
 
         <section className="mx-auto max-w-7xl px-4 pb-12 sm:px-6 lg:px-8">
           <div className="border border-black/5 bg-white p-5 shadow-sm">
-            <h2 className="pb-5 text-2xl font-semibold tracking-tight">按运营顺序形成判断</h2>
+            <h2 className="pb-5 text-2xl font-semibold tracking-tight">数据如何进入判断</h2>
             <div className="grid gap-px overflow-hidden border border-black/5 bg-black/5 sm:grid-cols-2 lg:grid-cols-6">
               {workflowSteps.map((step, index) => (
                 <div key={step} className="flex min-h-24 flex-col justify-between bg-[#f8f8fa] p-4">
