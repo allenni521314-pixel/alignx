@@ -1,9 +1,7 @@
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
   ArrowRight,
-  BarChart3,
   Check,
   ClipboardCheck,
   Layers3,
@@ -17,144 +15,203 @@ import { versionLabel } from "@/lib/version";
 
 const valueCards = [
   {
-    title: "选品决策",
-    desc: "判断 ASIN 是否值得进入机会池",
+    title: "不再凭感觉选品",
+    desc: "先看需求、竞争、利润和验证成本，低置信机会直接拦截。",
     icon: Layers3,
   },
   {
-    title: "Listing诊断",
-    desc: "识别标题、五点、图片、A+与评论需求的错配",
+    title: "不再盲改Listing",
+    desc: "把标题、五点、图片、评论痛点拆成可验证假设。",
     icon: ClipboardCheck,
   },
   {
-    title: "广告验证",
-    desc: "用CTR、CVR、ACOS验证诊断假设是否成立",
+    title: "不再烧钱猜原因",
+    desc: "用CTR、CVR、ACOS判断问题在流量、点击还是转化。",
     icon: Megaphone,
   },
   {
-    title: "数据回流",
-    desc: "把命中和未命中的假设沉淀为下一轮动作",
+    title: "不再复盘断层",
+    desc: "把命中和未命中的判断回流，下一轮越跑越准。",
     icon: RotateCcw,
   },
 ];
 
 const plans = [
-  { name: "免费试用", price: "0 元", desc: "体验单品基础流程" },
-  { name: "轻量版", price: "199 元/月", desc: "适合单店铺小规模测试" },
-  { name: "专业版", price: "699 元/月", desc: "完整广告验证和复盘闭环", highlight: true },
-  { name: "团队版", price: "1999 元/月", desc: "多账号、多店铺、批量 ASIN" },
+  { name: "免费试用", price: "0 元", desc: "先跑通一个ASIN的判断链路" },
+  { name: "轻量版", price: "199 元/月", desc: "适合单店铺持续做小规模验证" },
+  { name: "专业版", price: "699 元/月", desc: "适合把诊断、广告和复盘连起来", highlight: true },
+  { name: "团队版", price: "1999 元/月", desc: "适合多账号、多店铺批量决策" },
 ];
 
 export default function Landing() {
   const navigate = useNavigate();
+  const workflowSteps = ["抓取真实数据", "统一评分判断", "诊断转化阻塞", "验证广告假设", "回流验证结果", "输出下一动作"];
+  const heroSignals = ["选错品", "改错词", "烧错广告"];
 
   return (
-    <div className="min-h-screen bg-white text-gray-900">
-      <nav className="sticky top-0 z-40 bg-white/90 backdrop-blur border-b border-gray-100">
-        <div className="h-16 max-w-7xl mx-auto px-5 sm:px-8 flex items-center justify-between">
-          <AlignXLogo showWordmark markClassName="h-9 w-9" wordmarkClassName="text-xl" />
-          <div className="hidden md:flex items-center gap-7 text-sm text-gray-500">
-            <a href="#capabilities" className="hover:text-gray-900">产品能力</a>
-            <a href="#pricing" className="hover:text-gray-900">定价</a>
-            <button onClick={() => navigate("/terms")} className="hover:text-gray-900">用户协议</button>
-            <button onClick={() => navigate("/login")} className="hover:text-gray-900">登录</button>
+    <div className="min-h-screen bg-[#f5f5f7] text-gray-950">
+      <nav className="sticky top-0 z-40 border-b border-black/5 bg-[#f5f5f7]/85 backdrop-blur-xl">
+        <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
+          <AlignXLogo showWordmark markClassName="h-8 w-8 rounded-lg" wordmarkClassName="text-lg" />
+          <div className="hidden items-center gap-1 rounded-full border border-black/5 bg-white/70 p-1 text-sm font-medium text-gray-500 shadow-sm md:flex">
+            <a href="#capabilities" className="rounded-full px-4 py-2 hover:bg-gray-100 hover:text-gray-950">决策能力</a>
+            <a href="#pricing" className="rounded-full px-4 py-2 hover:bg-gray-100 hover:text-gray-950">定价</a>
+            <button onClick={() => navigate("/terms")} className="rounded-full px-4 py-2 hover:bg-gray-100 hover:text-gray-950">用户协议</button>
+            <button onClick={() => navigate("/login")} className="rounded-full px-4 py-2 hover:bg-gray-100 hover:text-gray-950">登录</button>
           </div>
-          <Button onClick={() => navigate("/register")} className="bg-brand-600 hover:bg-brand-500 text-white">
+          <Button onClick={() => navigate("/register")} className="h-9 rounded-full bg-brand-800 px-5 text-white hover:bg-brand-700">
             免费试用
           </Button>
         </div>
       </nav>
 
       <main>
-        <section className="px-5 sm:px-8 py-16 sm:py-24 max-w-7xl mx-auto">
-          <Badge className="mb-6 bg-brand-50 text-brand-700 border-brand-200">
-            亚马逊商品转化决策系统
-          </Badge>
-          <h1 className="text-4xl sm:text-6xl font-bold tracking-tight max-w-4xl">
-            AlignX 亚马逊商品转化决策系统
-          </h1>
-          <p className="text-gray-500 text-lg mt-6 max-w-3xl leading-relaxed">
-            从ASIN和Listing诊断提出假设，用广告数据验证，再把命中结果回流到下一轮优化，帮助卖家持续逼近真实转化原因。
-          </p>
-          <div className="flex flex-col sm:flex-row gap-3 mt-8">
-            <Button onClick={() => navigate("/register")} size="lg" className="bg-brand-600 hover:bg-brand-500 text-white">
-              免费试用
-              <ArrowRight className="w-4 h-4 ml-2" />
-            </Button>
-            <Button onClick={() => navigate("/login")} size="lg" variant="outline">
-              登录工作台
-            </Button>
-          </div>
-        </section>
-
-        <section id="capabilities" className="px-5 sm:px-8 pb-16 max-w-7xl mx-auto">
-          <div className="mb-6">
-            <h2 className="text-2xl font-bold">核心价值</h2>
-            <p className="text-sm text-gray-500 mt-1">把诊断判断放进标准化业务流程，而不是让卖家猜下一步。</p>
-          </div>
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {valueCards.map((item) => (
-              <Card key={item.title} className="p-5 border-gray-200 bg-white">
-                <item.icon className="w-5 h-5 text-brand-600 mb-4" />
-                <h3 className="font-semibold text-gray-900">{item.title}</h3>
-                <p className="text-sm text-gray-500 mt-2 leading-relaxed">{item.desc}</p>
-              </Card>
-            ))}
-          </div>
-        </section>
-
-        <section className="px-5 sm:px-8 pb-16 max-w-7xl mx-auto">
-          <Card className="p-6 border-gray-200 bg-gray-50">
-            <h2 className="text-2xl font-bold mb-5">工作流程</h2>
-            <div className="grid sm:grid-cols-2 lg:grid-cols-6 gap-3">
-              {["ASIN选品", "上新检测", "本品诊断", "广告验证", "数据回流", "下一轮优化"].map((step, index) => (
-                <div key={step} className="flex items-center gap-3 bg-white border border-gray-200 rounded-lg p-4">
-                  <span className="w-7 h-7 rounded-full bg-brand-600 text-white text-xs font-bold flex items-center justify-center">
-                    {index + 1}
-                  </span>
-                  <span className="font-medium text-sm">{step}</span>
+        <section className="mx-auto grid min-h-[calc(100vh-56px)] max-w-7xl items-center gap-8 px-4 py-10 sm:px-6 lg:grid-cols-[0.92fr_1.08fr] lg:px-8 lg:py-14">
+          <div className="max-w-2xl">
+            <Badge className="mb-5 rounded-full border-brand-200 bg-white px-3 py-1 text-brand-800 shadow-sm">
+              AI运营决策系统
+            </Badge>
+            <h1 className="max-w-4xl text-4xl font-semibold leading-[1.04] tracking-tight text-gray-950 sm:text-5xl xl:text-6xl">
+              把选品、Listing、广告验证变成可执行决策
+            </h1>
+            <p className="mt-6 max-w-xl text-base leading-8 text-gray-600 sm:text-lg">
+              AlignX不是再给你一堆报告，而是帮卖家判断：这个ASIN要不要做、Listing先改哪里、广告该验证什么、下一轮动作怎么排。
+            </p>
+            <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+              <Button onClick={() => navigate("/register")} size="lg" className="h-11 rounded-full bg-brand-800 px-6 text-white hover:bg-brand-700">
+                进入决策工作台
+                <ArrowRight className="ml-2 h-4 w-4" />
+              </Button>
+              <Button onClick={() => navigate("/login")} size="lg" variant="outline" className="h-11 rounded-full border-gray-300 bg-white px-6">
+                登录
+              </Button>
+            </div>
+            <div className="mt-10 grid max-w-lg grid-cols-3 gap-3">
+              {heroSignals.map((signal, index) => (
+                <div key={signal} className="rounded-lg border border-black/5 bg-white/70 p-3 shadow-sm">
+                  <div className="text-xs font-semibold text-brand-800">少{index + 1}步踩坑</div>
+                  <div className="mt-2 text-sm font-semibold text-gray-900">{signal}</div>
                 </div>
               ))}
             </div>
-          </Card>
+          </div>
+
+          <div className="rounded-lg border border-white bg-white/75 p-3 shadow-[0_24px_80px_rgba(15,23,42,0.12)]">
+            <div className="overflow-hidden rounded-lg border border-black/5 bg-[#fbfbfd]">
+              <div className="flex items-center justify-between border-b border-black/5 px-5 py-4">
+                <div>
+                  <div className="text-sm font-semibold text-gray-950">运营判断链路</div>
+                  <div className="mt-1 text-xs text-gray-500">从数据到动作</div>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="h-2.5 w-2.5 rounded-full bg-emerald-400" />
+                  <span className="h-2.5 w-2.5 rounded-full bg-amber-400" />
+                  <span className="h-2.5 w-2.5 rounded-full bg-rose-400" />
+                </div>
+              </div>
+              <div className="grid gap-4 p-5 lg:grid-cols-[1fr_0.82fr]">
+                <div className="space-y-3">
+                  {valueCards.map((item, index) => (
+                    <div key={item.title} className="flex items-start gap-3 rounded-lg border border-black/5 bg-white p-4 shadow-sm">
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-800">
+                        <item.icon className="h-4 w-4" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[11px] font-semibold text-gray-400">{String(index + 1).padStart(2, "0")}</span>
+                          <h3 className="text-sm font-semibold text-gray-950">{item.title}</h3>
+                        </div>
+                        <p className="mt-1 text-sm leading-6 text-gray-500">{item.desc}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="rounded-lg border border-black/5 bg-gray-950 p-4 text-white">
+                  <div className="text-sm font-semibold">系统输出</div>
+                  <div className="mt-4 space-y-2.5">
+                    {workflowSteps.map((step, index) => (
+                      <div key={step} className="flex items-center justify-between rounded-lg bg-white/8 px-3 py-2.5">
+                        <span className="text-xs text-white/45">{String(index + 1).padStart(2, "0")}</span>
+                        <span className="text-sm font-medium text-white">{step}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         </section>
 
-        <section id="pricing" className="px-5 sm:px-8 pb-20 max-w-7xl mx-auto">
-          <div className="mb-6">
-            <h2 className="text-2xl font-bold">套餐入口</h2>
-            <p className="text-sm text-gray-500 mt-1">先试用，再按 ASIN、Listing、广告验证和复盘额度升级。</p>
+        <section id="capabilities" className="mx-auto max-w-7xl px-4 pb-12 sm:px-6 lg:px-8">
+          <div className="grid gap-5 border-y border-black/5 py-8 lg:grid-cols-[0.32fr_1fr]">
+            <div>
+              <h2 className="text-2xl font-semibold tracking-tight">卖家最怕的不是没数据，是数据不能变成动作</h2>
+              <p className="mt-2 text-sm leading-6 text-gray-500">AlignX把页面抓取、AI诊断、广告验证和复盘回流串成同一套判断标准。</p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              {valueCards.map((item) => (
+                <div key={item.title} className="rounded-lg border border-black/5 bg-white p-5 shadow-sm">
+                  <item.icon className="mb-5 h-5 w-5 text-brand-700" />
+                  <h3 className="font-semibold text-gray-950">{item.title}</h3>
+                  <p className="mt-2 text-sm leading-6 text-gray-500">{item.desc}</p>
+                </div>
+              ))}
+            </div>
           </div>
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        </section>
+
+        <section className="mx-auto max-w-7xl px-4 pb-12 sm:px-6 lg:px-8">
+          <div className="rounded-lg border border-black/5 bg-white p-4 shadow-sm sm:p-5">
+            <h2 className="px-2 pb-4 text-2xl font-semibold tracking-tight">一条链路跑完整，才知道下一步该做什么</h2>
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-6">
+              {workflowSteps.map((step, index) => (
+                <div key={step} className="group flex min-h-24 flex-col justify-between rounded-lg border border-black/5 bg-[#f8f8fa] p-4">
+                  <span className="text-xs font-semibold text-gray-400">{String(index + 1).padStart(2, "0")}</span>
+                  <span className="text-sm font-semibold text-gray-950">{step}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section id="pricing" className="mx-auto max-w-7xl px-4 pb-20 sm:px-6 lg:px-8">
+          <div className="mb-5 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h2 className="text-2xl font-semibold tracking-tight">先用一个ASIN验证判断质量</h2>
+              <p className="mt-2 text-sm text-gray-500">从单品诊断开始，确认系统能帮你少走弯路，再扩大到多ASIN和广告闭环。</p>
+            </div>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {plans.map((plan) => (
-              <Card
+              <div
                 key={plan.name}
-                className={`p-5 border-gray-200 bg-white ${plan.highlight ? "ring-2 ring-brand-500" : ""}`}
+                className={`rounded-lg border bg-white p-5 shadow-sm ${plan.highlight ? "border-brand-300 ring-2 ring-brand-100" : "border-black/5"}`}
               >
                 {plan.highlight && (
-                  <Badge className="mb-3 bg-brand-50 text-brand-700 border-brand-200">推荐</Badge>
+                  <Badge className="mb-3 rounded-full border-brand-200 bg-brand-50 text-brand-700">推荐</Badge>
                 )}
-                <h3 className="font-semibold text-gray-900">{plan.name}</h3>
-                <p className="text-2xl font-bold mt-3">{plan.price}</p>
-                <p className="text-sm text-gray-500 mt-2 min-h-[40px]">{plan.desc}</p>
-                <div className="mt-4 flex items-center gap-2 text-xs text-gray-500">
-                  <Check className="w-3.5 h-3.5 text-emerald-600" />
+                <h3 className="font-semibold text-gray-950">{plan.name}</h3>
+                <p className="mt-3 text-2xl font-semibold">{plan.price}</p>
+                <p className="mt-2 min-h-[40px] text-sm leading-6 text-gray-500">{plan.desc}</p>
+                <div className="mt-4 flex items-center gap-2 text-xs font-medium text-gray-500">
+                  <Check className="h-3.5 w-3.5 text-emerald-600" />
                   按月度额度控制
                 </div>
                 <Button
                   onClick={() => navigate("/pricing")}
                   variant={plan.highlight ? "default" : "outline"}
-                  className={`w-full mt-5 ${plan.highlight ? "bg-brand-600 hover:bg-brand-500 text-white" : ""}`}
+                  className={`mt-5 h-10 w-full rounded-full ${plan.highlight ? "bg-brand-800 text-white hover:bg-brand-700" : "bg-white"}`}
                 >
                   查看套餐
                 </Button>
-              </Card>
+              </div>
             ))}
           </div>
         </section>
       </main>
 
-      <footer className="border-t border-gray-100 py-6">
-        <div className="max-w-7xl mx-auto px-5 sm:px-8 flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between text-xs text-gray-400">
+      <footer className="border-t border-black/5 bg-white/50 py-6">
+        <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 text-xs text-gray-400 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
           <span>© 2026 深圳灵曦智感科技有限公司. {versionLabel()}</span>
           <div className="flex items-center gap-4">
             <button onClick={() => navigate("/terms")} className="hover:text-gray-700">用户协议</button>
