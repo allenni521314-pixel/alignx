@@ -209,7 +209,7 @@ class ListingInput(BaseModel):
 
 
 def _ensure_scenario_problem_keywords(data: dict, listing: ListingInput) -> dict:
-    """Ensure Alexa/Rufus-friendly scenario problem terms exist even when AI under-returns them."""
+    """Ensure platform-friendly scenario problem terms exist even when AI under-returns them."""
     text = " ".join([
         listing.title or "",
         listing.bullet_points or "",
@@ -306,7 +306,7 @@ def _ensure_scenario_problem_keywords(data: dict, listing: ListingInput) -> dict
                 "keyword": kw,
                 "keyword_type": _keyword_type(kw),
                 "match_type": "phrase",
-                "intent": "验证场景问题词是否能被搜索、Alexa/Rufus推荐语义和广告转化承接",
+                "intent": "验证场景问题词是否能被搜索、平台推荐和广告转化承接",
                 "competition": "low",
                 "priority": "P1",
             })
@@ -731,7 +731,7 @@ DIAGNOSIS_PROMPT = """【最高优先级指令】你正在诊断的产品是: "{
 - 结构化属性完整度：尺寸、材质、数量、规格、兼容性、变体是否可抽取？
 - 关系图谱完整度：for whom、used for、used with、in scenario、solves 是否清楚？
 - 证据可回答性：标题、图片、五点、A+、评论能否回答用户和平台购物助手的问题？
-- 推荐语义可抓取性：能否从产品属性主动推理出“谁 + 在什么场景 + 遇到什么问题 + 需要什么结果”的场景问题词，供Alexa/Rufus和广告验证理解。
+- 推荐语义可抓取性：能否从产品属性主动推理出“谁 + 在什么场景 + 遇到什么问题 + 需要什么结果”的场景问题词，供平台搜索、推荐和广告验证理解。
 
 ### 10维诊断动作顺序
 必须按以下顺序做后台判断：
@@ -827,7 +827,7 @@ DIAGNOSIS_PROMPT = """【最高优先级指令】你正在诊断的产品是: "{
 - 广告验证优先级：state_trigger > relationship > attribute；high_conversion 和 long_tail 中必须优先放 relationship/state_trigger 词。
 - 必须单独识别多场景问题词：不是只列场景，也不是只列痛点，而是“使用场景 + 具体问题/结果”的自然美式英语搜索词，例如 large dog vacation feeder、anti clog dog feeder、cat litter odor control for apartments。它们优先进入 missing_categories.scenario_problem 和 ad_keywords.long_tail/high_conversion。
 - 必须主动最大化推理场景问题词：根据容量、尺寸、材质、兼容对象、使用时长、适用人群、风险承诺和图片场景，生成不少于6个候选场景问题词；已被Listing明确承接的放入 covered_categories.scenario_problem，未承接但有商业价值的放入 missing_categories.scenario_problem。禁止只复述标题原词。
-- 运营建议必须提醒卖家：在标题、五点、图片文案、A+和后台词里自然承接高价值场景问题词，可以提升Amazon搜索、Alexa/Rufus购物助手和推荐系统理解商品意图的概率；不要承诺不投广告也一定获得推荐。
+- 运营建议必须提醒卖家：在标题、五点、图片文案、A+和后台词里自然承接高价值场景问题词，可以提升平台对商品意图的理解和推荐匹配概率，减少无效广告测试；不要承诺不投广告也一定获得推荐。
 
 请以JSON格式返回（确保返回有效的JSON）：
 {{
@@ -1516,7 +1516,7 @@ def _derive_fallback_insights(listing: ListingInput) -> dict:
         suggestions = [
             "把“大容量/定时/防堵”拆成多场景问题词：出差、短途旅行、工作日无人喂食、大颗粒卡粮。",
             "标题和五点不要只堆参数，优先前置 large dog feeder for vacation、anti clog kibble feeding 这类可验证词。",
-            "高价值场景问题词要自然进入标题、五点、图片文案、A+和后台词，提升Amazon搜索、Alexa/Rufus购物助手和推荐系统理解商品意图的概率。",
+            "高价值场景问题词要自然进入标题、五点、图片文案、A+和后台词，提升平台对商品意图的理解和推荐匹配概率，减少无效广告测试。",
         ]
         add_keyword("high_conversion", "large dog feeder for vacation", "relationship", "P0", "medium")
         add_keyword("high_conversion", "anti clog dog feeder", "state_trigger", "P0", "medium")
@@ -1719,8 +1719,8 @@ def _build_compact_diagnosis_prompt(listing: ListingInput) -> str:
 5. relationship 必须来自平台关系锚点：used_for_function / used_for_event / used_for_activity / used_when / used_where / used_with / used_for_audience / used_by。
 6. state_trigger 必须来自平台状态锚点：cause_positive / cause_negative / compared_to / requires，例如 odor control, reduce mess, low noise, safe for cats, no ozone, easy maintenance。
 7. 必须主动最大化推理场景问题词：从容量、尺寸、材质、兼容对象、使用时长、适用人群、风险承诺和图片场景，反推“谁 + 场景 + 问题/结果”的自然美式英语搜索词；不少于6个候选，放入 keyword_coverage 的 scenario_problem，并优先进入 high_conversion/long_tail。
-8. 场景问题词要能被Alexa/Rufus理解为购物意图，例如 large dog feeder for vacation、anti clog feeder for large kibble、odor control litter box for apartments。禁止只复述标题原词。
-9. 运营建议必须提醒卖家：把高价值场景问题词自然写进标题、五点、图片文案、A+和后台词，可以提升Amazon搜索、Alexa/Rufus购物助手和推荐系统理解商品意图的概率；不要承诺不投广告也一定获得推荐。
+8. 场景问题词要能被平台理解为购物意图，例如 large dog feeder for vacation、anti clog feeder for large kibble、odor control litter box for apartments。禁止只复述标题原词。
+9. 运营建议必须提醒卖家：把高价值场景问题词自然写进标题、五点、图片文案、A+和后台词，可以提升平台对商品意图的理解和推荐匹配概率，减少无效广告测试；不要承诺不投广告也一定获得推荐。
 10. 新品或自有产品可能缺少价格、评论、BSR或库存信号；如果同时无价格、无评论、无销售/BSR记录，定位为“新品上架承接诊断”，这些字段缺失不能阻止Listing承接诊断，但必须降低市场验证、风险消除、广告承受力和趋势判断的置信度。
 11. 不得编造价格、评论数、BSR、销量或库存；缺失时只评价内容承接，并明确写“市场证据不足/需要广告验证”。
 12. 输出要具体指出依据来源：标题、五点、图片/A+、价格、评分评论、缺失类目/后台词。
