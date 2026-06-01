@@ -38,11 +38,10 @@ const plans = [
 
 export default function Landing() {
   const navigate = useNavigate();
-  const workflowSteps = ["抓取真实数据", "拦截低置信机会", "定位转化卡点", "生成验证动作", "记录命中结果", "排下一轮优先级"];
-  const decisionRows = [
-    { label: "ASIN", input: "页面数据", output: "是否继续投入" },
-    { label: "Listing", input: "内容与评论", output: "先处理的卡点" },
-    { label: "广告", input: "验证数据", output: "下一轮动作" },
+  const solutionCards = [
+    { title: "机会评估", desc: "识别低置信 ASIN。" },
+    { title: "承接诊断", desc: "定位 Listing 转化阻塞。" },
+    { title: "验证归因", desc: "判断广告数据指向的问题。" },
   ];
 
   return (
@@ -52,7 +51,7 @@ export default function Landing() {
           <AlignXLogo showWordmark markClassName="h-8 w-8 rounded-lg" wordmarkClassName="text-lg" />
           <div className="hidden items-center gap-7 text-sm font-medium text-gray-500 md:flex">
             <a href="#capabilities" className="hover:text-gray-950">能力</a>
-            <a href="#workflow" className="hover:text-gray-950">流程</a>
+            <a href="#solutions" className="hover:text-gray-950">方案</a>
             <a href="#pricing" className="hover:text-gray-950">定价</a>
           </div>
           <div className="flex items-center gap-3">
@@ -69,14 +68,11 @@ export default function Landing() {
       <main>
         <section className="mx-auto max-w-6xl px-4 pb-20 pt-16 sm:px-6 sm:pt-20 lg:px-8">
           <div className="mx-auto max-w-3xl text-center">
-            <Badge className="mb-5 rounded-full border-brand-100 bg-white/80 px-3 py-1 text-brand-800 shadow-sm">
-              亚马逊运营判断
-            </Badge>
             <h1 className="text-4xl font-semibold leading-[1.04] tracking-tight text-gray-950 sm:text-5xl lg:text-6xl">
-              让每一步运营，都有正确判断。
+              让选品、改版、投放都有正确判断。
             </h1>
             <p className="mx-auto mt-5 max-w-xl text-base leading-7 text-gray-600">
-              减少选品误判，定位承接问题，看清广告验证结果。
+              少选错品，少无效改版，少盲目烧广告。
             </p>
           </div>
 
@@ -92,17 +88,20 @@ export default function Landing() {
 
         </section>
 
-        <section id="workflow" className="mx-auto max-w-6xl px-4 py-20 sm:px-6 lg:px-8">
+        <section id="solutions" className="mx-auto max-w-6xl px-4 py-20 sm:px-6 lg:px-8">
           <div className="grid gap-12 border-y border-black/5 py-16 lg:grid-cols-[0.32fr_1fr]">
             <div className="max-w-sm">
-              <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">数据怎么流转</h2>
-              <p className="mt-3 text-sm leading-6 text-gray-500">抓取、判断、验证、回流。</p>
+              <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">AlignX怎么做</h2>
+              <p className="mt-3 text-sm leading-6 text-gray-500">用三种判断，对应三个结果。</p>
             </div>
             <div className="grid gap-px overflow-hidden rounded-lg border border-black/5 bg-black/5 sm:grid-cols-2 lg:grid-cols-3">
-              {workflowSteps.map((step, index) => (
-                <div key={step} className="flex min-h-28 flex-col justify-between bg-white p-5">
+              {solutionCards.map((item, index) => (
+                <div key={item.title} className="flex min-h-32 flex-col justify-between bg-white p-5">
                   <span className="text-xs font-semibold text-gold-700">{String(index + 1).padStart(2, "0")}</span>
-                  <span className="text-sm font-semibold text-gray-950">{step}</span>
+                  <div>
+                    <h3 className="text-sm font-semibold text-gray-950">{item.title}</h3>
+                    <p className="mt-3 text-sm leading-6 text-gray-500">{item.desc}</p>
+                  </div>
                 </div>
               ))}
             </div>
@@ -111,8 +110,8 @@ export default function Landing() {
 
         <section id="pricing" className="mx-auto max-w-6xl px-4 pb-24 pt-16 sm:px-6 lg:px-8">
           <div className="mb-10 text-center">
-            <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">先测一个ASIN</h2>
-            <p className="mt-3 text-sm text-gray-500">先看一次判断结果。</p>
+            <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">按需订阅，费用灵活</h2>
+            <p className="mt-3 text-sm text-gray-500">按使用规模选择合适套餐。</p>
           </div>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {plans.map((plan) => (
