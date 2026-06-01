@@ -1984,6 +1984,55 @@ function formatAnalysisText(value: unknown): string {
   return "";
 }
 
+function normalizeStringList(value: unknown): string[] {
+  if (!value) return [];
+  if (Array.isArray(value)) return value.map(formatAnalysisText).filter(Boolean);
+  const text = formatAnalysisText(value);
+  return text ? [text] : [];
+}
+
+function normalizeStringRecord(value: unknown): Record<string, string[]> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([key, item]) => [key, normalizeStringList(item)])
+  );
+}
+
+function normalizeDiagnosisResultForUi(result: DiagnosisResult): DiagnosisResult {
+  const suggestions = result.suggestions || {};
+  const keywordCoverage = result.keyword_coverage || {};
+  const elements = Object.fromEntries(
+    Object.entries(result.elements || {}).map(([key, item]) => {
+      const value = item && typeof item === "object" ? { ...item } : {};
+      return [key, { ...value, summary: formatAnalysisText((value as Record<string, unknown>).summary) }];
+    })
+  );
+  return {
+    ...result,
+    analysis: Object.fromEntries(
+      Object.entries(result.analysis || {}).map(([key, value]) => [key, formatAnalysisText(value)])
+    ),
+    suggestions: {
+      ...suggestions,
+      title_rewrite: formatAnalysisText(suggestions.title_rewrite),
+      bullet_points_optimization: normalizeStringList(suggestions.bullet_points_optimization),
+      backend_keywords_addition: normalizeStringList(suggestions.backend_keywords_addition),
+      image_suggestions: normalizeStringList(suggestions.image_suggestions),
+      a_plus_suggestions: formatAnalysisText(suggestions.a_plus_suggestions),
+    },
+    keyword_coverage: {
+      ...keywordCoverage,
+      covered_categories: normalizeStringRecord(keywordCoverage.covered_categories),
+      missing_categories: normalizeStringRecord(keywordCoverage.missing_categories),
+      coverage_summary: formatAnalysisText(keywordCoverage.coverage_summary),
+    },
+    elements,
+    overall_summary: formatAnalysisText(result.overall_summary),
+    analyzed_product_name: formatAnalysisText(result.analyzed_product_name),
+    product_mismatch_detail: formatAnalysisText(result.product_mismatch_detail),
+  };
+}
+
 function ScoreBar({ dim, score, analysis }: { dim: typeof DIMENSIONS[0]; score: number; analysis?: unknown }) {
   const [expanded, setExpanded] = useState(false);
   const rulerMeta = DIMENSION_RULER_META[dim.key];
@@ -2150,14 +2199,15 @@ export default function ListingDiagnosis() {
     activeFetchMeta: FetchMeta | null,
     diagPayload: Record<string, unknown>
   ) => {
-    setDiagResult(result);
+    const uiResult = normalizeDiagnosisResultForUi(result);
+    setDiagResult(uiResult);
     setResultTab("overview");
     setDiagnosisPhase("analyzed");
 
-    setMarketValidation(deriveMarketValidationFromEvidence(activeListing, activeFetchMeta, result.market_estimates));
+    setMarketValidation(deriveMarketValidationFromEvidence(activeListing, activeFetchMeta, uiResult.market_estimates));
 
     toast.success("诊断完成！");
-    const scores = result.scores || {};
+    const scores = uiResult.scores || {};
     const activeAsin = activeFetchMeta?.asin || selectedListingAsin || activeListing.asin || "";
     const activeTitle = activeListing.title || "";
     let workflowProductId = selectedProductId && selectedProductId > 0 ? selectedProductId : null;
@@ -3039,7 +3089,7 @@ export default function ListingDiagnosis() {
         listing_title: data.listing_title,
         marketplace: data.marketplace,
       };
-      setHistoryDiagResult(result);
+      setHistoryDiagResult(normalizeDiagnosisResultForUi(result));
       setHistoryViewId(id);
       setHistoryResultTab("overview");
     } catch {
@@ -3092,8 +3142,9 @@ export default function ListingDiagnosis() {
       setListing(savedListing);
       setFetchMeta(savedMeta);
       setSelectedListingAsin(savedMeta.asin || "");
-      setMarketValidation(deriveMarketValidationFromEvidence(savedListing, savedMeta, result.market_estimates));
-      setDiagResult(result);
+      const uiResult = normalizeDiagnosisResultForUi(result);
+      setMarketValidation(deriveMarketValidationFromEvidence(savedListing, savedMeta, uiResult.market_estimates));
+      setDiagResult(uiResult);
       setResultTab("overview");
       setActiveTab("diagnose");
       setDiagnosisPhase("analyzed");
@@ -3110,11 +3161,11 @@ export default function ListingDiagnosis() {
       return;
     }
     setSelectedListingAsin(snapshot.asin || (output as { asin?: string }).asin || "");
-    setDiagResult({
+    setDiagResult(normalizeDiagnosisResultForUi({
       ...output,
       id: output.id || snapshot.source_record_id || snapshot.id,
       listing_title: output.listing_title || snapshot.title || output.analyzed_product_name || "",
-    });
+    }));
     setResultTab("overview");
     setActiveTab("diagnose");
     setDiagnosisPhase("analyzed");
