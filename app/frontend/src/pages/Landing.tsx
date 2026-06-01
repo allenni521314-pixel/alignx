@@ -69,11 +69,8 @@ export default function Landing() {
         <section className="mx-auto max-w-6xl px-4 pb-20 pt-16 sm:px-6 sm:pt-20 lg:px-8">
           <div className="mx-auto max-w-3xl text-center">
             <h1 className="text-4xl font-semibold leading-[1.04] tracking-tight text-gray-950 sm:text-5xl lg:text-6xl">
-              让选品、改版、投放都有正确判断。
+              做对判断。
             </h1>
-            <p className="mx-auto mt-5 max-w-xl text-base leading-7 text-gray-600">
-              少选错品，少无效改版，少盲目烧广告。
-            </p>
           </div>
 
           <div id="capabilities" className="mx-auto mt-16 grid max-w-5xl gap-px overflow-hidden rounded-lg border border-black/5 bg-black/5 md:grid-cols-3">
