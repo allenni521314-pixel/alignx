@@ -233,7 +233,7 @@ interface ComplianceResult {
 
 interface DiagnosisResult {
   scores: Scores;
-  analysis: Record<string, string>;
+  analysis: Record<string, unknown>;
   suggestions: {
     title_rewrite?: string;
     bullet_points_optimization?: string[];
@@ -834,6 +834,7 @@ const KW_CATEGORY_LABELS: Record<string, string> = {
   scenario: "场景词",
   audience: "人群词",
   pain_point: "痛点词",
+  scenario_problem: "场景问题词",
   long_tail: "长尾需求词",
 };
 
@@ -1954,9 +1955,39 @@ function ListingForm({
 /*  Score Bar Component                                                */
 /* ------------------------------------------------------------------ */
 
-function ScoreBar({ dim, score, analysis }: { dim: typeof DIMENSIONS[0]; score: number; analysis?: string }) {
+function formatAnalysisText(value: unknown): string {
+  if (!value) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) {
+    return value.map(formatAnalysisText).filter(Boolean).join("；");
+  }
+  if (typeof value === "object") {
+    const labels: Record<string, string> = {
+      user_need_mapping: "用户需求",
+      platform_mapping: "平台识别",
+      evidence: "当前证据",
+      deduction_reason: "扣分原因",
+      problem_type: "问题类型",
+      impact_metrics: "影响指标",
+      next_action: "下一步动作",
+      summary: "总结",
+    };
+    return Object.entries(value as Record<string, unknown>)
+      .map(([key, item]) => {
+        const text = formatAnalysisText(item);
+        return text ? `${labels[key] || key}：${text}` : "";
+      })
+      .filter(Boolean)
+      .join("；");
+  }
+  return "";
+}
+
+function ScoreBar({ dim, score, analysis }: { dim: typeof DIMENSIONS[0]; score: number; analysis?: unknown }) {
   const [expanded, setExpanded] = useState(false);
   const rulerMeta = DIMENSION_RULER_META[dim.key];
+  const analysisText = formatAnalysisText(analysis);
   return (
     <div className="bg-gray-50 rounded-xl p-4 border border-gray-100">
       <div className="flex items-center justify-between mb-2">
@@ -1981,15 +2012,15 @@ function ScoreBar({ dim, score, analysis }: { dim: typeof DIMENSIONS[0]; score: 
           style={{ width: `${score}%` }}
         />
       </div>
-      {analysis && (
+      {analysisText && (
         <button onClick={() => setExpanded(!expanded)} className="text-xs text-gray-500 hover:text-gray-600 flex items-center gap-1 mt-1">
           {expanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
           {expanded ? "收起分析" : "查看分析"}
         </button>
       )}
-      {expanded && analysis && (
+      {expanded && analysisText && (
         <div className="text-xs text-gray-500 leading-relaxed mt-2 pl-2 border-l-2 border-gray-200 space-y-2">
-          <p>{analysis}</p>
+          <p>{analysisText}</p>
           <p className="text-brand-700">
             <span className="font-semibold">下一步动作：</span>{rulerMeta.ownAction}
             <span className="mx-2 text-gray-300">|</span>
@@ -3162,7 +3193,7 @@ export default function ListingDiagnosis() {
       `--- 10维诊断维度 ---`,
       ...DIMENSIONS.map(d => {
         const meta = DIMENSION_RULER_META[d.key];
-        return `${d.label}: ${diagResult.scores[d.key] || 0}/100 | ${meta.layer} | 需求:${meta.intentScale} | 平台:${meta.platformScale} | ${diagResult.analysis?.[d.key] || ""}`;
+        return `${d.label}: ${diagResult.scores[d.key] || 0}/100 | ${meta.layer} | 需求:${meta.intentScale} | 平台:${meta.platformScale} | ${formatAnalysisText(diagResult.analysis?.[d.key])}`;
       }),
       ``,
       ...(elements.length > 0 ? [
