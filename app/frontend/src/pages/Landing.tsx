@@ -1,7 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
-  ArrowRight,
   Check,
   ClipboardCheck,
   Layers3,
@@ -74,79 +73,14 @@ export default function Landing() {
               亚马逊运营判断
             </Badge>
             <h1 className="text-4xl font-semibold leading-[1.04] tracking-tight text-gray-950 sm:text-5xl lg:text-6xl">
-              让每一步运营，都有明确判断。
+              让每一步运营，都有正确判断。
             </h1>
             <p className="mx-auto mt-5 max-w-xl text-base leading-7 text-gray-600">
               减少选品误判，定位承接问题，看清广告验证结果。
             </p>
-            <Button onClick={() => navigate("/register")} size="lg" className="mt-7 h-10 rounded-full bg-brand-800 px-5 text-sm text-white hover:bg-brand-700">
-              分析ASIN
-              <ArrowRight className="ml-2 h-4 w-4" />
-            </Button>
           </div>
 
-          <div className="mx-auto mt-16 max-w-5xl">
-            <div className="overflow-hidden rounded-lg border border-black/5 bg-white shadow-[0_30px_90px_rgba(15,23,42,0.10)]">
-              <div className="flex items-center justify-between border-b border-black/5 px-5 py-4 sm:px-6">
-                <div>
-                  <div className="text-sm font-semibold text-gray-950">核心判断链路</div>
-                  <div className="mt-1 text-xs text-gray-500">ASIN / Listing / Ads</div>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <span className="h-2.5 w-2.5 rounded-full bg-emerald-400" />
-                  <span className="h-2.5 w-2.5 rounded-full bg-amber-400" />
-                  <span className="h-2.5 w-2.5 rounded-full bg-rose-400" />
-                </div>
-              </div>
-              <div className="grid gap-0 lg:grid-cols-[1fr_0.78fr]">
-                <div className="p-5 sm:p-6">
-                  <div className="grid grid-cols-[0.8fr_1fr_1fr] gap-2 text-xs font-semibold text-gray-400">
-                    <span>对象</span>
-                    <span>输入</span>
-                    <span>判断</span>
-                  </div>
-                  <div className="mt-3 overflow-hidden rounded-lg border border-black/5">
-                    {decisionRows.map((row, index) => (
-                      <div key={row.label} className="grid grid-cols-[0.8fr_1fr_1fr] items-center border-b border-black/5 bg-white last:border-b-0">
-                        <div className="flex items-center gap-3 px-4 py-4">
-                          <span className="text-[11px] font-semibold text-gold-700">{String(index + 1).padStart(2, "0")}</span>
-                          <span className="text-sm font-semibold text-gray-950">{row.label}</span>
-                        </div>
-                        <div className="px-4 py-4 text-sm text-gray-500">{row.input}</div>
-                        <div className="px-4 py-4 text-sm font-semibold text-brand-900">{row.output}</div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="border-t border-black/5 bg-[#f8f9f6] p-5 sm:p-6 lg:border-l lg:border-t-0">
-                  <div className="text-sm font-semibold text-brand-900">判断输出</div>
-                  <div className="mt-4 space-y-2">
-                    {workflowSteps.slice(0, 4).map((step, index) => (
-                      <div key={step} className="flex items-center justify-between rounded-md border border-brand-100 bg-white/80 px-3 py-2.5">
-                        <span className="text-[11px] font-semibold text-gold-700">{String(index + 1).padStart(2, "0")}</span>
-                        <span className="text-sm font-medium text-brand-950">{step}</span>
-                      </div>
-                    ))}
-                    {workflowSteps.slice(4).map((step, index) => (
-                      <div key={step} className="flex items-center justify-between rounded-md border border-brand-100 bg-white/80 px-3 py-2.5">
-                        <span className="text-[11px] font-semibold text-gold-700">{String(index + 5).padStart(2, "0")}</span>
-                        <span className="text-sm font-medium text-brand-950">{step}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section id="capabilities" className="mx-auto max-w-6xl px-4 py-20 sm:px-6 lg:px-8">
-          <div className="mx-auto max-w-2xl text-center">
-            <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">三个直接好处。</h2>
-            <p className="mt-3 text-sm leading-6 text-gray-500">少选错品，少无效改版，少盲目烧广告。</p>
-          </div>
-          <div className="mt-12 grid gap-px overflow-hidden rounded-lg border border-black/5 bg-black/5 md:grid-cols-3">
+          <div id="capabilities" className="mx-auto mt-16 grid max-w-5xl gap-px overflow-hidden rounded-lg border border-black/5 bg-black/5 md:grid-cols-3">
             {valueCards.map((item) => (
               <div key={item.title} className="bg-white p-6">
                 <item.icon className="mb-7 h-5 w-5 text-brand-700" />
@@ -155,6 +89,7 @@ export default function Landing() {
               </div>
             ))}
           </div>
+
         </section>
 
         <section id="workflow" className="mx-auto max-w-6xl px-4 py-20 sm:px-6 lg:px-8">
