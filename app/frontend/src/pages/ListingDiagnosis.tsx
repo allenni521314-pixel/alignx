@@ -3388,7 +3388,7 @@ export default function ListingDiagnosis() {
                           type="button"
                           variant="outline"
                           size="sm"
-                          onClick={() => loadHistoryDetail(item.id)}
+                          onClick={() => loadDiagnosisAsCurrent(item.id)}
                           className="h-8 rounded-xl border-gray-200 bg-white px-3 text-xs font-semibold text-gray-700 hover:bg-gray-100"
                         >
                           回看诊断
