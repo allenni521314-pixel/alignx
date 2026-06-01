@@ -14,18 +14,18 @@ import { versionLabel } from "@/lib/version";
 
 const valueCards = [
   {
-    title: "是否值得做",
-    desc: "看需求、竞争、利润和验证成本。",
+    title: "少选错品",
+    desc: "判断 ASIN 是否值得继续投入。",
     icon: Layers3,
   },
   {
-    title: "先改哪里",
-    desc: "定位标题、五点、图片和评论问题。",
+    title: "少无效改版",
+    desc: "定位 Listing 的流量承接问题。",
     icon: ClipboardCheck,
   },
   {
-    title: "验证什么",
-    desc: "用广告数据验证判断。",
+    title: "少盲目烧广告",
+    desc: "看清广告数据验证的问题。",
     icon: Megaphone,
   },
 ];
@@ -74,10 +74,10 @@ export default function Landing() {
               亚马逊运营判断
             </Badge>
             <h1 className="text-4xl font-semibold leading-[1.04] tracking-tight text-gray-950 sm:text-5xl lg:text-6xl">
-              判断产品，验证结果。
+              让每一步运营，都有明确判断。
             </h1>
             <p className="mx-auto mt-5 max-w-xl text-base leading-7 text-gray-600">
-              判断ASIN值不值得做，Listing先改哪里，广告验证什么。
+              减少选品误判，定位承接问题，看清广告验证结果。
             </p>
             <Button onClick={() => navigate("/register")} size="lg" className="mt-7 h-10 rounded-full bg-brand-800 px-5 text-sm text-white hover:bg-brand-700">
               分析ASIN
@@ -143,8 +143,8 @@ export default function Landing() {
 
         <section id="capabilities" className="mx-auto max-w-6xl px-4 py-20 sm:px-6 lg:px-8">
           <div className="mx-auto max-w-2xl text-center">
-            <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">只回答三件事。</h2>
-            <p className="mt-3 text-sm leading-6 text-gray-500">是否值得做，先改哪里，验证什么。</p>
+            <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">三个直接好处。</h2>
+            <p className="mt-3 text-sm leading-6 text-gray-500">少选错品，少无效改版，少盲目烧广告。</p>
           </div>
           <div className="mt-12 grid gap-px overflow-hidden rounded-lg border border-black/5 bg-black/5 md:grid-cols-3">
             {valueCards.map((item) => (
