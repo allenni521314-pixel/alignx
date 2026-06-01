@@ -424,7 +424,7 @@ function normalizeAmazonKeyword(keyword: string): string {
 function normalizeStringList(value: unknown): string[] {
   if (Array.isArray(value)) {
     return value
-      .map((item) => (typeof item === "string" ? item : JSON.stringify(item)))
+      .map((item) => compactAnalysisText(item, 500))
       .map((item) => item.trim())
       .filter(Boolean);
   }
@@ -660,22 +660,30 @@ function sanitizeAnalysisKeywords(result: AnalysisResult): AnalysisResult {
   pd.main_keywords = cleanMainKeywords;
   pd.rating_histogram = normalizeRatingHistogram(pd.rating_histogram);
   const scores = getEffectiveScores(result);
+  const rawReport = result.analysis_report || {};
 
-  const breakdown = result.analysis_report?.listing_breakdown;
+  const breakdown = rawReport.listing_breakdown;
   const modules = breakdown?.modules || [];
   modules.forEach((module) => {
     module.keywords = cleanEnglishKeywordList(module.keywords, [], module.key);
   });
+  const rawAnalysis = rawReport.analysis || {};
+  const analysis = Object.fromEntries(
+    Object.entries(rawAnalysis).map(([key, value]) => [key, compactAnalysisText(value, 1200)])
+  );
   return {
     ...result,
     product_data: pd,
     scores,
     amazon_compliance: result.amazon_compliance || result.analysis_report?.amazon_compliance,
     analysis_report: {
-      ...result.analysis_report,
+      ...rawReport,
       scores,
+      analysis,
+      overall_summary: compactAnalysisText(rawReport.overall_summary, 1500),
+      improvement_suggestions: normalizeStringList(rawReport.improvement_suggestions),
       listing_breakdown: breakdown ? { ...breakdown, modules } : breakdown,
-      amazon_compliance: result.analysis_report?.amazon_compliance || result.amazon_compliance,
+      amazon_compliance: rawReport.amazon_compliance || result.amazon_compliance,
     },
   };
 }
@@ -868,10 +876,26 @@ function compactAnalysisText(value: unknown, maxLength = 300): string {
   if (!value) return "";
   let text = "";
   if (Array.isArray(value)) {
-    text = value.map((item) => (typeof item === "string" ? item : JSON.stringify(item))).join("；");
+    text = value.map((item) => compactAnalysisText(item, maxLength)).filter(Boolean).join("；");
   } else if (typeof value === "object") {
+    const labels: Record<string, string> = {
+      user_need_mapping: "用户需求",
+      platform_recognition: "平台识别",
+      platform_mapping: "平台识别",
+      real_world_evidence: "现实证据",
+      evidence: "当前证据",
+      deduction_reason: "扣分原因",
+      problem_type: "问题类型",
+      impact_metrics: "影响指标",
+      next_action: "下一步动作",
+      summary: "总结",
+    };
     text = Object.values(value as Record<string, unknown>)
-      .map((item) => (typeof item === "string" ? item : Array.isArray(item) ? item.join("；") : ""))
+      .map((item, index) => {
+        const key = Object.keys(value as Record<string, unknown>)[index];
+        const itemText = compactAnalysisText(item, maxLength);
+        return itemText ? `${labels[key] || key}：${itemText}` : "";
+      })
       .filter(Boolean)
       .join("；");
   } else {
@@ -1293,7 +1317,7 @@ export default function CompetitorAnalysis() {
       label: `竞品本地采集 ${capture.asin}`,
       status: "running",
       detail: "正在解析本地浏览器证据并生成竞品诊断",
-      path: "/competitor-analysis?tab=strategy",
+      path: "/competitor-analysis?tab=overview",
     });
     try {
       const res = await axios.post(
@@ -1401,7 +1425,7 @@ export default function CompetitorAnalysis() {
       label: `竞品诊断 ${asin}`,
       status: "running",
       detail: "正在抓取页面并生成竞品诊断",
-      path: "/competitor-analysis?tab=strategy",
+      path: "/competitor-analysis?tab=overview",
     });
 
     try {
@@ -1672,11 +1696,11 @@ export default function CompetitorAnalysis() {
           </div>
 
           <PageHeader
-            objective="拆解竞品Listing为什么卖得好，提炼我方可借鉴动作"
+            objective="拆解竞品Listing为什么卖得好，提炼竞品打法"
             inputSource="竞品ASIN/Amazon链接、标题、五点、主图/副图、A+、评论、关键词、价格和销量表现"
             process="按Listing结构、平台识别、评论反向验证和价格销量信号拆解转化原因"
-            outputTarget="竞品核心优势、广告转化拆解、关键词结构、评论痛点、可借鉴动作和不建议模仿点"
-            action="把可借鉴动作带回本品诊断或上新检测"
+            outputTarget="竞品核心优势、广告转化拆解、关键词结构、评论痛点、可借鉴策略和不建议模仿点"
+            action="把竞品打法带回本品诊断或上新检测"
             feedback="保存竞品诊断快照，沉淀到关键词库、竞品库和后续数据回流"
             tone="violet"
           />
@@ -2007,7 +2031,7 @@ function ToolboxList({ title, items, tone = "gray" }: { title: string; items?: s
 
 const RESULT_TABS = [
   { key: "overview", label: "竞品打法", icon: Search },
-  { key: "strategy", label: "借鉴动作", icon: AlertCircle },
+  { key: "strategy", label: "借鉴策略", icon: AlertCircle },
   { key: "score", label: "评分依据", icon: Target },
   { key: "listing-breakdown", label: "转化拆解", icon: FileText },
   { key: "keywords", label: "词路结构", icon: Zap },
@@ -2019,6 +2043,7 @@ const RESULT_TAB_KEYS = RESULT_TABS.map((tab) => tab.key) as ResultTabKey[];
 
 function resolveInitialResultTab(): ResultTabKey {
   const tab = new URLSearchParams(window.location.search).get("tab");
+  if (tab === "strategy") return "overview";
   return RESULT_TAB_KEYS.includes(tab as ResultTabKey) ? tab as ResultTabKey : "overview";
 }
 
@@ -2433,31 +2458,6 @@ function SingleResultView({
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            {report?.overall_summary && (
-              <div className="bg-brand-50 border border-brand-500/20 rounded-lg p-4">
-                <h4 className="text-sm font-semibold text-brand-600 mb-1">总体评价</h4>
-                <p className="text-sm text-gray-600 leading-relaxed">{report.overall_summary}</p>
-              </div>
-            )}
-
-            {report?.improvement_suggestions && report.improvement_suggestions.length > 0 ? (
-              <div className="space-y-3">
-                <h4 className="text-sm font-medium text-gray-600">我方可借鉴动作</h4>
-                {report.improvement_suggestions.map((s, i) => (
-                  <div key={i} className="flex gap-3 items-start bg-gray-50 rounded-lg p-4 border border-gray-100">
-                    <div className="w-7 h-7 rounded-full bg-brand-100 flex items-center justify-center flex-shrink-0 text-sm font-bold text-brand-600">
-                      {i + 1}
-                    </div>
-                    <p className="text-sm text-gray-600 pt-0.5 leading-relaxed">{s}</p>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="text-center py-8 text-gray-500">
-                <AlertCircle className="w-8 h-8 mx-auto mb-2 opacity-40" />
-                <p>暂无优化建议</p>
-              </div>
-            )}
             <ToolboxList
               title="可测试借鉴假设"
               items={toolbox?.competitor?.borrow_as_hypothesis}
@@ -2476,6 +2476,27 @@ function SingleResultView({
               )}
               tone="blue"
             />
+
+            {report?.overall_summary && (
+              <div className="bg-brand-50 border border-brand-500/20 rounded-lg p-4">
+                <h4 className="text-sm font-semibold text-brand-600 mb-1">总体评价</h4>
+                <p className="text-sm text-gray-600 leading-relaxed">{report.overall_summary}</p>
+              </div>
+            )}
+
+            {report?.improvement_suggestions && report.improvement_suggestions.length > 0 && (
+              <div className="space-y-3">
+                <h4 className="text-sm font-medium text-gray-600">我方可借鉴动作</h4>
+                {report.improvement_suggestions.map((s, i) => (
+                  <div key={i} className="flex gap-3 items-start bg-gray-50 rounded-lg p-4 border border-gray-100">
+                    <div className="w-7 h-7 rounded-full bg-brand-100 flex items-center justify-center flex-shrink-0 text-sm font-bold text-brand-600">
+                      {i + 1}
+                    </div>
+                    <p className="text-sm text-gray-600 pt-0.5 leading-relaxed">{s}</p>
+                  </div>
+                ))}
+              </div>
+            )}
 
             {displayKeywords.length > 0 && (
               <div>

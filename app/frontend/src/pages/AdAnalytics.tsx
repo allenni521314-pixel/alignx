@@ -97,6 +97,69 @@ function inferValidationFailureReason(metrics: { impressions?: number; clicks?: 
   return "needs_manual_review";
 }
 
+function inferReverseListingBranch(metrics: { impressions?: number; clicks?: number; ctr?: string | number; cvr?: string | number; acos?: string | number; roas?: string | number }, level: string) {
+  const impressions = Number(metrics.impressions || 0);
+  const clicks = Number(metrics.clicks || 0);
+  const ctr = Number(metrics.ctr || 0);
+  const cvr = Number(metrics.cvr || 0);
+  const acos = Number(metrics.acos || 0);
+
+  if (level === "待归因") {
+    return {
+      branch: "未归因",
+      module: "验证绑定",
+      reason: "广告数据未绑定具体诊断假设，不能判断Listing哪里出问题。",
+      action: "先绑定 hypothesis_id、keyword_group_id 和优化轮次，再进入反向检查。",
+    };
+  }
+  if (clicks < 100) {
+    return {
+      branch: "样本不足",
+      module: "验证样本",
+      reason: "点击样本不足，当前结果不能稳定归因到Listing模块。",
+      action: "保持Listing版本和广告结构稳定，补足100次点击后再判断。",
+    };
+  }
+  if (impressions < 1000) {
+    return {
+      branch: "曝光健康度",
+      module: "标题 / Search Terms / 五点",
+      reason: "曝光不足，优先判断平台是否识别到产品身份、场景词和问题词。",
+      action: "补清产品属性、使用对象、场景问题词；同时排除冷门词、错类目词和预算不足干扰。",
+    };
+  }
+  if (ctr < 0.4) {
+    return {
+      branch: "点击健康度",
+      module: "主图 / 标题 / 价格评分",
+      reason: "有曝光但点击弱，用户没有被首屏表达打动。",
+      action: "主图突出结果和差异，标题承接搜索意图；同步检查价格、评分和评论数是否弱于竞品。",
+    };
+  }
+  if (cvr < 8) {
+    return {
+      branch: "转化健康度",
+      module: "副图 / 五点 / A+ / 评论",
+      reason: "点击成立但转化弱，详情页没有接住广告承诺。",
+      action: "副图补场景证据，五点补购买理由和使用边界，A+补机制与对比，评论风险要降低承诺强度。",
+    };
+  }
+  if (acos > 35) {
+    return {
+      branch: "ROI健康度",
+      module: "广告结构 / 价格利润 / Listing信任",
+      reason: "可以转化但ROI不健康，需要区分CPC、毛利、词泛化和承接问题。",
+      action: "CPC高先调竞价和匹配；泛词烧钱加否词；毛利不足回查价格/优惠；CVR偏弱再改详情页。",
+    };
+  }
+  return {
+    branch: "命中回流",
+    module: "核心词库 / 标题 / 五点 / A+",
+    reason: "广告验证通过，说明该词组和Listing承接关系成立。",
+    action: "把命中词写入核心词库，并反哺标题、五点、A+和下一轮扩词。",
+  };
+}
+
 const emptyAd = {
   hypothesis_id: "",
   keyword_group_id: "",
@@ -657,6 +720,17 @@ export default function AdAnalytics() {
       },
       validationConclusion.level,
     );
+    const reverseListingBranch = inferReverseListingBranch(
+      {
+        impressions: validationMetrics.impressions || totalImpressions,
+        clicks: validationMetrics.clicks || totalClicks,
+        ctr: validationMetrics.ctr || ctr,
+        cvr: validationMetrics.cvr || cvr,
+        acos: validationMetrics.acos || acos,
+        roas,
+      },
+      validationConclusion.level,
+    );
     saveActionSnapshot({
       module_key: "ad_analytics",
       module_name: "广告验证",
@@ -667,6 +741,7 @@ export default function AdAnalytics() {
       input_snapshot: { selected_product_id: selectedProductId || "all", primary_validation: validationMetrics, records: filteredAds },
       output_snapshot: {
         conclusion: validationConclusion,
+        reverse_listing_branch: reverseListingBranch,
         metrics: { totalImpressions, totalClicks, totalSpend, totalOrders, totalSales, ctr, cvr, acos, roas },
         keyword_ranking: keywordRanking,
         hypothesis_validations: validationGroups,
@@ -690,12 +765,14 @@ export default function AdAnalytics() {
         diagnosis_issue: `广告假设 ${validationMetrics.hypothesis_id} / ${validationMetrics.keyword_group_id} 验证结果`,
         judgment_basis: {
           source: "ad_analytics_validation_view",
-          rule: "按 hypothesis_id + keyword_group_id + optimization_round 聚合广告数据，回流判断命中率。",
+          rule: "按 hypothesis_id + keyword_group_id + optimization_round 聚合广告数据，再按曝光、点击、转化和ROI反向检查Listing模块。",
           conclusion: validationConclusion.summary,
+          reverse_listing_branch: reverseListingBranch,
         },
         suggested_action: validationConclusion.actions[0] || "",
         ad_result: {
           conclusion: validationConclusion,
+          reverse_listing_branch: reverseListingBranch,
           primary_validation: validationMetrics,
           validation_groups: validationGroups,
           aggregate_metrics: { totalImpressions, totalClicks, totalSpend, totalOrders, totalSales, ctr, cvr, acos, roas },

@@ -541,7 +541,63 @@ class JudgmentSystemService:
             ],
             "round_policy": "每一次Listing修改和广告验证都保存为独立optimization_round，用结果校准下一轮判断。",
             "summary": "诊断结论先作为假设，进入广告验证；验证结果回流后再判断是否命中。",
+            "reverse_listing_branches": self.build_ad_reverse_listing_branches(),
         }
+
+    def build_ad_reverse_listing_branches(self) -> list[dict[str, Any]]:
+        """Rules for using ad validation metrics to reverse-check Listing modules.
+
+        The main chain decides whether a diagnosis should enter ad validation.
+        These branches decide which Listing module should be changed when the
+        validation result is not healthy enough.
+        """
+        return [
+            {
+                "branch": "impression_health",
+                "metric_focus": ["impressions", "search_term_precision"],
+                "trigger": "曝光不足或搜索词明显发散",
+                "listing_module": ["title", "search_terms", "bullets"],
+                "reason": "平台没有稳定识别产品身份、对象词、场景词或问题词。",
+                "modify_action": "补清产品身份、适用对象、使用场景和问题词；冷门词降级观察，类目错配词直接排除。",
+                "do_not_misjudge": "低曝光不一定是Listing差，也可能是词太冷、预算不足或竞价不足。",
+            },
+            {
+                "branch": "click_health",
+                "metric_focus": ["CTR", "CPC"],
+                "trigger": "曝光足够但CTR低",
+                "listing_module": ["main_image", "title", "price_rating"],
+                "reason": "用户看见广告但没有形成点击理由。",
+                "modify_action": "主图表达产品结果和差异；标题承接搜索意图；同时标记价格、评分、评论数是否弱于竞品。",
+                "do_not_misjudge": "如果词意图过泛，先降级或否词，不直接改Listing。",
+            },
+            {
+                "branch": "conversion_health",
+                "metric_focus": ["CVR", "orders", "add_to_cart"],
+                "trigger": "CTR成立但CVR低",
+                "listing_module": ["secondary_images", "bullets", "a_plus", "reviews"],
+                "reason": "用户点进来后，详情页没有证明广告承诺、使用边界或信任证据。",
+                "modify_action": "副图补场景和效果证据；五点补购买理由和边界；A+补机制/对比/FAQ；评论反向验证失败时降低承诺强度。",
+                "do_not_misjudge": "如果关键词和产品真实不匹配，停止投放，不把流量错配误判成承接问题。",
+            },
+            {
+                "branch": "roi_health",
+                "metric_focus": ["ACOS", "ROAS", "CPC", "margin"],
+                "trigger": "有转化但ACOS高或ROAS低",
+                "listing_module": ["ad_structure", "price", "offer", "listing_trust"],
+                "reason": "词能卖但利润模型或广告结构不健康。",
+                "modify_action": "CPC高但CVR正常时调竞价和匹配；CVR低时回查详情页；毛利低时回查价格/优惠/成本；泛词烧钱时收窄词组并加否词。",
+                "do_not_misjudge": "ROI差不一定要改Listing，先分清CPC、价格毛利、词泛化和承接问题。",
+            },
+            {
+                "branch": "learning_feedback",
+                "metric_focus": ["hit_status", "miss_reason", "next_iteration"],
+                "trigger": "完成一轮广告验证",
+                "listing_module": ["keyword_library", "title", "images", "bullets", "a_plus", "negative_keywords"],
+                "reason": "把命中词、未命中原因和下一轮动作写回系统，避免下一轮重复误判。",
+                "modify_action": "高ROI词进入核心词库和Listing承接；低效泛词进入否词或降级；承接不足词进入对应模块修改。",
+                "do_not_misjudge": "没有hit_status、miss_reason和下一轮动作的结果，不进入学习记忆。",
+            },
+        ]
 
     async def judge_listing(
         self,
