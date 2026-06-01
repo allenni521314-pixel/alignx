@@ -68,8 +68,8 @@ export default function Landing() {
       <main>
         <section className="mx-auto max-w-6xl px-4 pb-20 pt-16 sm:px-6 sm:pt-20 lg:px-8">
           <div className="mx-auto max-w-3xl text-center">
-            <h1 className="text-4xl font-semibold leading-[1.04] tracking-tight text-gray-950 sm:text-5xl lg:text-6xl">
-              做对判断。
+            <h1 className="text-3xl font-semibold leading-[1.08] tracking-tight text-gray-950 sm:text-4xl lg:text-5xl">
+              做对判断，领先一步。
             </h1>
           </div>
 
