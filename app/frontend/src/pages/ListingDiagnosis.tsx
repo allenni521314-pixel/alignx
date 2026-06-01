@@ -1705,7 +1705,7 @@ function BackendJudgmentPanel({ result }: { result: DiagnosisResult }) {
             <p className="text-xs font-semibold text-brand-600 mb-2">广告验证承接</p>
             {validationItems.slice(0, 2).map((item: any, idx: number) => (
               <p key={idx} className="text-xs text-gray-600 leading-relaxed">
-                {item.diagnosis_issue || item.suggested_listing_action || "将诊断假设转为广告验证任务。"}
+                {formatAnalysisText(item.diagnosis_issue || item.suggested_listing_action) || "将诊断假设转为广告验证任务。"}
               </p>
             ))}
           </div>
@@ -4590,36 +4590,36 @@ function ModuleDiagnosisCards({ result, listing }: { result: DiagnosisResult; li
     {
       title: "标题优化",
       icon: <FileText className="w-4 h-4 text-brand-600" />,
-      current: result.analysis?.product_identity || result.analysis?.function_expression || "检查核心关键词是否前置、品牌词是否合理、卖点表达是否清晰。",
-      suggestion: result.suggestions?.title_rewrite || "按品牌 + 核心关键词 + 关键属性 + 规格/数量 + 适用场景重写，避免堆砌关键词。",
-      example: result.suggestions?.title_rewrite || listing.title || "等待生成优化后标题示例。",
+      current: formatAnalysisText(result.analysis?.product_identity || result.analysis?.function_expression) || "检查核心关键词是否前置、品牌词是否合理、卖点表达是否清晰。",
+      suggestion: formatAnalysisText(result.suggestions?.title_rewrite) || "按品牌 + 核心关键词 + 关键属性 + 规格/数量 + 适用场景重写，避免堆砌关键词。",
+      example: formatAnalysisText(result.suggestions?.title_rewrite) || listing.title || "等待生成优化后标题示例。",
     },
     {
       title: "主图点击优化",
       icon: <Image className="w-4 h-4 text-emerald-600" />,
-      current: result.analysis?.product_identity || "检查产品主体、白底合规、占比、核心功能表达和竞品差异。",
+      current: formatAnalysisText(result.analysis?.product_identity) || "检查产品主体、白底合规、占比、核心功能表达和竞品差异。",
       suggestion: "主图只负责点击：真实商品、主体清晰、无干扰文字，核心差异用视觉而不是大段文案表达。",
       example: "改版方向：提高产品占比，突出核心形态或关键差异，避免道具、边框、水印和夸张场景。",
     },
     {
       title: "副图证据补强",
       icon: <Image className="w-4 h-4 text-teal-600" />,
-      current: result.analysis?.scenario_expression || "检查副图是否覆盖核心场景、功能解释、对比图、尺寸图、使用步骤和信任证明。",
+      current: formatAnalysisText(result.analysis?.scenario_expression) || "检查副图是否覆盖核心场景、功能解释、对比图、尺寸图、使用步骤和信任证明。",
       suggestion: "建议顺序：核心卖点图 → 场景图 → 尺寸/结构图 → 对比图 → 风险消除/信任图 → 使用步骤图。",
       example: "缺失类型优先补：场景图、尺寸图、对比图、信任证明图。",
     },
     {
       title: "五点顾虑消除",
       icon: <List className="w-4 h-4 text-amber-600" />,
-      current: result.analysis?.function_expression || `当前识别 ${bullets.length} 条五点，重点检查是否按痛点、功能、场景、信任和差异化排序。`,
-      suggestion: result.suggestions?.bullet_points_optimization?.[0] || "每条五点只讲一个购买理由，前两条解决最大犹豫点，后面补场景、信任和风险消除。",
-      example: result.suggestions?.bullet_points_optimization?.slice(0, 3).join(" / ") || "等待生成优化后五点示例。",
+      current: formatAnalysisText(result.analysis?.function_expression) || `当前识别 ${bullets.length} 条五点，重点检查是否按痛点、功能、场景、信任和差异化排序。`,
+      suggestion: formatAnalysisText(result.suggestions?.bullet_points_optimization?.[0]) || "每条五点只讲一个购买理由，前两条解决最大犹豫点，后面补场景、信任和风险消除。",
+      example: formatAnalysisText(result.suggestions?.bullet_points_optimization?.slice(0, 3)) || "等待生成优化后五点示例。",
     },
     {
       title: "A+信任补强",
       icon: <Star className="w-4 h-4 text-gold-600" />,
-      current: result.analysis?.psychology_benefit || "检查A+是否讲清品牌信任、场景图、对比图、差异化和主图/五点承接。",
-      suggestion: result.suggestions?.a_plus_suggestions || "A+按品牌信任、技术/材质解释、场景教育、对比证明、售后风险消除组织。",
+      current: formatAnalysisText(result.analysis?.psychology_benefit) || "检查A+是否讲清品牌信任、场景图、对比图、差异化和主图/五点承接。",
+      suggestion: formatAnalysisText(result.suggestions?.a_plus_suggestions) || "A+按品牌信任、技术/材质解释、场景教育、对比证明、售后风险消除组织。",
       example: "建议模块：品牌信任 → 核心差异 → 使用场景 → 对比证据 → FAQ/售后承诺。",
     },
     {
@@ -4632,7 +4632,7 @@ function ModuleDiagnosisCards({ result, listing }: { result: DiagnosisResult; li
     {
       title: "价格信任判断",
       icon: <Shield className="w-4 h-4 text-red-600" />,
-      current: result.analysis?.risk_elimination || "检查价格是否被评分、评论、保修、认证、安全和售后信息支撑。",
+      current: formatAnalysisText(result.analysis?.risk_elimination) || "检查价格是否被评分、评论、保修、认证、安全和售后信息支撑。",
       suggestion: "不要先盲目降价。先补强信任证明和承诺证据，再用广告验证价格与转化的关系。",
       example: "优先补充：保修、安全、材质、认证、兼容性、真实使用反馈。",
     },
