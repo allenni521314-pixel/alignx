@@ -15,38 +15,38 @@ import { versionLabel } from "@/lib/version";
 
 const valueCards = [
   {
-    title: "不再凭感觉选品",
-    desc: "先看需求、竞争、利润和验证成本，低置信机会直接拦截。",
+    title: "选品判断",
+    desc: "先看需求、竞争、利润和验证成本，过滤低置信机会。",
     icon: Layers3,
   },
   {
-    title: "不再盲改Listing",
-    desc: "把标题、五点、图片、评论痛点拆成可验证假设。",
+    title: "Listing优先级",
+    desc: "把标题、五点、图片和评论问题拆开，明确先改哪里。",
     icon: ClipboardCheck,
   },
   {
-    title: "不再烧钱猜原因",
+    title: "广告验证",
     desc: "用CTR、CVR、ACOS判断问题在流量、点击还是转化。",
     icon: Megaphone,
   },
   {
-    title: "不再复盘断层",
-    desc: "把命中和未命中的判断回流，下一轮越跑越准。",
+    title: "复盘回流",
+    desc: "沉淀命中和未命中的判断，减少重复试错。",
     icon: RotateCcw,
   },
 ];
 
 const plans = [
-  { name: "免费试用", price: "0 元", desc: "先跑通一个ASIN的判断链路" },
-  { name: "轻量版", price: "199 元/月", desc: "适合单店铺持续做小规模验证" },
-  { name: "专业版", price: "699 元/月", desc: "适合把诊断、广告和复盘连起来", highlight: true },
-  { name: "团队版", price: "1999 元/月", desc: "适合多账号、多店铺批量决策" },
+  { name: "免费试用", price: "0 元", desc: "验证一个ASIN的判断链路" },
+  { name: "轻量版", price: "199 元/月", desc: "适合单店铺日常验证" },
+  { name: "专业版", price: "699 元/月", desc: "包含诊断、广告和复盘闭环", highlight: true },
+  { name: "团队版", price: "1999 元/月", desc: "适合多账号批量管理" },
 ];
 
 export default function Landing() {
   const navigate = useNavigate();
-  const workflowSteps = ["抓取真实数据", "统一评分判断", "诊断转化阻塞", "验证广告假设", "回流验证结果", "输出下一动作"];
-  const heroSignals = ["选错品", "改错词", "烧错广告"];
+  const workflowSteps = ["抓取真实数据", "拦截低置信机会", "定位转化卡点", "生成验证动作", "记录命中结果", "排下一轮优先级"];
+  const heroSignals = ["库存风险", "转化卡点", "广告试错"];
 
   return (
     <div className="min-h-screen bg-[#f5f5f7] text-gray-950">
@@ -69,17 +69,17 @@ export default function Landing() {
         <section className="mx-auto grid min-h-[calc(100vh-56px)] max-w-7xl items-center gap-8 px-4 py-10 sm:px-6 lg:grid-cols-[0.92fr_1.08fr] lg:px-8 lg:py-14">
           <div className="max-w-2xl">
             <Badge className="mb-5 rounded-full border-brand-200 bg-white px-3 py-1 text-brand-800 shadow-sm">
-              AI运营决策系统
+              亚马逊运营判断工具
             </Badge>
             <h1 className="max-w-4xl text-4xl font-semibold leading-[1.04] tracking-tight text-gray-950 sm:text-5xl xl:text-6xl">
-              把选品、Listing、广告验证变成可执行决策
+              让选品、Listing、广告验证有判断依据
             </h1>
             <p className="mt-6 max-w-xl text-base leading-8 text-gray-600 sm:text-lg">
-              AlignX不是再给你一堆报告，而是帮卖家判断：这个ASIN要不要做、Listing先改哪里、广告该验证什么、下一轮动作怎么排。
+              AlignX帮卖家判断一个ASIN是否值得继续投入，Listing应先处理哪里，广告数据对应哪类问题。
             </p>
             <div className="mt-8 flex flex-col gap-3 sm:flex-row">
               <Button onClick={() => navigate("/register")} size="lg" className="h-11 rounded-full bg-brand-800 px-6 text-white hover:bg-brand-700">
-                进入决策工作台
+                分析一个ASIN
                 <ArrowRight className="ml-2 h-4 w-4" />
               </Button>
               <Button onClick={() => navigate("/login")} size="lg" variant="outline" className="h-11 rounded-full border-gray-300 bg-white px-6">
@@ -89,7 +89,7 @@ export default function Landing() {
             <div className="mt-10 grid max-w-lg grid-cols-3 gap-3">
               {heroSignals.map((signal, index) => (
                 <div key={signal} className="rounded-lg border border-black/5 bg-white/70 p-3 shadow-sm">
-                  <div className="text-xs font-semibold text-brand-800">少{index + 1}步踩坑</div>
+                  <div className="text-xs font-semibold text-brand-800">关注</div>
                   <div className="mt-2 text-sm font-semibold text-gray-900">{signal}</div>
                 </div>
               ))}
@@ -100,7 +100,7 @@ export default function Landing() {
             <div className="overflow-hidden rounded-lg border border-black/5 bg-[#fbfbfd]">
               <div className="flex items-center justify-between border-b border-black/5 px-5 py-4">
                 <div>
-                  <div className="text-sm font-semibold text-gray-950">运营判断链路</div>
+                  <div className="text-sm font-semibold text-gray-950">核心判断链路</div>
                   <div className="mt-1 text-xs text-gray-500">从数据到动作</div>
                 </div>
                 <div className="flex items-center gap-1.5">
@@ -127,7 +127,7 @@ export default function Landing() {
                   ))}
                 </div>
                 <div className="rounded-lg border border-brand-900 bg-brand-900 p-4 text-white shadow-inner">
-                  <div className="text-sm font-semibold text-gold-200">系统输出</div>
+                  <div className="text-sm font-semibold text-gold-200">判断输出</div>
                   <div className="mt-4 space-y-2.5">
                     {workflowSteps.map((step, index) => (
                       <div key={step} className="flex items-center justify-between rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2.5">
@@ -145,8 +145,8 @@ export default function Landing() {
         <section id="capabilities" className="mx-auto max-w-7xl px-4 pb-12 sm:px-6 lg:px-8">
           <div className="grid gap-5 border-y border-black/5 py-8 lg:grid-cols-[0.32fr_1fr]">
             <div>
-              <h2 className="text-2xl font-semibold tracking-tight">卖家最怕的不是没数据，是数据不能变成动作</h2>
-              <p className="mt-2 text-sm leading-6 text-gray-500">AlignX把页面抓取、AI诊断、广告验证和复盘回流串成同一套判断标准。</p>
+              <h2 className="text-2xl font-semibold tracking-tight">把数据变成下一步判断</h2>
+              <p className="mt-2 text-sm leading-6 text-gray-500">AlignX把页面数据、诊断结果、广告表现和复盘记录放到同一套判断标准里。</p>
             </div>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               {valueCards.map((item) => (
@@ -162,7 +162,7 @@ export default function Landing() {
 
         <section className="mx-auto max-w-7xl px-4 pb-12 sm:px-6 lg:px-8">
           <div className="rounded-lg border border-black/5 bg-white p-4 shadow-sm sm:p-5">
-            <h2 className="px-2 pb-4 text-2xl font-semibold tracking-tight">一条链路跑完整，才知道下一步该做什么</h2>
+            <h2 className="px-2 pb-4 text-2xl font-semibold tracking-tight">按运营顺序形成判断</h2>
             <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-6">
               {workflowSteps.map((step, index) => (
                 <div key={step} className="group flex min-h-24 flex-col justify-between rounded-lg border border-black/5 bg-[#f8f8fa] p-4">
@@ -177,8 +177,8 @@ export default function Landing() {
         <section id="pricing" className="mx-auto max-w-7xl px-4 pb-20 sm:px-6 lg:px-8">
           <div className="mb-5 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <h2 className="text-2xl font-semibold tracking-tight">先用一个ASIN验证判断质量</h2>
-              <p className="mt-2 text-sm text-gray-500">从单品诊断开始，确认系统能帮你少走弯路，再扩大到多ASIN和广告闭环。</p>
+              <h2 className="text-2xl font-semibold tracking-tight">先从一个ASIN开始验证</h2>
+              <p className="mt-2 text-sm text-gray-500">从单品判断开始，查看选品、Listing和广告验证是否形成闭环。</p>
             </div>
           </div>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
