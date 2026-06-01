@@ -1920,7 +1920,7 @@ export default function CompetitorAnalysis() {
                           onClick={() => void viewHistorySnapshot(item)}
                           className="h-8 rounded-xl border-gray-200 bg-white px-3 text-xs font-semibold text-gray-700 hover:bg-gray-100"
                         >
-                          查看报告
+                          回看诊断
                         </Button>
                       </div>
                     </div>
