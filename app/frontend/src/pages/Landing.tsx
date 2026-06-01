@@ -126,13 +126,13 @@ export default function Landing() {
                     </div>
                   ))}
                 </div>
-                <div className="rounded-lg border border-black/5 bg-gray-950 p-4 text-white">
-                  <div className="text-sm font-semibold">系统输出</div>
+                <div className="rounded-lg border border-brand-900 bg-brand-900 p-4 text-white shadow-inner">
+                  <div className="text-sm font-semibold text-gold-200">系统输出</div>
                   <div className="mt-4 space-y-2.5">
                     {workflowSteps.map((step, index) => (
-                      <div key={step} className="flex items-center justify-between rounded-lg bg-white/8 px-3 py-2.5">
-                        <span className="text-xs text-white/45">{String(index + 1).padStart(2, "0")}</span>
-                        <span className="text-sm font-medium text-white">{step}</span>
+                      <div key={step} className="flex items-center justify-between rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2.5">
+                        <span className="text-xs font-semibold text-gold-300">{String(index + 1).padStart(2, "0")}</span>
+                        <span className="text-sm font-medium text-white/95">{step}</span>
                       </div>
                     ))}
                   </div>
