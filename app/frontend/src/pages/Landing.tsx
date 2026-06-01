@@ -16,22 +16,22 @@ import { versionLabel } from "@/lib/version";
 const valueCards = [
   {
     title: "选品判断",
-    desc: "先看需求、竞争、利润和验证成本，过滤低置信机会。",
+    desc: "需求、竞争、利润、验证成本",
     icon: Layers3,
   },
   {
     title: "Listing优先级",
-    desc: "把标题、五点、图片和评论问题拆开，明确先改哪里。",
+    desc: "标题、五点、图片、评论问题",
     icon: ClipboardCheck,
   },
   {
     title: "广告验证",
-    desc: "用CTR、CVR、ACOS判断问题在流量、点击还是转化。",
+    desc: "CTR、CVR、ACOS、订单信号",
     icon: Megaphone,
   },
   {
     title: "复盘回流",
-    desc: "沉淀命中和未命中的判断，减少重复试错。",
+    desc: "命中结论、未命中原因、下一轮动作",
     icon: RotateCcw,
   },
 ];
@@ -47,6 +47,11 @@ export default function Landing() {
   const navigate = useNavigate();
   const workflowSteps = ["抓取真实数据", "拦截低置信机会", "定位转化卡点", "生成验证动作", "记录命中结果", "排下一轮优先级"];
   const heroSignals = ["库存风险", "转化卡点", "广告试错"];
+  const decisionRows = [
+    { label: "ASIN", input: "页面数据", output: "是否继续投入" },
+    { label: "Listing", input: "内容与评论", output: "先处理的卡点" },
+    { label: "广告", input: "验证数据", output: "下一轮动作" },
+  ];
 
   return (
     <div className="min-h-screen bg-[#f5f5f7] text-gray-950">
@@ -66,15 +71,15 @@ export default function Landing() {
       </nav>
 
       <main>
-        <section className="mx-auto grid min-h-[calc(100vh-56px)] max-w-7xl items-center gap-8 px-4 py-10 sm:px-6 lg:grid-cols-[0.92fr_1.08fr] lg:px-8 lg:py-14">
+        <section className="mx-auto grid min-h-[calc(100vh-56px)] max-w-7xl items-center gap-10 px-4 py-10 sm:px-6 lg:grid-cols-[0.9fr_1.1fr] lg:px-8 lg:py-14">
           <div className="max-w-2xl">
             <Badge className="mb-5 rounded-full border-brand-200 bg-white px-3 py-1 text-brand-800 shadow-sm">
               亚马逊运营判断工具
             </Badge>
-            <h1 className="max-w-4xl text-4xl font-semibold leading-[1.04] tracking-tight text-gray-950 sm:text-5xl xl:text-6xl">
+            <h1 className="max-w-3xl text-4xl font-semibold leading-[1.04] tracking-tight text-gray-950 sm:text-5xl xl:text-6xl">
               让选品、Listing、广告验证有判断依据
             </h1>
-            <p className="mt-6 max-w-xl text-base leading-8 text-gray-600 sm:text-lg">
+            <p className="mt-6 max-w-xl text-base leading-8 text-gray-600">
               AlignX帮卖家判断一个ASIN是否值得继续投入，Listing应先处理哪里，广告数据对应哪类问题。
             </p>
             <div className="mt-8 flex flex-col gap-3 sm:flex-row">
@@ -86,18 +91,19 @@ export default function Landing() {
                 登录
               </Button>
             </div>
-            <div className="mt-10 grid max-w-lg grid-cols-3 gap-3">
+            <div className="mt-10 grid max-w-lg grid-cols-3 divide-x divide-black/5 rounded-lg border border-black/5 bg-white/70 shadow-sm">
               {heroSignals.map((signal, index) => (
-                <div key={signal} className="rounded-lg border border-black/5 bg-white/70 p-3 shadow-sm">
-                  <div className="text-xs font-semibold text-brand-800">关注</div>
-                  <div className="mt-2 text-sm font-semibold text-gray-900">{signal}</div>
+                <div key={signal} className="p-4">
+                  <div className="text-[11px] font-semibold text-gold-700">关注 {String(index + 1).padStart(2, "0")}</div>
+                  <div className="mt-2 text-sm font-semibold text-gray-950">{signal}</div>
                 </div>
               ))}
             </div>
           </div>
 
-          <div className="rounded-lg border border-white bg-white/75 p-3 shadow-[0_24px_80px_rgba(15,23,42,0.12)]">
-            <div className="overflow-hidden rounded-lg border border-black/5 bg-[#fbfbfd]">
+          <div className="relative">
+            <div className="absolute -inset-6 rounded-[32px] bg-white/45 blur-3xl" aria-hidden="true" />
+            <div className="relative overflow-hidden rounded-lg border border-black/5 bg-white shadow-[0_24px_70px_rgba(15,23,42,0.10)]">
               <div className="flex items-center justify-between border-b border-black/5 px-5 py-4">
                 <div>
                   <div className="text-sm font-semibold text-gray-950">核心判断链路</div>
@@ -109,30 +115,40 @@ export default function Landing() {
                   <span className="h-2.5 w-2.5 rounded-full bg-rose-400" />
                 </div>
               </div>
-              <div className="grid gap-4 p-5 lg:grid-cols-[1fr_0.82fr]">
-                <div className="space-y-3">
-                  {valueCards.map((item, index) => (
-                    <div key={item.title} className="flex items-start gap-3 rounded-lg border border-black/5 bg-white p-4 shadow-sm">
-                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-800">
-                        <item.icon className="h-4 w-4" />
+              <div className="p-5">
+                <div className="grid grid-cols-[0.9fr_1fr_1fr] gap-2 text-xs font-semibold text-gray-400">
+                  <span>对象</span>
+                  <span>输入</span>
+                  <span>输出</span>
+                </div>
+                <div className="mt-3 overflow-hidden rounded-lg border border-black/5">
+                  {decisionRows.map((row, index) => (
+                    <div key={row.label} className="grid grid-cols-[0.9fr_1fr_1fr] items-center border-b border-black/5 bg-white last:border-b-0">
+                      <div className="flex items-center gap-3 px-4 py-4">
+                        <span className="text-[11px] font-semibold text-gold-700">{String(index + 1).padStart(2, "0")}</span>
+                        <span className="text-sm font-semibold text-gray-950">{row.label}</span>
                       </div>
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="text-[11px] font-semibold text-gray-400">{String(index + 1).padStart(2, "0")}</span>
-                          <h3 className="text-sm font-semibold text-gray-950">{item.title}</h3>
-                        </div>
-                        <p className="mt-1 text-sm leading-6 text-gray-500">{item.desc}</p>
-                      </div>
+                      <div className="px-4 py-4 text-sm text-gray-500">{row.input}</div>
+                      <div className="px-4 py-4 text-sm font-semibold text-brand-900">{row.output}</div>
                     </div>
                   ))}
                 </div>
-                <div className="rounded-lg border border-brand-900 bg-brand-900 p-4 text-white shadow-inner">
-                  <div className="text-sm font-semibold text-gold-200">判断输出</div>
-                  <div className="mt-4 space-y-2.5">
-                    {workflowSteps.map((step, index) => (
-                      <div key={step} className="flex items-center justify-between rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2.5">
-                        <span className="text-xs font-semibold text-gold-300">{String(index + 1).padStart(2, "0")}</span>
-                        <span className="text-sm font-medium text-white/95">{step}</span>
+
+                <div className="mt-5 rounded-lg border border-brand-100 bg-brand-50/40 p-4">
+                  <div className="mb-3 text-sm font-semibold text-brand-900">判断输出</div>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {workflowSteps.slice(0, 4).map((step, index) => (
+                      <div key={step} className="flex items-center justify-between rounded-md border border-brand-100 bg-white/80 px-3 py-2.5">
+                        <span className="text-[11px] font-semibold text-gold-700">{String(index + 1).padStart(2, "0")}</span>
+                        <span className="text-sm font-medium text-brand-950">{step}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                    {workflowSteps.slice(4).map((step, index) => (
+                      <div key={step} className="flex items-center justify-between rounded-md border border-brand-100 bg-white/80 px-3 py-2.5">
+                        <span className="text-[11px] font-semibold text-gold-700">{String(index + 5).padStart(2, "0")}</span>
+                        <span className="text-sm font-medium text-brand-950">{step}</span>
                       </div>
                     ))}
                   </div>
@@ -143,15 +159,15 @@ export default function Landing() {
         </section>
 
         <section id="capabilities" className="mx-auto max-w-7xl px-4 pb-12 sm:px-6 lg:px-8">
-          <div className="grid gap-5 border-y border-black/5 py-8 lg:grid-cols-[0.32fr_1fr]">
+          <div className="grid gap-6 border-y border-black/5 py-10 lg:grid-cols-[0.34fr_1fr]">
             <div>
               <h2 className="text-2xl font-semibold tracking-tight">把数据变成下一步判断</h2>
               <p className="mt-2 text-sm leading-6 text-gray-500">AlignX把页面数据、诊断结果、广告表现和复盘记录放到同一套判断标准里。</p>
             </div>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               {valueCards.map((item) => (
-                <div key={item.title} className="rounded-lg border border-black/5 bg-white p-5 shadow-sm">
-                  <item.icon className="mb-5 h-5 w-5 text-brand-700" />
+                <div key={item.title} className="border-l border-black/10 pl-5">
+                  <item.icon className="mb-4 h-5 w-5 text-brand-700" />
                   <h3 className="font-semibold text-gray-950">{item.title}</h3>
                   <p className="mt-2 text-sm leading-6 text-gray-500">{item.desc}</p>
                 </div>
@@ -161,11 +177,11 @@ export default function Landing() {
         </section>
 
         <section className="mx-auto max-w-7xl px-4 pb-12 sm:px-6 lg:px-8">
-          <div className="rounded-lg border border-black/5 bg-white p-4 shadow-sm sm:p-5">
-            <h2 className="px-2 pb-4 text-2xl font-semibold tracking-tight">按运营顺序形成判断</h2>
-            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-6">
+          <div className="border border-black/5 bg-white p-5 shadow-sm">
+            <h2 className="pb-5 text-2xl font-semibold tracking-tight">按运营顺序形成判断</h2>
+            <div className="grid gap-px overflow-hidden border border-black/5 bg-black/5 sm:grid-cols-2 lg:grid-cols-6">
               {workflowSteps.map((step, index) => (
-                <div key={step} className="group flex min-h-24 flex-col justify-between rounded-lg border border-black/5 bg-[#f8f8fa] p-4">
+                <div key={step} className="flex min-h-24 flex-col justify-between bg-[#f8f8fa] p-4">
                   <span className="text-xs font-semibold text-gray-400">{String(index + 1).padStart(2, "0")}</span>
                   <span className="text-sm font-semibold text-gray-950">{step}</span>
                 </div>
