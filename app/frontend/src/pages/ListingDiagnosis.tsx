@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AppSidebar } from "@/components/AppSidebar";
 import { PageHeader } from "@/components/PageHeader";
 import { NextStepActions } from "@/components/NextStepActions";
@@ -2114,6 +2114,13 @@ export default function ListingDiagnosis() {
   const [diagnosing, setDiagnosing] = useState(false);
   const [diagResult, setDiagResult] = useState<DiagnosisResult | null>(null);
   const [resultTab, setResultTab] = useState("overview");
+  const resultSectionRef = useRef<HTMLDivElement | null>(null);
+
+  const scrollToResultSection = () => {
+    window.setTimeout(() => {
+      resultSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 80);
+  };
 
   // History tab
   const [history, setHistory] = useState<HistoryItem[]>([]);
@@ -3148,7 +3155,8 @@ export default function ListingDiagnosis() {
       setResultTab("overview");
       setActiveTab("diagnose");
       setDiagnosisPhase("analyzed");
-      toast.success("已加载最近一次本品诊断");
+      scrollToResultSection();
+      toast.success("已打开历史本品诊断");
     } catch {
       toast.error("加载本品诊断失败");
     }
@@ -3419,10 +3427,12 @@ export default function ListingDiagnosis() {
                 </div>
               ) : (
                 <div className="divide-y divide-gray-100">
-                  {history.slice(0, 6).map((item) => (
+                  {history.slice(0, 6).map((item) => {
+                    const isCurrentHistory = diagResult?.id === item.id;
+                    return (
                     <div
                       key={item.id}
-                      className="flex w-full items-center justify-between gap-4 py-3"
+                      className={`flex w-full items-center justify-between gap-4 py-3 ${isCurrentHistory ? "rounded-xl bg-brand-50 px-3" : ""}`}
                     >
                       <div className="min-w-0">
                         <div className="flex items-center gap-2">
@@ -3440,13 +3450,14 @@ export default function ListingDiagnosis() {
                           variant="outline"
                           size="sm"
                           onClick={() => loadDiagnosisAsCurrent(item.id)}
-                          className="h-8 rounded-xl border-gray-200 bg-white px-3 text-xs font-semibold text-gray-700 hover:bg-gray-100"
+                          className={`h-8 rounded-xl px-3 text-xs font-semibold ${isCurrentHistory ? "border-brand-200 bg-brand-100 text-brand-700" : "border-gray-200 bg-white text-gray-700 hover:bg-gray-100"}`}
                         >
-                          回看诊断
+                          {isCurrentHistory ? "已打开" : "回看诊断"}
                         </Button>
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </CardContent>
@@ -3781,7 +3792,7 @@ export default function ListingDiagnosis() {
 
               {/* Diagnosis Results */}
               {diagResult && (
-                <div className="space-y-6">
+                <div ref={resultSectionRef} className="scroll-mt-6 space-y-6">
                   {/* Product Mismatch Warning */}
                   {diagResult.product_mismatch && (
                     <div className="flex items-start gap-3 p-3 rounded-lg bg-red-500/15 border border-red-200">
