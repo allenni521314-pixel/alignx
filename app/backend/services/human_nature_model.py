@@ -113,7 +113,14 @@ def _dedupe(items: list[str], limit: int = 12) -> list[str]:
 
 def _infer_pet_odor_graph(text: str) -> dict[str, Any]:
     return {
-        "motives": ["security", "health", "love", "belonging", "status", "convenience", "fear"],
+        "human_nodes": ["security", "health", "love", "belonging", "status", "convenience", "fear"],
+        "motivations": [
+            "avoid unsafe deodorizing around pets",
+            "keep indoor air and pet areas cleaner",
+            "care for pets without creating extra risk",
+            "avoid embarrassment from home pet odor",
+            "reduce manual odor-control work",
+        ],
         "needs": ["pet odor control", "cat litter odor reduction", "clean indoor air", "safe deodorizing"],
         "scenarios": [
             "cat litter box",
@@ -134,14 +141,15 @@ def _infer_pet_odor_graph(text: str) -> dict[str, Any]:
 
 
 def _generic_graph(text: str) -> dict[str, Any]:
-    motives = []
+    human_nodes = []
     for key, patterns in MOTIVATION_PATTERNS.items():
         if _contains(text, patterns):
-            motives.append(key)
-    if not motives:
-        motives = ["security", "convenience", "fear"]
+            human_nodes.append(key)
+    if not human_nodes:
+        human_nodes = ["security", "convenience", "fear"]
     return {
-        "motives": _dedupe(motives, 8),
+        "human_nodes": _dedupe(human_nodes, 8),
+        "motivations": ["avoid wrong purchase", "save effort", "reduce uncertainty"],
         "needs": ["reduce uncertainty", "solve daily friction", "lower purchase risk"],
         "scenarios": ["daily use", "home use", "busy schedule", "first purchase"],
         "solutions": ["clear mechanism", "low risk setup", "easy maintenance"],
@@ -186,23 +194,84 @@ def build_human_nature_graph(source: dict[str, Any] | Any) -> dict[str, Any]:
         ("pet", "cat", "dog", "litter", "odor", "smell", "deodorizer", "photocatalyst", "uv-c", "ammonia"),
     ) else _generic_graph(lower)
 
-    active_motives = _dedupe(graph["motives"], 13)
+    active_nodes = _dedupe(graph["human_nodes"], 13)
+    motivations = _dedupe(graph["motivations"], 8)
     evolution = {
-        key: [motivation for motivation in active_motives if motivation in values]
+        key: [node for node in active_nodes if node in values]
         for key, values in EVOLUTION_MAP.items()
     }
     root_balance = {
-        "seek_gain": [item for item in active_motives if item in {"love", "belonging", "status", "freedom", "expansion", "curiosity", "pleasure", "convenience"}],
-        "avoid_loss": [item for item in active_motives if item in {"survival", "security", "health", "fear"}],
+        "gain": [item for item in active_nodes if item in {"love", "belonging", "status", "freedom", "expansion", "curiosity", "pleasure", "convenience"}],
+        "loss": [item for item in active_nodes if item in {"survival", "security", "health", "fear"}],
     }
+    human_node_payload = [
+        {
+            "key": key,
+            "label": MOTIVATION_LABELS[key],
+            "description": MOTIVATION_DESCRIPTIONS[key],
+            "active": key in active_nodes,
+        }
+        for key in HUMAN_MOTIVATIONS
+    ]
+    levels = [
+        {
+            "level": 0,
+            "key": "gain_loss",
+            "name": "趋利/避害",
+            "items": [{"key": "gain", "label": "趋利"}, {"key": "loss", "label": "避害"}],
+            "active_mapping": root_balance,
+        },
+        {
+            "level": 1,
+            "key": "evolution",
+            "name": "进化驱动力",
+            "items": [
+                {"key": "survival", "label": "生存"},
+                {"key": "reproduction", "label": "繁衍"},
+                {"key": "resource", "label": "资源"},
+                {"key": "exploration", "label": "探索"},
+            ],
+            "active_mapping": evolution,
+        },
+        {
+            "level": 2,
+            "key": "human_nodes",
+            "name": "13个人性节点",
+            "items": human_node_payload,
+            "active_nodes": active_nodes,
+        },
+        {
+            "level": 3,
+            "key": "motivation",
+            "name": "动机",
+            "items": motivations,
+        },
+        {"level": 4, "key": "need", "name": "需求", "items": graph["needs"]},
+        {"level": 5, "key": "scenario", "name": "场景", "items": graph["scenarios"]},
+        {"level": 6, "key": "solution", "name": "解决方案", "items": graph["solutions"]},
+        {"level": 7, "key": "expression", "name": "表达", "items": graph["expressions"]},
+        {"level": 8, "key": "behavior", "name": "行为", "items": graph["behavior_signals"]},
+        {"level": 9, "key": "outcome", "name": "结果", "items": graph["outcome_signals"]},
+    ]
 
     return {
         "version": "alignx-human-nature-v4",
         "position": "above_two_rulers",
+        "levels": levels,
+        "level_0": levels[0],
+        "level_1": levels[1],
+        "level_2": levels[2],
+        "level_3": levels[3],
+        "level_4": levels[4],
+        "level_5": levels[5],
+        "level_6": levels[6],
+        "level_7": levels[7],
+        "level_8": levels[8],
+        "level_9": levels[9],
         "root_layer": {
-            "drives": list(ROOT_DRIVES),
-            "seek_gain": "趋利",
-            "avoid_loss": "避害",
+            "drives": ["gain", "loss"],
+            "gain": "趋利",
+            "loss": "避害",
             "balance": root_balance,
         },
         "evolution_layer": {
@@ -210,16 +279,13 @@ def build_human_nature_graph(source: dict[str, Any] | Any) -> dict[str, Any]:
             "active_mapping": evolution,
         },
         "human_motivation_layer": {
-            "nodes": [
-                {
-                    "key": key,
-                    "label": MOTIVATION_LABELS[key],
-                    "description": MOTIVATION_DESCRIPTIONS[key],
-                    "active": key in active_motives,
-                }
-                for key in HUMAN_MOTIVATIONS
-            ],
-            "active_nodes": active_motives,
+            "note": "兼容旧字段；V4标准中此层对应Level 2的13个人性节点，不等同Level 3动机。",
+            "nodes": human_node_payload,
+            "active_nodes": active_nodes,
+        },
+        "motivation_layer": {
+            "level": 3,
+            "items": motivations,
         },
         "user_intent_layer": {
             "task": "把人性驱动力转成购买意图",
@@ -238,19 +304,24 @@ def build_human_nature_graph(source: dict[str, Any] | Any) -> dict[str, Any]:
 def human_nature_prompt_block(source: dict[str, Any] | Any) -> str:
     """Compact prompt block for model calls."""
     graph = build_human_nature_graph(source)
-    motives = ", ".join(graph["human_motivation_layer"]["active_nodes"])
-    needs = ", ".join(graph["need_layer"][:6])
-    scenarios = ", ".join(graph["scenario_layer"][:8])
-    solutions = ", ".join(graph["solution_layer"][:5])
-    expressions = ", ".join(graph["expression_layer"][:6])
+    human_nodes = ", ".join(graph["level_2"]["active_nodes"])
+    motivations = ", ".join(graph["level_3"]["items"][:6])
+    needs = ", ".join(graph["level_4"]["items"][:6])
+    scenarios = ", ".join(graph["level_5"]["items"][:8])
+    solutions = ", ".join(graph["level_6"]["items"][:5])
+    expressions = ", ".join(graph["level_7"]["items"][:6])
     return (
         "## V4 Human Nature Root Layer\n"
-        "所有判断必须先从人性驱动力开始，再进入用户意图、平台识别、Listing承接和广告验证。\n"
-        f"根层：Seek Gain / Avoid Loss。\n"
-        f"活跃动机：{motives}。\n"
-        f"需求层：{needs}。\n"
-        f"场景层：{scenarios}。\n"
-        f"Solution层：{solutions}。\n"
-        f"表达层：{expressions}。\n"
-        "禁止从关键词开始推理；关键词只能作为动机-需求-场景-解决方案链路后的表达或验证资产。"
+        "所有判断必须严格按Level 0到Level 9推理，再进入用户意图、平台识别、Listing承接和广告验证。\n"
+        "Level 0：趋利（Gain）/ 避害（Loss）。\n"
+        "Level 1：生存 / 繁衍 / 资源 / 探索。\n"
+        f"Level 2 13个人性节点：{human_nodes}。\n"
+        f"Level 3 动机：{motivations}。\n"
+        f"Level 4 需求：{needs}。\n"
+        f"Level 5 场景：{scenarios}。\n"
+        f"Level 6 解决方案：{solutions}。\n"
+        f"Level 7 表达：{expressions}。\n"
+        "Level 8 行为：曝光、点击、停留、收藏、加购、购买、复购、推荐。\n"
+        "Level 9 结果：转化率、复购率、LTV、利润率、ROI。\n"
+        "禁止从关键词开始推理；关键词只能作为Level 7表达或广告验证资产。"
     )

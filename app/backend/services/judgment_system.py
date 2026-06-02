@@ -813,10 +813,11 @@ class JudgmentSystemService:
         precision_score = float(precision.get("score") or 0)
         validation_items = ad_validation.get("validation_items", []) if isinstance(ad_validation, dict) else []
         readiness = float((causal.get("raw") or {}).get("keyword_causality", {}).get("readiness_score") or 0)
-        active_motives = human_nature.get("human_motivation_layer", {}).get("active_nodes", [])
-        intent_seeds = human_nature.get("user_intent_layer", {}).get("intent_seeds", [])
-        scenarios = human_nature.get("scenario_layer", [])
-        solutions = human_nature.get("solution_layer", [])
+        human_nodes = human_nature.get("level_2", {}).get("active_nodes", [])
+        motivations = human_nature.get("level_3", {}).get("items", [])
+        needs = human_nature.get("level_4", {}).get("items", [])
+        scenarios = human_nature.get("level_5", {}).get("items", [])
+        solutions = human_nature.get("level_6", {}).get("items", [])
 
         user_intent_score = _avg([review_score, _dimension_score(dimension_scores, USER_INTENT_DIMENSIONS)])
         platform_matching_score = _avg([platform_score, _dimension_score(dimension_scores, PLATFORM_MATCHING_DIMENSIONS)])
@@ -854,9 +855,11 @@ class JudgmentSystemService:
                 "score_band": _score_band(score),
                 "failure_pattern": failure_pattern,
                 "human_nature_layer": {
-                    "root": human_nature.get("root_layer", {}),
-                    "active_motives": active_motives,
-                    "intent_seeds": intent_seeds,
+                    "levels": human_nature.get("levels", []),
+                    "root": human_nature.get("level_0", {}),
+                    "human_nodes": human_nodes,
+                    "motivations": motivations,
+                    "needs": needs,
                     "scenarios": scenarios,
                     "solutions": solutions,
                 },
@@ -870,8 +873,9 @@ class JudgmentSystemService:
                 score=user_intent_score,
                 judgment=f"购买动机{_score_band(user_intent_score)}",
                 basis=[
-                    f"人性动机：{' / '.join(active_motives[:4])}" if active_motives else "",
-                    f"需求种子：{' / '.join(intent_seeds[:3])}" if intent_seeds else "",
+                    f"人性节点：{' / '.join(human_nodes[:4])}" if human_nodes else "",
+                    f"动机：{' / '.join(motivations[:3])}" if motivations else "",
+                    f"需求：{' / '.join(needs[:3])}" if needs else "",
                     f"用户需求对齐 {round(review_score)} 分",
                     f"场景/人群/心理/风险维度均分 {round(_dimension_score(dimension_scores, USER_INTENT_DIMENSIONS))} 分",
                     review_semantics.get("summary", ""),
@@ -923,7 +927,7 @@ class JudgmentSystemService:
                 score=advertising_validation_score,
                 judgment="可进入小预算验证" if validation_items else "暂不建议验证",
                 basis=[
-                    f"验证从动机链路开始：{' / '.join(active_motives[:3])}" if active_motives else "",
+                    f"验证从动机链路开始：{' / '.join(motivations[:3])}" if motivations else "",
                     f"关键词验证就绪 {round(readiness or causal_score)} 分",
                     f"已生成 {len(validation_items)} 组验证假设",
                 ],
