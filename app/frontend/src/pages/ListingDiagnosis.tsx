@@ -1644,10 +1644,6 @@ function BackendJudgmentPanel({ result }: { result: DiagnosisResult }) {
   const alignment = (judgment.alignment_scores || {}) as Record<string, number>;
   const causal = result.causal_diagnosis || {};
   const keywordCausality = (causal.keyword_causality || {}) as Record<string, any>;
-  const priorityKeywords = Array.isArray(keywordCausality.priority_keywords) ? keywordCausality.priority_keywords : [];
-  const validationItems = Array.isArray(result.ad_validation_plan?.validation_items)
-    ? result.ad_validation_plan?.validation_items
-    : [];
   const items = [
     { key: "review_alignment", label: "评论需求对齐", score: alignment.review_alignment ?? result.diagnosis_confidence?.review_alignment?.score },
     { key: "platform_semantic_alignment", label: "平台识别对齐", score: alignment.platform_semantic_alignment ?? result.diagnosis_confidence?.platform_semantic_alignment?.score },
@@ -1655,7 +1651,7 @@ function BackendJudgmentPanel({ result }: { result: DiagnosisResult }) {
     { key: "keyword_validation_readiness", label: "关键词验证就绪", score: keywordCausality.readiness_score ?? result.causal_scores?.keyword_validation_readiness },
   ].filter((item) => item.score !== undefined);
 
-  if (items.length === 0 && !causal.summary && validationItems.length === 0 && priorityKeywords.length === 0 && decisionOutputs.length === 0) return null;
+  if (items.length === 0 && !causal.summary && decisionOutputs.length === 0) return null;
 
   return (
     <Card className="bg-brand-50 border-brand-100">
@@ -1719,34 +1715,6 @@ function BackendJudgmentPanel({ result }: { result: DiagnosisResult }) {
           </div>
         )}
         {causal.summary && <p className="mt-3 text-xs text-gray-600 leading-relaxed">{String(causal.summary)}</p>}
-        {priorityKeywords.length > 0 && (
-          <div className="mt-4 rounded-lg border border-brand-100 bg-white p-3">
-            <p className="text-xs font-semibold text-brand-600 mb-2">优先验证关键词</p>
-            <p className="text-[11px] text-gray-500 mb-3">广告验证优先状态触发词和关系词，属性词只做基础覆盖。</p>
-            <div className="flex flex-wrap gap-2">
-              {priorityKeywords.slice(0, 8).map((item: any, idx: number) => {
-                const rawKeyword = typeof item === "string" ? item : item.keyword;
-                const keyword = normalizeAmazonAdKeyword(rawKeyword);
-                const type = typeof item === "string" ? keywordTypeForUi(keyword) : item.keyword_type || keywordTypeForUi(keyword);
-                return keyword ? (
-                  <Badge key={`${keyword}-${idx}`} variant="outline" className={KEYWORD_TYPE_BADGES[type] || KEYWORD_TYPE_BADGES.attribute}>
-                    {keyword} · {KEYWORD_TYPE_LABELS[type] || "属性词"}
-                  </Badge>
-                ) : null;
-              })}
-            </div>
-          </div>
-        )}
-        {validationItems.length > 0 && (
-          <div className="mt-4 rounded-lg border border-brand-100 bg-white p-3">
-            <p className="text-xs font-semibold text-brand-600 mb-2">广告验证承接</p>
-            {validationItems.slice(0, 2).map((item: any, idx: number) => (
-              <p key={idx} className="text-xs text-gray-600 leading-relaxed">
-                {formatAnalysisText(item.diagnosis_issue || item.suggested_listing_action) || "将诊断假设转为广告验证任务。"}
-              </p>
-            ))}
-          </div>
-        )}
       </CardContent>
     </Card>
   );
@@ -3742,7 +3710,7 @@ export default function ListingDiagnosis() {
                     )}
                     {formalGateMissing.length > 0 && !fetchMeta?.capture_quality && (
                       <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-	                        当前无法判定优先项。请先补齐：
+	                        当前无法输出决策结论。请先补齐：
                         <span className="font-semibold"> {formalGateMissing.join("、")} </span>
                       </div>
                     )}
@@ -3858,22 +3826,22 @@ export default function ListingDiagnosis() {
                   <Tabs value={resultTab} onValueChange={setResultTab}>
                     <TabsList className="bg-gray-50 border border-gray-200 flex-wrap">
                       <TabsTrigger value="overview" className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600 text-xs sm:text-sm">
-                        优先项
+                        决策结论
                       </TabsTrigger>
                       <TabsTrigger value="scores" className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600 text-xs sm:text-sm">
                         承接评分
                       </TabsTrigger>
-                      <TabsTrigger value="hypotheses" className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600 text-xs sm:text-sm">
-                        验证假设
-                      </TabsTrigger>
                       <TabsTrigger value="heatmap" className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600 text-xs sm:text-sm">
-                        模块问题
+                        问题归因
                       </TabsTrigger>
                       <TabsTrigger value="keywords" className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600 text-xs sm:text-sm">
                         补哪些词
                       </TabsTrigger>
                       <TabsTrigger value="suggestions" className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600 text-xs sm:text-sm">
                         优化动作
+                      </TabsTrigger>
+                      <TabsTrigger value="hypotheses" className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600 text-xs sm:text-sm">
+                        验证假设
                       </TabsTrigger>
                       <TabsTrigger value="adkeywords" className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600 text-xs sm:text-sm">
                         验证词组
@@ -3882,15 +3850,6 @@ export default function ListingDiagnosis() {
 
                     {/* ===== OVERVIEW TAB ===== */}
                     <TabsContent value="overview" className="mt-4 space-y-6">
-                      <DiagnosisExecutiveReport
-                        result={diagResult}
-                        weightedTotal={weightedTotal}
-                        contentScore={contentScore}
-                        marketScore={marketValidation?.market_total}
-                      />
-
-                      <PriorityIssueTable rows={buildPriorityIssues(diagResult)} />
-
                       <BackendJudgmentPanel result={diagResult} />
                       <PrecisionConfidencePanel integrity={diagResult.data_integrity} />
                       <DiagnosisTraceBar result={diagResult} />
@@ -3977,6 +3936,9 @@ export default function ListingDiagnosis() {
 
                     {/* ===== Module Attribution Heatmap ===== */}
                     <TabsContent value="heatmap" className="mt-4">
+                      <div className="mb-4">
+                        <PriorityIssueTable rows={buildPriorityIssues(diagResult)} />
+                      </div>
                       {elementsData.length > 0 ? (
                         <Card className="bg-gray-50 border-gray-200 p-5">
                           <div className="mb-4">
@@ -4567,65 +4529,6 @@ export default function ListingDiagnosis() {
 /*  Listing Diagnosis Decision Panels                                  */
 /* ------------------------------------------------------------------ */
 
-function DiagnosisExecutiveReport({
-  result,
-  weightedTotal,
-  contentScore,
-  marketScore,
-}: {
-  result: DiagnosisResult;
-  weightedTotal: number;
-  contentScore: number;
-  marketScore?: number;
-}) {
-  const issues = buildPriorityIssues(result);
-  const topIssue = issues[0];
-  const shouldModify = issues.some((item) => item.priority.startsWith("P0"));
-  const recommendAdValidation = weightedTotal >= 55;
-  const priorityDirection = topIssue
-    ? `${topIssue.position}：${topIssue.action}`
-    : "优先补齐标题、图片、五点和关键词承接证据。";
-
-  return (
-    <Card className="bg-white border-brand-100">
-      <CardContent className="p-5">
-        <div className="grid grid-cols-1 lg:grid-cols-[220px_1fr] gap-5">
-          <div className="rounded-2xl bg-brand-50 border border-brand-100 p-4 flex flex-col items-center justify-center">
-            <p className="text-xs text-brand-700 font-semibold">Listing承接风险</p>
-            <p className={`text-5xl font-bold mt-2 ${scoreColor(weightedTotal)}`}>{weightedTotal}</p>
-            <p className="text-xs text-gray-500 mt-1">内容 {contentScore}{marketScore !== undefined ? ` · 市场 ${marketScore}` : ""}</p>
-          </div>
-          <div>
-            <div className="flex flex-wrap gap-2 mb-3">
-              <Badge className={shouldModify ? "bg-red-50 text-red-700 border-red-200" : "bg-emerald-50 text-emerald-700 border-emerald-200"} variant="outline">
-                {shouldModify ? "优化Listing" : "可验证"}
-              </Badge>
-              <Badge className={recommendAdValidation ? "bg-brand-50 text-brand-700 border-brand-200" : "bg-amber-50 text-amber-700 border-amber-200"} variant="outline">
-                {recommendAdValidation ? "进入验证" : "补强承接"}
-              </Badge>
-            </div>
-            <h3 className="text-lg font-bold text-gray-900">运营结论</h3>
-            <p className="mt-2 text-sm text-gray-600 leading-relaxed">
-              {result.overall_summary ||
-                "当前 Listing 需先确认点击承接、搜索意图和信任证明是否完整。"}
-            </p>
-            <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
-              <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
-                <p className="text-[11px] text-gray-500">主要转化阻碍</p>
-                <p className="mt-1 text-sm font-semibold text-gray-900">{topIssue?.position || "待诊断"}</p>
-              </div>
-              <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 md:col-span-2">
-                <p className="text-[11px] text-gray-500">优先动作</p>
-                <p className="mt-1 text-sm font-semibold text-gray-900">{priorityDirection}</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
 function PriorityIssueTable({ rows }: { rows: PriorityIssue[] }) {
   const impactClass: Record<PriorityIssue["impact"], string> = {
     高: "bg-red-50 text-red-700 border-red-200",
@@ -4812,6 +4715,18 @@ function HistoryDetailView({
 
   const avg = getAvgScore(result.scores);
   const g = avg >= 80 ? "A" : avg >= 60 ? "B" : avg >= 40 ? "C" : "D";
+  const historyListing: ListingInput = {
+    title: result.listing_title || result.analyzed_product_name || "",
+    bullet_points: "",
+    description: "",
+    a_plus_content: "",
+    backend_keywords: "",
+    main_image_description: "",
+    category: "",
+    price: "",
+    brand: "",
+    marketplace: result.marketplace || "US",
+  };
 
   return (
     <div className="space-y-4 p-4 rounded-xl bg-gray-50 border border-gray-200">
@@ -4835,18 +4750,24 @@ function HistoryDetailView({
       {/* Sub-tabs */}
       <Tabs value={resultTab} onValueChange={setResultTab}>
         <TabsList className="bg-gray-50 border border-gray-200 flex-wrap">
-          <TabsTrigger value="overview" className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600 text-xs">优先项</TabsTrigger>
+          <TabsTrigger value="overview" className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600 text-xs">决策结论</TabsTrigger>
           <TabsTrigger value="scores" className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600 text-xs">承接评分</TabsTrigger>
-          <TabsTrigger value="judgment" className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600 text-xs">运营判断</TabsTrigger>
-          <TabsTrigger value="heatmap" className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600 text-xs">模块问题</TabsTrigger>
+          <TabsTrigger value="heatmap" className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600 text-xs">问题归因</TabsTrigger>
           <TabsTrigger value="keywords" className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600 text-xs">补哪些词</TabsTrigger>
           <TabsTrigger value="suggestions" className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600 text-xs">优化动作</TabsTrigger>
+          <TabsTrigger value="hypotheses" className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600 text-xs">验证假设</TabsTrigger>
           <TabsTrigger value="adkeywords" className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600 text-xs">验证词组</TabsTrigger>
         </TabsList>
 
         {/* Overview */}
         <TabsContent value="overview" className="mt-3 space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <BackendJudgmentPanel result={result} />
+          <PrecisionConfidencePanel integrity={result.data_integrity} />
+        </TabsContent>
+
+        {/* Scores */}
+        <TabsContent value="scores" className="mt-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-3">
             {radarScores.length > 0 && (
               <div className="flex items-center justify-center">
                 <RadarChart scores={radarScores} size={200} />
@@ -4867,20 +4788,6 @@ function HistoryDetailView({
               })}
             </div>
           </div>
-          {result.overall_summary && (
-            <div className="p-3 rounded-lg bg-gray-50 border border-gray-100">
-              <p className="text-xs text-gray-500 leading-relaxed">{result.overall_summary}</p>
-            </div>
-          )}
-          <PrecisionConfidencePanel integrity={result.data_integrity} />
-        </TabsContent>
-
-        <TabsContent value="judgment" className="mt-3">
-          <BackendJudgmentPanel result={result} />
-        </TabsContent>
-
-        {/* Scores */}
-        <TabsContent value="scores" className="mt-3">
           <div className="mb-3">
             <TwoRulerSummary scores={result.scores} />
           </div>
@@ -4893,6 +4800,9 @@ function HistoryDetailView({
 
         {/* Heatmap */}
         <TabsContent value="heatmap" className="mt-3">
+          <div className="mb-3">
+            <PriorityIssueTable rows={buildPriorityIssues(result)} />
+          </div>
           {elementsData.some((e) => Object.values(e.dims).some((v) => v > 0)) ? (
             <div>
               <div className="mb-3 rounded-lg border border-brand-100 bg-brand-50 p-3">
@@ -5040,6 +4950,10 @@ function HistoryDetailView({
               <p className="text-xs text-gray-600">{result.suggestions.a_plus_suggestions}</p>
             </div>
           )}
+        </TabsContent>
+
+        <TabsContent value="hypotheses" className="mt-3">
+          <ListingHypothesisLoopPanel result={result} listing={historyListing} />
         </TabsContent>
 
         {/* Ad Keywords */}

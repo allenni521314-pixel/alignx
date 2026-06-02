@@ -82,7 +82,7 @@ const navGroups: NavGroup[] = [
   },
   {
     stage: "二",
-    title: "Listing 诊断",
+    title: "Listing 承接",
     icon: Target,
     color: "text-teal-400",
     activeColor: "text-teal-600",
@@ -101,7 +101,7 @@ const navGroups: NavGroup[] = [
       },
       {
         path: "/listing-diagnosis",
-        label: "承接诊断",
+        label: "承接决策",
         icon: Stethoscope,
         moduleKey: "listing-diagnosis",
       },
@@ -121,16 +121,16 @@ const navGroups: NavGroup[] = [
   },
   {
     stage: "四",
-    title: "闭环优化",
+    title: "回流学习",
     icon: RotateCcw,
     color: "text-emerald-400",
     activeColor: "text-emerald-600",
     items: [
       { path: "/optimization-suggestions?view=data-feedback", label: "数据回流", icon: Database, moduleKey: "optimization-suggestions" },
-      { path: "/optimization-suggestions?view=conclusion", label: "复盘结论", icon: MessageSquareText, moduleKey: "optimization-suggestions" },
+      { path: "/optimization-suggestions?view=conclusion", label: "学习复盘", icon: MessageSquareText, moduleKey: "optimization-suggestions" },
       {
         path: "/optimization-suggestions?view=next-round",
-        label: "下一轮动作",
+        label: "资源配置",
         icon: RotateCcw,
         moduleKey: "optimization-suggestions",
       },
