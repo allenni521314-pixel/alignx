@@ -1666,7 +1666,6 @@ function BackendJudgmentPanel({ result }: { result: DiagnosisResult }) {
               <Shield className="w-4 h-4 text-brand-600" />
               <h3 className="text-lg font-bold text-gray-900">诊断判断</h3>
             </div>
-            <p className="text-xs text-gray-500 mt-1">把评论需求、平台识别和转化承接统一成可执行判断。</p>
           </div>
           <Badge variant="outline" className="border-brand-200 text-brand-600">系统计算</Badge>
         </div>
@@ -1675,9 +1674,7 @@ function BackendJudgmentPanel({ result }: { result: DiagnosisResult }) {
             <div className="flex items-start justify-between gap-3 mb-3">
               <div>
                 <p className="text-sm font-bold text-gray-900">V3 决策输出</p>
-                <p className="text-xs text-gray-500 mt-1">两把尺和10维诊断之后，只输出下一步决策。</p>
               </div>
-              <Badge variant="outline" className="border-gold-200 text-gold-700 bg-gold-50">Business Decision OS</Badge>
             </div>
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
               {decisionOutputs.slice(0, 6).map((item: any, idx: number) => {
@@ -3893,13 +3890,6 @@ export default function ListingDiagnosis() {
                       />
 
                       <PriorityIssueTable rows={buildPriorityIssues(diagResult)} />
-
-                      <Card className="bg-gray-50 border-gray-200">
-                        <CardContent className="pt-6">
-                          <h3 className="text-lg font-bold text-gray-900 mb-2">优先项</h3>
-                          <p className="text-sm text-gray-500 leading-relaxed">{diagResult.overall_summary}</p>
-                        </CardContent>
-                      </Card>
 
                       <BackendJudgmentPanel result={diagResult} />
                       <PrecisionConfidencePanel integrity={diagResult.data_integrity} />
