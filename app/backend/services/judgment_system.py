@@ -800,11 +800,11 @@ class JudgmentSystemService:
         precision: dict[str, Any],
         ad_validation: dict[str, Any],
     ) -> list[dict[str, Any]]:
-        """Build V3 Business Decision OS outputs.
+        """Build V4 decision outputs.
 
-        DecisionOutput is intentionally placed after the two rulers, 10D
-        judgment, causal judgment and validation plan. It is the user-facing
-        decision expression, not the reasoning standard itself.
+        DecisionOutput sits after the Human Nature Root Layer, two rulers,
+        10D judgment, causal judgment and validation plan. It is the
+        user-facing decision expression, not the reasoning standard itself.
         """
         dimension_scores = cosmo_semantics.get("dimension_scores") or {}
         review_score = float(review_semantics.get("score") or 0)
@@ -969,7 +969,7 @@ class JudgmentSystemService:
                 ],
                 action="只有带hit_status、miss_reason和next_iteration的结果才能进入规则记忆。",
                 risk="样本不足或未归因数据进入记忆，会让系统越学越偏。",
-                impact="沉淀用户意图、平台匹配、卖点和广告结果之间的因果关系。",
+                impact="沉淀人性动机、需求、场景、解决方案、表达、行为和结果之间的因果关系。",
                 next_check="验证后标记命中、未命中、样本不足、误判或权重修正。",
                 failure_pattern="FP-LF001 无归因回流污染学习记忆",
             ),

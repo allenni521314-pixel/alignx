@@ -33,6 +33,7 @@ from services.canonical_10d_scoring import (
     product_evidence_similarity,
 )
 from services.cosmo_operator_agent import CosmoOperatorAgent
+from services.human_nature_model import human_nature_prompt_block
 
 logger = logging.getLogger(__name__)
 
@@ -669,8 +670,21 @@ ASIN: {asin}
 基于以上真实数据，补充缺失的字段（如预估月销量、月收入等）。已有真实数据直接使用，不要修改。
 真实字段硬性约束：标题、品牌、类目、价格、评分、评论数、BSR、上架时间、五点、A+文本必须以抓取数据为准；不要翻译、不要改写、不要自行估算覆盖真实字段。
 
-### 任务2：用户需求 × 平台识别 × 10维诊断
-本任务不是把10个维度当作平铺同级指标简单平均。必须先判断竞品/ASIN为什么被用户选择、为什么被Amazon匹配，再用10维诊断做反向检查。
+### 任务2：人性根层 × 用户需求 × 平台识别 × 10维诊断
+本任务不是把10个维度当作平铺同级指标简单平均。必须先判断竞品/ASIN背后的趋利/避害、人性节点、动机、需求、场景和解决方案，再判断为什么被用户选择、为什么被Amazon匹配，最后用10维诊断做反向检查。
+
+**人性根层标准**
+- Level 0：趋利（Gain）/ 避害（Loss）。
+- Level 1：生存 / 繁衍 / 资源 / 探索。
+- Level 2：13个人性节点。
+- Level 3：动机。
+- Level 4：需求。
+- Level 5：场景。
+- Level 6：解决方案。
+- Level 7：表达。
+- Level 8：行为。
+- Level 9：结果。
+- 禁止从关键词开始推理；关键词只能是Level 7表达或广告验证资产。
 
 **用户需求标准**
 - 任务对象清晰度：用户是谁，要完成什么任务，想得到什么结果。
@@ -686,7 +700,7 @@ ASIN: {asin}
 - 关系图谱完整度：for whom、used for、used with、in scenario、solves 是否清楚。
 - 证据可回答性：标题、图片、五点、A+、评论是否能回答用户和平台购物助手的问题。
 
-每个analysis字段必须输出：用户需求映射、平台识别映射、真实证据、强点/漏洞、我方动作（借鉴/避开/攻击/差异化）和广告验证假设。后台判断必须按1用户意图、2平台规则、3验证回流的顺序执行，但不要把内部流程原文暴露给前台卖家。
+每个analysis字段必须输出：人性根层映射、用户需求映射、平台识别映射、真实证据、强点/漏洞、我方动作（借鉴/避开/攻击/差异化）和广告验证假设。后台判断必须按1人性根层、2用户意图、3平台规则、4验证回流的顺序执行，但不要把内部流程原文暴露给前台卖家。
 
 从以下10个维度进行评分（每个维度0-100分）并给出详细分析：
 
@@ -2022,7 +2036,7 @@ ASIN: {asin}
 
 只返回JSON，不要返回其他内容。"""
 
-SIX_DIMENSION_AI_PRIMARY_PROMPT = """你是AlignX的ASIN选品主判模型，使用用户意图 × 平台识别 × 顶级亚马逊运营操盘手的复合判断方式。
+SIX_DIMENSION_AI_PRIMARY_PROMPT = """你是AlignX的ASIN选品主判模型，使用人性根层 × 用户意图 × 平台识别 × 顶级亚马逊运营操盘手的复合判断方式。
 
 你的职责：基于真实抓取证据，对单个ASIN做机会判断主判。规则底座只作为证据提示和硬闸门参考，不允许被规则分数牵着走。
 
@@ -2469,10 +2483,17 @@ async def _run_six_dimension_ai_primary(asin: str, marketplace: str, product_tit
     from schemas.aihub import ChatMessage, GenTxtRequest
 
     product_context = _build_product_context(product_data, product_title)
+    human_context = human_nature_prompt_block({
+        "title": product_title or product_data.get("title", ""),
+        "bullet_points": product_data.get("bullet_points", ""),
+        "category": product_data.get("category", ""),
+        "brand": product_data.get("brand", ""),
+        "keywords": product_data.get("main_keywords", ""),
+    })
     prompt = SIX_DIMENSION_AI_PRIMARY_PROMPT.format(
         asin=asin,
         marketplace=marketplace,
-        product_context=product_context,
+        product_context=f"{human_context}\n\n{product_context}",
         rule_context=_build_six_dimension_rule_context(rule_engine),
     )
     ai_service = AIHubService()

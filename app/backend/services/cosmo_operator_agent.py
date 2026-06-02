@@ -22,11 +22,12 @@ logger = logging.getLogger(__name__)
 
 
 STANDARD_SCHEMA = "alignx-cosmo-operator-v1"
-STANDARD_VERSION = "cosmo-operator-10d-learning-v1"
+STANDARD_VERSION = "human-nature-v4-10d-learning-v1"
 INTERNAL_SKILL_ID = "amazon-cosmo-operator-perspective"
 PUBLIC_STANDARD_NAME = "AlignX 10维诊断"
 
 JUDGMENT_ORDER = (
+    "人性根层",
     "用户意图",
     "平台规则",
     "验证回流",
@@ -234,7 +235,8 @@ class CosmoOperatorAgent:
         return (
             "【AlignX后台唯一判断内核】\n"
             f"内部标准：{INTERNAL_SKILL_ID} / {STANDARD_VERSION}。禁止向前台卖家暴露内部标准名称、两把尺或模型名称。\n"
-            "所有业务判断必须按固定顺序执行：1用户意图 -> 2平台规则 -> 3验证回流。\n"
+            "所有业务判断必须按固定顺序执行：1人性根层 -> 2用户意图 -> 3平台规则 -> 4验证回流。\n"
+            "人性根层先判断Level 0趋利/避害、Level 1生存/繁衍/资源/探索、Level 2的13个人性节点、Level 3动机、Level 4需求、Level 5场景、Level 6解决方案、Level 7表达、Level 8行为、Level 9结果；"
             "用户意图只判断真实任务、痛点、场景、决策触发和反购买风险；平台规则只判断类目身份、查询意图、结构化属性、关系图谱和证据可回答性；"
             "广告/搜索/评论/回流数据只用于校准置信度和优先级，不能替代前两步。\n"
             "输出统一使用10维诊断；后台规则只做兜底和一致性检查，不允许规则覆盖语义证据链的主判断。\n"

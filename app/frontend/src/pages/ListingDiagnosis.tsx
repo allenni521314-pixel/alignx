@@ -1699,13 +1699,13 @@ function BackendJudgmentPanel({ result }: { result: DiagnosisResult }) {
               <h3 className="text-lg font-bold text-gray-900">诊断判断</h3>
             </div>
           </div>
-          <Badge variant="outline" className="border-brand-200 text-brand-600">系统计算</Badge>
+          <Badge variant="outline" className="border-brand-200 text-brand-600">已计算</Badge>
         </div>
         {decisionOutputs.length > 0 && (
           <div className="mb-4 rounded-xl border border-brand-100 bg-white p-4">
             <div className="flex items-start justify-between gap-3 mb-3">
               <div>
-                <p className="text-sm font-bold text-gray-900">V3 决策输出</p>
+                <p className="text-sm font-bold text-gray-900">决策输出</p>
               </div>
             </div>
             {validationGate?.gate && (
@@ -3605,7 +3605,6 @@ export default function ListingDiagnosis() {
                           <CheckCircle2 className="w-5 h-5 text-emerald-600" />
 	                          判定条件
                         </CardTitle>
-                        <p className="text-xs text-gray-500 mt-1">统一按标题关键词、主图/副图、A+、五点、后台关键词判断承接基础；价格/评论/BSR只作为市场证据。</p>
                       </div>
                       {fetchSource && (
                         <Badge variant="outline" className="w-fit border-emerald-200 bg-emerald-50 text-emerald-700">

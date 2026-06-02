@@ -1780,9 +1780,6 @@ export default function PreLaunchTest() {
                 <p className="text-sm font-medium text-gray-600 mb-2">
                   {ocrStatus || "正在进行上新准入检测"}
                 </p>
-                <p className="text-xs text-gray-500 text-center max-w-sm">
-                  正在识别图片文案，并按评论需求、平台识别、转化承接、图片顺序和素材完整度评分。
-                </p>
               </div>
             </Card>
           )}
@@ -2018,10 +2015,7 @@ export default function PreLaunchTest() {
                 </div>
               </div>
               <h3 className="text-gray-500 font-medium mb-2">Listing 上新检测</h3>
-              <p className="text-gray-600 text-sm max-w-md mx-auto leading-relaxed">
-                输入标题、五点、图片、A+和后台搜索关键词，
-                系统会输出是否建议上架、风险等级、必改项、缺词和表达错配点
-              </p>
+              <p className="text-gray-600 text-sm max-w-md mx-auto leading-relaxed">暂无检测结果</p>
               <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mt-8 max-w-2xl mx-auto">
                 {[
                   { label: "标题+关键词", icon: <Type className="w-4 h-4" />, color: "text-teal-600 bg-teal-50 border-teal-200" },

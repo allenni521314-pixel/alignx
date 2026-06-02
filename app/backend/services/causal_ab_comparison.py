@@ -91,7 +91,7 @@ class CausalABComparisonService(CausalServiceBase):
         This is the primary production path. Static rules are only fallback.
         """
         prompt = f"""
-你是 AlignX 的 Amazon Listing A/B 测试判断模型。请用用户意图 × 平台识别 × 顶级亚马逊运营操盘手逻辑，对两个版本做广告验证前判断。
+你是 AlignX 的 Amazon Listing A/B 测试判断模型。请按人性根层 × 用户意图 × 平台识别 × 顶级亚马逊运营操盘手逻辑，对两个版本做广告验证前判断。
 
 重要边界：
 1. A/B 不是文案审美比较，而是 Listing 假设验证。

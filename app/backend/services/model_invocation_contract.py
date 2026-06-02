@@ -190,7 +190,7 @@ ASIN_SELECTION_CONTRACT = WorkflowContract(
     key="asin_selection",
     name="ASIN选品决策",
     steps=(
-        PipelineStep("human_nature_reasoning", "rules", "识别趋利/避害、13驱动力、动机、需求、场景和Solution层", "human_nature_graph", True),
+        PipelineStep("human_nature_reasoning", "rules", "识别趋利/避害、13个人性节点、动机、需求、场景和Solution层", "human_nature_graph", True),
         PipelineStep("amazon_snapshot", "scraping", "抓Top40和单个ASIN真实事实", "raw_amazon_snapshot", True),
         PipelineStep("fact_rules", "rules", "校验价格、BSR、评论、库存、广告位/自然位", "structured_facts", True),
         PipelineStep("semantic_recall", "embedding", "召回相似机会、关键词意图和历史判断", "semantic_candidates"),
@@ -244,7 +244,7 @@ FEEDBACK_CONTRACT = WorkflowContract(
     key="feedback_loop",
     name="数据回流",
     steps=(
-        PipelineStep("human_nature_reasoning", "rules", "回流命中/未命中时修正人性动机图谱权重", "human_motivation_graph", True),
+        PipelineStep("human_nature_reasoning", "rules", "回流命中/未命中时修正人性根层图谱权重", "human_nature_graph", True),
         PipelineStep("result_snapshot", "rules", "保存每轮Listing版本、广告结果和诊断快照", "versioned_snapshot", True),
         PipelineStep("semantic_recall", "embedding", "把新结果写入并召回相似历史轮次", "semantic_candidates"),
         PipelineStep("evidence_rerank", "rerank", "找出最像当前问题的历史验证", "ranked_evidence"),
