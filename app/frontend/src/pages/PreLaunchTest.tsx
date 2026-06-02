@@ -44,6 +44,13 @@ interface DimensionScore {
   score: number;
   analysis: string;
   suggestions: string[];
+  recommended_text?: string;
+  validation_hypothesis?: string;
+  attribution_metric?: string;
+  validation_keywords?: string[];
+  failed_scale?: string[];
+  current_gap?: string;
+  recommended_change?: string;
 }
 
 interface ScoringResult {
@@ -59,6 +66,10 @@ interface ScoringResult {
   ordered_first_fixes?: string[];
   rule_context?: Record<string, unknown>;
   vision_alignment?: Record<string, unknown>;
+  product_attribute_profile?: Record<string, unknown>;
+  prelaunch_modification_plan?: Record<string, unknown>;
+  ad_validation_alignment?: Record<string, unknown>;
+  ad_validation_plan?: Record<string, unknown>;
 }
 
 interface HistoryItem {
@@ -578,6 +589,22 @@ function DimScoreCard({
 
       <p className="text-xs text-gray-500 leading-relaxed mb-3">{dim.analysis}</p>
 
+      {(dim.failed_scale?.length || dim.current_gap || dim.recommended_change) && (
+        <div className="mb-3 rounded-lg border border-amber-100 bg-amber-50/60 px-3 py-2">
+          {dim.failed_scale && dim.failed_scale.length > 0 && (
+            <p className="text-[10px] font-semibold text-amber-700">
+              未过标准：{dim.failed_scale.join(" / ")}
+            </p>
+          )}
+          {dim.current_gap && (
+            <p className="mt-1 text-[11px] leading-relaxed text-gray-700">{dim.current_gap}</p>
+          )}
+          {dim.recommended_change && (
+            <p className="mt-1 text-[11px] font-semibold leading-relaxed text-gray-900">{dim.recommended_change}</p>
+          )}
+        </div>
+      )}
+
       {dim.suggestions.length > 0 && (
         <div className="space-y-1.5">
           <span className="text-[10px] text-gray-500 uppercase tracking-wider font-semibold">优化建议</span>
@@ -589,6 +616,16 @@ function DimScoreCard({
           ))}
         </div>
       )}
+      {(dim.validation_hypothesis || dim.attribution_metric) && (
+        <div className="mt-3 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+          {dim.validation_hypothesis && (
+            <p className="text-[11px] leading-relaxed text-gray-600">{dim.validation_hypothesis}</p>
+          )}
+          {dim.attribution_metric && (
+            <p className="mt-1 text-[10px] font-semibold text-brand-600">归因指标：{dim.attribution_metric}</p>
+          )}
+        </div>
+      )}
       <div className="mt-4 flex flex-wrap gap-2">
         {needsFix ? (
           <Button
@@ -597,7 +634,7 @@ function DimScoreCard({
             onClick={() => onApplyFix(dimensionKey, dim)}
             className="h-8 bg-brand-600 hover:bg-brand-700 text-white"
           >
-            应用优化到输入区
+            按推荐回填
           </Button>
         ) : (
           <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-700">
@@ -1282,12 +1319,14 @@ export default function PreLaunchTest() {
 
   const applyDimensionFix = (dimension: PrelaunchDimensionKey, dim: DimensionScore) => {
     const suggestions = dim.suggestions.filter(Boolean);
+    const recommendedText = (dim.recommended_text || "").trim();
+    const recommendedKeywords = (dim.validation_keywords || []).filter(Boolean);
     if (dimension === "title_keywords") {
-      setTitle(buildOptimizedTitle());
-      setKeywords(appendUniqueCsv("", suggestedKeywords));
+      setTitle(recommendedText || buildOptimizedTitle());
+      setKeywords(appendUniqueCsv("", recommendedKeywords.length ? recommendedKeywords : suggestedKeywords));
     }
     if (dimension === "backend_keywords") {
-      setKeywords(appendUniqueCsv("", suggestedKeywords));
+      setKeywords(recommendedText || appendUniqueCsv("", recommendedKeywords.length ? recommendedKeywords : suggestedKeywords));
     }
     if (dimension === "main_image") {
       if (mainImages.length < MAX_MAIN_IMAGES) {
@@ -1296,17 +1335,17 @@ export default function PreLaunchTest() {
         return;
       }
       setAPlusDesc((prev) => appendUniqueLines(prev, [
-        "Image brief: 1 white background click image 2 core benefit proof 3 real use scenario 4 size and structure 5 competitor comparison 6 safety or material proof 7 package setup and use steps.",
+        recommendedText || "Image brief: 1 white background click image 2 core benefit proof 3 real use scenario 4 size and structure 5 competitor comparison 6 safety or material proof 7 package setup and use steps.",
       ]));
     }
     if (dimension === "a_plus_description") {
-      setAPlusDesc(appendUniqueLines(productProfile.aplus, suggestions.slice(0, 2).map((item) => `Extra review note: ${item}`)));
+      setAPlusDesc(appendUniqueLines(recommendedText || productProfile.aplus, suggestions.slice(0, 2).map((item) => `Extra review note: ${item}`)));
       if (aPlusImages.length < MAX_APLUS_IMAGES) {
         toast.warning("已回填A+文本闭环；A+要稳定到80分以上，还需要补齐9张A+图并按顺序上传");
       }
     }
     if (dimension === "bullet_points") {
-      setBulletPoints(productProfile.bullets.join("\n"));
+      setBulletPoints(recommendedText || productProfile.bullets.join("\n"));
     }
     replaceWithOptimizedInput();
     toast.success("已把优化建议回填到输入区，请重新检测分数");
@@ -1431,37 +1470,21 @@ export default function PreLaunchTest() {
         saved_kind: "full_prelaunch_record",
         optimization_round: optimizationRound,
         overall_score: targetResult.overall_score,
-        title_keywords: {
-          score: targetResult.title_keywords.score,
-          analysis: targetResult.title_keywords.analysis,
-          suggestions: targetResult.title_keywords.suggestions,
-        },
-        main_image: {
-          score: targetResult.main_image.score,
-          analysis: targetResult.main_image.analysis,
-          suggestions: targetResult.main_image.suggestions,
-        },
-        a_plus_description: {
-          score: targetResult.a_plus_description.score,
-          analysis: targetResult.a_plus_description.analysis,
-          suggestions: targetResult.a_plus_description.suggestions,
-        },
-        bullet_points_score: {
-          score: targetResult.bullet_points.score,
-          analysis: targetResult.bullet_points.analysis,
-          suggestions: targetResult.bullet_points.suggestions,
-        },
-        backend_keywords: {
-          score: targetResult.backend_keywords.score,
-          analysis: targetResult.backend_keywords.analysis,
-          suggestions: targetResult.backend_keywords.suggestions,
-        },
+        title_keywords: targetResult.title_keywords,
+        main_image: targetResult.main_image,
+        a_plus_description: targetResult.a_plus_description,
+        bullet_points_score: targetResult.bullet_points,
+        backend_keywords: targetResult.backend_keywords,
         overall_summary: targetResult.overall_summary,
         cosmo_alignment: targetResult.cosmo_alignment,
         rufus_alignment: targetResult.rufus_alignment,
         ordered_first_fixes: targetResult.ordered_first_fixes || [],
         rule_context: targetResult.rule_context || {},
         vision_alignment: targetResult.vision_alignment || {},
+        product_attribute_profile: targetResult.product_attribute_profile || {},
+        prelaunch_modification_plan: targetResult.prelaunch_modification_plan || {},
+        ad_validation_alignment: targetResult.ad_validation_alignment || {},
+        ad_validation_plan: targetResult.ad_validation_plan || {},
         has_images: hasImages,
       };
 
@@ -1542,6 +1565,13 @@ export default function PreLaunchTest() {
       score: (d?.score as number) || 0,
       analysis: (d?.analysis as string) || "",
       suggestions: (d?.suggestions as string[]) || [],
+      recommended_text: (d?.recommended_text as string) || "",
+      validation_hypothesis: (d?.validation_hypothesis as string) || "",
+      attribution_metric: (d?.attribution_metric as string) || "",
+      validation_keywords: (d?.validation_keywords as string[]) || [],
+      failed_scale: (d?.failed_scale as string[]) || [],
+      current_gap: (d?.current_gap as string) || "",
+      recommended_change: (d?.recommended_change as string) || "",
     });
 
     const reconstructed: ScoringResult = {
@@ -1557,6 +1587,10 @@ export default function PreLaunchTest() {
       ordered_first_fixes: (report.ordered_first_fixes as string[]) || [],
       rule_context: (report.rule_context as Record<string, unknown>) || {},
       vision_alignment: (report.vision_alignment as Record<string, unknown>) || {},
+      product_attribute_profile: (report.product_attribute_profile as Record<string, unknown>) || {},
+      prelaunch_modification_plan: (report.prelaunch_modification_plan as Record<string, unknown>) || {},
+      ad_validation_alignment: (report.ad_validation_alignment as Record<string, unknown>) || {},
+      ad_validation_plan: (report.ad_validation_plan as Record<string, unknown>) || {},
     };
 
     setResult(reconstructed);
@@ -1765,7 +1799,7 @@ export default function PreLaunchTest() {
                     <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-4">
                       <div>
                         <h2 className="text-lg font-bold text-gray-900">上新准入结论</h2>
-                        <p className="text-xs text-gray-500 mt-1">输出是否建议上架、风险等级、必改项、缺失关键词和表达错配点</p>
+                        <p className="text-xs text-gray-500 mt-1">先把本品Listing承接校准，再进入广告验证，减少试错成本与时间成本。</p>
                       </div>
                       <div className="flex gap-2">
                         <span className={`px-3 py-1.5 rounded-lg border text-sm font-semibold ${riskClass}`}>
@@ -1918,7 +1952,7 @@ export default function PreLaunchTest() {
                   <div>
                     <p className="text-sm font-semibold text-brand-700">上新前迭代</p>
                     <p className="text-xs text-brand-600/80 mt-1">
-                      低于80分的维度可以点击“应用优化到输入区”，系统会回填可执行修改，再重新检测；每一轮都会完整保存。
+                      低于80分的维度可以点击“按推荐回填”，系统会按产品属性回填可执行修改，再重新检测；每一轮都会完整保存。
                     </p>
                   </div>
                   <Badge variant="outline" className="border-brand-200 bg-white text-brand-700">

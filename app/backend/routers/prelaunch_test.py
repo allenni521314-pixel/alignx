@@ -32,6 +32,13 @@ class DimensionScoreInput(BaseModel):
     score: float = 0
     analysis: str = ""
     suggestions: list[str] = []
+    recommended_text: str = ""
+    validation_hypothesis: str = ""
+    attribution_metric: str = ""
+    validation_keywords: list[str] = []
+    failed_scale: list[str] = []
+    current_gap: str = ""
+    recommended_change: str = ""
 
 
 class SaveResultRequest(BaseModel):
@@ -55,6 +62,10 @@ class SaveResultRequest(BaseModel):
     rule_context: dict[str, Any] = {}
     vision_alignment: dict[str, Any] = {}
     toolbox_enhancements: dict[str, Any] = {}
+    product_attribute_profile: dict[str, Any] = {}
+    prelaunch_modification_plan: dict[str, Any] = {}
+    ad_validation_alignment: dict[str, Any] = {}
+    ad_validation_plan: dict[str, Any] = {}
     has_images: int = 0  # 0=none, 1=main, 2=a+, 3=both
 
 
@@ -157,8 +168,11 @@ def _keyword_bucket_counts(items: list[str]) -> dict[str, int]:
     }
 
 
-def _dimension(score: int, analysis: str, suggestions: list[str]) -> dict[str, Any]:
-    return {"score": score, "analysis": analysis, "suggestions": suggestions[:3]}
+def _dimension(score: int, analysis: str, suggestions: list[str], extra: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+    payload = {"score": score, "analysis": analysis, "suggestions": suggestions[:3]}
+    if extra:
+        payload.update(extra)
+    return payload
 
 
 MAIN_IMAGE_SEQUENCE = [
@@ -189,10 +203,279 @@ def _sequence_missing(sequence: list[str], count: int) -> list[str]:
     return sequence[max(0, count):]
 
 
+def _dedupe_keep_order(items: list[str], limit: int = 12) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for raw in items:
+        item = re.sub(r"\s+", " ", (raw or "").strip())
+        if not item:
+            continue
+        key = item.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(item)
+        if len(result) >= limit:
+            break
+    return result
+
+
+def _extract_english_phrases(text: str, limit: int = 8) -> list[str]:
+    cleaned = re.sub(r"[^A-Za-z0-9\s/-]", " ", text or "")
+    words = [word.lower() for word in re.findall(r"\b[A-Za-z][A-Za-z0-9-]{2,}\b", cleaned)]
+    stop = {
+        "the", "and", "for", "with", "from", "this", "that", "your", "you", "are",
+        "our", "set", "pack", "new", "best", "pro", "plus", "home", "use",
+    }
+    phrases: list[str] = []
+    for size in (3, 2):
+        for index in range(0, max(0, len(words) - size + 1)):
+            phrase_words = words[index:index + size]
+            if any(word in stop for word in phrase_words[:1]):
+                continue
+            phrase = " ".join(phrase_words)
+            if len(phrase) >= 8:
+                phrases.append(phrase)
+    return _dedupe_keep_order(phrases, limit)
+
+
+def _infer_product_profile(request: EvaluateLaunchRequest) -> dict[str, Any]:
+    text = " ".join([
+        request.title,
+        request.keywords,
+        request.bullet_points,
+        request.a_plus_desc,
+        request.category,
+    ])
+    lower = text.lower()
+    extracted = _extract_english_phrases(text)
+
+    if _has_any(lower, ["pet", "cat", "dog", "litter", "odor", "deodorizer", "purifier", "uv-c", "photocatalyst", "臭", "除味", "宠物"]):
+        return {
+            "product_identity": "pet odor deodorizer",
+            "core_terms": ["pet odor deodorizer", "cat litter odor remover", "pet air purifier"],
+            "attribute_terms": ["photocatalyst deodorizer", "UV-C deodorizer", "ozone free odor control", "quiet deodorizer", "compact air purifier"],
+            "audience_terms": ["cat owners", "dog owners", "small pet owners", "apartment pet owners"],
+            "scenario_terms": [
+                "cat litter box", "pet room", "bathroom", "shoe cabinet", "closet", "storage room",
+                "hamster cage", "hedgehog cage", "turtle tank area", "fish pond area",
+            ],
+            "relation_terms": ["for cat litter box", "for pet room", "for bathroom odor", "for small rooms", "with ozone free odor control"],
+            "state_trigger_terms": ["remove pet smell", "reduce ammonia odor", "control litter box odor", "freshen small room", "reduce lingering odor"],
+            "risk_terms": ["ozone free", "quiet operation", "safe around pets", "easy maintenance", "no fragrance masking"],
+        }
+    if _has_any(lower, ["case", "iphone", "magsafe", "phone", "手机壳", "保护壳"]):
+        return {
+            "product_identity": "phone case",
+            "core_terms": ["magnetic phone case", "clear iPhone case", "protective phone case"],
+            "attribute_terms": ["MagSafe compatible", "anti yellowing", "drop protection", "raised camera edge", "slim clear case"],
+            "audience_terms": ["iPhone users", "commuters", "daily phone users"],
+            "scenario_terms": ["daily carry", "commute", "office", "travel", "wireless charging"],
+            "relation_terms": ["for iPhone", "with MagSafe compatibility", "with camera protection", "for wireless charging"],
+            "state_trigger_terms": ["prevent scratches", "reduce drop damage", "keep clear look", "improve grip"],
+            "risk_terms": ["model fit", "magnetic strength", "yellowing resistance", "button response"],
+        }
+    if _has_any(lower, ["power bank", "charger", "battery", "usb c", "充电", "移动电源"]):
+        return {
+            "product_identity": "portable power bank",
+            "core_terms": ["portable power bank", "USB C charger", "backup battery pack"],
+            "attribute_terms": ["USB C charging", "compact size", "travel charger", "fast charging", "built in cable"],
+            "audience_terms": ["travelers", "commuters", "students", "phone users"],
+            "scenario_terms": ["flight", "commute", "office", "school", "emergency backup"],
+            "relation_terms": ["for iPhone", "for Samsung", "for travel", "with USB C"],
+            "state_trigger_terms": ["avoid low battery", "charge without outlet", "backup phone power", "lightweight carry"],
+            "risk_terms": ["device compatibility", "capacity clarity", "charging speed", "travel safety"],
+        }
+    if _has_any(lower, ["speaker", "bluetooth", "音箱", "扬声器"]):
+        return {
+            "product_identity": "bluetooth speaker",
+            "core_terms": ["bluetooth speaker", "portable speaker", "wireless speaker"],
+            "attribute_terms": ["waterproof speaker", "portable sound", "FM radio", "long battery life", "compact speaker"],
+            "audience_terms": ["outdoor users", "travelers", "music listeners"],
+            "scenario_terms": ["camping", "pool", "beach", "patio", "shower", "travel"],
+            "relation_terms": ["for camping", "for pool", "for beach", "with Bluetooth", "with waterproof design"],
+            "state_trigger_terms": ["play music outdoors", "avoid splash worry", "portable party sound", "easy pairing"],
+            "risk_terms": ["waterproof limit", "battery life", "connection stability", "sound clarity"],
+        }
+
+    base_identity = extracted[0] if extracted else "product"
+    return {
+        "product_identity": base_identity,
+        "core_terms": _dedupe_keep_order([base_identity, *extracted[:3]], 4),
+        "attribute_terms": _dedupe_keep_order(extracted[1:6] + ["clear core benefit", "easy setup"], 6),
+        "audience_terms": ["target buyer", "daily user"],
+        "scenario_terms": ["home use", "daily use", "gift use", "travel use"],
+        "relation_terms": [f"for {base_identity}", "with clear benefit", "for everyday use"],
+        "state_trigger_terms": ["solve daily problem", "reduce purchase risk", "make use easier"],
+        "risk_terms": ["fit", "quality evidence", "setup clarity", "after sale support"],
+    }
+
+
+def _build_prelaunch_recommendations(
+    request: EvaluateLaunchRequest,
+    profile: dict[str, Any],
+    scores: dict[str, int],
+    missing_main_roles: list[str],
+    missing_aplus_roles: list[str],
+) -> dict[str, dict[str, Any]]:
+    identity = profile["product_identity"]
+    core = profile["core_terms"]
+    attrs = profile["attribute_terms"]
+    scenarios = profile["scenario_terms"]
+    relations = profile["relation_terms"]
+    states = profile["state_trigger_terms"]
+    risks = profile["risk_terms"]
+    audience = profile["audience_terms"]
+
+    title_text = (
+        f"{core[0].title()} for {scenarios[0].title()} and {scenarios[1].title()}, "
+        f"{attrs[0].title()}, {attrs[1].title()}, {states[0].title()}"
+    )
+    if len(title_text) > 190:
+        title_text = title_text[:187].rstrip(", ") + "..."
+
+    main_brief = "\n".join([
+        f"1 主图：白底展示{identity}，主体清晰，避免文字和场景干扰。",
+        f"2 核心卖点图：证明{attrs[0]}，让用户一眼知道差异。",
+        f"3 场景图：放入{scenarios[0]}、{scenarios[1]}等真实使用节点。",
+        f"4 尺寸/结构图：说明安装位置、适用空间和使用边界。",
+        f"5 对比图：对比常见替代方案，突出{states[0]}。",
+        f"6 信任图：展示{risks[0]}、{risks[1]}等风险消除证据。",
+        "7 使用步骤图：展示安装、维护和错误使用提醒。",
+    ])
+    aplus_text = "\n".join([
+        f"1 品牌承诺：围绕{audience[0]}在{scenarios[0]}遇到的问题建立使用理由。",
+        f"2 原理说明：解释{attrs[0]}如何解决{states[0]}，不要空泛承诺。",
+        f"3 场景教育：覆盖{', '.join(scenarios[:5])}，让平台和用户理解使用边界。",
+        f"4 利益证明：把{states[0]}、{states[1]}转成可感知结果。",
+        f"5 差异化：说明与常见替代方案相比为什么更适合{scenarios[0]}。",
+        f"6 适配边界：明确适用空间、安装位置、维护周期和不适用场景。",
+        f"7 风险消除：补充{', '.join(risks[:4])}。",
+        "8 使用维护：展示安装、清洁、耗材或保养方法。",
+        "9 售后闭环：说明使用支持、故障处理和更换规则。",
+    ])
+    bullets = "\n".join([
+        f"Function: {identity} focuses on {attrs[0]} for {scenarios[0]} and similar spaces.",
+        f"Effect: helps {states[0]} and {states[1]} so buyers understand the practical result.",
+        f"Scenario: suitable for {', '.join(scenarios[:4])} with clear placement guidance.",
+        f"Trust: explain {', '.join(risks[:3])} with verifiable wording and no exaggerated claims.",
+        "Support: show setup, maintenance and after-sale help to reduce purchase hesitation.",
+    ])
+    backend_terms = _dedupe_keep_order([*core, *attrs, *relations, *states, *scenarios], 18)
+    failed = {
+        "title_keywords": ["平台识别尺", "用户意图尺"] if scores["title_keywords"] < 80 else [],
+        "main_image": ["用户意图尺", "平台识别尺"] if scores["main_image"] < 80 else [],
+        "a_plus_description": ["用户意图尺"] if scores["a_plus_description"] < 80 else [],
+        "bullet_points": ["用户意图尺"] if scores["bullet_points"] < 80 else [],
+        "backend_keywords": ["平台识别尺"] if scores["backend_keywords"] < 80 else [],
+    }
+    scale_basis = {
+        "title_keywords": {
+            "用户意图尺": "用户能否一眼看懂为谁、在哪用、解决什么问题。",
+            "平台识别尺": "Amazon能否识别商品身份、核心属性、关系词和状态触发词。",
+        },
+        "main_image": {
+            "用户意图尺": "买家是否能在第一眼看到真实商品和点击理由。",
+            "平台识别尺": "图片顺序是否让平台理解商品、场景、结构和使用边界。",
+        },
+        "a_plus_description": {
+            "用户意图尺": "是否解释原理、场景边界、差异化和风险消除。",
+            "平台识别尺": "A+图文是否补足标题和五点无法承载的语义证据。",
+        },
+        "bullet_points": {
+            "用户意图尺": "五点是否拆成可验证的功能、效果、场景、信任和支持。",
+            "平台识别尺": "五点是否补充属性、场景和状态词，帮助平台理解购买理由。",
+        },
+        "backend_keywords": {
+            "用户意图尺": "是否覆盖用户真实会搜的场景问题词和状态词。",
+            "平台识别尺": "Search Terms是否补足前台未覆盖的语义入口，且不堆无关词。",
+        },
+    }
+
+    return {
+        "title_keywords": {
+            "recommended_text": title_text,
+            "failed_scale": failed["title_keywords"],
+            "decision_basis": scale_basis["title_keywords"],
+            "current_gap": "标题必须先让Amazon识别商品身份、属性、关系词和使用场景。",
+            "recommended_change": f"标题补齐{identity}、{attrs[0]}、{relations[0]}和{states[0]}。",
+            "validation_hypothesis": "标题修改后，广告低预算验证搜索词是否更集中，曝光是否更稳定。",
+            "attribution_metric": "Impression / Search Term Relevance",
+            "validation_keywords": _dedupe_keep_order([*core[:2], *relations[:2], *states[:2]], 6),
+            "suggestions": [
+                f"标题先写清{identity}，再补{attrs[0]}、{relations[0]}和{states[0]}。",
+                "删除促销、夸大、重复和无关高流量词。",
+                "标题只负责平台识别和用户一眼归类，不承担完整说服。",
+            ],
+        },
+        "main_image": {
+            "recommended_text": main_brief,
+            "failed_scale": failed["main_image"],
+            "decision_basis": scale_basis["main_image"],
+            "current_gap": "主图/副图必须把点击理由、场景、边界和风险证据拆开。",
+            "recommended_change": missing_main_roles[0] if missing_main_roles else f"按{identity}的场景和风险证据复核7张图职责。",
+            "validation_hypothesis": "主图/副图调整后，用核心词小预算验证CTR是否提升。",
+            "attribution_metric": "CTR",
+            "validation_keywords": _dedupe_keep_order([*core[:2], *scenarios[:3]], 5),
+            "suggestions": [
+                f"第1张只展示{identity}本体，点击理由放在第2张核心卖点图。",
+                f"场景图优先覆盖{scenarios[0]}、{scenarios[1]}，不要只放泛家居场景。",
+                missing_main_roles[0] if missing_main_roles else "7张图职责完整后再投小预算验证CTR。",
+            ],
+        },
+        "a_plus_description": {
+            "recommended_text": aplus_text,
+            "failed_scale": failed["a_plus_description"],
+            "decision_basis": scale_basis["a_plus_description"],
+            "current_gap": "A+负责解释原理、场景边界、差异化和信任闭环。",
+            "recommended_change": missing_aplus_roles[0] if missing_aplus_roles else f"围绕{identity}补强原理、边界和信任证据。",
+            "validation_hypothesis": "A+修改后，广告点击进入页面的CVR应更稳定，差评问题应更少集中在认知误解。",
+            "attribution_metric": "CVR / Review Risk",
+            "validation_keywords": _dedupe_keep_order([*relations[:2], *states[:2], *risks[:2]], 6),
+            "suggestions": [
+                f"A+先解释{attrs[0]}为什么能解决{states[0]}。",
+                f"场景教育覆盖{', '.join(scenarios[:3])}，同时写清不适用边界。",
+                "A+不要复用前台图文，要承担信任、原理和差异化证明。",
+            ],
+        },
+        "bullet_points": {
+            "recommended_text": bullets,
+            "failed_scale": failed["bullet_points"],
+            "decision_basis": scale_basis["bullet_points"],
+            "current_gap": "五点必须把购买理由拆成可验证的功能、效果、场景、信任和支持。",
+            "recommended_change": f"五点围绕{identity}重写为功能、效果、场景、信任、支持五条。",
+            "validation_hypothesis": "五点修改后，相关词点击后的CVR应改善；若CTR高CVR仍低，归因到承接或价格/评价。",
+            "attribution_metric": "CVR",
+            "validation_keywords": _dedupe_keep_order([*core[:2], *states[:3], *scenarios[:2]], 7),
+            "suggestions": [
+                f"五点第一条写{identity}做什么，第二条写{states[0]}的结果。",
+                f"第三条必须写{scenarios[0]}、{scenarios[1]}等使用节点。",
+                f"第四条写{risks[0]}等信任证据，第五条写维护和售后。",
+            ],
+        },
+        "backend_keywords": {
+            "recommended_text": ", ".join(backend_terms),
+            "failed_scale": failed["backend_keywords"],
+            "decision_basis": scale_basis["backend_keywords"],
+            "current_gap": "后台关键词补前台没有覆盖的属性词、关系词、状态触发词和场景问题词。",
+            "recommended_change": f"补齐{identity}的关系词、状态触发词和场景问题词，不重复前台。",
+            "validation_hypothesis": "后台词补齐后，广告搜索词和自然匹配应出现更多相关长尾词。",
+            "attribution_metric": "Search Term Match / Long-tail Impression",
+            "validation_keywords": backend_terms[:8],
+            "suggestions": [
+                f"后台词补{relations[0]}、{states[0]}、{scenarios[0]}等前台未覆盖入口。",
+                "不要写竞品品牌、ASIN、促销词和中文词。",
+                "后台词用于扩大平台理解，不用于堆无关流量。",
+            ],
+        },
+    }
+
+
 def _build_rule_evaluation(request: EvaluateLaunchRequest) -> dict[str, Any]:
     title = request.title.strip()
     keyword_items = _split_keywords(request.keywords)
     bullet_items = _split_bullets(request.bullet_points)
+    product_profile = _infer_product_profile(request)
     all_text = " ".join([
         request.title,
         request.keywords,
@@ -374,58 +657,65 @@ def _build_rule_evaluation(request: EvaluateLaunchRequest) -> dict[str, Any]:
         if request.main_image_count or request.a_plus_image_count
         else "未提供图片素材，后台按Listing文本反推主图应承接的点击理由，图片维度为低置信评分。"
     )
+    recommendations = _build_prelaunch_recommendations(
+        request,
+        product_profile,
+        {
+            "title_keywords": title_score,
+            "main_image": image_score,
+            "a_plus_description": a_plus_score,
+            "bullet_points": bullet_score,
+            "backend_keywords": backend_keyword_score,
+        },
+        missing_main_roles,
+        missing_aplus_roles,
+    )
 
     result = {
         "title_keywords": _dimension(
             title_score,
-            f"标题职责是平台搜索识别和用户一眼归类；按品牌/核心关键词/关键属性/规格/使用对象或场景反向评分。禁止促销词、特殊符号、同词重复超过两次和无关堆词。关键词{len(keyword_items)}个，功能命中{function_hits}，场景命中{scenario_hits}。",
-            [
-                "标题按Brand + Core Product + Key Attribute + Spec/Quantity + Use Case重组。",
-                "删除促销词、夸大词、竞品品牌词、无关高流量词和重复堆砌词。",
-                "标题不负责说服转化，只负责让平台准确归类、让用户一眼知道卖什么。",
-            ],
+            f"标题职责是平台搜索识别和用户一眼归类；当前识别商品身份为{product_profile['product_identity']}，按核心词、属性词、关系词、状态触发词和使用场景反向评分。关键词{len(keyword_items)}个，功能命中{function_hits}，场景命中{scenario_hits}。",
+            recommendations["title_keywords"]["suggestions"],
+            recommendations["title_keywords"],
         ),
         "main_image": _dimension(
             image_score,
             image_basis,
-            [
-                "第1张主图只解决点击率：白底、真实商品、高清、主体占比足够、无文字水印、无夸张场景。",
-                "7张图职责为：1点击、2核心卖点、3使用场景、4尺寸/结构、5竞品对比、6安全/材质认证、7包装/安装/使用步骤。",
-                missing_main_roles[0] if missing_main_roles else "辅图顺序完整；后续接视觉模型后继续校验每张图是否放在正确位置。",
-            ],
+            recommendations["main_image"]["suggestions"],
+            recommendations["main_image"],
         ),
         "a_plus_description": _dimension(
             a_plus_score,
-            f"A+按9张信任闭环顺序评分：品牌承诺、技术原理、场景教育、利益证明、差异化对比、适配、认证、使用维护、售后闭环；A+文本{len(request.a_plus_desc)}字符，风险消除命中{risk_hits}。",
-            [
-                "A+不要复用Listing图库同一套图文，必须承担品牌信任和深度说服。",
-                "A+用于品牌故事、技术原理、场景教育、差异化证明和信任闭环。",
-                missing_aplus_roles[0] if missing_aplus_roles else "A+顺序完整；后续接视觉模型后继续校验每张图文案和信任点是否匹配。",
-            ],
+            f"A+按9张信任闭环顺序评分：品牌承诺、技术原理、场景教育、利益证明、差异化对比、适配、认证、使用维护、售后闭环；当前应围绕{product_profile['product_identity']}解释原理、场景边界和信任证据。A+文本{len(request.a_plus_desc)}字符，风险消除命中{risk_hits}。",
+            recommendations["a_plus_description"]["suggestions"],
+            recommendations["a_plus_description"],
         ),
         "bullet_points": _dimension(
             bullet_score,
             f"五点职责是给出5个购买理由；按功能、效果、场景、信任和售后覆盖评分。识别{len(bullet_items)}条五点，购买理由覆盖{bullet_reason_hits}/5，意图结构命中{intent_hits}。",
-            [
-                "五点每点只讲一个购买理由：功能、效果、场景、信任、售后。",
-                "不要空喊high quality、best、premium等无法验证的词。",
-                "每条五点从用户问题出发，用美国买家自然表达承接意图。",
-            ],
+            recommendations["bullet_points"]["suggestions"],
+            recommendations["bullet_points"],
         ),
         "backend_keywords": _dimension(
             backend_keyword_score,
             f"后台Search Terms按相关性高于堆词评分；共{len(keyword_items)}个，属性词{keyword_counts['attribute']}个，关系词{keyword_counts['relation']}个，状态触发词{keyword_counts['state']}个，违规/无效词命中{forbidden_keyword_hits}。",
-            [
-                "Search Terms放标题和五点未覆盖的次级词、长尾词和同义词。",
-                "不要重复前台词，不要写竞品品牌、ASIN、促销词和无关流量词。",
-                "后台词负责补语义入口，关键词应覆盖标题、五点、后台词等不同位置。",
-            ],
+            recommendations["backend_keywords"]["suggestions"],
+            recommendations["backend_keywords"],
         ),
         "overall_score": overall_score,
-        "overall_summary": f"{launch_advice}。后台已按Amazon上新准入规则反向评分：标题、7张主图顺序、9张A+信任顺序、五点和后台关键词分别判定；AI只作为修改意见辅助，不改后台分数。",
-        "cosmo_alignment": f"平台识别判断：标题负责搜索识别，主图负责点击，辅图负责转化，五点负责购买理由，后台词负责补语义，A+负责信任闭环。当前功能覆盖{function_hits}，场景覆盖{scenario_hits}。",
+        "overall_summary": f"{launch_advice}。本品Listing质量是广告验证和归因的前置核心；后台按两把尺反向评分标题、主图/副图、A+、五点和后台关键词，先修正承接问题，减少卖家试错成本与时间成本。",
+        "cosmo_alignment": f"平台识别判断：当前商品身份为{product_profile['product_identity']}。标题负责搜索识别，主图负责点击，辅图负责转化，五点负责购买理由，后台词负责补语义，A+负责信任闭环。当前功能覆盖{function_hits}，场景覆盖{scenario_hits}。",
         "rufus_alignment": "用户意图判断：Listing是否用美国消费者自然语言承接搜索意图。标题不堆词，五点讲购买理由，后台词补充前台未覆盖的真实相关词。",
         "ordered_first_fixes": ordered_first_fixes,
+        "product_attribute_profile": product_profile,
+        "prelaunch_modification_plan": recommendations,
+        "ad_validation_alignment": {
+            "title_keywords": "曝光和搜索词相关性验证平台是否理解商品身份。",
+            "main_image": "CTR验证主图和核心场景是否吸引目标用户。",
+            "bullet_points": "CVR验证购买理由是否成立。",
+            "a_plus_description": "CVR和评论风险验证信任闭环是否成立。",
+            "backend_keywords": "搜索词报告验证长尾入口和场景问题词是否被平台匹配。",
+        },
         "vision_alignment": {
             "required": True,
             "status": "pending_vision_model",
@@ -440,6 +730,8 @@ def _build_rule_evaluation(request: EvaluateLaunchRequest) -> dict[str, Any]:
             "intent_hits": intent_hits,
             "keyword_count": len(keyword_items),
             "keyword_type_counts": keyword_counts,
+            "product_attribute_profile": product_profile,
+            "prelaunch_modification_plan": recommendations,
             "bullet_count": len(bullet_items),
             "bullet_purchase_reasons": bullet_purchase_reasons,
             "bullet_purchase_reason_hits": bullet_reason_hits,
@@ -561,6 +853,10 @@ async def save_test_result(
             "rule_context": request.rule_context,
             "vision_alignment": request.vision_alignment,
             "toolbox_enhancements": request.toolbox_enhancements,
+            "product_attribute_profile": request.product_attribute_profile,
+            "prelaunch_modification_plan": request.prelaunch_modification_plan,
+            "ad_validation_alignment": request.ad_validation_alignment,
+            "ad_validation_plan": request.ad_validation_plan,
             "input_snapshot": request.input_snapshot,
             "saved_kind": request.saved_kind,
             "optimization_round": request.optimization_round,
