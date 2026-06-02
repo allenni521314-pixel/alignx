@@ -270,6 +270,7 @@ interface DiagnosisResult {
   causal_scores?: Record<string, number>;
   judgment_system?: Record<string, any>;
   ad_validation_plan?: Record<string, any>;
+  ad_validation_readiness_gate?: Record<string, any>;
   decision_outputs?: Record<string, any>[];
   amazon_compliance?: ComplianceResult;
  trace?: {
@@ -1641,6 +1642,8 @@ function BackendJudgmentPanel({ result }: { result: DiagnosisResult }) {
     : Array.isArray(judgmentSections.decision_outputs)
       ? judgmentSections.decision_outputs
       : [];
+  const advertisingDecision = decisionOutputs.find((item: any) => item?.domain === "advertising_validation") as any;
+  const validationGate = result.ad_validation_readiness_gate || advertisingDecision?.validation_gate || {};
   const alignment = (judgment.alignment_scores || {}) as Record<string, number>;
   const causal = result.causal_diagnosis || {};
   const keywordCausality = (causal.keyword_causality || {}) as Record<string, any>;
@@ -1672,6 +1675,29 @@ function BackendJudgmentPanel({ result }: { result: DiagnosisResult }) {
                 <p className="text-sm font-bold text-gray-900">V3 决策输出</p>
               </div>
             </div>
+            {validationGate?.gate && (
+              <div className="mb-3 rounded-lg border border-amber-100 bg-amber-50 p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <p className="text-xs font-semibold text-amber-800">广告验证准入</p>
+                    <p className="mt-1 text-sm font-bold text-gray-900">{formatAnalysisText(validationGate.status)}</p>
+                  </div>
+                  <Badge variant="outline" className="border-amber-200 bg-white text-amber-700">
+                    {validationGate.product_stage === "new_launch" ? "新品门槛" : "成熟品门槛"} · {Math.round(Number(validationGate.listing_conversion_score || 0))}/{validationGate.threshold}
+                  </Badge>
+                </div>
+                <p className="mt-2 text-xs text-gray-600 leading-relaxed">{formatAnalysisText(validationGate.budget_policy)}</p>
+                {Array.isArray(validationGate.blocking_reasons) && validationGate.blocking_reasons.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {validationGate.blocking_reasons.map((reason: string) => (
+                      <Badge key={reason} variant="outline" className="border-red-200 bg-white text-red-700 text-[10px]">
+                        {reason}
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
               {decisionOutputs.slice(0, 6).map((item: any, idx: number) => {
                 const confidence = Math.round(Number(item.confidence_score || item.score || 0));
@@ -2035,6 +2061,7 @@ function normalizeDiagnosisResultForUi(result: DiagnosisResult): DiagnosisResult
     overall_summary: formatAnalysisText(result.overall_summary),
     analyzed_product_name: formatAnalysisText(result.analyzed_product_name),
     product_mismatch_detail: formatAnalysisText(result.product_mismatch_detail),
+    ad_validation_readiness_gate: result.ad_validation_readiness_gate,
   };
 }
 
@@ -2075,11 +2102,6 @@ function ScoreBar({ dim, score, analysis }: { dim: typeof DIMENSIONS[0]; score: 
       {expanded && analysisText && (
         <div className="text-xs text-gray-500 leading-relaxed mt-2 pl-2 border-l-2 border-gray-200 space-y-2">
           <p>{analysisText}</p>
-          <p className="text-brand-700">
-            <span className="font-semibold">下一步动作：</span>{rulerMeta.ownAction}
-            <span className="mx-2 text-gray-300">|</span>
-            <span className="font-semibold">影响指标：</span>{rulerMeta.impact}
-          </p>
         </div>
       )}
     </div>
@@ -3104,6 +3126,7 @@ export default function ListingDiagnosis() {
         causal_scores: report.causal_scores,
         judgment_system: report.judgment_system,
         ad_validation_plan: report.ad_validation_plan,
+        ad_validation_readiness_gate: report.ad_validation_readiness_gate,
         decision_outputs: report.decision_outputs,
       };
       setHistoryDiagResult(normalizeDiagnosisResultForUi(result));
@@ -3159,6 +3182,7 @@ export default function ListingDiagnosis() {
         causal_scores: report.causal_scores,
         judgment_system: report.judgment_system,
         ad_validation_plan: report.ad_validation_plan,
+        ad_validation_readiness_gate: report.ad_validation_readiness_gate,
         decision_outputs: report.decision_outputs,
       };
       setListing(savedListing);

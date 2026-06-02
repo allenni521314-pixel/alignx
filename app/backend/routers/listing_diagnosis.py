@@ -2130,6 +2130,7 @@ async def _diagnose_single(
     data["toolbox_enhancements"] = toolbox_enhancements
     ad_validation_plan = merge_toolbox_into_ad_validation_plan(ad_validation_plan, toolbox_enhancements)
     data["ad_validation_plan"] = ad_validation_plan
+    data["ad_validation_readiness_gate"] = JudgmentSystemService.apply_ad_validation_gate_to_outputs(data, listing)
     sanitized_listing = _sanitize_listing_for_ai(listing)
     content_fingerprint = _listing_content_fingerprint(sanitized_listing)
     data["diagnosis_meta"] = {
@@ -2232,6 +2233,8 @@ async def _diagnose_single(
         "ad_validation_plan": ad_validation_plan,
         "data_integrity": data_integrity,
         "diagnosis_confidence": diagnosis_confidence,
+        "decision_outputs": data.get("decision_outputs", []),
+        "ad_validation_readiness_gate": data.get("ad_validation_readiness_gate", {}),
         "cosmo_rufus_analysis": cosmo_rufus_analysis,
         "amazon_compliance": amazon_compliance,
         "toolbox_enhancements": toolbox_enhancements,

@@ -195,6 +195,57 @@ def _dimension_score(scores: dict[str, Any], keys: list[str]) -> float:
     return _avg([scores.get(key, 0) for key in keys])
 
 
+def _parse_metric(value: Any) -> int:
+    if value is None:
+        return 0
+    match = re.search(r"\d+", str(value).replace(",", ""))
+    return int(match.group(0)) if match else 0
+
+
+def _has_price(value: Any) -> bool:
+    text = str(value or "").strip()
+    if not text or text in {"-", "—", "N/A", "n/a", "NA", "待确认", "未提供", "未知"}:
+        return False
+    return bool(re.search(r"\d", text))
+
+
+def _bullet_count(value: Any) -> int:
+    return len([item for item in re.split(r"[\n;；]+", str(value or "")) if item.strip()])
+
+
+def _is_new_launch(listing: Any, data: dict[str, Any] | None = None) -> bool:
+    data = data or {}
+    cap_meta = data.get("market_reality_caps") if isinstance(data.get("market_reality_caps"), dict) else {}
+    if cap_meta.get("is_new_launch") is True:
+        return True
+    no_price = not _has_price(getattr(listing, "price", ""))
+    no_reviews = _parse_metric(getattr(listing, "review_count", None)) == 0
+    no_sales = _parse_metric(getattr(listing, "bsr_rank", None)) == 0
+    return no_price and no_reviews and no_sales
+
+
+def _new_launch_core_gaps(listing: Any, scores: dict[str, Any]) -> list[str]:
+    gaps: list[str] = []
+    if len(str(getattr(listing, "title", "") or "").strip()) < 50:
+        gaps.append("标题身份不足")
+    if _bullet_count(getattr(listing, "bullet_points", "")) < 3:
+        gaps.append("五点购买理由不足")
+    image_count = _parse_metric(getattr(listing, "image_count", None))
+    has_visual_signal = bool(
+        image_count > 0
+        or str(getattr(listing, "main_image_description", "") or "").strip()
+        or getattr(listing, "has_a_plus", False)
+        or getattr(listing, "has_video", False)
+    )
+    if not has_visual_signal:
+        gaps.append("主图/副图证据不足")
+    if float(scores.get("scenario_expression") or 0) < 60:
+        gaps.append("场景问题词不足")
+    if float(scores.get("risk_elimination") or 0) < 55:
+        gaps.append("基础风险消除不足")
+    return gaps
+
+
 def _count_nested_keywords(value: Any) -> int:
     if not isinstance(value, dict):
         return 0
@@ -650,6 +701,76 @@ class JudgmentSystemService:
                 "do_not_misjudge": "没有hit_status、miss_reason和下一轮动作的结果，不进入学习记忆。",
             },
         ]
+
+    @staticmethod
+    def build_ad_validation_gate(diagnosis_data: dict[str, Any], listing: Any) -> dict[str, Any]:
+        """Final gate that decides whether Listing is ready for ad validation.
+
+        This runs after the market-reality caps and canonical 10D scoring so the
+        gate uses the final seller-facing score, not an optimistic pre-cap score.
+        Mature listings need a stronger conversion score. New launches can enter
+        only small-budget validation once their core Listing evidence is complete.
+        """
+        scores = diagnosis_data.get("scores") if isinstance(diagnosis_data.get("scores"), dict) else {}
+        listing_conversion_score = _dimension_score(scores, LISTING_CONVERSION_DIMENSIONS)
+        new_launch = _is_new_launch(listing, diagnosis_data)
+        threshold = 72 if new_launch else 80
+        core_gaps = _new_launch_core_gaps(listing, scores) if new_launch else []
+        passed = listing_conversion_score >= threshold and not core_gaps
+        if new_launch:
+            status = "新品可小预算验证" if passed else "新品先补承接"
+            budget_policy = "只允许小预算精准词/场景问题词验证，不允许放量。"
+            action = "进入首轮小预算广告验证。" if passed else "先补齐新品核心承接字段，再进入小预算验证。"
+            risk = "新品缺少评论、BSR和销量，广告只能验证点击与转化是否成立，不能当作放量依据。"
+        else:
+            status = "成熟品可进入验证" if passed else "成熟品先优化承接"
+            budget_policy = "承接达标后才进入广告验证；未达标不生成放量建议。"
+            action = "进入广告验证。" if passed else "先把Listing承接优化到80分以上，再投广告验证。"
+            risk = "承接不足时投广告会污染数据，无法区分关键词问题、产品问题还是页面没接住。"
+
+        reasons = [
+            f"Listing承接分 {round(listing_conversion_score)} / {threshold}",
+            "新品按可验证标准判断" if new_launch else "成熟品按80分广告验证门槛判断",
+        ]
+        reasons.extend(core_gaps)
+
+        return {
+            "gate": "listing_ad_validation_readiness",
+            "product_stage": "new_launch" if new_launch else "mature_listing",
+            "threshold": threshold,
+            "listing_conversion_score": round(listing_conversion_score, 2),
+            "allowed_validation": passed,
+            "status": status,
+            "budget_policy": budget_policy,
+            "required_action": action,
+            "risk_warning": risk,
+            "blocking_reasons": core_gaps,
+            "basis": reasons,
+        }
+
+    @staticmethod
+    def apply_ad_validation_gate_to_outputs(
+        diagnosis_data: dict[str, Any],
+        listing: Any,
+    ) -> dict[str, Any]:
+        gate = JudgmentSystemService.build_ad_validation_gate(diagnosis_data, listing)
+        outputs = diagnosis_data.get("decision_outputs")
+        if not isinstance(outputs, list):
+            return gate
+
+        for item in outputs:
+            if not isinstance(item, dict) or item.get("domain") != "advertising_validation":
+                continue
+            item["validation_gate"] = gate
+            item["current_judgment"] = gate["status"]
+            item["judgment_basis"] = gate["basis"]
+            item["recommended_action"] = gate["required_action"]
+            item["risk_warning"] = gate["risk_warning"]
+            item["next_check"] = gate["budget_policy"]
+            item["score"] = gate["listing_conversion_score"]
+            item["score_band"] = "可验证" if gate["allowed_validation"] else "未达标"
+            break
+        return gate
 
     def build_decision_outputs(
         self,
