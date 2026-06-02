@@ -67,7 +67,7 @@ interface NavGroup {
 const navGroups: NavGroup[] = [
   {
     stage: "一",
-    title: "ASIN 决策",
+    title: "市场机会",
     icon: Search,
     color: "text-brand-400",
     activeColor: "text-brand-600",
