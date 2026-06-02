@@ -40,6 +40,40 @@ COSMO_SCORE_KEYS = [
     "market_trend",
 ]
 
+USER_INTENT_DIMENSIONS = [
+    "function_expression",
+    "scenario_expression",
+    "identity_fit",
+    "psychology_benefit",
+    "risk_elimination",
+    "subjective_properties",
+]
+
+PLATFORM_MATCHING_DIMENSIONS = [
+    "product_identity",
+    "compatibility",
+    "scenario_expression",
+    "function_expression",
+    "market_trend",
+]
+
+LISTING_CONVERSION_DIMENSIONS = [
+    "function_expression",
+    "scenario_expression",
+    "risk_elimination",
+    "differentiation",
+    "subjective_properties",
+]
+
+ADVERTISING_VALIDATION_DIMENSIONS = [
+    "function_expression",
+    "scenario_expression",
+    "product_identity",
+    "compatibility",
+    "differentiation",
+    "market_trend",
+]
+
 REVIEW_DEMAND_KEYS = [
     "core_category",
     "function",
@@ -143,6 +177,24 @@ def _avg(values: list[float]) -> float:
     return round(sum(clean) / len(clean), 2)
 
 
+def _score_band(score: float) -> str:
+    if score >= 80:
+        return "强"
+    if score >= 65:
+        return "可用"
+    if score >= 50:
+        return "偏弱"
+    return "弱"
+
+
+def _decision_confidence(score: float, precision_score: float) -> int:
+    return int(max(30, min(92, round(score * 0.75 + precision_score * 0.25))))
+
+
+def _dimension_score(scores: dict[str, Any], keys: list[str]) -> float:
+    return _avg([scores.get(key, 0) for key in keys])
+
+
 def _count_nested_keywords(value: Any) -> int:
     if not isinstance(value, dict):
         return 0
@@ -197,7 +249,7 @@ def _flatten_missing_terms(review_semantics: dict[str, Any], limit: int = 8) -> 
 class JudgmentSystemService:
     """Single backend orchestration layer for all judgment signals."""
 
-    version = "judgment-system-v1"
+    version = "judgment-system-v3"
 
     def __init__(self, db: Optional[AsyncSession] = None):
         self.db = db
@@ -599,6 +651,169 @@ class JudgmentSystemService:
             },
         ]
 
+    def build_decision_outputs(
+        self,
+        *,
+        review_semantics: dict[str, Any],
+        cosmo_semantics: dict[str, Any],
+        causal: dict[str, Any],
+        precision: dict[str, Any],
+        ad_validation: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        """Build V3 Business Decision OS outputs.
+
+        DecisionOutput is intentionally placed after the two rulers, 10D
+        judgment, causal judgment and validation plan. It is the user-facing
+        decision expression, not the reasoning standard itself.
+        """
+        dimension_scores = cosmo_semantics.get("dimension_scores") or {}
+        review_score = float(review_semantics.get("score") or 0)
+        platform_score = float(cosmo_semantics.get("score") or 0)
+        causal_score = float(causal.get("score") or 0)
+        precision_score = float(precision.get("score") or 0)
+        validation_items = ad_validation.get("validation_items", []) if isinstance(ad_validation, dict) else []
+        readiness = float((causal.get("raw") or {}).get("keyword_causality", {}).get("readiness_score") or 0)
+
+        user_intent_score = _avg([review_score, _dimension_score(dimension_scores, USER_INTENT_DIMENSIONS)])
+        platform_matching_score = _avg([platform_score, _dimension_score(dimension_scores, PLATFORM_MATCHING_DIMENSIONS)])
+        listing_conversion_score = _avg([causal_score, _dimension_score(dimension_scores, LISTING_CONVERSION_DIMENSIONS)])
+        advertising_validation_score = _avg([readiness or causal_score, _dimension_score(dimension_scores, ADVERTISING_VALIDATION_DIMENSIONS)])
+        allocation_score = _avg([user_intent_score, platform_matching_score, listing_conversion_score, advertising_validation_score])
+        learning_score = _avg([precision_score, 80 if validation_items else 45])
+
+        def output(
+            *,
+            domain: str,
+            name: str,
+            core_question: str,
+            score: float,
+            judgment: str,
+            basis: list[str],
+            action: str,
+            risk: str,
+            impact: str,
+            next_check: str,
+            failure_pattern: str,
+        ) -> dict[str, Any]:
+            return {
+                "domain": domain,
+                "domain_name": name,
+                "core_question": core_question,
+                "current_judgment": judgment,
+                "judgment_basis": [item for item in basis if item],
+                "confidence_score": _decision_confidence(score, precision_score),
+                "recommended_action": action,
+                "risk_warning": risk,
+                "expected_impact": impact,
+                "next_check": next_check,
+                "score": round(score, 2),
+                "score_band": _score_band(score),
+                "failure_pattern": failure_pattern,
+            }
+
+        outputs = [
+            output(
+                domain="user_intent",
+                name="用户意图决策",
+                core_question="用户为什么买？",
+                score=user_intent_score,
+                judgment=f"购买动机{_score_band(user_intent_score)}",
+                basis=[
+                    f"用户需求对齐 {round(review_score)} 分",
+                    f"场景/人群/心理/风险维度均分 {round(_dimension_score(dimension_scores, USER_INTENT_DIMENSIONS))} 分",
+                    review_semantics.get("summary", ""),
+                ],
+                action="先确认目标人群、购买场景和最大顾虑；低分项不进入大预算广告。",
+                risk="用户意图不清时，关键词和广告会把流量带偏。",
+                impact="减少无效选品和错误卖点投入。",
+                next_check="检查人群、场景、痛点、风险是否能被标题/图片/五点证明。",
+                failure_pattern="FP-UI001 意图不清导致后续判断漂移",
+            ),
+            output(
+                domain="platform_matching",
+                name="平台匹配决策",
+                core_question="Amazon是否能够正确理解商品？",
+                score=platform_matching_score,
+                judgment=f"平台理解{_score_band(platform_matching_score)}",
+                basis=[
+                    f"平台识别对齐 {round(platform_score)} 分",
+                    f"产品身份/兼容/场景/趋势均分 {round(_dimension_score(dimension_scores, PLATFORM_MATCHING_DIMENSIONS))} 分",
+                ],
+                action="补齐产品身份、类目锚点、属性、关系词和场景问题词。",
+                risk="平台识别不清会造成低曝光、错匹配和高CPC。",
+                impact="提升搜索词精准度和广告匹配质量。",
+                next_check="优先检查标题、Search Terms、五点是否包含身份词、关系词和问题词。",
+                failure_pattern="FP-PM001 平台无法稳定识别产品语义池",
+            ),
+            output(
+                domain="listing_conversion",
+                name="Listing承接决策",
+                core_question="页面是否接住流量？",
+                score=listing_conversion_score,
+                judgment=f"转化承接{_score_band(listing_conversion_score)}",
+                basis=[
+                    f"因果转化对齐 {round(causal_score)} 分",
+                    f"功能/场景/风险/差异/主观属性均分 {round(_dimension_score(dimension_scores, LISTING_CONVERSION_DIMENSIONS))} 分",
+                ],
+                action="优先修改承接断点最大的模块，再进入小预算验证。",
+                risk="只改文案不补证据，会出现CTR提升但CVR不升。",
+                impact="提升点击后的CVR，降低无效点击和ACOS。",
+                next_check="按标题、主图、副图、五点、A+、评论逐项检查承诺是否被证明。",
+                failure_pattern="FP-LC001 点击成立但详情页承接不足",
+            ),
+            output(
+                domain="advertising_validation",
+                name="广告验证决策",
+                core_question="广告是否验证前面判断？",
+                score=advertising_validation_score,
+                judgment="可进入小预算验证" if validation_items else "暂不建议验证",
+                basis=[
+                    f"关键词验证就绪 {round(readiness or causal_score)} 分",
+                    f"已生成 {len(validation_items)} 组验证假设",
+                ],
+                action="只验证P0关系词和状态触发词；未绑定假设ID的数据不进入学习。",
+                risk="广告不能当获客工具直接放量，否则会把诊断误差放大成预算损失。",
+                impact="用曝光、点击、转化、ROI反向证明前面的判断。",
+                next_check="按Impression、CTR、CVR、ACOS、ROI判断平台、用户、Listing和商业模型是否成立。",
+                failure_pattern="FP-AD001 广告未绑定假设导致无法归因",
+            ),
+            output(
+                domain="capital_allocation",
+                name="资本配置决策",
+                core_question="资源应该投向哪里？",
+                score=allocation_score,
+                judgment="优先投向高置信改动" if allocation_score >= 65 else "先补判断再投资源",
+                basis=[
+                    f"用户意图 {round(user_intent_score)} 分",
+                    f"平台匹配 {round(platform_matching_score)} 分",
+                    f"Listing承接 {round(listing_conversion_score)} 分",
+                    f"广告验证 {round(advertising_validation_score)} 分",
+                ],
+                action="预算先投能验证核心判断的关键词组和P0 Listing改动，不平均分配。",
+                risk="在低置信环节投入预算，会把错误判断固化为沉没成本。",
+                impact="把预算、时间、人力集中到最高胜率的动作上。",
+                next_check="比较各决策域置信度，低于65分的域先补证据，高于80分的域才允许加码。",
+                failure_pattern="FP-CA001 资源平均投入导致优先级失真",
+            ),
+            output(
+                domain="learning_feedback",
+                name="回流学习决策",
+                core_question="这次结果是否应该进入系统认知？",
+                score=learning_score,
+                judgment="等待验证回流" if validation_items else "缺少可学习样本",
+                basis=[
+                    f"数据完整性 {round(precision_score)} 分",
+                    "已有广告验证假设" if validation_items else "尚未形成广告验证样本",
+                ],
+                action="只有带hit_status、miss_reason和next_iteration的结果才能进入规则记忆。",
+                risk="样本不足或未归因数据进入记忆，会让系统越学越偏。",
+                impact="沉淀用户意图、平台匹配、卖点和广告结果之间的因果关系。",
+                next_check="验证后标记命中、未命中、样本不足、误判或权重修正。",
+                failure_pattern="FP-LF001 无归因回流污染学习记忆",
+            ),
+        ]
+        return outputs
+
     async def judge_listing(
         self,
         *,
@@ -647,6 +862,13 @@ class JudgmentSystemService:
             causal=causal,
             precision=precision,
         )
+        decision_outputs = self.build_decision_outputs(
+            review_semantics=review_semantics,
+            cosmo_semantics=cosmo_semantics,
+            causal=causal,
+            precision=precision,
+            ad_validation=ad_validation,
+        )
 
         return {
             "version": self.version,
@@ -659,6 +881,7 @@ class JudgmentSystemService:
                 "causal_judgment": causal,
                 "precision_confidence": precision,
                 "ad_validation": ad_validation,
+                "decision_outputs": decision_outputs,
             },
             "data_integrity": precision["data_integrity"],
             "diagnosis_confidence": precision["confidence_by_alignment"],
@@ -668,6 +891,7 @@ class JudgmentSystemService:
                 "data_integrity": precision["data_integrity"],
                 "diagnosis_confidence": precision["confidence_by_alignment"],
                 "ad_validation_plan": ad_validation,
+                "decision_outputs": decision_outputs,
             },
         }
 
@@ -691,6 +915,7 @@ class JudgmentSystemService:
         data["causal_diagnosis"] = causal.get("raw", {})
         data["judgment_system"] = judgment
         data["ad_validation_plan"] = sections.get("ad_validation", {})
+        data["decision_outputs"] = sections.get("decision_outputs", [])
         data["data_integrity"] = judgment.get("data_integrity", {})
         data["diagnosis_confidence"] = judgment.get("diagnosis_confidence", {})
 

@@ -270,6 +270,7 @@ interface DiagnosisResult {
   causal_scores?: Record<string, number>;
   judgment_system?: Record<string, any>;
   ad_validation_plan?: Record<string, any>;
+  decision_outputs?: Record<string, any>[];
   amazon_compliance?: ComplianceResult;
  trace?: {
     diagnosis_id?: number;
@@ -1634,6 +1635,12 @@ function AmazonCompliancePanel({ compliance }: { compliance?: ComplianceResult }
 
 function BackendJudgmentPanel({ result }: { result: DiagnosisResult }) {
   const judgment = result.judgment_system || {};
+  const judgmentSections = (judgment.sections || {}) as Record<string, any>;
+  const decisionOutputs = Array.isArray(result.decision_outputs)
+    ? result.decision_outputs
+    : Array.isArray(judgmentSections.decision_outputs)
+      ? judgmentSections.decision_outputs
+      : [];
   const alignment = (judgment.alignment_scores || {}) as Record<string, number>;
   const causal = result.causal_diagnosis || {};
   const keywordCausality = (causal.keyword_causality || {}) as Record<string, any>;
@@ -1648,7 +1655,7 @@ function BackendJudgmentPanel({ result }: { result: DiagnosisResult }) {
     { key: "keyword_validation_readiness", label: "关键词验证就绪", score: keywordCausality.readiness_score ?? result.causal_scores?.keyword_validation_readiness },
   ].filter((item) => item.score !== undefined);
 
-  if (items.length === 0 && !causal.summary && validationItems.length === 0 && priorityKeywords.length === 0) return null;
+  if (items.length === 0 && !causal.summary && validationItems.length === 0 && priorityKeywords.length === 0 && decisionOutputs.length === 0) return null;
 
   return (
     <Card className="bg-brand-50 border-brand-100">
@@ -1663,6 +1670,39 @@ function BackendJudgmentPanel({ result }: { result: DiagnosisResult }) {
           </div>
           <Badge variant="outline" className="border-brand-200 text-brand-600">系统计算</Badge>
         </div>
+        {decisionOutputs.length > 0 && (
+          <div className="mb-4 rounded-xl border border-brand-100 bg-white p-4">
+            <div className="flex items-start justify-between gap-3 mb-3">
+              <div>
+                <p className="text-sm font-bold text-gray-900">V3 决策输出</p>
+                <p className="text-xs text-gray-500 mt-1">两把尺和10维诊断之后，只输出下一步决策。</p>
+              </div>
+              <Badge variant="outline" className="border-gold-200 text-gold-700 bg-gold-50">Business Decision OS</Badge>
+            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+              {decisionOutputs.slice(0, 6).map((item: any, idx: number) => {
+                const confidence = Math.round(Number(item.confidence_score || item.score || 0));
+                return (
+                  <div key={`${item.domain || idx}`} className="rounded-lg border border-gray-100 bg-gray-50 p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-semibold text-brand-700">{formatAnalysisText(item.domain_name || item.domain)}</p>
+                        <p className="mt-1 text-sm font-bold text-gray-900">{formatAnalysisText(item.current_judgment)}</p>
+                      </div>
+                      <span className={`text-sm font-bold ${scoreColor(confidence)}`}>{confidence}%</span>
+                    </div>
+                    <p className="mt-2 text-xs text-gray-600 leading-relaxed">
+                      <span className="font-semibold text-gray-900">动作：</span>{formatAnalysisText(item.recommended_action)}
+                    </p>
+                    <p className="mt-1 text-[11px] text-gray-500 leading-relaxed">
+                      <span className="font-semibold">风险：</span>{formatAnalysisText(item.risk_warning)}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
         {items.length > 0 && (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             {items.map((item) => {
@@ -3095,6 +3135,11 @@ export default function ListingDiagnosis() {
         id: data.id,
         listing_title: data.listing_title,
         marketplace: data.marketplace,
+        causal_diagnosis: report.causal_diagnosis,
+        causal_scores: report.causal_scores,
+        judgment_system: report.judgment_system,
+        ad_validation_plan: report.ad_validation_plan,
+        decision_outputs: report.decision_outputs,
       };
       setHistoryDiagResult(normalizeDiagnosisResultForUi(result));
       setHistoryViewId(id);
@@ -3145,6 +3190,11 @@ export default function ListingDiagnosis() {
         marketplace: data.marketplace,
         data_integrity: report.data_integrity,
         diagnosis_confidence: report.diagnosis_confidence,
+        causal_diagnosis: report.causal_diagnosis,
+        causal_scores: report.causal_scores,
+        judgment_system: report.judgment_system,
+        ad_validation_plan: report.ad_validation_plan,
+        decision_outputs: report.decision_outputs,
       };
       setListing(savedListing);
       setFetchMeta(savedMeta);
