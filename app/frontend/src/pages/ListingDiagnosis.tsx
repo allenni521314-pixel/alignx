@@ -1178,10 +1178,20 @@ function hasRequiredPrice(value?: string | null): boolean {
   return hasRequiredText(text) && /\d/.test(text);
 }
 
+function normalizeListingStandardLabel(value: string): string {
+  if (["标题", "产品标题", "标题关键词"].includes(value)) return "标题关键词";
+  if (["主图/图片", "主图", "图片", "主图/副图"].includes(value)) return "主图/副图";
+  if (["五点描述不足3条", "五点描述", "五点"].includes(value)) return "五点";
+  if (["Search Terms", "后台Search Terms", "后台关键词"].includes(value)) return "后台关键词";
+  return value;
+}
+
 function resolveFormalGateMissing(listing: ListingInput, meta?: FetchMeta | null): string[] {
-  const listingCoreLabels = new Set(["标题", "主图/图片", "五点描述不足3条"]);
+  const listingCoreLabels = new Set(["标题关键词", "主图/副图", "五点"]);
   const missing = new Set<string>(
-    (meta?.capture_quality?.missing_core || []).filter((item) => listingCoreLabels.has(item))
+    (meta?.capture_quality?.missing_core || [])
+      .map(normalizeListingStandardLabel)
+      .filter((item) => listingCoreLabels.has(item))
   );
   const imageCount = getListingImageCount(listing, meta);
   const bulletCount = splitBullets(listing.bullet_points).length;
@@ -1191,11 +1201,22 @@ function resolveFormalGateMissing(listing: ListingInput, meta?: FetchMeta | null
     else missing.add(label);
   };
 
-  sync("标题", hasRequiredText(listing.title));
-  sync("主图/图片", imageCount > 0 || Boolean(listing.image_urls?.length));
-  if (bulletCount < 3) missing.add("五点描述不足3条");
-  else missing.delete("五点描述不足3条");
+  sync("标题关键词", hasRequiredText(listing.title));
+  sync("主图/副图", imageCount > 0 || Boolean(listing.image_urls?.length));
+  if (bulletCount < 3) missing.add("五点");
+  else missing.delete("五点");
 
+  return Array.from(missing).filter(Boolean);
+}
+
+function resolveListingStandardMissing(listing: ListingInput, meta?: FetchMeta | null): string[] {
+  const missing = new Set<string>(resolveFormalGateMissing(listing, meta));
+  if (!(listing.has_a_plus || meta?.has_a_plus || hasRequiredText(listing.a_plus_content))) {
+    missing.add("A+");
+  }
+  if (!hasRequiredText(listing.backend_keywords)) {
+    missing.add("后台关键词");
+  }
   return Array.from(missing).filter(Boolean);
 }
 
@@ -2970,6 +2991,8 @@ export default function ListingDiagnosis() {
     // This prevents page layout jumps during analysis
     let moduleTaskId: string | null = null;
     try {
+      const activeProductStage = resolveProductStage(activeListing, activeFetchMeta, productStageOverride);
+      const activeDiagnosisMode = diagnosisModeForStage(activeProductStage);
       // Flow 2: Fetch competitor insights to enrich diagnosis context
       let competitorContext = "";
       try {
@@ -2985,7 +3008,7 @@ export default function ListingDiagnosis() {
       }
 
       const diagPayload: Record<string, unknown> = {
-        diagnosis_mode: diagnosisModeForStage(resolveProductStage(activeListing, activeFetchMeta, productStageOverride)),
+        diagnosis_mode: activeDiagnosisMode,
         force_refresh: false,
         listing: {
           ...activeListing,
@@ -2999,7 +3022,7 @@ export default function ListingDiagnosis() {
           has_a_plus: activeFetchMeta?.has_a_plus || activeListing.has_a_plus || false,
         },
         precision_context: {
-          diagnosis_mode: diagnosisModeForStage(resolveProductStage(activeListing, activeFetchMeta, productStageOverride)),
+          diagnosis_mode: activeDiagnosisMode,
           review_count: activeFetchMeta?.review_count || activeListing.review_count || "",
           rating: activeFetchMeta?.rating || activeListing.rating || "",
           bsr_rank: activeFetchMeta?.bsr_rank || activeListing.bsr_rank || "",
@@ -3028,7 +3051,7 @@ export default function ListingDiagnosis() {
         moduleKey: "listing-diagnosis",
         label: "本品Listing诊断",
         status: "running",
-        detail: isNewLaunchListing(activeListing, activeFetchMeta)
+        detail: activeProductStage === "new_launch"
           ? "正在生成新品上架承接诊断"
           : "正在生成Listing承接诊断报告",
         path: "/listing-diagnosis",
@@ -3336,6 +3359,7 @@ export default function ListingDiagnosis() {
   const radarScores = buildRadarScores();
   const elementsData = buildElements();
   const formalGateMissing = resolveFormalGateMissing(listing, fetchMeta);
+  const listingStandardMissing = resolveListingStandardMissing(listing, fetchMeta);
   const marketEvidenceMissing = resolveMarketEvidenceMissing(listing, fetchMeta);
   const productStage = resolveProductStage(listing, fetchMeta, productStageOverride);
   const isNewLaunchMode = productStage === "new_launch";
@@ -3581,7 +3605,7 @@ export default function ListingDiagnosis() {
                           <CheckCircle2 className="w-5 h-5 text-emerald-600" />
 	                          判定条件
                         </CardTitle>
-                        <p className="text-xs text-gray-500 mt-1">先判断标题、图片和五点是否能承接流量；价格/评论/BSR缺失只降低市场证据置信度。</p>
+                        <p className="text-xs text-gray-500 mt-1">统一按标题关键词、主图/副图、A+、五点、后台关键词判断承接基础；价格/评论/BSR只作为市场证据。</p>
                       </div>
                       {fetchSource && (
                         <Badge variant="outline" className="w-fit border-emerald-200 bg-emerald-50 text-emerald-700">
@@ -3629,7 +3653,7 @@ export default function ListingDiagnosis() {
                     {showAdvancedEditor && (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
                       <div className="lg:col-span-2 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
-                        <label className="text-[11px] text-gray-500">产品标题</label>
+                        <label className="text-[11px] text-gray-500">标题关键词</label>
                         <Input
                           value={listing.title}
                           onChange={(e) => updateListingCoreField("title", e.target.value)}
@@ -3696,7 +3720,7 @@ export default function ListingDiagnosis() {
                           placeholder="如 7"
                           className="mt-1 h-9 bg-white border-gray-200 text-sm"
                         />
-                        <p className="mt-1 text-[10px] text-gray-500">主图1张，副图 {Math.max(getListingImageCount(listing, fetchMeta) - 1, 0)} 张</p>
+                        <p className="mt-1 text-[10px] text-gray-500">主图/副图证据：主图1张，副图 {Math.max(getListingImageCount(listing, fetchMeta) - 1, 0)} 张</p>
                       </div>
                       <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
                         <label className="text-[11px] text-gray-500">A+</label>
@@ -3726,8 +3750,8 @@ export default function ListingDiagnosis() {
                           </SelectContent>
                         </Select>
                       </div>
-                      <div className={`md:col-span-2 lg:col-span-4 rounded-lg border px-3 py-2 ${formalGateMissing.includes("五点描述不足3条") ? "border-amber-200 bg-amber-50" : "border-gray-100 bg-gray-50"}`}>
-                        <label className="text-[11px] text-gray-500">五点描述 · 当前 {splitBullets(listing.bullet_points).length}/5</label>
+                      <div className={`md:col-span-2 lg:col-span-4 rounded-lg border px-3 py-2 ${formalGateMissing.includes("五点") ? "border-amber-200 bg-amber-50" : "border-gray-100 bg-gray-50"}`}>
+                        <label className="text-[11px] text-gray-500">五点 · 当前 {splitBullets(listing.bullet_points).length}/5</label>
                         <Textarea
                           value={listing.bullet_points}
                           onChange={(e) => updateListingCoreField("bullet_points", e.target.value)}
@@ -3762,10 +3786,13 @@ export default function ListingDiagnosis() {
                             </Button>
                           </div>
                         </div>
-                        {Boolean(formalGateMissing.length || marketEvidenceMissing.length || fetchMeta.capture_quality.missing_strategy?.length) && (
+                        {Boolean(listingStandardMissing.length || marketEvidenceMissing.length || fetchMeta.capture_quality.missing_strategy?.length) && (
                           <div className="mt-2 space-y-1 text-xs text-gray-600">
                             {formalGateMissing.length > 0 && (
-                              <p>承接字段需补齐：<span className="font-semibold">{formalGateMissing.join("、")}</span></p>
+                              <p>硬性承接字段需补齐：<span className="font-semibold">{formalGateMissing.join("、")}</span></p>
+                            )}
+                            {listingStandardMissing.filter((item) => !formalGateMissing.includes(item)).length > 0 && (
+                              <p>五项标准待补：<span className="font-semibold">{listingStandardMissing.filter((item) => !formalGateMissing.includes(item)).join("、")}</span></p>
                             )}
                             {marketEvidenceMissing.length > 0 && (
                               <p>
@@ -3788,14 +3815,14 @@ export default function ListingDiagnosis() {
                     )}
                     {formalGateMissing.length === 0 && marketEvidenceMissing.length > 0 && !fetchMeta?.capture_quality && (
                       <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-	                        {isNewLaunchMode ? "已识别为新品上架，可判断Listing承接；" : "可判断新品Listing承接；"}
+	                        {isNewLaunchMode ? "已识别为新品上架，可判断Listing承接；" : "可判断成熟品承接；"}
                         缺失的市场证据会降低置信度：
                         <span className="font-semibold"> {marketEvidenceMissing.join("、")} </span>
                       </div>
                     )}
                     {showAdvancedEditor && (
                     <div>
-                      <label className="text-xs text-gray-500 mb-1 block">Search Terms（可选，抓取不到时手动补）</label>
+                      <label className="text-xs text-gray-500 mb-1 block">后台关键词（Search Terms）</label>
                       <Input
                         value={listing.backend_keywords}
                         onChange={(e) => setListing((prev) => ({ ...prev, backend_keywords: e.target.value }))}
