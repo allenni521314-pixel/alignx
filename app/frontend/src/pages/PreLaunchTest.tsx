@@ -66,6 +66,7 @@ interface ScoringResult {
   ordered_first_fixes?: string[];
   rule_context?: Record<string, unknown>;
   vision_alignment?: Record<string, unknown>;
+  human_nature_graph?: Record<string, unknown>;
   product_attribute_profile?: Record<string, unknown>;
   prelaunch_modification_plan?: Record<string, unknown>;
   ad_validation_alignment?: Record<string, unknown>;
@@ -1481,6 +1482,7 @@ export default function PreLaunchTest() {
         ordered_first_fixes: targetResult.ordered_first_fixes || [],
         rule_context: targetResult.rule_context || {},
         vision_alignment: targetResult.vision_alignment || {},
+        human_nature_graph: targetResult.human_nature_graph || {},
         product_attribute_profile: targetResult.product_attribute_profile || {},
         prelaunch_modification_plan: targetResult.prelaunch_modification_plan || {},
         ad_validation_alignment: targetResult.ad_validation_alignment || {},
@@ -1587,6 +1589,7 @@ export default function PreLaunchTest() {
       ordered_first_fixes: (report.ordered_first_fixes as string[]) || [],
       rule_context: (report.rule_context as Record<string, unknown>) || {},
       vision_alignment: (report.vision_alignment as Record<string, unknown>) || {},
+      human_nature_graph: (report.human_nature_graph as Record<string, unknown>) || {},
       product_attribute_profile: (report.product_attribute_profile as Record<string, unknown>) || {},
       prelaunch_modification_plan: (report.prelaunch_modification_plan as Record<string, unknown>) || {},
       ad_validation_alignment: (report.ad_validation_alignment as Record<string, unknown>) || {},

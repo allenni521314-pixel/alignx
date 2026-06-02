@@ -48,6 +48,7 @@ from services.judgment_system import JudgmentSystemService
 from services.cosmo_rufus_rules import build_cosmo_rufus_analysis, merge_cosmo_rufus_into_legacy
 from services.cosmo_vector_mapping import evaluate_cosmo_vector_mapping_async
 from services.canonical_10d_scoring import product_evidence_similarity
+from services.human_nature_model import human_nature_prompt_block
 from services.cosmo_operator_agent import CosmoOperatorAgent
 
 logger = logging.getLogger(__name__)
@@ -737,9 +738,17 @@ DIAGNOSIS_PROMPT = """【最高优先级指令】你正在诊断的产品是: "{
 价格: {price}
 品牌: {brand}
 
-## 判断模式：用户需求 × 平台识别 × 10维诊断
+## 判断模式：人性驱动力 × 用户需求 × 平台识别 × 10维诊断
 
-本次不是把10个维度当作平铺同级指标简单平均。必须先用“用户需求”和“平台识别”两套标准判断，再把10维诊断作为反向检查视角。注意：最终输出面向卖家，不要暴露内部方法论名称。
+本次不是把10个维度当作平铺同级指标简单平均。必须先从“人性驱动力”推导购买动机，再进入“用户需求”和“平台识别”两套标准判断，最后把10维诊断作为反向检查视角。注意：最终输出面向卖家，不要暴露内部方法论名称。
+
+### 人性驱动力标准
+判断用户是在趋利还是避害，属于安全、健康、爱、归属、尊严、自由、懒惰、恐惧等哪类驱动力。
+- 根层：Seek Gain / Avoid Loss。
+- 进化层：Survival / Reproduction / Resource / Exploration。
+- 动机层：生存、安全、健康、爱、归属、尊严、权力、自由、扩张、好奇、娱乐、懒惰、恐惧。
+- 推理链路：人性驱动力 → 用户意图 → 需求 → 场景 → Solution → 表达 → 行为 → 结果。
+- 禁止从关键词开始推理，关键词只能是动机链路后的表达和验证资产。
 
 ### 用户需求标准
 判断用户真实要完成什么任务、为什么现在要买、在什么场景使用、依据什么属性决策、担心什么风险。
@@ -760,11 +769,12 @@ DIAGNOSIS_PROMPT = """【最高优先级指令】你正在诊断的产品是: "{
 
 ### 10维诊断动作顺序
 必须按以下顺序做后台判断：
-1. 用户意图：先判断用户任务、购买触发、场景、决策属性和反购买风险。
-2. 平台规则：再判断Amazon能否识别商品身份、查询意图、结构化属性和关系图谱。
-3. 验证回流：最后用价格、评论、BSR、关键词和广告数据校准置信度与下一步动作。
+1. 人性驱动力：先判断趋利/避害、13个动机节点和动机强度。
+2. 用户意图：再判断用户任务、购买触发、场景、决策属性和反购买风险。
+3. 平台规则：再判断Amazon能否识别商品身份、查询意图、结构化属性和关系图谱。
+4. 验证回流：最后用价格、评论、BSR、关键词和广告数据校准置信度与下一步动作。
 
-每个analysis字段必须说明：用户需求映射、平台识别映射、当前证据、扣分原因、问题类型（对齐/缺失/错位/断链/误导）、影响指标（CTR/CVR/CPC/ACOS/退货/差评）、下一步动作。禁止在analysis里直接写内部方法论名称。
+每个analysis字段必须说明：人性动机映射、用户需求映射、平台识别映射、当前证据、扣分原因、问题类型（对齐/缺失/错位/断链/误导）、影响指标（CTR/CVR/CPC/ACOS/退货/差评）、下一步动作。禁止在analysis里直接写内部方法论名称。
 
 ## 诊断维度（共10个维度，每个0-100分）
 
@@ -1997,7 +2007,17 @@ async def _diagnose_single(
         logger.warning(f"123 alignment memory unavailable for listing diagnosis: {e}")
 
     prompt = (
-        _build_compact_diagnosis_prompt(listing)
+        human_nature_prompt_block({
+            "title": listing.title,
+            "bullet_points": listing.bullet_points,
+            "description": listing.description,
+            "a_plus_content": listing.a_plus_content,
+            "category": listing.category,
+            "brand": listing.brand,
+            "keywords": getattr(listing, "backend_keywords", ""),
+        })
+        + "\n\n"
+        + _build_compact_diagnosis_prompt(listing)
         + "\n\n【强制证据链】以下证据来自平台识别主链路，必须优先使用；后台规则只可作为兜底或一致性校验，不能替代主判断：\n"
         + json.dumps(evidence_chain, ensure_ascii=False)[:6000]
     )
@@ -2026,7 +2046,7 @@ async def _diagnose_single(
         f'4.在JSON中"analyzed_product_name"字段填入你实际分析的产品名称。'
         f'{a_plus_hint}'
         f' 6.elements中每个要素的每个维度评分都必须是合理的非零值，绝对禁止全部给0分。'
-        f' 7.本次诊断采用“1用户意图 → 2平台规则 → 3验证回流 → 10维诊断”的后台动作顺序；禁止把10项当作平铺平均分。输出面向卖家，禁止暴露内部方法论名称。'
+        f' 7.本次诊断采用“1人性驱动力 → 2用户意图 → 3平台规则 → 4验证回流 → 10维诊断”的后台动作顺序；禁止把10项当作平铺平均分。输出面向卖家，禁止暴露内部方法论名称。'
         f' 8.判断优先级：语义召回和证据精排 > 图片识别事实 > AI综合判断；后台规则只做兜底和一致性校验。'
         f'你是亚马逊Listing优化专家。只输出JSON。'
     )

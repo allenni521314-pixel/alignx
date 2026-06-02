@@ -22,6 +22,7 @@ from typing import Any, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from services.causal_diagnosis import CausalDiagnosisService
+from services.human_nature_model import build_human_nature_graph
 from services.precision_confidence import assess_listing_diagnosis_input
 
 logger = logging.getLogger(__name__)
@@ -305,7 +306,7 @@ def _flatten_missing_terms(review_semantics: dict[str, Any], limit: int = 8) -> 
 class JudgmentSystemService:
     """Single backend orchestration layer for all judgment signals."""
 
-    version = "judgment-system-v3"
+    version = "judgment-system-v4"
 
     def __init__(self, db: Optional[AsyncSession] = None):
         self.db = db
@@ -441,6 +442,18 @@ class JudgmentSystemService:
             "data_integrity": precision,
             "confidence_by_alignment": precision.get("conclusion_confidence", {}),
         }
+
+    def build_human_nature_layer(self, listing: Any, diagnosis_data: dict[str, Any]) -> dict[str, Any]:
+        source = {
+            "title": getattr(listing, "title", "") or diagnosis_data.get("title", ""),
+            "keywords": diagnosis_data.get("keywords") or diagnosis_data.get("backend_keywords") or "",
+            "bullet_points": getattr(listing, "bullet_points", "") or diagnosis_data.get("bullet_points", ""),
+            "description": getattr(listing, "description", "") or diagnosis_data.get("description", ""),
+            "a_plus_content": getattr(listing, "a_plus_content", "") or diagnosis_data.get("a_plus_content", ""),
+            "category": getattr(listing, "category", "") or diagnosis_data.get("category", ""),
+            "brand": getattr(listing, "brand", "") or diagnosis_data.get("brand", ""),
+        }
+        return build_human_nature_graph(source)
 
     def build_rule_based_causal_judgment(self, listing: Any, diagnosis_data: dict[str, Any]) -> dict[str, Any]:
         """Build causal conversion judgment from scraped fields and 10-dimension diagnosis output without a second AI call.
@@ -780,6 +793,7 @@ class JudgmentSystemService:
     def build_decision_outputs(
         self,
         *,
+        human_nature: dict[str, Any],
         review_semantics: dict[str, Any],
         cosmo_semantics: dict[str, Any],
         causal: dict[str, Any],
@@ -799,6 +813,10 @@ class JudgmentSystemService:
         precision_score = float(precision.get("score") or 0)
         validation_items = ad_validation.get("validation_items", []) if isinstance(ad_validation, dict) else []
         readiness = float((causal.get("raw") or {}).get("keyword_causality", {}).get("readiness_score") or 0)
+        active_motives = human_nature.get("human_motivation_layer", {}).get("active_nodes", [])
+        intent_seeds = human_nature.get("user_intent_layer", {}).get("intent_seeds", [])
+        scenarios = human_nature.get("scenario_layer", [])
+        solutions = human_nature.get("solution_layer", [])
 
         user_intent_score = _avg([review_score, _dimension_score(dimension_scores, USER_INTENT_DIMENSIONS)])
         platform_matching_score = _avg([platform_score, _dimension_score(dimension_scores, PLATFORM_MATCHING_DIMENSIONS)])
@@ -835,6 +853,13 @@ class JudgmentSystemService:
                 "score": round(score, 2),
                 "score_band": _score_band(score),
                 "failure_pattern": failure_pattern,
+                "human_nature_layer": {
+                    "root": human_nature.get("root_layer", {}),
+                    "active_motives": active_motives,
+                    "intent_seeds": intent_seeds,
+                    "scenarios": scenarios,
+                    "solutions": solutions,
+                },
             }
 
         outputs = [
@@ -845,6 +870,8 @@ class JudgmentSystemService:
                 score=user_intent_score,
                 judgment=f"购买动机{_score_band(user_intent_score)}",
                 basis=[
+                    f"人性动机：{' / '.join(active_motives[:4])}" if active_motives else "",
+                    f"需求种子：{' / '.join(intent_seeds[:3])}" if intent_seeds else "",
                     f"用户需求对齐 {round(review_score)} 分",
                     f"场景/人群/心理/风险维度均分 {round(_dimension_score(dimension_scores, USER_INTENT_DIMENSIONS))} 分",
                     review_semantics.get("summary", ""),
@@ -862,6 +889,7 @@ class JudgmentSystemService:
                 score=platform_matching_score,
                 judgment=f"平台理解{_score_band(platform_matching_score)}",
                 basis=[
+                    f"场景根因：{' / '.join(scenarios[:3])}" if scenarios else "",
                     f"平台识别对齐 {round(platform_score)} 分",
                     f"产品身份/兼容/场景/趋势均分 {round(_dimension_score(dimension_scores, PLATFORM_MATCHING_DIMENSIONS))} 分",
                 ],
@@ -878,6 +906,7 @@ class JudgmentSystemService:
                 score=listing_conversion_score,
                 judgment=f"转化承接{_score_band(listing_conversion_score)}",
                 basis=[
+                    f"解决方案层：{' / '.join(solutions[:3])}" if solutions else "",
                     f"因果转化对齐 {round(causal_score)} 分",
                     f"功能/场景/风险/差异/主观属性均分 {round(_dimension_score(dimension_scores, LISTING_CONVERSION_DIMENSIONS))} 分",
                 ],
@@ -894,6 +923,7 @@ class JudgmentSystemService:
                 score=advertising_validation_score,
                 judgment="可进入小预算验证" if validation_items else "暂不建议验证",
                 basis=[
+                    f"验证从动机链路开始：{' / '.join(active_motives[:3])}" if active_motives else "",
                     f"关键词验证就绪 {round(readiness or causal_score)} 分",
                     f"已生成 {len(validation_items)} 组验证假设",
                 ],
@@ -910,6 +940,7 @@ class JudgmentSystemService:
                 score=allocation_score,
                 judgment="优先投向高置信改动" if allocation_score >= 65 else "先补判断再投资源",
                 basis=[
+                    f"资源优先投向已被动机和场景共同支撑的动作",
                     f"用户意图 {round(user_intent_score)} 分",
                     f"平台匹配 {round(platform_matching_score)} 分",
                     f"Listing承接 {round(listing_conversion_score)} 分",
@@ -928,6 +959,7 @@ class JudgmentSystemService:
                 score=learning_score,
                 judgment="等待验证回流" if validation_items else "缺少可学习样本",
                 basis=[
+                    "学习对象是动机、需求、场景、解决方案、表达、行为和结果之间的因果关系",
                     f"数据完整性 {round(precision_score)} 分",
                     "已有广告验证假设" if validation_items else "尚未形成广告验证样本",
                 ],
@@ -953,6 +985,7 @@ class JudgmentSystemService:
         existing_causal_result: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Return a unified backend judgment object for Listing workflows."""
+        human_nature = self.build_human_nature_layer(listing, diagnosis_data)
         review_semantics = self.build_review_semantics(diagnosis_data)
         cosmo_semantics = self.build_cosmo_semantics(diagnosis_data)
         precision = self.build_precision_judgment(listing, context)
@@ -989,6 +1022,7 @@ class JudgmentSystemService:
             precision=precision,
         )
         decision_outputs = self.build_decision_outputs(
+            human_nature=human_nature,
             review_semantics=review_semantics,
             cosmo_semantics=cosmo_semantics,
             causal=causal,
@@ -1002,6 +1036,7 @@ class JudgmentSystemService:
             "overall_judgment_score": overall_score,
             "alignment_scores": alignment_scores,
             "sections": {
+                "human_nature": human_nature,
                 "review_semantics": review_semantics,
                 "cosmo_semantics": cosmo_semantics,
                 "causal_judgment": causal,
@@ -1009,6 +1044,7 @@ class JudgmentSystemService:
                 "ad_validation": ad_validation,
                 "decision_outputs": decision_outputs,
             },
+            "human_nature_graph": human_nature,
             "data_integrity": precision["data_integrity"],
             "diagnosis_confidence": precision["confidence_by_alignment"],
             "legacy_bridge": {
@@ -1018,6 +1054,7 @@ class JudgmentSystemService:
                 "diagnosis_confidence": precision["confidence_by_alignment"],
                 "ad_validation_plan": ad_validation,
                 "decision_outputs": decision_outputs,
+                "human_nature_graph": human_nature,
             },
         }
 
@@ -1040,6 +1077,7 @@ class JudgmentSystemService:
 
         data["causal_diagnosis"] = causal.get("raw", {})
         data["judgment_system"] = judgment
+        data["human_nature_graph"] = sections.get("human_nature", judgment.get("human_nature_graph", {}))
         data["ad_validation_plan"] = sections.get("ad_validation", {})
         data["decision_outputs"] = sections.get("decision_outputs", [])
         data["data_integrity"] = judgment.get("data_integrity", {})

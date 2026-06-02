@@ -19,6 +19,7 @@ from dependencies.auth import get_current_user, get_user_scope_ids
 from schemas.auth import UserResponse
 from services.amazon_skill_toolbox import build_toolbox_enhancements, merge_toolbox_into_ad_validation_plan
 from services.ai_gateway import AgentRequest, AIGatewayService
+from services.human_nature_model import build_human_nature_graph
 from services.prelaunch_test_results import Prelaunch_test_resultsService
 
 logger = logging.getLogger(__name__)
@@ -62,6 +63,7 @@ class SaveResultRequest(BaseModel):
     rule_context: dict[str, Any] = {}
     vision_alignment: dict[str, Any] = {}
     toolbox_enhancements: dict[str, Any] = {}
+    human_nature_graph: dict[str, Any] = {}
     product_attribute_profile: dict[str, Any] = {}
     prelaunch_modification_plan: dict[str, Any] = {}
     ad_validation_alignment: dict[str, Any] = {}
@@ -476,6 +478,13 @@ def _build_rule_evaluation(request: EvaluateLaunchRequest) -> dict[str, Any]:
     keyword_items = _split_keywords(request.keywords)
     bullet_items = _split_bullets(request.bullet_points)
     product_profile = _infer_product_profile(request)
+    human_nature = build_human_nature_graph({
+        "title": request.title,
+        "keywords": request.keywords,
+        "bullet_points": request.bullet_points,
+        "a_plus_content": request.a_plus_desc,
+        "category": request.category,
+    })
     all_text = " ".join([
         request.title,
         request.keywords,
@@ -707,6 +716,7 @@ def _build_rule_evaluation(request: EvaluateLaunchRequest) -> dict[str, Any]:
         "cosmo_alignment": f"当前商品身份为{product_profile['product_identity']}。标题负责搜索识别，主图负责点击，副图负责转化，五点负责购买理由，Search Terms负责补语义，A+负责信任闭环。当前功能覆盖{function_hits}，场景覆盖{scenario_hits}。",
         "rufus_alignment": "Listing需要用美国消费者自然语言承接搜索意图。标题不堆词，五点讲购买理由，Search Terms补充前台未覆盖的真实相关词。",
         "ordered_first_fixes": ordered_first_fixes,
+        "human_nature_graph": human_nature,
         "product_attribute_profile": product_profile,
         "prelaunch_modification_plan": recommendations,
         "ad_validation_alignment": {
@@ -730,6 +740,7 @@ def _build_rule_evaluation(request: EvaluateLaunchRequest) -> dict[str, Any]:
             "intent_hits": intent_hits,
             "keyword_count": len(keyword_items),
             "keyword_type_counts": keyword_counts,
+            "human_nature_graph": human_nature,
             "product_attribute_profile": product_profile,
             "prelaunch_modification_plan": recommendations,
             "bullet_count": len(bullet_items),
@@ -853,6 +864,7 @@ async def save_test_result(
             "rule_context": request.rule_context,
             "vision_alignment": request.vision_alignment,
             "toolbox_enhancements": request.toolbox_enhancements,
+            "human_nature_graph": request.human_nature_graph,
             "product_attribute_profile": request.product_attribute_profile,
             "prelaunch_modification_plan": request.prelaunch_modification_plan,
             "ad_validation_alignment": request.ad_validation_alignment,
