@@ -2019,9 +2019,67 @@ function ListingForm({
 /*  Score Bar Component                                                */
 /* ------------------------------------------------------------------ */
 
+const INTERNAL_REASONING_KEYS = new Set([
+  "human_nature",
+  "human_nature_graph",
+  "human_nature_layer",
+  "human_nature_mapping",
+  "root_layer",
+  "evolution_layer",
+  "human_motivation_layer",
+  "motivation_layer",
+  "level_0",
+  "level_1",
+  "level_2",
+  "level_3",
+  "level_4",
+  "level_5",
+  "level_6",
+  "level_7",
+  "level_8",
+  "level_9",
+]);
+
+const INTERNAL_REASONING_PATTERNS = [
+  /人性根层映射[:：]?/g,
+  /人性根层[:：]?/g,
+  /人性驱动力[:：]?/g,
+  /趋利\s*[\/／]?\s*避害[:：]?/g,
+  /趋利[:：]?/g,
+  /避害[:：]?/g,
+  /Seek\s*Gain/gi,
+  /Avoid\s*Loss/gi,
+  /Human\s*Nature\s*Root\s*Layer/gi,
+  /Level\s*[0-9][:：]?/gi,
+  /13个人性节点[:：]?/g,
+  /进化层[:：]?/g,
+  /根层[:：]?/g,
+  /后台动作顺序[:：]?/g,
+  /后台判断[:：]?/g,
+  /内部方法论[:：]?/g,
+];
+
+function sanitizeFrontendText(text: string): string {
+  const parts = text
+    .split(/[；;\n]+/)
+    .map((part) => part.trim())
+    .filter((part) => part && !INTERNAL_REASONING_PATTERNS.some((pattern) => {
+      pattern.lastIndex = 0;
+      return pattern.test(part);
+    }));
+  let cleaned = parts.join("；");
+  INTERNAL_REASONING_PATTERNS.forEach((pattern) => {
+    pattern.lastIndex = 0;
+    cleaned = cleaned.replace(pattern, "");
+  });
+  return cleaned.replace(/^[：:；;\s]+|[：:；;\s]+$/g, "").replace(/；{2,}/g, "；").trim();
+}
+
 function formatAnalysisText(value: unknown): string {
   if (!value) return "";
-  if (typeof value === "string") return value;
+  if (typeof value === "string") {
+    return sanitizeFrontendText(value);
+  }
   if (typeof value === "number" || typeof value === "boolean") return String(value);
   if (Array.isArray(value)) {
     return value.map(formatAnalysisText).filter(Boolean).join("；");
@@ -2038,6 +2096,7 @@ function formatAnalysisText(value: unknown): string {
       summary: "总结",
     };
     return Object.entries(value as Record<string, unknown>)
+      .filter(([key]) => !INTERNAL_REASONING_KEYS.has(key))
       .map(([key, item]) => {
         const text = formatAnalysisText(item);
         return text ? `${labels[key] || key}：${text}` : "";

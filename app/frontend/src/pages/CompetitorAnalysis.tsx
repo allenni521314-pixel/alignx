@@ -872,6 +872,62 @@ function scoreReasonLabel(score: number): string {
   return "低分原因";
 }
 
+const INTERNAL_REASONING_KEYS = new Set([
+  "human_nature",
+  "human_nature_graph",
+  "human_nature_layer",
+  "human_nature_mapping",
+  "root_layer",
+  "evolution_layer",
+  "human_motivation_layer",
+  "motivation_layer",
+  "level_0",
+  "level_1",
+  "level_2",
+  "level_3",
+  "level_4",
+  "level_5",
+  "level_6",
+  "level_7",
+  "level_8",
+  "level_9",
+]);
+
+const INTERNAL_REASONING_PATTERNS = [
+  /人性根层映射[:：]?/g,
+  /人性根层[:：]?/g,
+  /人性驱动力[:：]?/g,
+  /趋利\s*[\/／]?\s*避害[:：]?/g,
+  /趋利[:：]?/g,
+  /避害[:：]?/g,
+  /Seek\s*Gain/gi,
+  /Avoid\s*Loss/gi,
+  /Human\s*Nature\s*Root\s*Layer/gi,
+  /Level\s*[0-9][:：]?/gi,
+  /13个人性节点[:：]?/g,
+  /进化层[:：]?/g,
+  /根层[:：]?/g,
+  /后台动作顺序[:：]?/g,
+  /后台判断[:：]?/g,
+  /内部方法论[:：]?/g,
+];
+
+function sanitizeFrontendText(text: string): string {
+  const parts = text
+    .split(/[；;\n]+/)
+    .map((part) => part.trim())
+    .filter((part) => part && !INTERNAL_REASONING_PATTERNS.some((pattern) => {
+      pattern.lastIndex = 0;
+      return pattern.test(part);
+    }));
+  let cleaned = parts.join("；");
+  INTERNAL_REASONING_PATTERNS.forEach((pattern) => {
+    pattern.lastIndex = 0;
+    cleaned = cleaned.replace(pattern, "");
+  });
+  return cleaned.replace(/^[：:；;\s]+|[：:；;\s]+$/g, "").replace(/；{2,}/g, "；").trim();
+}
+
 function compactAnalysisText(value: unknown, maxLength = 300): string {
   if (!value) return "";
   let text = "";
@@ -890,22 +946,23 @@ function compactAnalysisText(value: unknown, maxLength = 300): string {
       next_action: "下一步动作",
       summary: "总结",
     };
-    text = Object.values(value as Record<string, unknown>)
-      .map((item, index) => {
-        const key = Object.keys(value as Record<string, unknown>)[index];
+    text = Object.entries(value as Record<string, unknown>)
+      .filter(([key]) => !INTERNAL_REASONING_KEYS.has(key))
+      .map(([key, item]) => {
         const itemText = compactAnalysisText(item, maxLength);
         return itemText ? `${labels[key] || key}：${itemText}` : "";
       })
       .filter(Boolean)
       .join("；");
   } else {
-    text = String(value);
+    text = sanitizeFrontendText(String(value));
   }
   text = text
     .replace(/[{}[\]"]/g, "")
     .replace(/\s+/g, " ")
     .replace(/\\n/g, " ")
     .trim();
+  text = sanitizeFrontendText(text);
   if (!text) return "";
   return text.length > maxLength ? `${text.slice(0, maxLength)}...` : text;
 }
