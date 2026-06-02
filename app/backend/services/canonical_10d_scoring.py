@@ -255,7 +255,8 @@ def apply_market_reality_caps(
     has_price = _has_required_price(ctx.get("price"))
     diagnosis_mode = str(ctx.get("diagnosis_mode") or "").strip().lower()
     explicit_new_launch = diagnosis_mode in {"new_launch", "new_launch_readiness", "prelaunch", "prelaunch_readiness"}
-    is_new_launch = explicit_new_launch or ((not has_price) and review_count == 0 and bsr_rank == 0)
+    explicit_mature_listing = diagnosis_mode in {"mature_listing", "listing_conversion", "listing_conversion_readiness"}
+    is_new_launch = explicit_new_launch or (not explicit_mature_listing and ((not has_price) and review_count == 0 and bsr_rank == 0))
     reasons: list[str] = []
 
     if is_new_launch:

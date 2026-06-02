@@ -218,6 +218,8 @@ def _is_new_launch(listing: Any, data: dict[str, Any] | None = None) -> bool:
     diagnosis_mode = str(data.get("diagnosis_mode") or "").strip().lower()
     if diagnosis_mode in {"new_launch", "new_launch_readiness", "prelaunch", "prelaunch_readiness"}:
         return True
+    if diagnosis_mode in {"mature_listing", "listing_conversion", "listing_conversion_readiness"}:
+        return False
     cap_meta = data.get("market_reality_caps") if isinstance(data.get("market_reality_caps"), dict) else {}
     if cap_meta.get("is_new_launch") is True:
         return True

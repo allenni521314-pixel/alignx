@@ -343,6 +343,14 @@ def _is_new_launch_mode(value: str | None) -> bool:
     }
 
 
+def _is_mature_listing_mode(value: str | None) -> bool:
+    return str(value or "").strip().lower() in {
+        "mature_listing",
+        "listing_conversion",
+        "listing_conversion_readiness",
+    }
+
+
 class DiagnoseResponse(BaseModel):
     scores: dict
     analysis: dict
@@ -1275,7 +1283,9 @@ def _apply_market_reality_caps(data: dict, listing: ListingInput) -> dict:
     has_backend = bool((listing.backend_keywords or "").strip())
     has_price = _has_required_price(listing.price)
     diagnosis_mode = str(data.get("diagnosis_mode") or "").strip().lower()
-    is_new_launch = _is_new_launch_mode(diagnosis_mode) or _is_new_launch_listing(listing)
+    is_new_launch = _is_new_launch_mode(diagnosis_mode) or (
+        not _is_mature_listing_mode(diagnosis_mode) and _is_new_launch_listing(listing)
+    )
     reasons: list[str] = []
 
     if is_new_launch:

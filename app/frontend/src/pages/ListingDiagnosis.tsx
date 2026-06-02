@@ -340,6 +340,7 @@ interface HistoryItem {
 }
 
 type DiagnosisPhase = "idle" | "fetching" | "fetch_success" | "fetch_failed" | "analyzing" | "analyzed" | "error";
+type ProductStage = "new_launch" | "mature_listing";
 
 interface PriorityIssue {
   position: string;
@@ -1178,7 +1179,10 @@ function hasRequiredPrice(value?: string | null): boolean {
 }
 
 function resolveFormalGateMissing(listing: ListingInput, meta?: FetchMeta | null): string[] {
-  const missing = new Set<string>(meta?.capture_quality?.missing_core || []);
+  const listingCoreLabels = new Set(["标题", "主图/图片", "五点描述不足3条"]);
+  const missing = new Set<string>(
+    (meta?.capture_quality?.missing_core || []).filter((item) => listingCoreLabels.has(item))
+  );
   const imageCount = getListingImageCount(listing, meta);
   const bulletCount = splitBullets(listing.bullet_points).length;
 
@@ -1213,6 +1217,15 @@ function isNewLaunchListing(listing: ListingInput, meta?: FetchMeta | null): boo
   const missingReviews = !hasRequiredText(reviewCount) || parseMetricInt(reviewCount) === 0;
   const missingSales = !hasRequiredText(bsrRank) || parseMetricInt(bsrRank) === 0;
   return missingReviews && missingSales;
+}
+
+function resolveProductStage(listing: ListingInput, meta?: FetchMeta | null, override?: ProductStage | null): ProductStage {
+  if (override) return override;
+  return isNewLaunchListing(listing, meta) ? "new_launch" : "mature_listing";
+}
+
+function diagnosisModeForStage(stage: ProductStage): "new_launch_readiness" | "listing_conversion_readiness" {
+  return stage === "new_launch" ? "new_launch_readiness" : "listing_conversion_readiness";
 }
 
 /* ------------------------------------------------------------------ */
@@ -2137,6 +2150,7 @@ export default function ListingDiagnosis() {
 
   // Diagnose tab
   const [listing, setListing] = useState<ListingInput>({ ...EMPTY_LISTING });
+  const [productStageOverride, setProductStageOverride] = useState<ProductStage | null>(null);
   const [diagnosing, setDiagnosing] = useState(false);
   const [diagResult, setDiagResult] = useState<DiagnosisResult | null>(null);
   const [resultTab, setResultTab] = useState("overview");
@@ -2479,6 +2493,7 @@ export default function ListingDiagnosis() {
     });
 
     setListing(cleaned);
+    setProductStageOverride(null);
     setDiagnosisPhase(cleaned.title && cleaned.title.length >= 3 ? "fetch_success" : "fetch_failed");
     if (!cleaned.title || cleaned.title.length < 3) {
       setShowAdvancedEditor(false);
@@ -2970,6 +2985,7 @@ export default function ListingDiagnosis() {
       }
 
       const diagPayload: Record<string, unknown> = {
+        diagnosis_mode: diagnosisModeForStage(resolveProductStage(activeListing, activeFetchMeta, productStageOverride)),
         force_refresh: false,
         listing: {
           ...activeListing,
@@ -2982,9 +2998,8 @@ export default function ListingDiagnosis() {
           has_video: activeFetchMeta?.has_video || activeListing.has_video || false,
           has_a_plus: activeFetchMeta?.has_a_plus || activeListing.has_a_plus || false,
         },
-        diagnosis_mode: isNewLaunchListing(activeListing, activeFetchMeta) ? "new_launch_readiness" : "listing_conversion_readiness",
         precision_context: {
-          diagnosis_mode: isNewLaunchListing(activeListing, activeFetchMeta) ? "new_launch_readiness" : "listing_conversion_readiness",
+          diagnosis_mode: diagnosisModeForStage(resolveProductStage(activeListing, activeFetchMeta, productStageOverride)),
           review_count: activeFetchMeta?.review_count || activeListing.review_count || "",
           rating: activeFetchMeta?.rating || activeListing.rating || "",
           bsr_rank: activeFetchMeta?.bsr_rank || activeListing.bsr_rank || "",
@@ -3322,15 +3337,14 @@ export default function ListingDiagnosis() {
   const elementsData = buildElements();
   const formalGateMissing = resolveFormalGateMissing(listing, fetchMeta);
   const marketEvidenceMissing = resolveMarketEvidenceMissing(listing, fetchMeta);
-  const isNewLaunchMode = isNewLaunchListing(listing, fetchMeta);
+  const productStage = resolveProductStage(listing, fetchMeta, productStageOverride);
+  const isNewLaunchMode = productStage === "new_launch";
   const canGenerateFormalDiagnosis = !diagnosing && formalGateMissing.length === 0;
   const formalGateActionText = formalGateMissing.length > 0
     ? "补齐承接字段后再判断"
     : isNewLaunchMode
       ? "判断新品上架承接"
-      : marketEvidenceMissing.length > 0
-      ? "先判断新品承接"
-      : "确认并生成运营动作";
+      : "判断成熟品承接";
   const updateListingCoreField = (field: keyof ListingInput, value: string) => {
     setListing((prev) => cleanListing({ ...prev, [field]: value }));
   };
@@ -3577,6 +3591,41 @@ export default function ListingDiagnosis() {
                     </div>
                   </CardHeader>
                   <CardContent className="space-y-4">
+                    <div className="rounded-xl border border-gray-200 bg-gray-50/70 p-3">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <p className="text-sm font-semibold text-gray-950">产品阶段</p>
+                            {!productStageOverride && (
+                              <Badge variant="outline" className="border-gray-200 bg-white text-gray-500">系统识别</Badge>
+                            )}
+                          </div>
+                          <p className="mt-1 text-xs text-gray-500">
+                            {isNewLaunchMode
+                              ? "新品上架：先判断Listing是否具备首轮验证条件。"
+                              : "成熟在售：先判断Listing是否接住现有流量。"}
+                          </p>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 sm:w-[260px]">
+                          <Button
+                            type="button"
+                            variant={productStage === "new_launch" ? "default" : "outline"}
+                            onClick={() => setProductStageOverride("new_launch")}
+                            className={`h-9 rounded-xl text-sm ${productStage === "new_launch" ? "bg-brand-600 text-white hover:bg-brand-700" : "border-gray-200 bg-white text-gray-600"}`}
+                          >
+                            新品上架
+                          </Button>
+                          <Button
+                            type="button"
+                            variant={productStage === "mature_listing" ? "default" : "outline"}
+                            onClick={() => setProductStageOverride("mature_listing")}
+                            className={`h-9 rounded-xl text-sm ${productStage === "mature_listing" ? "bg-brand-600 text-white hover:bg-brand-700" : "border-gray-200 bg-white text-gray-600"}`}
+                          >
+                            成熟在售
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
                     {showAdvancedEditor && (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
                       <div className="lg:col-span-2 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
