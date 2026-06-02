@@ -648,14 +648,14 @@ def _build_rule_evaluation(request: EvaluateLaunchRequest) -> dict[str, Any]:
     if bullet_score < 80:
         ordered_first_fixes.append("再改五点：每点只讲一个购买理由，按功能、效果、场景、信任、售后拆开。")
     if backend_keyword_score < 80:
-        ordered_first_fixes.append("再改后台Search Terms：补标题和五点未覆盖的真实相关长尾词。")
+        ordered_first_fixes.append("再改Search Terms：补标题和五点未覆盖的真实相关长尾词。")
     if a_plus_score < 80:
         ordered_first_fixes.append(f"最后改A+信任闭环：优先补齐或调整 {missing_aplus_roles[0] if missing_aplus_roles else '品牌信任和差异化证明'}。")
     ordered_first_fixes = ordered_first_fixes[:5]
     image_basis = (
-        f"已记录{request.main_image_count}张主图、{request.a_plus_image_count}张A+图片；后台按固定顺序评分：主图/辅图必须依次承接点击、卖点、场景、尺寸、对比、安全和使用步骤。"
+        f"已记录{request.main_image_count}张主图、{request.a_plus_image_count}张A+图片；主图/副图需要依次承接点击、卖点、场景、尺寸、对比、安全和使用步骤。"
         if request.main_image_count or request.a_plus_image_count
-        else "未提供图片素材，后台按Listing文本反推主图应承接的点击理由，图片维度为低置信评分。"
+        else "未提供图片素材，当前只能按Listing文本推断主图应承接的点击理由，图片维度为低置信评分。"
     )
     recommendations = _build_prelaunch_recommendations(
         request,
@@ -674,7 +674,7 @@ def _build_rule_evaluation(request: EvaluateLaunchRequest) -> dict[str, Any]:
     result = {
         "title_keywords": _dimension(
             title_score,
-            f"标题职责是平台搜索识别和用户一眼归类；当前识别商品身份为{product_profile['product_identity']}，按核心词、属性词、关系词、状态触发词和使用场景反向评分。关键词{len(keyword_items)}个，功能命中{function_hits}，场景命中{scenario_hits}。",
+            f"标题职责是平台搜索识别和用户一眼归类；当前商品身份为{product_profile['product_identity']}，需覆盖核心词、属性词、关系词、状态触发词和使用场景。关键词{len(keyword_items)}个，功能覆盖{function_hits}，场景覆盖{scenario_hits}。",
             recommendations["title_keywords"]["suggestions"],
             recommendations["title_keywords"],
         ),
@@ -703,9 +703,9 @@ def _build_rule_evaluation(request: EvaluateLaunchRequest) -> dict[str, Any]:
             recommendations["backend_keywords"],
         ),
         "overall_score": overall_score,
-        "overall_summary": f"{launch_advice}。本品Listing质量是广告验证和归因的前置核心；后台按两把尺反向评分标题、主图/副图、A+、五点和后台关键词，先修正承接问题，减少卖家试错成本与时间成本。",
-        "cosmo_alignment": f"平台识别判断：当前商品身份为{product_profile['product_identity']}。标题负责搜索识别，主图负责点击，辅图负责转化，五点负责购买理由，后台词负责补语义，A+负责信任闭环。当前功能覆盖{function_hits}，场景覆盖{scenario_hits}。",
-        "rufus_alignment": "用户意图判断：Listing是否用美国消费者自然语言承接搜索意图。标题不堆词，五点讲购买理由，后台词补充前台未覆盖的真实相关词。",
+        "overall_summary": f"{launch_advice}。本品Listing质量是广告验证和归因的前置核心；先修正标题、主图/副图、A+、五点和Search Terms的承接问题，减少卖家试错成本与时间成本。",
+        "cosmo_alignment": f"当前商品身份为{product_profile['product_identity']}。标题负责搜索识别，主图负责点击，副图负责转化，五点负责购买理由，Search Terms负责补语义，A+负责信任闭环。当前功能覆盖{function_hits}，场景覆盖{scenario_hits}。",
+        "rufus_alignment": "Listing需要用美国消费者自然语言承接搜索意图。标题不堆词，五点讲购买理由，Search Terms补充前台未覆盖的真实相关词。",
         "ordered_first_fixes": ordered_first_fixes,
         "product_attribute_profile": product_profile,
         "prelaunch_modification_plan": recommendations,
@@ -753,7 +753,7 @@ def _build_rule_evaluation(request: EvaluateLaunchRequest) -> dict[str, Any]:
             "main_image_copy_title_case_rate": main_image_copy_rate,
             "a_plus_image_copy_checked": has_a_plus_image_copy,
             "a_plus_image_copy_title_case_rate": a_plus_image_copy_rate,
-            "image_copy_rule": "视觉/OCR模型接入后，后台按主图/辅图/A+图片文案识别结果校验英文主要单词首字母大写，并检查图文承接。",
+            "image_copy_rule": "视觉/OCR模型接入后，按主图/辅图/A+图片文案识别结果校验英文主要单词首字母大写，并检查图文承接。",
             "data_source": "backend_rule_reverse_alignment",
         },
         "ai_called": False,
@@ -790,11 +790,11 @@ async def _enrich_with_ai(request: EvaluateLaunchRequest, result: dict[str, Any]
     payload = {
         "listing_input": request.model_dump(),
         "rule_reverse_score": result,
-        "instruction": "基于后台规则评分，只补充可执行修改意见。不要重算分数，不要输出中文关键词作为广告词；广告验证词必须是美式英语。图片文案必须按美国站规范检查主要英文单词首字母大写，且文案必须和图片真实内容、标题、五点、A+承诺一致。",
+        "instruction": "基于系统评分，只补充可执行修改意见。不要重算分数，不要输出中文关键词作为广告词；广告验证词必须是美式英语。图片文案必须按美国站规范检查主要英文单词首字母大写，且文案必须和图片真实内容、标题、五点、A+承诺一致。",
     }
     agent_request = AgentRequest(
         agent="launch_check_agent",
-        task="根据上新前Listing输入和后台规则评分，指出上架前必改项、依据来源、修改建议和广告验证方向。",
+        task="根据上新前Listing输入和系统评分，指出上架前必改项、依据来源、修改建议和广告验证方向。",
         payload=payload,
         depth="light",
         dry_run=False,
@@ -808,13 +808,13 @@ async def _enrich_with_ai(request: EvaluateLaunchRequest, result: dict[str, Any]
         ai_actions = [item.title for item in ai_result.actions[:3]]
         ai_problems = [item.title for item in ai_result.problems[:3]]
         if ai_actions:
-            result["overall_summary"] = f"{result['overall_summary']} AI补充建议：{'；'.join(ai_actions)}"
+            result["overall_summary"] = f"{result['overall_summary']} 补充建议：{'；'.join(ai_actions)}"
         if ai_problems:
             result["title_keywords"]["suggestions"] = (ai_problems + result["title_keywords"]["suggestions"])[:3]
         return result
     except Exception as exc:
         logger.warning("Prelaunch AI enrichment failed, using rule result: %s", exc)
-        result["ai_error"] = "AI辅助意见暂不可用，已使用后台规则评分。"
+        result["ai_error"] = "辅助意见暂不可用，已使用系统评分。"
         return result
 
 

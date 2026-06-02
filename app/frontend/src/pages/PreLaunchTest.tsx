@@ -1931,7 +1931,7 @@ export default function PreLaunchTest() {
                 {result.cosmo_alignment && (
                   <Card className="bg-white border-gray-200 p-4">
                     <h3 className="text-sm font-semibold text-brand-600 mb-2 flex items-center gap-1.5">
-                      <Sparkles className="w-3.5 h-3.5" /> 平台识别对齐度
+                      <Sparkles className="w-3.5 h-3.5" /> 平台识别
                     </h3>
                     <p className="text-xs text-gray-500 leading-relaxed">{result.cosmo_alignment}</p>
                   </Card>
@@ -1939,7 +1939,7 @@ export default function PreLaunchTest() {
                 {result.rufus_alignment && (
                   <Card className="bg-white border-gray-200 p-4">
                     <h3 className="text-sm font-semibold text-gold-400 mb-2 flex items-center gap-1.5">
-                      <TrendingUp className="w-3.5 h-3.5" /> 用户意图匹配度
+                      <TrendingUp className="w-3.5 h-3.5" /> 用户意图
                     </h3>
                     <p className="text-xs text-gray-500 leading-relaxed">{result.rufus_alignment}</p>
                   </Card>
