@@ -329,10 +329,18 @@ def _has_required_price(value: str | None) -> bool:
 
 
 def _is_new_launch_listing(listing: ListingInput) -> bool:
-    no_price = not _has_required_price(listing.price)
     no_reviews = _parse_metric_int(listing.review_count) == 0
     no_sales = _parse_metric_int(listing.bsr_rank) == 0
-    return no_price and no_reviews and no_sales
+    return no_reviews and no_sales
+
+
+def _is_new_launch_mode(value: str | None) -> bool:
+    return str(value or "").strip().lower() in {
+        "new_launch",
+        "new_launch_readiness",
+        "prelaunch",
+        "prelaunch_readiness",
+    }
 
 
 class DiagnoseResponse(BaseModel):
@@ -450,7 +458,12 @@ async def _get_cached_listing_diagnosis(listing: ListingInput, db: AsyncSession,
     return data
 
 
-async def _get_exact_cached_listing_diagnosis(listing: ListingInput, db: AsyncSession, user_id: str | list[str]) -> dict | None:
+async def _get_exact_cached_listing_diagnosis(
+    listing: ListingInput,
+    db: AsyncSession,
+    user_id: str | list[str],
+    diagnosis_mode: str = "listing_conversion_readiness",
+) -> dict | None:
     """Return a saved diagnosis only when the current Listing content is identical."""
     if not listing.title:
         return None
@@ -477,6 +490,10 @@ async def _get_exact_cached_listing_diagnosis(listing: ListingInput, db: AsyncSe
             data = json.loads(record.diagnosis_report or "{}")
         except Exception:
             return None
+        saved_mode = str(data.get("diagnosis_mode") or "listing_conversion_readiness")
+        requested_mode = str(diagnosis_mode or "listing_conversion_readiness")
+        if saved_mode != requested_mode:
+            continue
         scores = dict(data.get("scores") or {})
         scores.update({
             "function_expression": record.score_function_expression or scores.get("function_expression", 0),
@@ -1198,6 +1215,7 @@ def _normalize_diagnosis_result(result: dict, listing: ListingInput) -> dict:
     data["ad_keywords"] = data.get("ad_keywords") if isinstance(data.get("ad_keywords"), dict) else {}
     data["market_estimates"] = data.get("market_estimates") if isinstance(data.get("market_estimates"), dict) else {}
     data = _normalize_keyword_payload(data)
+    data["diagnosis_mode"] = data.get("diagnosis_mode") or "listing_conversion_readiness"
     data = _ensure_scenario_problem_keywords(data, listing)
     data = _ensure_element_scores(data, listing)
     if not data.get("overall_summary"):
@@ -1256,7 +1274,8 @@ def _apply_market_reality_caps(data: dict, listing: ListingInput) -> dict:
     bullet_count = _count_listing_bullets(listing.bullet_points)
     has_backend = bool((listing.backend_keywords or "").strip())
     has_price = _has_required_price(listing.price)
-    is_new_launch = _is_new_launch_listing(listing)
+    diagnosis_mode = str(data.get("diagnosis_mode") or "").strip().lower()
+    is_new_launch = _is_new_launch_mode(diagnosis_mode) or _is_new_launch_listing(listing)
     reasons: list[str] = []
 
     if is_new_launch:
@@ -1376,7 +1395,10 @@ def _align_listing_scores_with_canonical(data: dict, listing: ListingInput) -> d
     scores = data.get("scores") if isinstance(data.get("scores"), dict) else {}
     if not scores:
         return data
-    aligned = CosmoOperatorAgent.align_scores(scores, listing)
+    product_context = listing.model_dump()
+    if data.get("diagnosis_mode"):
+        product_context["diagnosis_mode"] = data.get("diagnosis_mode")
+    aligned = CosmoOperatorAgent.align_scores(scores, product_context)
     data["scores"] = aligned["canonical_scores"]
     data["canonical_10d_scores"] = aligned["canonical_scores"]
     data["score_aliases"] = aligned["scores"]
@@ -1389,6 +1411,7 @@ async def _find_shared_asin_score_snapshot(
     listing: ListingInput,
     db: AsyncSession,
     user_id: str,
+    diagnosis_mode: str = "listing_conversion_readiness",
 ) -> dict | None:
     """Reuse the same 10D score base when the ASIN and captured evidence match."""
     asin = (listing.asin or "").strip().upper()
@@ -1414,9 +1437,10 @@ async def _find_shared_asin_score_snapshot(
         similarity = product_evidence_similarity(listing.model_dump(), product_data)
         if similarity.get("score", 0) < 0.62:
             continue
+        product_context = {**product_data, **listing.model_dump(), "diagnosis_mode": diagnosis_mode}
         aligned = CosmoOperatorAgent.align_scores(
             analysis_report.get("canonical_10d_scores") or analysis_report.get("scores"),
-            product_data,
+            product_context,
         )
         if not any(aligned["canonical_scores"].values()):
             continue
@@ -1437,7 +1461,12 @@ async def _apply_shared_asin_score_snapshot(
     db: AsyncSession,
     user_id: str,
 ) -> dict:
-    snapshot = await _find_shared_asin_score_snapshot(listing, db, user_id)
+    snapshot = await _find_shared_asin_score_snapshot(
+        listing,
+        db,
+        user_id,
+        str(data.get("diagnosis_mode") or "listing_conversion_readiness"),
+    )
     if not snapshot:
         return data
     data["scores"] = snapshot["canonical_scores"]
@@ -1915,11 +1944,14 @@ async def _diagnose_single(
     db: AsyncSession,
     save: bool = True,
     precision_context: dict | None = None,
+    diagnosis_mode: str = "listing_conversion_readiness",
 ) -> dict:
     """Run full diagnosis on a single listing."""
     ai_service = AIHubService()
     listing = _sanitize_listing_for_ai(listing)
     precision_context = dict(precision_context or {})
+    diagnosis_mode = str(diagnosis_mode or precision_context.get("diagnosis_mode") or "listing_conversion_readiness")
+    precision_context["diagnosis_mode"] = diagnosis_mode
     review_samples = normalize_review_samples(
         precision_context.get("review_samples") or precision_context.get("captured_reviews"),
         limit=40,
@@ -2074,6 +2106,7 @@ async def _diagnose_single(
             run_causal=False,
         )
         data = JudgmentSystemService.apply_to_legacy_listing_diagnosis(data, judgment_system)
+        data["diagnosis_mode"] = diagnosis_mode
     except Exception as e:
         logger.error(f"Unified judgment system failed, continuing with base diagnosis: {e}")
         judgment_system = {}
@@ -2130,6 +2163,7 @@ async def _diagnose_single(
     data["toolbox_enhancements"] = toolbox_enhancements
     ad_validation_plan = merge_toolbox_into_ad_validation_plan(ad_validation_plan, toolbox_enhancements)
     data["ad_validation_plan"] = ad_validation_plan
+    data["diagnosis_mode"] = diagnosis_mode
     data["ad_validation_readiness_gate"] = JudgmentSystemService.apply_ad_validation_gate_to_outputs(data, listing)
     sanitized_listing = _sanitize_listing_for_ai(listing)
     content_fingerprint = _listing_content_fingerprint(sanitized_listing)
@@ -2141,6 +2175,7 @@ async def _diagnose_single(
         "cache_policy": "exact_content_only",
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }
+    data["diagnosis_mode"] = diagnosis_mode
 
     if save:
         svc = Listing_diagnosesService(db)
@@ -2565,15 +2600,16 @@ async def diagnose_listing(
         result = None
         if not request.force_refresh:
             scope_user_ids = await get_user_scope_ids(current_user, db)
-            result = await _get_exact_cached_listing_diagnosis(listing, db, scope_user_ids)
+            result = await _get_exact_cached_listing_diagnosis(listing, db, scope_user_ids, request.diagnosis_mode)
         if not result:
             result = await _diagnose_single(
                 listing=listing,
                 user_id=str(current_user.id),
                 db=db,
                 precision_context=request.precision_context,
+                diagnosis_mode=request.diagnosis_mode,
             )
-        result = _normalize_diagnosis_result(result, listing)
+        result = _normalize_diagnosis_result({**result, "diagnosis_mode": request.diagnosis_mode}, listing)
         content_fingerprint = _listing_content_fingerprint(_sanitize_listing_for_ai(listing))
         trace = {
             "diagnosis_id": result.get("id"),

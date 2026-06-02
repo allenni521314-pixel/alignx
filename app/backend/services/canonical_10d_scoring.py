@@ -234,6 +234,7 @@ def _product_context(product_data: Any) -> dict[str, Any]:
         "bsr_rank": data.get("bsr_rank") or data.get("sales_rank"),
         "bullet_points": data.get("bullet_points") or data.get("bullets"),
         "backend_keywords": data.get("backend_keywords") or data.get("search_terms") or data.get("search_keywords"),
+        "diagnosis_mode": data.get("diagnosis_mode") or data.get("listing_stage") or data.get("product_stage"),
     }
 
 
@@ -252,7 +253,9 @@ def apply_market_reality_caps(
     bullet_count = _count_bullets(ctx.get("bullet_points"))
     has_backend = bool(str(ctx.get("backend_keywords") or "").strip())
     has_price = _has_required_price(ctx.get("price"))
-    is_new_launch = (not has_price) and review_count == 0 and bsr_rank == 0
+    diagnosis_mode = str(ctx.get("diagnosis_mode") or "").strip().lower()
+    explicit_new_launch = diagnosis_mode in {"new_launch", "new_launch_readiness", "prelaunch", "prelaunch_readiness"}
+    is_new_launch = explicit_new_launch or ((not has_price) and review_count == 0 and bsr_rank == 0)
     reasons: list[str] = []
 
     if is_new_launch:

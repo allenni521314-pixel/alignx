@@ -1210,10 +1210,9 @@ function resolveMarketEvidenceMissing(listing: ListingInput, meta?: FetchMeta | 
 function isNewLaunchListing(listing: ListingInput, meta?: FetchMeta | null): boolean {
   const reviewCount = meta?.review_count || listing.review_count;
   const bsrRank = meta?.bsr_rank || listing.bsr_rank;
-  const missingPrice = !hasRequiredPrice(listing.price);
   const missingReviews = !hasRequiredText(reviewCount) || parseMetricInt(reviewCount) === 0;
   const missingSales = !hasRequiredText(bsrRank) || parseMetricInt(bsrRank) === 0;
-  return missingPrice && missingReviews && missingSales;
+  return missingReviews && missingSales;
 }
 
 /* ------------------------------------------------------------------ */
