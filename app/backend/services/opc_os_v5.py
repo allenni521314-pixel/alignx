@@ -270,6 +270,8 @@ class OPCOSV5ExecutionService:
         return round(metric_score * 0.7 + quality * 0.3, 2)
 
     def _capital_action(self, proof_score: float, risk_score: float) -> str:
+        if proof_score <= 0:
+            return "Observe"
         adjusted = proof_score - risk_score * 0.35
         if adjusted >= 75:
             return "Scale"

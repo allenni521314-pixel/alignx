@@ -270,6 +270,7 @@ interface DiagnosisResult {
   causal_scores?: Record<string, number>;
   judgment_system?: Record<string, any>;
   ad_validation_plan?: Record<string, any>;
+  opc_v5_execution?: Record<string, any>;
   ad_validation_readiness_gate?: Record<string, any>;
   decision_outputs?: Record<string, any>[];
   amazon_compliance?: ComplianceResult;
@@ -1001,7 +1002,7 @@ function sanitizeAdKeywordList(
 const CONFIDENCE_LABELS: Record<string, string> = {
   review_alignment: "评论需求对齐",
   platform_semantic_alignment: "平台语义对齐",
-  causal_conversion_alignment: "因果转化对齐",
+  causal_conversion_alignment: "验证证据",
 };
 
 /* ------------------------------------------------------------------ */
@@ -1531,7 +1532,7 @@ function MarketValidationPanel({ mv }: { mv: MarketValidation }) {
   );
 }
 
-function PrecisionConfidencePanel({ integrity }: { integrity?: DataIntegrity }) {
+function PrecisionConfidencePanel({ integrity, opcV5 }: { integrity?: DataIntegrity; opcV5?: Record<string, any> }) {
   if (!integrity) return null;
   const levelColor = integrity.level === "high" ? "text-emerald-600" : integrity.level === "medium" ? "text-amber-600" : "text-red-600";
   const levelBg = integrity.level === "high" ? "bg-emerald-100 border-emerald-200" : integrity.level === "medium" ? "bg-amber-100 border-amber-200" : "bg-red-100 border-red-200";
@@ -1542,6 +1543,8 @@ function PrecisionConfidencePanel({ integrity }: { integrity?: DataIntegrity }) 
     advertising: "广告",
   };
   const confidence = integrity.conclusion_confidence || {};
+  const proofScore = Number(opcV5?.evidence?.proof_score || 0);
+  const hasAdEvidence = proofScore > 0 || Number(integrity.source_coverage?.advertising || 0) > 0;
 
   return (
     <Card className="bg-gray-50 border-gray-200">
@@ -1576,23 +1579,44 @@ function PrecisionConfidencePanel({ integrity }: { integrity?: DataIntegrity }) 
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 mt-4">
-          {Object.entries(confidence).map(([key, item]) => (
-            <div key={key} className="rounded-lg border border-gray-100 bg-white p-3">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-xs font-semibold text-gray-700">{CONFIDENCE_LABELS[key] || key}</span>
-                <Badge variant="outline" className={item.level === "high" ? "text-emerald-600 border-emerald-200" : item.level === "medium" ? "text-amber-600 border-amber-200" : "text-red-600 border-red-200"}>
-                  {item.label}
-                </Badge>
-              </div>
-              <div className="flex items-center gap-2 mt-2">
-                <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                  <div className={`h-full rounded-full ${scoreBgColor(item.score)}`} style={{ width: `${item.score}%` }} />
+          {Object.entries(confidence).map(([key, item]) => {
+            const waitingForAdEvidence = key === "causal_conversion_alignment" && !hasAdEvidence;
+            const displayScore = key === "causal_conversion_alignment" && proofScore > 0 ? proofScore : item.score;
+            return (
+              <div key={key} className="rounded-lg border border-gray-100 bg-white p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-semibold text-gray-700">{CONFIDENCE_LABELS[key] || key}</span>
+                  <Badge
+                    variant="outline"
+                    className={
+                      waitingForAdEvidence
+                        ? "text-gray-600 border-gray-200"
+                        : item.level === "high"
+                          ? "text-emerald-600 border-emerald-200"
+                          : item.level === "medium"
+                            ? "text-amber-600 border-amber-200"
+                            : "text-red-600 border-red-200"
+                    }
+                  >
+                    {waitingForAdEvidence ? "待验证" : item.label}
+                  </Badge>
                 </div>
-                <span className={`text-xs font-bold ${scoreColor(item.score)}`}>{item.score}</span>
+                {waitingForAdEvidence ? (
+                  <p className="text-[11px] text-gray-500 mt-3 leading-relaxed">暂无广告验证结果</p>
+                ) : (
+                  <>
+                    <div className="flex items-center gap-2 mt-2">
+                      <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                        <div className={`h-full rounded-full ${scoreBgColor(displayScore)}`} style={{ width: `${displayScore}%` }} />
+                      </div>
+                      <span className={`text-xs font-bold ${scoreColor(displayScore)}`}>{displayScore}</span>
+                    </div>
+                    <p className="text-[11px] text-gray-500 mt-2 leading-relaxed">{item.reason}</p>
+                  </>
+                )}
               </div>
-              <p className="text-[11px] text-gray-500 mt-2 leading-relaxed">{item.reason}</p>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         {integrity.failed_checks?.length > 0 && (
@@ -4075,7 +4099,7 @@ export default function ListingDiagnosis() {
                     {/* ===== OVERVIEW TAB ===== */}
                     <TabsContent value="overview" className="mt-4 space-y-6">
                       <BackendJudgmentPanel result={diagResult} />
-                      <PrecisionConfidencePanel integrity={diagResult.data_integrity} />
+                      <PrecisionConfidencePanel integrity={diagResult.data_integrity} opcV5={diagResult.opc_v5_execution} />
                       <DiagnosisTraceBar result={diagResult} />
                     </TabsContent>
 
@@ -4986,7 +5010,7 @@ function HistoryDetailView({
         {/* Overview */}
         <TabsContent value="overview" className="mt-3 space-y-4">
           <BackendJudgmentPanel result={result} />
-          <PrecisionConfidencePanel integrity={result.data_integrity} />
+          <PrecisionConfidencePanel integrity={result.data_integrity} opcV5={result.opc_v5_execution} />
         </TabsContent>
 
         {/* Scores */}

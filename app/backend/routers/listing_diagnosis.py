@@ -34,6 +34,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.database import get_db
 from dependencies.auth import get_current_user, get_user_scope_ids
 from schemas.auth import UserResponse
+from schemas.opc_os import (
+    CapitalDecisionInput,
+    EvidenceInput,
+    ExperimentExecutionInput,
+    KnowledgeEvolutionInput,
+    OpportunityInput,
+    ProofPlanInput,
+)
 from services.aihub import AIHubService
 from services.amazon_rules_engine import evaluate_amazon_compliance, load_active_rules
 from services.amazon_skill_toolbox import (
@@ -45,6 +53,7 @@ from services.amazon_skill_toolbox import (
 from services.judgment_feedback_rounds import JudgmentFeedbackRoundService
 from services.listing_diagnoses import Listing_diagnosesService
 from services.judgment_system import JudgmentSystemService
+from services.opc_os_v5 import OPCOSV5ExecutionService
 from services.cosmo_rufus_rules import build_cosmo_rufus_analysis, merge_cosmo_rufus_into_legacy
 from services.cosmo_vector_mapping import evaluate_cosmo_vector_mapping_async
 from services.canonical_10d_scoring import product_evidence_similarity
@@ -374,6 +383,7 @@ class DiagnoseResponse(BaseModel):
     data_integrity: dict = {}
     diagnosis_confidence: dict = {}
     ad_validation_plan: dict = {}
+    opc_v5_execution: dict = {}
     amazon_compliance: dict = {}
     toolbox_enhancements: dict = {}
     trace: dict = {}
@@ -1248,6 +1258,104 @@ def _normalize_diagnosis_result(result: dict, listing: ListingInput) -> dict:
     data = _apply_market_reality_caps(data, listing)
     data = _align_listing_scores_with_canonical(data, listing)
     return data
+
+
+def _numeric_score(value: Any) -> float:
+    try:
+        return max(0, min(100, float(value or 0)))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _avg_scores(values: list[Any]) -> float:
+    numbers = [_numeric_score(value) for value in values if value is not None]
+    return round(sum(numbers) / len(numbers), 2) if numbers else 0
+
+
+def _build_listing_opc_v5_execution(data: dict, listing: ListingInput, user_id: str) -> dict:
+    scores = data.get("scores") if isinstance(data.get("scores"), dict) else {}
+    integrity = data.get("data_integrity") if isinstance(data.get("data_integrity"), dict) else {}
+    source_coverage = integrity.get("source_coverage") if isinstance(integrity.get("source_coverage"), dict) else {}
+    diagnosis_confidence = data.get("diagnosis_confidence") if isinstance(data.get("diagnosis_confidence"), dict) else {}
+    causal_confidence = diagnosis_confidence.get("causal_conversion_alignment") if isinstance(diagnosis_confidence.get("causal_conversion_alignment"), dict) else {}
+    causal = data.get("causal_diagnosis") if isinstance(data.get("causal_diagnosis"), dict) else {}
+    keyword_causality = causal.get("keyword_causality") if isinstance(causal.get("keyword_causality"), dict) else {}
+    has_ad_evidence = _numeric_score(source_coverage.get("advertising")) > 0
+
+    listing_score = _avg_scores(
+        [
+            scores.get("function_expression"),
+            scores.get("scenario_expression"),
+            scores.get("psychology_benefit"),
+            scores.get("risk_elimination"),
+            scores.get("product_identity"),
+            scores.get("compatibility"),
+        ]
+    )
+    service = OPCOSV5ExecutionService(user_id=user_id)
+    opportunity = service.create_opportunity(
+        OpportunityInput(
+            title=listing.asin or listing.title or "待录入",
+            human_drivers=["待录入"],
+            demand=listing.title or "待录入",
+            scenario="待录入",
+            initial_score=listing_score,
+        )
+    )
+    uncertainties = service.build_uncertainties(opportunity.opportunity_id)
+    proof_plan = service.create_proof_plan(
+        ProofPlanInput(
+            opportunity_id=opportunity.opportunity_id,
+            validation_goal="待录入",
+            sample_size=0,
+            budget_suggestion=0,
+        )
+    )
+    execution = service.execute_experiment(
+        ExperimentExecutionInput(
+            proof_plan_id=proof_plan.proof_plan_id,
+            channel="small_budget_ad",
+            manual_confirmed=False,
+        )
+    )
+    evidence_metrics = {}
+    if has_ad_evidence:
+        evidence_metrics = {
+            "转化": _numeric_score(causal_confidence.get("score")),
+            "ROI": _numeric_score(keyword_causality.get("readiness_score")),
+        }
+    evidence = service.score_evidence(
+        EvidenceInput(
+            proof_plan_id=proof_plan.proof_plan_id,
+            execution_id=execution.execution_id,
+            metrics=evidence_metrics,
+            evidence_quality=_numeric_score(integrity.get("score")) if has_ad_evidence else 0,
+        )
+    )
+    risk_score = uncertainties.uncertainty_queue[0].risk_score if uncertainties.uncertainty_queue else 0
+    capital_decision = service.create_capital_decision(
+        CapitalDecisionInput(
+            opportunity_id=opportunity.opportunity_id,
+            proof_score=evidence.proof_score,
+            risk_score=risk_score,
+            information_gain=_numeric_score(source_coverage.get("advertising")) if has_ad_evidence else 0,
+        )
+    )
+    knowledge_evolution = service.evolve_knowledge_graph(
+        KnowledgeEvolutionInput(
+            opportunity_id=opportunity.opportunity_id,
+            evidence_id=evidence.evidence_id,
+        )
+    )
+    return {
+        "opportunity": opportunity.model_dump(mode="json"),
+        "uncertainty_queue": [item.model_dump(mode="json") for item in uncertainties.uncertainty_queue],
+        "proof_plan": proof_plan.model_dump(mode="json"),
+        "experiment_execution": execution.model_dump(mode="json"),
+        "evidence": evidence.model_dump(mode="json"),
+        "capital_decision": capital_decision.model_dump(mode="json"),
+        "knowledge_evolution": knowledge_evolution.model_dump(mode="json"),
+    }
 
 
 def _parse_metric_int(value: str | int | float | None) -> int:
@@ -2195,6 +2303,7 @@ async def _diagnose_single(
     data["ad_validation_plan"] = ad_validation_plan
     data["diagnosis_mode"] = diagnosis_mode
     data["ad_validation_readiness_gate"] = JudgmentSystemService.apply_ad_validation_gate_to_outputs(data, listing)
+    data["opc_v5_execution"] = _build_listing_opc_v5_execution(data, listing, user_id)
     sanitized_listing = _sanitize_listing_for_ai(listing)
     content_fingerprint = _listing_content_fingerprint(sanitized_listing)
     data["diagnosis_meta"] = {
@@ -2296,6 +2405,7 @@ async def _diagnose_single(
         "causal_diagnosis": causal_diagnosis,
         "judgment_system": judgment_system,
         "ad_validation_plan": ad_validation_plan,
+        "opc_v5_execution": data.get("opc_v5_execution", {}),
         "data_integrity": data_integrity,
         "diagnosis_confidence": diagnosis_confidence,
         "decision_outputs": data.get("decision_outputs", []),
@@ -2653,6 +2763,8 @@ async def diagnose_listing(
         }
         if not result.get("amazon_compliance"):
             result["amazon_compliance"] = await _evaluate_listing_compliance(listing, db)
+        if not result.get("opc_v5_execution"):
+            result["opc_v5_execution"] = _build_listing_opc_v5_execution(result, listing, str(current_user.id))
         return DiagnoseResponse(
             scores=result.get("scores", {}),
             analysis=result.get("analysis", {}),
@@ -2680,6 +2792,7 @@ async def diagnose_listing(
             data_integrity=result.get("data_integrity", {}),
             diagnosis_confidence=result.get("diagnosis_confidence", {}),
             ad_validation_plan=result.get("ad_validation_plan", {}),
+            opc_v5_execution=result.get("opc_v5_execution", {}),
             amazon_compliance=result.get("amazon_compliance", {}),
             trace=trace,
             # =========================================
