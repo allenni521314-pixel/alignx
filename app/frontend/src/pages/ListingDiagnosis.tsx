@@ -410,7 +410,7 @@ const HEATMAP_DIM_KEYS: { key: keyof ElementDim; label: string; color: string }[
   };
 });
 
-type ListingRulerLayer = "用户需求" | "平台识别" | "Listing证明" | "市场验证";
+type ListingRulerLayer = "买家需求" | "Amazon识别" | "Listing证明" | "市场验证";
 
 const DIMENSION_RULER_META: Record<keyof Scores, {
   layer: ListingRulerLayer;
@@ -420,35 +420,35 @@ const DIMENSION_RULER_META: Record<keyof Scores, {
   impact: string;
 }> = {
   function_expression: {
-    layer: "用户需求",
+    layer: "买家需求",
     intentScale: "任务对象清晰度 / 决策属性优先级",
     platformScale: "证据可回答性",
     ownAction: "把功能从参数改成用户任务、结果和可验证证据",
     impact: "CTR / CVR / ACOS",
   },
   scenario_expression: {
-    layer: "平台识别",
+    layer: "Amazon识别",
     intentScale: "使用场景约束",
     platformScale: "查询意图匹配 / 关系图谱完整度",
     ownAction: "补清使用地点、搭配对象、使用时机和不适用边界",
     impact: "CTR / CPC / 广告词相关性",
   },
   identity_fit: {
-    layer: "用户需求",
+    layer: "买家需求",
     intentScale: "任务对象清晰度 / 使用场景约束",
     platformScale: "关系图谱完整度",
     ownAction: "明确谁在什么条件下使用，避免泛人群表达",
     impact: "CTR / CVR / 无效点击率",
   },
   psychology_benefit: {
-    layer: "用户需求",
+    layer: "买家需求",
     intentScale: "购买触发强度 / 反购买风险",
     platformScale: "证据可回答性",
     ownAction: "把安心、省事、舒适等心理收益绑定到真实痛点",
     impact: "CVR / 详情页停留 / Review",
   },
   risk_elimination: {
-    layer: "用户需求",
+    layer: "买家需求",
     intentScale: "反购买风险",
     platformScale: "证据可回答性",
     ownAction: "补退货、差评、误用、适配失败的证据链",
@@ -462,14 +462,14 @@ const DIMENSION_RULER_META: Record<keyof Scores, {
     impact: "CTR / CVR / CPC",
   },
   product_identity: {
-    layer: "平台识别",
+    layer: "Amazon识别",
     intentScale: "任务对象清晰度",
     platformScale: "类目身份锚定 / 结构化属性完整度",
     ownAction: "校准产品类型、子类目、核心对象和属性词",
-    impact: "自然排名 / 广告匹配 / 平台识别",
+    impact: "自然排名 / 广告匹配 / Amazon识别",
   },
   compatibility: {
-    layer: "平台识别",
+    layer: "Amazon识别",
     intentScale: "使用场景约束",
     platformScale: "结构化属性完整度 / 关系图谱完整度",
     ownAction: "补 used_with、compatible with、适配/不适配边界",
@@ -1309,7 +1309,7 @@ function getTwoRulerScoreCards(scores: Scores, marketScore?: number) {
     },
     {
       key: "platform",
-      title: "平台识别",
+      title: "Amazon识别",
       score: averageScoresByKeys(scores, TWO_RULER_DIMENSIONS.platform),
       desc: "Amazon能否识别类目身份、查询意图、结构化属性和关系图谱。",
     },
@@ -1338,7 +1338,7 @@ function TwoRulerSummary({ scores, marketScore }: { scores: Scores; marketScore?
           Listing承接诊断
         </CardTitle>
         <p className="text-xs text-gray-500">
-          先看用户需求和平台识别，再反查标题、图片、五点、A+与广告验证是否形成闭环。
+          先看买家需求和Amazon识别，再反查标题、图片、五点、A+与广告验证是否形成闭环。
         </p>
       </CardHeader>
       <CardContent>
@@ -1681,10 +1681,10 @@ function BackendJudgmentPanel({ result }: { result: DiagnosisResult }) {
   const causal = result.causal_diagnosis || {};
   const keywordCausality = (causal.keyword_causality || {}) as Record<string, any>;
   const items = [
-    { key: "review_alignment", label: "评论需求对齐", score: alignment.review_alignment ?? result.diagnosis_confidence?.review_alignment?.score },
-    { key: "platform_semantic_alignment", label: "平台识别对齐", score: alignment.platform_semantic_alignment ?? result.diagnosis_confidence?.platform_semantic_alignment?.score },
-    { key: "causal_conversion_alignment", label: "因果转化对齐", score: alignment.causal_conversion_alignment ?? result.diagnosis_confidence?.causal_conversion_alignment?.score ?? result.causal_scores?.overall_causal_score },
-    { key: "keyword_validation_readiness", label: "关键词验证就绪", score: keywordCausality.readiness_score ?? result.causal_scores?.keyword_validation_readiness },
+    { key: "review_alignment", label: "购买理由", score: alignment.review_alignment ?? result.diagnosis_confidence?.review_alignment?.score },
+    { key: "platform_semantic_alignment", label: "Amazon识别", score: alignment.platform_semantic_alignment ?? result.diagnosis_confidence?.platform_semantic_alignment?.score },
+    { key: "causal_conversion_alignment", label: "页面承接", score: alignment.causal_conversion_alignment ?? result.diagnosis_confidence?.causal_conversion_alignment?.score ?? result.causal_scores?.overall_causal_score },
+    { key: "keyword_validation_readiness", label: "验证准备", score: keywordCausality.readiness_score ?? result.causal_scores?.keyword_validation_readiness },
   ].filter((item) => item.score !== undefined);
 
   if (items.length === 0 && !causal.summary && decisionOutputs.length === 0) return null;
@@ -1733,21 +1733,27 @@ function BackendJudgmentPanel({ result }: { result: DiagnosisResult }) {
             )}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
               {decisionOutputs.slice(0, 6).map((item: any, idx: number) => {
-                const confidence = Math.round(Number(item.confidence_score || item.score || 0));
+                const seller = getSellerFacingDecision(item);
+                const confidence = Math.round(Number(seller.confidence || item.confidence_score || item.score || 0));
                 return (
                   <div key={`${item.domain || idx}`} className="rounded-lg border border-gray-100 bg-gray-50 p-3">
                     <div className="flex items-start justify-between gap-3">
                       <div>
-                        <p className="text-xs font-semibold text-brand-700">{formatAnalysisText(item.domain_name || item.domain)}</p>
-                        <p className="mt-1 text-sm font-bold text-gray-900">{formatAnalysisText(item.current_judgment)}</p>
+                        <p className="text-xs font-semibold text-brand-700">{formatAnalysisText(seller.title)}</p>
+                        <p className="mt-1 text-sm font-bold text-gray-900">{formatAnalysisText(seller.judgment)}</p>
                       </div>
                       <span className={`text-sm font-bold ${scoreColor(confidence)}`}>{confidence}%</span>
                     </div>
+                    {seller.basis && (
+                      <p className="mt-2 text-xs text-gray-600 leading-relaxed">
+                        <span className="font-semibold text-gray-900">原因：</span>{formatAnalysisText(seller.basis)}
+                      </p>
+                    )}
                     <p className="mt-2 text-xs text-gray-600 leading-relaxed">
-                      <span className="font-semibold text-gray-900">动作：</span>{formatAnalysisText(item.recommended_action)}
+                      <span className="font-semibold text-gray-900">动作：</span>{formatAnalysisText(seller.action)}
                     </p>
                     <p className="mt-1 text-[11px] text-gray-500 leading-relaxed">
-                      <span className="font-semibold">风险：</span>{formatAnalysisText(item.risk_warning)}
+                      <span className="font-semibold">风险：</span>{formatAnalysisText(seller.risk)}
                     </p>
                   </div>
                 );
@@ -2075,6 +2081,67 @@ function sanitizeFrontendText(text: string): string {
   return cleaned.replace(/^[：:；;\s]+|[：:；;\s]+$/g, "").replace(/；{2,}/g, "；").trim();
 }
 
+function getSellerFacingDecision(item: Record<string, any>) {
+  if (item?.seller_facing_output && typeof item.seller_facing_output === "object") {
+    return item.seller_facing_output;
+  }
+  const score = Math.round(Number(item?.confidence_score || item?.score || 0));
+  const domain = item?.domain;
+  const fallback: Record<string, any> = {
+    user_intent: {
+      title: "买家购买判断",
+      judgment: score >= 80 ? "购买理由清楚" : score >= 60 ? "购买理由还不够清楚" : "买家为什么买还没讲清楚",
+      basis: "当前证据不足，无法稳定判断买家购买理由。",
+      action: "先补清目标买家、使用场景和最大顾虑，再进入下一步验证。",
+      risk: "购买理由不清楚时，后续关键词和广告容易跑偏。",
+    },
+    platform_matching: {
+      title: "Amazon识别判断",
+      judgment: score >= 80 ? "Amazon识别较清楚" : score >= 60 ? "Amazon识别还不稳定" : "Amazon可能识别不准这个产品",
+      basis: "标题、五点或后台词里的产品身份和场景信息不足。",
+      action: "补齐产品身份、类目锚点、属性词、关系词和场景问题词。",
+      risk: "识别不准会带来低曝光、错匹配和更高点击成本。",
+    },
+    listing_conversion: {
+      title: "Listing承接判断",
+      judgment: score >= 80 ? "页面承接较好" : score >= 60 ? "页面承接还要优化" : "页面没有接住流量",
+      basis: "标题、图片、五点或A+没有充分证明买家的购买理由。",
+      action: "先改最影响转化的承接模块，再做小预算验证。",
+      risk: "只改表述不补证据，可能点击提升但转化不升。",
+    },
+    advertising_validation: {
+      title: "广告验证判断",
+      judgment: item?.current_judgment || "等待验证",
+      basis: "当前验证证据不足。",
+      action: item?.recommended_action || "先做小预算验证。",
+      risk: item?.risk_warning || "验证不足时加预算会放大误判。",
+    },
+    capital_allocation: {
+      title: "投入优先级",
+      judgment: score >= 65 ? "可以优先投入高置信改动" : "先补证据，再投入资源",
+      basis: `当前综合置信度为${score}分。`,
+      action: "预算、时间和人力先投向最能验证核心判断的动作。",
+      risk: "证据不足时加大投入，会把错误判断变成沉没成本。",
+    },
+    learning_feedback: {
+      title: "复盘结论",
+      judgment: "等待验证结果回流",
+      basis: "当前还没有足够结果判断这次动作是否命中。",
+      action: "验证后记录命中、未命中、样本不足和下一轮动作。",
+      risk: "没有归因的结果进入复盘，会让下一轮判断变偏。",
+    },
+  };
+  return {
+    title: "运营判断",
+    judgment: item?.current_judgment || "待判断",
+    basis: Array.isArray(item?.judgment_basis) ? item.judgment_basis[0] : item?.judgment_basis || "",
+    action: item?.recommended_action || "暂无",
+    risk: item?.risk_warning || "暂无",
+    confidence: score,
+    ...(fallback[domain] || {}),
+  };
+}
+
 function formatAnalysisText(value: unknown): string {
   if (!value) return "";
   if (typeof value === "string") {
@@ -2087,7 +2154,7 @@ function formatAnalysisText(value: unknown): string {
   if (typeof value === "object") {
     const labels: Record<string, string> = {
       user_need_mapping: "用户需求",
-      platform_mapping: "平台识别",
+      platform_mapping: "Amazon识别",
       evidence: "当前证据",
       deduction_reason: "扣分原因",
       problem_type: "问题类型",
@@ -3460,7 +3527,7 @@ export default function ListingDiagnosis() {
           <PageHeader
             objective="定位Listing承接优先级，避免无效广告承接"
             inputSource="站点、ASIN/Amazon链接、标题、主图/副图、五点、A+、价格、评分、评论、关键词"
-            process="按买家意图、平台识别和转化承接定位点击/CVR问题"
+            process="按买家需求、Amazon识别和转化承接定位点击/CVR问题"
             outputTarget="优先模块、预算保护动作、广告验证词组和失败回流规则"
             action="执行P0改动，并进入广告验证"
             feedback="保留改动快照，用广告数据判断放量或继续优化"
@@ -4165,7 +4232,7 @@ export default function ListingDiagnosis() {
                             <span className="px-2 py-0.5 rounded bg-emerald-500/60 text-gray-900">80-100</span>
                           </div>
                           <p className="mt-2 text-[11px] text-gray-500 leading-relaxed">
-                            若模块行分较高但验证参考较低，通常是价格、评论、BSR、销量或广告数据不足；若Search Terms行分偏低，说明关系词、状态词证据不足，会影响平台识别和广告匹配。
+                            若模块行分较高但验证参考较低，通常是价格、评论、BSR、销量或广告数据不足；若Search Terms行分偏低，说明关系词、状态词证据不足，会影响Amazon识别和广告匹配。
                           </p>
                         </Card>
                       ) : (

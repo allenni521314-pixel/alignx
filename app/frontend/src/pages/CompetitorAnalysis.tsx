@@ -162,7 +162,7 @@ const SCORE_KEYS: Array<keyof Scores> = [
   "risk_elimination",
 ];
 
-type CompetitorRulerLayer = "用户需求" | "平台识别" | "Listing证明" | "市场验证";
+type CompetitorRulerLayer = "买家需求" | "Amazon识别" | "Listing证明" | "市场验证";
 
 const COMPETITOR_RULER_META: Record<keyof Scores, {
   layer: CompetitorRulerLayer;
@@ -172,28 +172,28 @@ const COMPETITOR_RULER_META: Record<keyof Scores, {
   actionHint: string;
 }> = {
   functionality: {
-    layer: "用户需求",
+    layer: "买家需求",
     intentScale: "任务对象清晰度 / 决策属性优先级",
     platformScale: "证据可回答性",
     evidenceFocus: "标题、五点和图片是否把功能转成用户任务",
     actionHint: "借鉴已验证功能承接，避免只抄参数",
   },
   emotional: {
-    layer: "用户需求",
+    layer: "买家需求",
     intentScale: "购买触发强度 / 反购买风险",
     platformScale: "证据可回答性",
     evidenceFocus: "评论、A+和图片是否证明安心、省事、舒适等触发点",
     actionHint: "提炼可转化的情绪利益，避开空泛高级感",
   },
   scenario: {
-    layer: "用户需求",
+    layer: "买家需求",
     intentScale: "使用场景约束 / 任务对象清晰度",
     platformScale: "关系图谱完整度",
     evidenceFocus: "场景、人群、地点、搭配对象是否具体",
     actionHint: "用竞品场景定义我方广告测试入口",
   },
   user_profile: {
-    layer: "用户需求",
+    layer: "买家需求",
     intentScale: "任务对象清晰度 / 决策属性优先级",
     platformScale: "查询意图匹配",
     evidenceFocus: "目标用户和购买理由是否明确",
@@ -214,14 +214,14 @@ const COMPETITOR_RULER_META: Record<keyof Scores, {
     actionHint: "仅用于确定测试优先级，不替代主判断",
   },
   product_identity: {
-    layer: "平台识别",
+    layer: "Amazon识别",
     intentScale: "任务对象清晰度",
     platformScale: "类目身份锚定 / 结构化属性完整度",
     evidenceFocus: "is_a、used_as、子类目和核心属性是否清楚",
     actionHint: "借鉴平台能识别的品类锚点",
   },
   compatibility: {
-    layer: "平台识别",
+    layer: "Amazon识别",
     intentScale: "使用场景约束",
     platformScale: "结构化属性完整度 / 关系图谱完整度",
     evidenceFocus: "used_with、compatible with、搭配/边界是否明确",
@@ -235,7 +235,7 @@ const COMPETITOR_RULER_META: Record<keyof Scores, {
     actionHint: "只借鉴被评论或图片证明的主观利益",
   },
   risk_elimination: {
-    layer: "用户需求",
+    layer: "买家需求",
     intentScale: "反购买风险",
     platformScale: "证据可回答性",
     evidenceFocus: "认证、适配、保修、差评风险和误用边界",
@@ -549,7 +549,7 @@ function fallbackListingBreakdown(pd: ProductData, keywords: string[]): ListingB
         summary: "标题决定广告能否拿到准流量，并影响搜索词相关性与首轮CTR。",
         raw_content: pd.title,
         structure_breakdown: ["品牌/身份词", "核心品类词", "关键属性", "规格/数量", "适用对象或场景"],
-        strengths: ["标题能帮助平台识别产品身份，利于广告匹配到基础流量。"],
+        strengths: ["标题能帮助Amazon识别产品身份，利于广告匹配到基础流量。"],
         weaknesses: ["若缺少关系词或状态触发词，广告可能拿到泛流量，CTR和CVR都会被稀释。"],
         covered_user_intents: ["识别产品身份", "确认核心品类", "理解关键属性", "判断适用对象/场景"],
         keywords: titleKeywords,
@@ -936,8 +936,8 @@ function compactAnalysisText(value: unknown, maxLength = 300): string {
   } else if (typeof value === "object") {
     const labels: Record<string, string> = {
       user_need_mapping: "用户需求",
-      platform_recognition: "平台识别",
-      platform_mapping: "平台识别",
+      platform_recognition: "Amazon识别",
+      platform_mapping: "Amazon识别",
       real_world_evidence: "现实证据",
       evidence: "当前证据",
       deduction_reason: "扣分原因",
@@ -1095,7 +1095,7 @@ function CompetitorTwoRulerSummary({ scores }: { scores: Scores }) {
     },
     {
       key: "platform",
-      title: "平台识别",
+      title: "Amazon识别",
       score: avgCompetitorScores(scores, COMPETITOR_TWO_RULER_KEYS.platform),
       desc: "Amazon是否能识别竞品类目、属性、关系和查询意图。",
     },
@@ -1755,7 +1755,7 @@ export default function CompetitorAnalysis() {
           <PageHeader
             objective="拆解竞品Listing为什么卖得好，提炼竞品打法"
             inputSource="竞品ASIN/Amazon链接、标题、五点、主图/副图、A+、评论、关键词、价格和销量表现"
-            process="按Listing结构、平台识别、评论反向验证和价格销量信号拆解转化原因"
+            process="按Listing结构、Amazon识别、评论反向验证和价格销量信号拆解转化原因"
             outputTarget="竞品核心优势、广告转化拆解、关键词结构、评论痛点、可借鉴策略和不建议模仿点"
             action="把竞品打法带回本品诊断或上新检测"
             feedback="保存竞品诊断快照，沉淀到关键词库、竞品库和后续数据回流"
@@ -2753,7 +2753,7 @@ function ListingBreakdownView({ breakdown, compliance }: { breakdown: ListingBre
                 <BreakdownSection title="结构拆解" items={displayStructure} />
                 <BreakdownSection title="强项判断" items={module.strengths} tone="green" />
                 <BreakdownSection title="弱项判断" items={module.weaknesses} tone="red" />
-                <BreakdownSection title="覆盖的用户意图" items={displayIntents} badge />
+                <BreakdownSection title="覆盖的买家需求" items={displayIntents} badge />
                 <BreakdownSection title="对应关键词/语义词" items={displayKeywords} badge />
                 <BreakdownSection title="我方广告打法" items={[adRead.attackAngle, ...(module.borrowable_actions || [])]} tone="blue" />
                 <BreakdownSection title="不建议模仿点" items={module.do_not_copy} tone="amber" />

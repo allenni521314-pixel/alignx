@@ -583,7 +583,7 @@ class JudgmentSystemService:
                 },
                 "success_metrics": ["CTR", "CVR", "CPC", "ACOS", "search_term_precision"],
                 "decision_rules": [
-                    "CTR提升: 平台识别和首屏表达更容易被识别",
+                    "CTR提升: Amazon识别和首屏表达更容易被识别",
                     "CVR提升: 状态承诺和详情页承接成立",
                     "CTR升CVR不升: 关键词切口成立，但价格、评价或机制证据不足",
                     "CTR不升: 状态触发词或关系词仍未击中真实搜索意图",
@@ -787,6 +787,15 @@ class JudgmentSystemService:
             item["next_check"] = gate["budget_policy"]
             item["score"] = gate["listing_conversion_score"]
             item["score_band"] = "可验证" if gate["allowed_validation"] else "未达标"
+            item["seller_facing_output"] = {
+                "title": "广告验证判断",
+                "judgment": gate["status"],
+                "basis": f"Listing承接分 {round(float(gate.get('listing_conversion_score') or 0))} / {gate.get('threshold')}",
+                "action": gate["required_action"],
+                "risk": gate["risk_warning"],
+                "confidence": round(float(gate.get("listing_conversion_score") or 0)),
+                "score_band": item["score_band"],
+            }
             break
         return gate
 
@@ -826,6 +835,63 @@ class JudgmentSystemService:
         allocation_score = _avg([user_intent_score, platform_matching_score, listing_conversion_score, advertising_validation_score])
         learning_score = _avg([precision_score, 80 if validation_items else 45])
 
+        def seller_output(domain: str, score: float, judgment: str, action: str, risk: str, basis: list[str]) -> dict[str, Any]:
+            band = _score_band(score)
+            by_domain = {
+                "user_intent": {
+                    "title": "买家购买判断",
+                    "judgment": "购买理由清楚" if score >= 80 else "购买理由还不够清楚" if score >= 60 else "买家为什么买还没讲清楚",
+                    "basis": "当前证据用于判断买家是否有清楚的购买理由。",
+                    "action": "先补清目标买家、使用场景和最大顾虑，再进入下一步验证。",
+                    "risk": "购买理由不清楚时，后续关键词和广告容易跑偏。",
+                },
+                "platform_matching": {
+                    "title": "Amazon识别判断",
+                    "judgment": "Amazon识别较清楚" if score >= 80 else "Amazon识别还不稳定" if score >= 60 else "Amazon可能识别不准这个产品",
+                    "basis": "标题、五点或后台词里的产品身份和场景信息会影响Amazon匹配。",
+                    "action": "补齐产品身份、类目锚点、属性词、关系词和场景问题词。",
+                    "risk": "识别不准会带来低曝光、错匹配和更高点击成本。",
+                },
+                "listing_conversion": {
+                    "title": "Listing承接判断",
+                    "judgment": "页面承接较好" if score >= 80 else "页面承接还要优化" if score >= 60 else "页面没有接住流量",
+                    "basis": "标题、图片、五点或A+是否证明购买理由，会影响点击后的转化。",
+                    "action": "先改最影响转化的承接模块，再做小预算验证。",
+                    "risk": "只改表述不补证据，可能点击提升但转化不升。",
+                },
+                "advertising_validation": {
+                    "title": "广告验证判断",
+                    "judgment": judgment,
+                    "basis": "当前数据用于判断是否适合进入广告验证。",
+                    "action": action,
+                    "risk": risk,
+                },
+                "capital_allocation": {
+                    "title": "投入优先级",
+                    "judgment": "可以优先投入高置信改动" if score >= 65 else "先补证据，再投入资源",
+                    "basis": f"当前综合置信度为{round(score)}分。",
+                    "action": "预算、时间和人力先投向最能验证核心判断的动作。",
+                    "risk": "证据不足时加大投入，会把错误判断变成沉没成本。",
+                },
+                "learning_feedback": {
+                    "title": "复盘结论",
+                    "judgment": "等待验证结果回流" if validation_items else "暂时缺少可复盘样本",
+                    "basis": "当前还没有足够结果判断这次动作是否命中。",
+                    "action": "验证后记录命中、未命中、样本不足和下一轮动作。",
+                    "risk": "没有归因的结果进入复盘，会让下一轮判断变偏。",
+                },
+            }
+            item = by_domain.get(domain, {})
+            return {
+                "title": item.get("title", "运营判断"),
+                "judgment": item.get("judgment", judgment),
+                "basis": item.get("basis", ""),
+                "action": item.get("action", action),
+                "risk": item.get("risk", risk),
+                "confidence": round(_decision_confidence(score, precision_score)),
+                "score_band": band,
+            }
+
         def output(
             *,
             domain: str,
@@ -840,12 +906,13 @@ class JudgmentSystemService:
             next_check: str,
             failure_pattern: str,
         ) -> dict[str, Any]:
+            clean_basis = [item for item in basis if item]
             return {
                 "domain": domain,
                 "domain_name": name,
                 "core_question": core_question,
                 "current_judgment": judgment,
-                "judgment_basis": [item for item in basis if item],
+                "judgment_basis": clean_basis,
                 "confidence_score": _decision_confidence(score, precision_score),
                 "recommended_action": action,
                 "risk_warning": risk,
@@ -854,6 +921,7 @@ class JudgmentSystemService:
                 "score": round(score, 2),
                 "score_band": _score_band(score),
                 "failure_pattern": failure_pattern,
+                "seller_facing_output": seller_output(domain, score, judgment, action, risk, clean_basis),
                 "human_nature_layer": {
                     "levels": human_nature.get("levels", []),
                     "root": human_nature.get("level_0", {}),

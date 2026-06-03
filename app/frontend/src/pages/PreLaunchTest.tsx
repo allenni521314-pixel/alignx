@@ -1649,7 +1649,7 @@ export default function PreLaunchTest() {
           <PageHeader
             objective="上架前判断Listing是否建议上架"
             inputSource="标题、五点、主图/副图、A+、后台搜索关键词"
-            process="按评论需求、平台识别和转化承接做上新准入检测"
+            process="按评论需求、Amazon识别和转化承接做上新准入检测"
             outputTarget="是否建议上架、风险等级、必改项、缺失关键词、表达错配点"
             action="修改必改项后进入本品诊断，生成广告验证假设"
             feedback="每一轮检测完整保存为历史记录，作为本品诊断和后续广告验证基线"
@@ -1931,7 +1931,7 @@ export default function PreLaunchTest() {
                 {result.cosmo_alignment && (
                   <Card className="bg-white border-gray-200 p-4">
                     <h3 className="text-sm font-semibold text-brand-600 mb-2 flex items-center gap-1.5">
-                      <Sparkles className="w-3.5 h-3.5" /> 平台识别
+                      <Sparkles className="w-3.5 h-3.5" /> Amazon识别
                     </h3>
                     <p className="text-xs text-gray-500 leading-relaxed">{result.cosmo_alignment}</p>
                   </Card>
@@ -1939,7 +1939,7 @@ export default function PreLaunchTest() {
                 {result.rufus_alignment && (
                   <Card className="bg-white border-gray-200 p-4">
                     <h3 className="text-sm font-semibold text-gold-400 mb-2 flex items-center gap-1.5">
-                      <TrendingUp className="w-3.5 h-3.5" /> 用户意图
+                      <TrendingUp className="w-3.5 h-3.5" /> 购买理由
                     </h3>
                     <p className="text-xs text-gray-500 leading-relaxed">{result.rufus_alignment}</p>
                   </Card>
