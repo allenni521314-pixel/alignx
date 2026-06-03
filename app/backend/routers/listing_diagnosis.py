@@ -53,6 +53,7 @@ from services.amazon_skill_toolbox import (
 from services.judgment_feedback_rounds import JudgmentFeedbackRoundService
 from services.listing_diagnoses import Listing_diagnosesService
 from services.judgment_system import JudgmentSystemService
+from services.opc_os_persistence import OPCOSPersistenceService
 from services.opc_os_v5 import OPCOSV5ExecutionService
 from services.cosmo_rufus_rules import build_cosmo_rufus_analysis, merge_cosmo_rufus_into_legacy
 from services.cosmo_vector_mapping import evaluate_cosmo_vector_mapping_async
@@ -1272,7 +1273,13 @@ def _avg_scores(values: list[Any]) -> float:
     return round(sum(numbers) / len(numbers), 2) if numbers else 0
 
 
-def _build_listing_opc_v5_execution(data: dict, listing: ListingInput, user_id: str) -> dict:
+async def _build_listing_opc_v5_execution(
+    data: dict,
+    listing: ListingInput,
+    user_id: str,
+    db: AsyncSession,
+    source_record_id: int | None = None,
+) -> dict:
     scores = data.get("scores") if isinstance(data.get("scores"), dict) else {}
     integrity = data.get("data_integrity") if isinstance(data.get("data_integrity"), dict) else {}
     source_coverage = integrity.get("source_coverage") if isinstance(integrity.get("source_coverage"), dict) else {}
@@ -1347,7 +1354,7 @@ def _build_listing_opc_v5_execution(data: dict, listing: ListingInput, user_id: 
             evidence_id=evidence.evidence_id,
         )
     )
-    return {
+    bundle = {
         "opportunity": opportunity.model_dump(mode="json"),
         "uncertainty_queue": [item.model_dump(mode="json") for item in uncertainties.uncertainty_queue],
         "proof_plan": proof_plan.model_dump(mode="json"),
@@ -1356,6 +1363,15 @@ def _build_listing_opc_v5_execution(data: dict, listing: ListingInput, user_id: 
         "capital_decision": capital_decision.model_dump(mode="json"),
         "knowledge_evolution": knowledge_evolution.model_dump(mode="json"),
     }
+    await OPCOSPersistenceService(db).save_execution_bundle(
+        user_id=user_id,
+        bundle=bundle,
+        source_module="listing_diagnosis",
+        source_record_id=source_record_id,
+        asin=listing.asin or "",
+        title=listing.title or "",
+    )
+    return bundle
 
 
 def _parse_metric_int(value: str | int | float | None) -> int:
@@ -2303,7 +2319,7 @@ async def _diagnose_single(
     data["ad_validation_plan"] = ad_validation_plan
     data["diagnosis_mode"] = diagnosis_mode
     data["ad_validation_readiness_gate"] = JudgmentSystemService.apply_ad_validation_gate_to_outputs(data, listing)
-    data["opc_v5_execution"] = _build_listing_opc_v5_execution(data, listing, user_id)
+    data["opc_v5_execution"] = await _build_listing_opc_v5_execution(data, listing, user_id, db)
     sanitized_listing = _sanitize_listing_for_ai(listing)
     content_fingerprint = _listing_content_fingerprint(sanitized_listing)
     data["diagnosis_meta"] = {
@@ -2764,7 +2780,7 @@ async def diagnose_listing(
         if not result.get("amazon_compliance"):
             result["amazon_compliance"] = await _evaluate_listing_compliance(listing, db)
         if not result.get("opc_v5_execution"):
-            result["opc_v5_execution"] = _build_listing_opc_v5_execution(result, listing, str(current_user.id))
+            result["opc_v5_execution"] = await _build_listing_opc_v5_execution(result, listing, str(current_user.id), db, result.get("id"))
         return DiagnoseResponse(
             scores=result.get("scores", {}),
             analysis=result.get("analysis", {}),

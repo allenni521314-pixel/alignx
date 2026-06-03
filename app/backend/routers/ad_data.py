@@ -12,7 +12,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.database import get_db
 from models.ad_data import Ad_data
 from models.products import Products
+from schemas.opc_os import CapitalDecisionInput, EvidenceInput
 from services.ad_data import Ad_dataService
+from services.opc_os_persistence import OPCOSPersistenceService
+from services.opc_os_v5 import OPCOSV5ExecutionService
 from dependencies.auth import get_current_user, get_user_scope_ids
 from schemas.auth import UserResponse
 
@@ -127,6 +130,8 @@ class Ad_dataBindHypothesisResponse(BaseModel):
     product_id: int
     updated_ids: List[int]
     skipped_count: int
+    evidence: Optional[dict] = None
+    capital_decision: Optional[dict] = None
 
 
 # ---------- Routes ----------
@@ -337,12 +342,13 @@ async def bind_ad_data_hypothesis(
 
     scope_user_ids = await get_user_scope_ids(current_user, db)
     product_result = await db.execute(
-        select(Products.id).where(
+        select(Products).where(
             Products.id == request.product_id,
             Products.user_id.in_(scope_user_ids),
         )
     )
-    if not product_result.scalar_one_or_none():
+    product = product_result.scalar_one_or_none()
+    if not product:
         raise HTTPException(status_code=404, detail="Product not found in current email identity scope")
 
     stmt = select(Ad_data).where(
@@ -367,12 +373,65 @@ async def bind_ad_data_hypothesis(
             updated_ids.append(record.id)
         await db.commit()
         skipped_count = max(0, len(request.ids or []) - len(updated_ids)) if request.ids else 0
+        impressions = sum(int(item.impressions or 0) for item in records)
+        clicks = sum(int(item.clicks or 0) for item in records)
+        orders = sum(int(item.orders or 0) for item in records)
+        spend = sum(float(item.spend or 0) for item in records)
+        sales = sum(float(item.sales or 0) for item in records)
+        ctr = round(clicks / impressions * 100, 2) if impressions else 0
+        cvr = round(orders / clicks * 100, 2) if clicks else 0
+        roi = round(sales / spend, 2) if spend else 0
+        roi_score = max(0, min(100, roi * 20))
+        evidence = OPCOSV5ExecutionService(str(current_user.id)).score_evidence(
+            EvidenceInput(
+                proof_plan_id=hypothesis_id,
+                metrics={
+                    "CTR": ctr,
+                    "CVR": cvr,
+                    "订单": min(100, orders),
+                    "转化": cvr,
+                    "ROI": roi_score,
+                },
+                evidence_quality=100 if records else 0,
+            )
+        )
+        capital_decision = OPCOSV5ExecutionService(str(current_user.id)).create_capital_decision(
+            CapitalDecisionInput(
+                opportunity_id=hypothesis_id,
+                proof_score=evidence.proof_score,
+                risk_score=max(0, 100 - evidence.proof_score),
+                information_gain=100 if records else 0,
+            )
+        )
+        persistence = OPCOSPersistenceService(db)
+        await persistence.save_object(
+            user_id=str(current_user.id),
+            object_type="evidence",
+            payload=evidence,
+            opportunity_id=hypothesis_id,
+            source_module="ad_data",
+            source_record_id=request.product_id,
+            asin=product.asin or "",
+            title=product.title or "",
+        )
+        await persistence.save_object(
+            user_id=str(current_user.id),
+            object_type="capital_decision",
+            payload=capital_decision,
+            opportunity_id=hypothesis_id,
+            source_module="ad_data",
+            source_record_id=request.product_id,
+            asin=product.asin or "",
+            title=product.title or "",
+        )
         return Ad_dataBindHypothesisResponse(
             updated_count=len(updated_ids),
             hypothesis_id=hypothesis_id,
             product_id=request.product_id,
             updated_ids=updated_ids,
             skipped_count=skipped_count,
+            evidence=evidence.model_dump(mode="json"),
+            capital_decision=capital_decision.model_dump(mode="json"),
         )
     except Exception as e:
         await db.rollback()
