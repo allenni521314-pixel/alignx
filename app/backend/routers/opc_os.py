@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import get_db
 from dependencies.auth import get_current_user
+from dependencies.auth import get_super_admin_user
 from dependencies.auth import get_user_scope_ids
 from schemas.auth import UserResponse
 from schemas.opc_os import (
@@ -31,7 +32,7 @@ from schemas.opc_os import (
 from services.opc_os_persistence import OPCOSPersistenceService
 from services.opc_os_v5 import OPCOSV5ExecutionService
 
-router = APIRouter(prefix="/api/v1/opc-os", tags=["opc-os"])
+router = APIRouter(prefix="/api/v1/opc-os", tags=["opc-os"], dependencies=[Depends(get_super_admin_user)])
 
 
 class ModuleExecutionRequest(BaseModel):
