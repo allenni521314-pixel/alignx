@@ -3,6 +3,9 @@ from datetime import datetime
 from schemas.opc_os import (
     CapitalDecision,
     CapitalDecisionInput,
+    CapitalAllocation,
+    CapitalAllocationInput,
+    CapitalAllocationItem,
     Evidence,
     EvidenceInput,
     ExperimentExecution,
@@ -35,6 +38,7 @@ class OPCOSV5Store:
                 "executions": {},
                 "evidence": {},
                 "capital_decisions": {},
+                "capital_allocations": {},
                 "knowledge_nodes": {},
                 "knowledge_edges": {},
             }
@@ -197,6 +201,44 @@ class OPCOSV5ExecutionService:
         if opportunity_id:
             return [item for item in items if item.opportunity_id == opportunity_id]
         return items
+
+    def allocate_capital(self, payload: CapitalAllocationInput, decisions: list[CapitalDecision]) -> CapitalAllocation:
+        selected_ids = set(payload.opportunity_ids or [])
+        filtered = [
+            item
+            for item in decisions
+            if not selected_ids or item.opportunity_id in selected_ids
+        ]
+        latest_by_opportunity: dict[str, CapitalDecision] = {}
+        for item in filtered:
+            previous = latest_by_opportunity.get(item.opportunity_id)
+            if not previous or item.created_at >= previous.created_at:
+                latest_by_opportunity[item.opportunity_id] = item
+
+        scored: list[tuple[CapitalDecision, float]] = []
+        for item in latest_by_opportunity.values():
+            if item.suggested_action == "Close":
+                score = 0
+            else:
+                score = max(0, item.proof_score - item.risk_score * 0.35 + item.information_gain * 0.1)
+            scored.append((item, round(score, 2)))
+        total_score = sum(score for _, score in scored)
+        budget = max(0, payload.budget)
+        items = [
+            CapitalAllocationItem(
+                opportunity_id=item.opportunity_id,
+                suggested_action=item.suggested_action,
+                proof_score=item.proof_score,
+                risk_score=item.risk_score,
+                information_gain=item.information_gain,
+                allocation_weight=round(score / total_score * 100, 2) if total_score else 0,
+                suggested_budget=round(budget * score / total_score, 2) if total_score and budget else 0,
+            )
+            for item, score in sorted(scored, key=lambda pair: pair[1], reverse=True)
+        ]
+        allocation = CapitalAllocation(budget=budget, items=items)
+        self.data["capital_allocations"][allocation.allocation_id] = allocation
+        return allocation
 
     def evolve_knowledge_graph(self, payload: KnowledgeEvolutionInput) -> KnowledgeEvolutionResult:
         node_updates = [self._updated_node(node) for node in payload.nodes]

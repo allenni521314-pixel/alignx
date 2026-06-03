@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.database import get_db
 from dependencies.auth import get_current_user, get_user_scope_ids
 from schemas.auth import UserResponse
+from schemas.opc_os import OpportunityInput
 from services.aihub import AIHubService
 from services.amazon_rules_engine import evaluate_amazon_compliance, load_active_rules
 from services.amazon_scraper import scrape_amazon_product
@@ -34,6 +35,8 @@ from services.canonical_10d_scoring import (
 )
 from services.cosmo_operator_agent import CosmoOperatorAgent
 from services.human_nature_model import human_nature_prompt_block
+from services.opc_os_persistence import OPCOSPersistenceService
+from services.opc_os_v5 import OPCOSV5ExecutionService
 
 logger = logging.getLogger(__name__)
 
@@ -377,6 +380,41 @@ class AnalyzeAsinResponse(BaseModel):
     amazon_compliance: dict = {}
     data_source: str = "unknown"
     id: Optional[int] = None
+    opc_v5_execution: dict = {}
+
+
+async def _attach_asin_opc_v5_execution(
+    result: AnalyzeAsinResponse,
+    user_id: str,
+    db: AsyncSession,
+    source_module: str,
+) -> AnalyzeAsinResponse:
+    score_values = [
+        float(value)
+        for value in (result.scores or {}).values()
+        if isinstance(value, (int, float))
+    ]
+    initial_score = round(sum(score_values) / len(score_values), 2) if score_values else 0
+    opc_result = OPCOSV5ExecutionService(user_id).run_execution_loop(
+        OpportunityInput(
+            title=result.product_title or result.asin,
+            human_drivers=["待录入"],
+            demand="待录入",
+            scenario=str((result.product_data or {}).get("category") or "待录入"),
+            initial_score=initial_score,
+        )
+    )
+    opc_payload = opc_result.model_dump(mode="json")
+    await OPCOSPersistenceService(db).save_execution_bundle(
+        user_id=user_id,
+        bundle=opc_payload,
+        source_module=source_module,
+        source_record_id=result.id,
+        asin=result.asin,
+        title=result.product_title or result.asin,
+    )
+    result.opc_v5_execution = opc_payload
+    return result
 
 
 def _image_signals_from_product_data(product_data: dict) -> dict:
@@ -628,6 +666,7 @@ class ParseHtmlAnalyzeResponse(BaseModel):
     capture_quality: dict = {}
     error: str = ""
     id: Optional[int] = None
+    opc_v5_execution: dict = {}
 
 
 class ProxyFetchRequest(BaseModel):
@@ -1630,6 +1669,7 @@ async def parse_html_and_analyze(
             db=db,
             scraped_data=scraped_data,
         )
+        result = await _attach_asin_opc_v5_execution(result, str(current_user.id), db, "asin_analysis")
 
         return ParseHtmlAnalyzeResponse(
             success=True,
@@ -1642,6 +1682,7 @@ async def parse_html_and_analyze(
             data_source=result.data_source,
             capture_quality=quality,
             id=result.id,
+            opc_v5_execution=result.opc_v5_execution,
         )
     except Exception as e:
         logger.error(f"parse-html-analyze error for {request.asin}: {e}")
@@ -1667,6 +1708,7 @@ async def analyze_asin(
                 if not cached.amazon_compliance:
                     cached.amazon_compliance = await _evaluate_asin_compliance(cached.product_data, cached.marketplace, db)
                     cached.analysis_report["amazon_compliance"] = cached.amazon_compliance
+                cached = await _attach_asin_opc_v5_execution(cached, str(current_user.id), db, "asin_analysis")
                 return cached
 
         result = await _analyze_single_asin(
@@ -1675,7 +1717,7 @@ async def analyze_asin(
             user_id=str(current_user.id),
             db=db,
         )
-        return result
+        return await _attach_asin_opc_v5_execution(result, str(current_user.id), db, "asin_analysis")
     except HTTPException:
         raise
     except ValueError as e:

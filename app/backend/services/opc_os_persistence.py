@@ -35,6 +35,8 @@ def _object_id(value: Any) -> str:
         "execution_id",
         "evidence_id",
         "capital_decision_id",
+        "allocation_id",
+        "action_id",
         "id",
     ):
         if value.get(key):

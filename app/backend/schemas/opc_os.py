@@ -160,6 +160,41 @@ class CapitalDecisionConfirmInput(BaseModel):
     confirmed: bool
 
 
+class CapitalAllocationInput(BaseModel):
+    opportunity_ids: list[str] = Field(default_factory=list)
+    source_module: str = ""
+    asin: str = ""
+    budget: float = 0
+
+
+class CapitalAllocationItem(BaseModel):
+    opportunity_id: str
+    suggested_action: CapitalAction = "Observe"
+    proof_score: float = 0
+    risk_score: float = 0
+    information_gain: float = 0
+    allocation_weight: float = 0
+    suggested_budget: float = 0
+
+
+class CapitalAllocation(BaseModel):
+    allocation_id: str = Field(default_factory=_id)
+    budget: float = 0
+    items: list[CapitalAllocationItem] = Field(default_factory=list)
+    requires_human_confirmation: bool = True
+    status: str = "待确认"
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class ListingActionCandidate(BaseModel):
+    action_id: str = Field(default_factory=_id)
+    opportunity_id: str
+    source_evidence_id: str | None = None
+    field: str = "待录入"
+    status: str = "待处理"
+    priority: int = 0
+
+
 class KnowledgeEvolutionResult(BaseModel):
     opportunity_id: str
     evidence_id: str | None = None

@@ -7,6 +7,8 @@ from dependencies.auth import get_current_user
 from dependencies.auth import get_user_scope_ids
 from schemas.auth import UserResponse
 from schemas.opc_os import (
+    CapitalAllocation,
+    CapitalAllocationInput,
     CapitalDecision,
     CapitalDecisionConfirmInput,
     CapitalDecisionInput,
@@ -213,6 +215,40 @@ async def list_capital_decisions(
     current_user: UserResponse = Depends(get_current_user),
 ):
     return _service(current_user).list_capital_decisions(opportunity_id)
+
+
+@router.post("/capital_allocations", response_model=CapitalAllocation)
+async def allocate_capital(
+    payload: CapitalAllocationInput,
+    current_user: UserResponse = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    scope_user_ids = await get_user_scope_ids(current_user, db)
+    records = await OPCOSPersistenceService(db).list_objects(
+        user_id=scope_user_ids,
+        object_type="capital_decision",
+        source_module=payload.source_module,
+        asin=payload.asin,
+        limit=200,
+    )
+    decisions: list[CapitalDecision] = []
+    for item in records.get("items") or []:
+        data = item.get("payload") or {}
+        if not isinstance(data, dict):
+            continue
+        try:
+            decisions.append(CapitalDecision(**data))
+        except Exception:
+            continue
+    allocation = _service(current_user).allocate_capital(payload, decisions)
+    await OPCOSPersistenceService(db).save_object(
+        user_id=str(current_user.id),
+        object_type="capital_allocation",
+        payload=allocation,
+        source_module=payload.source_module,
+        asin=payload.asin,
+    )
+    return allocation
 
 
 @router.post("/capital_decisions/{decision_id}/confirm", response_model=CapitalDecision)

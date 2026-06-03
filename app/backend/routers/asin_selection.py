@@ -1,4 +1,5 @@
 import json
+import logging
 import math
 import re
 from datetime import datetime, timedelta, timezone
@@ -18,13 +19,17 @@ from models.asin_keyword_sales_validation import (
 )
 from models.action_snapshots import ActionSnapshot
 from schemas.auth import UserResponse
+from schemas.opc_os import OpportunityInput
 from services.amazon_scraper import scrape_amazon_product
 from services.amazon_skill_toolbox import build_asin_selection_assist
 from services.cosmo_operator_agent import CosmoOperatorAgent
+from services.opc_os_persistence import OPCOSPersistenceService
+from services.opc_os_v5 import OPCOSV5ExecutionService
 from services.scrapling_amazon_capture import SCRAPLING_TOP40_RULES, capture_top40_batch
 from services.top40_market_analysis import analyze_top40_market
 
 router = APIRouter(prefix="/api/v1/asin-selection", tags=["asin-selection"])
+logger = logging.getLogger(__name__)
 
 
 class KeywordSalesValidationRequest(BaseModel):
@@ -592,6 +597,27 @@ async def _generate_validation(request: KeywordSalesValidationRequest, user_id: 
             )
         )
     await db.commit()
+    try:
+        opc_result = OPCOSV5ExecutionService(user_id).run_execution_loop(
+            OpportunityInput(
+                title=product.get("title") or asin,
+                human_drivers=["待录入"],
+                demand=", ".join(keywords) if keywords else "待录入",
+                scenario=product.get("category") or "待录入",
+                initial_score=float(report.get("keyword_sales_score") or 0),
+            )
+        )
+        opc_payload = opc_result.model_dump(mode="json")
+        await OPCOSPersistenceService(db).save_execution_bundle(
+            user_id=user_id,
+            bundle=opc_payload,
+            source_module="asin_selection",
+            asin=asin,
+            title=product.get("title") or asin,
+        )
+        report["opc_v5_execution"] = opc_payload
+    except Exception as exc:
+        logger.warning("asin_selection opc_v5 persist failed for %s: %s", asin, exc)
     return report
 
 

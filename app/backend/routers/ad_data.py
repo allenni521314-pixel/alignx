@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.database import get_db
 from models.ad_data import Ad_data
 from models.products import Products
-from schemas.opc_os import CapitalDecisionInput, EvidenceInput
+from schemas.opc_os import CapitalDecisionInput, EvidenceInput, KnowledgeEvolutionInput, ListingActionCandidate
 from services.ad_data import Ad_dataService
 from services.opc_os_persistence import OPCOSPersistenceService
 from services.opc_os_v5 import OPCOSV5ExecutionService
@@ -132,6 +132,51 @@ class Ad_dataBindHypothesisResponse(BaseModel):
     skipped_count: int
     evidence: Optional[dict] = None
     capital_decision: Optional[dict] = None
+    listing_actions: Optional[List[dict]] = None
+    knowledge_evolution: Optional[dict] = None
+
+
+def _listing_actions_from_ad_evidence(
+    *,
+    opportunity_id: str,
+    evidence_id: str,
+    impressions: int,
+    clicks: int,
+    orders: int,
+    spend: float,
+    roi: float,
+) -> list[ListingActionCandidate]:
+    actions: list[ListingActionCandidate] = []
+    ctr = clicks / impressions * 100 if impressions else 0
+    cvr = orders / clicks * 100 if clicks else 0
+    if impressions > 0 and ctr < 1:
+        actions.append(
+            ListingActionCandidate(
+                opportunity_id=opportunity_id,
+                source_evidence_id=evidence_id,
+                field="标题/主图",
+                priority=1,
+            )
+        )
+    if clicks > 0 and cvr < 5:
+        actions.append(
+            ListingActionCandidate(
+                opportunity_id=opportunity_id,
+                source_evidence_id=evidence_id,
+                field="五点/A+",
+                priority=2,
+            )
+        )
+    if spend > 0 and roi <= 0:
+        actions.append(
+            ListingActionCandidate(
+                opportunity_id=opportunity_id,
+                source_evidence_id=evidence_id,
+                field="广告验证",
+                priority=3,
+            )
+        )
+    return actions
 
 
 # ---------- Routes ----------
@@ -382,7 +427,8 @@ async def bind_ad_data_hypothesis(
         cvr = round(orders / clicks * 100, 2) if clicks else 0
         roi = round(sales / spend, 2) if spend else 0
         roi_score = max(0, min(100, roi * 20))
-        evidence = OPCOSV5ExecutionService(str(current_user.id)).score_evidence(
+        opc_service = OPCOSV5ExecutionService(str(current_user.id))
+        evidence = opc_service.score_evidence(
             EvidenceInput(
                 proof_plan_id=hypothesis_id,
                 metrics={
@@ -395,12 +441,27 @@ async def bind_ad_data_hypothesis(
                 evidence_quality=100 if records else 0,
             )
         )
-        capital_decision = OPCOSV5ExecutionService(str(current_user.id)).create_capital_decision(
+        capital_decision = opc_service.create_capital_decision(
             CapitalDecisionInput(
                 opportunity_id=hypothesis_id,
                 proof_score=evidence.proof_score,
                 risk_score=max(0, 100 - evidence.proof_score),
                 information_gain=100 if records else 0,
+            )
+        )
+        listing_actions = _listing_actions_from_ad_evidence(
+            opportunity_id=hypothesis_id,
+            evidence_id=evidence.evidence_id,
+            impressions=impressions,
+            clicks=clicks,
+            orders=orders,
+            spend=spend,
+            roi=roi,
+        )
+        knowledge_evolution = opc_service.evolve_knowledge_graph(
+            KnowledgeEvolutionInput(
+                opportunity_id=hypothesis_id,
+                evidence_id=evidence.evidence_id,
             )
         )
         persistence = OPCOSPersistenceService(db)
@@ -424,6 +485,27 @@ async def bind_ad_data_hypothesis(
             asin=product.asin or "",
             title=product.title or "",
         )
+        for action in listing_actions:
+            await persistence.save_object(
+                user_id=str(current_user.id),
+                object_type="listing_action",
+                payload=action,
+                opportunity_id=hypothesis_id,
+                source_module="ad_data",
+                source_record_id=request.product_id,
+                asin=product.asin or "",
+                title=product.title or "",
+            )
+        await persistence.save_object(
+            user_id=str(current_user.id),
+            object_type="knowledge_evolution",
+            payload=knowledge_evolution,
+            opportunity_id=hypothesis_id,
+            source_module="ad_data",
+            source_record_id=request.product_id,
+            asin=product.asin or "",
+            title=product.title or "",
+        )
         return Ad_dataBindHypothesisResponse(
             updated_count=len(updated_ids),
             hypothesis_id=hypothesis_id,
@@ -432,6 +514,8 @@ async def bind_ad_data_hypothesis(
             skipped_count=skipped_count,
             evidence=evidence.model_dump(mode="json"),
             capital_decision=capital_decision.model_dump(mode="json"),
+            listing_actions=[item.model_dump(mode="json") for item in listing_actions],
+            knowledge_evolution=knowledge_evolution.model_dump(mode="json"),
         )
     except Exception as e:
         await db.rollback()
