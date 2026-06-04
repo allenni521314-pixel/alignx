@@ -12,10 +12,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.database import get_db
 from models.ad_data import Ad_data
 from models.products import Products
-from schemas.opc_os import CapitalDecisionInput, EvidenceInput, KnowledgeEvolutionInput, ListingActionCandidate
+from schemas.opc_os import ListingActionCandidate
 from services.ad_data import Ad_dataService
+from services.core_engine_adapter import CoreEngineBusinessAdapter
 from services.opc_os_persistence import OPCOSPersistenceService
-from services.opc_os_v5 import OPCOSV5ExecutionService
 from dependencies.auth import get_current_user, get_user_scope_ids
 from schemas.auth import UserResponse
 
@@ -427,43 +427,40 @@ async def bind_ad_data_hypothesis(
         cvr = round(orders / clicks * 100, 2) if clicks else 0
         roi = round(sales / spend, 2) if spend else 0
         roi_score = max(0, min(100, roi * 20))
-        opc_service = OPCOSV5ExecutionService(str(current_user.id))
-        evidence = opc_service.score_evidence(
-            EvidenceInput(
-                proof_plan_id=hypothesis_id,
-                metrics={
-                    "CTR": ctr,
-                    "CVR": cvr,
-                    "订单": min(100, orders),
-                    "转化": cvr,
-                    "ROI": roi_score,
-                },
-                evidence_quality=100 if records else 0,
-            )
+        metrics = {
+            "CTR": ctr,
+            "CVR": cvr,
+            "订单": min(100, orders),
+            "转化": cvr,
+            "ROI": roi_score,
+        }
+        core_cycle = await CoreEngineBusinessAdapter(db, str(current_user.id)).evaluate_cycle(
+            source_type="ad_data",
+            source_id=str(request.product_id),
+            opportunity_id=hypothesis_id,
+            opportunity_score=roi_score,
+            risk_score=max(0, 100 - roi_score),
+            information_gain=100 if records else 0,
+            evidence_count=1 if records else 0,
+            evidence_quality=100 if records else 0,
+            sample_size=max(0, impressions),
+            conversion_signal=min(100, cvr),
+            consistency=min(100, ctr + cvr + roi_score),
+            statistical_confidence=100 if impressions >= 100 else max(0, impressions),
+            metrics=metrics,
         )
-        capital_decision = opc_service.create_capital_decision(
-            CapitalDecisionInput(
-                opportunity_id=hypothesis_id,
-                proof_score=evidence.proof_score,
-                risk_score=max(0, 100 - evidence.proof_score),
-                information_gain=100 if records else 0,
-            )
-        )
+        evidence = core_cycle["evidence"]
+        capital_decision = core_cycle["capital_decision"]
         listing_actions = _listing_actions_from_ad_evidence(
             opportunity_id=hypothesis_id,
-            evidence_id=evidence.evidence_id,
+            evidence_id=str(evidence.get("evidence_id") or ""),
             impressions=impressions,
             clicks=clicks,
             orders=orders,
             spend=spend,
             roi=roi,
         )
-        knowledge_evolution = opc_service.evolve_knowledge_graph(
-            KnowledgeEvolutionInput(
-                opportunity_id=hypothesis_id,
-                evidence_id=evidence.evidence_id,
-            )
-        )
+        knowledge_evolution = core_cycle["knowledge_evolution"]
         persistence = OPCOSPersistenceService(db)
         await persistence.save_object(
             user_id=str(current_user.id),
@@ -512,10 +509,10 @@ async def bind_ad_data_hypothesis(
             product_id=request.product_id,
             updated_ids=updated_ids,
             skipped_count=skipped_count,
-            evidence=evidence.model_dump(mode="json"),
-            capital_decision=capital_decision.model_dump(mode="json"),
+            evidence=evidence,
+            capital_decision=capital_decision,
             listing_actions=[item.model_dump(mode="json") for item in listing_actions],
-            knowledge_evolution=knowledge_evolution.model_dump(mode="json"),
+            knowledge_evolution=knowledge_evolution,
         )
     except Exception as e:
         await db.rollback()

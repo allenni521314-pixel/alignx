@@ -34,14 +34,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.database import get_db
 from dependencies.auth import get_current_user, get_user_scope_ids
 from schemas.auth import UserResponse
-from schemas.opc_os import (
-    CapitalDecisionInput,
-    EvidenceInput,
-    ExperimentExecutionInput,
-    KnowledgeEvolutionInput,
-    OpportunityInput,
-    ProofPlanInput,
-)
 from services.aihub import AIHubService
 from services.amazon_rules_engine import evaluate_amazon_compliance, load_active_rules
 from services.amazon_skill_toolbox import (
@@ -53,8 +45,7 @@ from services.amazon_skill_toolbox import (
 from services.judgment_feedback_rounds import JudgmentFeedbackRoundService
 from services.listing_diagnoses import Listing_diagnosesService
 from services.judgment_system import JudgmentSystemService
-from services.opc_os_persistence import OPCOSPersistenceService
-from services.opc_os_v5 import OPCOSV5ExecutionService
+from services.core_engine_adapter import CoreEngineBusinessAdapter
 from services.cosmo_rufus_rules import build_cosmo_rufus_analysis, merge_cosmo_rufus_into_legacy
 from services.cosmo_vector_mapping import evaluate_cosmo_vector_mapping_async
 from services.canonical_10d_scoring import product_evidence_similarity
@@ -1299,79 +1290,28 @@ async def _build_listing_opc_v5_execution(
             scores.get("compatibility"),
         ]
     )
-    service = OPCOSV5ExecutionService(user_id=user_id)
-    opportunity = service.create_opportunity(
-        OpportunityInput(
-            title=listing.asin or listing.title or "待录入",
-            human_drivers=["待录入"],
-            demand=listing.title or "待录入",
-            scenario="待录入",
-            initial_score=listing_score,
-        )
-    )
-    uncertainties = service.build_uncertainties(opportunity.opportunity_id)
-    proof_plan = service.create_proof_plan(
-        ProofPlanInput(
-            opportunity_id=opportunity.opportunity_id,
-            validation_goal="待录入",
-            sample_size=0,
-            budget_suggestion=0,
-        )
-    )
-    execution = service.execute_experiment(
-        ExperimentExecutionInput(
-            proof_plan_id=proof_plan.proof_plan_id,
-            channel="small_budget_ad",
-            manual_confirmed=False,
-        )
-    )
     evidence_metrics = {}
     if has_ad_evidence:
         evidence_metrics = {
             "转化": _numeric_score(causal_confidence.get("score")),
             "ROI": _numeric_score(keyword_causality.get("readiness_score")),
         }
-    evidence = service.score_evidence(
-        EvidenceInput(
-            proof_plan_id=proof_plan.proof_plan_id,
-            execution_id=execution.execution_id,
-            metrics=evidence_metrics,
-            evidence_quality=_numeric_score(integrity.get("score")) if has_ad_evidence else 0,
-        )
+    source_id = str(source_record_id or listing.asin or listing.title or "")
+    return await CoreEngineBusinessAdapter(db, user_id).evaluate_cycle(
+        source_type="listing_diagnosis",
+        source_id=source_id,
+        opportunity_id=listing.asin or source_id or "待录入",
+        opportunity_score=listing_score,
+        risk_score=max(0, 100 - listing_score),
+        information_gain=_numeric_score(source_coverage.get("advertising")) if has_ad_evidence else 0,
+        evidence_count=1 if has_ad_evidence else 0,
+        evidence_quality=_numeric_score(integrity.get("score")) if has_ad_evidence else 0,
+        sample_size=30 if has_ad_evidence else 0,
+        conversion_signal=_numeric_score(causal_confidence.get("score")) if has_ad_evidence else 0,
+        consistency=_numeric_score(keyword_causality.get("readiness_score")) if has_ad_evidence else 0,
+        statistical_confidence=_numeric_score(integrity.get("score")) if has_ad_evidence else 0,
+        metrics=evidence_metrics,
     )
-    risk_score = uncertainties.uncertainty_queue[0].risk_score if uncertainties.uncertainty_queue else 0
-    capital_decision = service.create_capital_decision(
-        CapitalDecisionInput(
-            opportunity_id=opportunity.opportunity_id,
-            proof_score=evidence.proof_score,
-            risk_score=risk_score,
-            information_gain=_numeric_score(source_coverage.get("advertising")) if has_ad_evidence else 0,
-        )
-    )
-    knowledge_evolution = service.evolve_knowledge_graph(
-        KnowledgeEvolutionInput(
-            opportunity_id=opportunity.opportunity_id,
-            evidence_id=evidence.evidence_id,
-        )
-    )
-    bundle = {
-        "opportunity": opportunity.model_dump(mode="json"),
-        "uncertainty_queue": [item.model_dump(mode="json") for item in uncertainties.uncertainty_queue],
-        "proof_plan": proof_plan.model_dump(mode="json"),
-        "experiment_execution": execution.model_dump(mode="json"),
-        "evidence": evidence.model_dump(mode="json"),
-        "capital_decision": capital_decision.model_dump(mode="json"),
-        "knowledge_evolution": knowledge_evolution.model_dump(mode="json"),
-    }
-    await OPCOSPersistenceService(db).save_execution_bundle(
-        user_id=user_id,
-        bundle=bundle,
-        source_module="listing_diagnosis",
-        source_record_id=source_record_id,
-        asin=listing.asin or "",
-        title=listing.title or "",
-    )
-    return bundle
 
 
 def _parse_metric_int(value: str | int | float | None) -> int:

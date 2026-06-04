@@ -129,6 +129,15 @@ interface KeywordSalesValidationReport {
   opportunity_keywords: string[];
   risk_keywords: string[];
   final_recommendation: string;
+  v5_market_decision?: {
+    success_probability?: number;
+    demand_strength?: number;
+    competition_pressure?: number;
+    validation_cost?: string;
+    max_risk?: string;
+    opportunity_level?: string;
+    next_step?: string;
+  };
   keyword_intent_scores?: Array<Record<string, unknown>>;
   market_validation_assist?: {
     entry_strategy?: string;
@@ -3003,6 +3012,16 @@ export default function AsinManager() {
                 const isDecisionBusy = isScoring || isKeywordValidating;
                 const marketplace = getProductMarketplace(product);
                 const marketplaceMeta = MARKETPLACE_BY_VALUE[marketplace] || MARKETPLACE_BY_VALUE.US;
+                const v5Decision = keywordReport?.v5_market_decision;
+                const opportunityLevel = v5Decision?.opportunity_level || "待录入";
+                const levelTone =
+                  opportunityLevel === "建议推进"
+                    ? "text-emerald-700 bg-emerald-50 border-emerald-200"
+                    : opportunityLevel === "小预算验证"
+                      ? "text-amber-700 bg-amber-50 border-amber-200"
+                      : opportunityLevel === "建议放弃"
+                        ? "text-red-700 bg-red-50 border-red-200"
+                        : "text-gray-700 bg-gray-50 border-gray-200";
 
                 return (
                   <div key={product.id} className="space-y-0">
@@ -3185,9 +3204,9 @@ export default function AsinManager() {
                             <div>
                               <div className="flex items-center gap-2">
                                 <ShieldCheck className="w-4 h-4 text-emerald-700" />
-                                <h3 className="font-bold text-gray-900">关键词销量验证</h3>
+                                <h3 className="font-bold text-gray-900">市场机会判断</h3>
                               </div>
-                              <p className="text-xs text-gray-500 mt-1">销量来源风险雷达：交叉查看库存可售、BSR、评论、自然排名、广告位与促销信号。</p>
+                              <p className="text-xs text-gray-500 mt-1">判断当前机会是否值得继续投入。</p>
 	                              <p className="text-[11px] text-gray-400 mt-1">
 	                                数据来源：{keywordReport.keyword_rank_summary?.rank_data_source === "scrapling_top40_search" ? "Scrapling核心词Top40搜索快照" : "规则估算快照"}
 	                              </p>
@@ -3203,29 +3222,26 @@ export default function AsinManager() {
                               </label>
 	                            </div>
                             <div className="text-right">
-                              <div className="text-2xl font-bold text-emerald-700">{Math.round(keywordReport.keyword_sales_score)}</div>
-                              <div className="text-xs text-gray-500">健康分</div>
+                              <div className={`rounded-full border px-3 py-1 text-sm font-bold ${levelTone}`}>{opportunityLevel}</div>
+                              <div className="mt-1 text-xs text-gray-500">机会等级</div>
                             </div>
                           </div>
 
-                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
-                            <div className="rounded-lg bg-emerald-50 border border-emerald-100 p-3">
-                              <p className="text-xs text-gray-500">自然流量强度</p>
-                              <p className="text-lg font-bold text-emerald-700">{keywordReport.organic_rank_strength}</p>
-                            </div>
-                            <div className="rounded-lg bg-amber-50 border border-amber-100 p-3">
-                              <p className="text-xs text-gray-500">广告依赖风险</p>
-                              <p className="text-lg font-bold text-amber-700">
-                                {keywordReport.keyword_rank_summary?.inventory_blocker ? "暂不判断" : `${keywordReport.ad_dependency_risk}%`}
-                              </p>
-                              <p className="text-[11px] text-amber-700 mt-0.5">
-                                {keywordReport.keyword_rank_summary?.ad_risk_level || (keywordReport.ad_dependency_risk <= 20 ? "优秀自然流量结构" : keywordReport.ad_dependency_risk <= 35 ? "健康可控" : "需要观察")}
-                              </p>
-                            </div>
-                            <div className="rounded-lg bg-gray-50 border border-gray-100 p-3">
-                              <p className="text-xs text-gray-500">系统判断</p>
-                              <p className="text-sm font-semibold text-gray-800">{keywordReport.sales_source_judgment}</p>
-                            </div>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 mb-4">
+                            {[
+                              ["成功概率", `${Math.round(v5Decision?.success_probability ?? keywordReport.keyword_sales_score)}%`],
+                              ["需求强度", `${Math.round(v5Decision?.demand_strength ?? keywordReport.keyword_sales_score)}%`],
+                              ["竞争压力", keywordReport.keyword_rank_summary?.inventory_blocker ? "暂不判断" : `${Math.round(v5Decision?.competition_pressure ?? keywordReport.ad_dependency_risk)}%`],
+                              ["验证成本", v5Decision?.validation_cost || "待录入"],
+                              ["最大风险", v5Decision?.max_risk || "暂无"],
+                              ["机会等级", opportunityLevel],
+                              ["下一步建议", v5Decision?.next_step || "待录入"],
+                            ].map(([label, value]) => (
+                              <div key={label} className="rounded-lg bg-gray-50 border border-gray-100 p-3">
+                                <p className="text-xs text-gray-500">{label}</p>
+                                <p className="mt-1 text-sm font-bold text-gray-900 line-clamp-2">{value}</p>
+                              </div>
+                            ))}
                           </div>
 
                           {keywordReport.market_validation_assist && (

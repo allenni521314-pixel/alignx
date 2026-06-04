@@ -19,7 +19,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.database import get_db
 from dependencies.auth import get_current_user, get_user_scope_ids
 from schemas.auth import UserResponse
-from schemas.opc_os import OpportunityInput
 from services.aihub import AIHubService
 from services.amazon_rules_engine import evaluate_amazon_compliance, load_active_rules
 from services.amazon_scraper import scrape_amazon_product
@@ -34,9 +33,8 @@ from services.canonical_10d_scoring import (
     product_evidence_similarity,
 )
 from services.cosmo_operator_agent import CosmoOperatorAgent
+from services.core_engine_adapter import CoreEngineBusinessAdapter
 from services.human_nature_model import human_nature_prompt_block
-from services.opc_os_persistence import OPCOSPersistenceService
-from services.opc_os_v5 import OPCOSV5ExecutionService
 
 logger = logging.getLogger(__name__)
 
@@ -395,23 +393,20 @@ async def _attach_asin_opc_v5_execution(
         if isinstance(value, (int, float))
     ]
     initial_score = round(sum(score_values) / len(score_values), 2) if score_values else 0
-    opc_result = OPCOSV5ExecutionService(user_id).run_execution_loop(
-        OpportunityInput(
-            title=result.product_title or result.asin,
-            human_drivers=["待录入"],
-            demand="待录入",
-            scenario=str((result.product_data or {}).get("category") or "待录入"),
-            initial_score=initial_score,
-        )
-    )
-    opc_payload = opc_result.model_dump(mode="json")
-    await OPCOSPersistenceService(db).save_execution_bundle(
-        user_id=user_id,
-        bundle=opc_payload,
-        source_module=source_module,
-        source_record_id=result.id,
-        asin=result.asin,
-        title=result.product_title or result.asin,
+    opc_payload = await CoreEngineBusinessAdapter(db, user_id).evaluate_cycle(
+        source_type=source_module,
+        source_id=result.asin,
+        opportunity_id=result.asin or str(result.id or ""),
+        opportunity_score=initial_score,
+        risk_score=max(0, 100 - initial_score),
+        information_gain=0,
+        evidence_count=0,
+        evidence_quality=0,
+        sample_size=0,
+        conversion_signal=0,
+        consistency=0,
+        statistical_confidence=0,
+        metrics={},
     )
     result.opc_v5_execution = opc_payload
     return result

@@ -19,12 +19,10 @@ from models.asin_keyword_sales_validation import (
 )
 from models.action_snapshots import ActionSnapshot
 from schemas.auth import UserResponse
-from schemas.opc_os import OpportunityInput
 from services.amazon_scraper import scrape_amazon_product
 from services.amazon_skill_toolbox import build_asin_selection_assist
+from services.core_engine_adapter import CoreEngineBusinessAdapter
 from services.cosmo_operator_agent import CosmoOperatorAgent
-from services.opc_os_persistence import OPCOSPersistenceService
-from services.opc_os_v5 import OPCOSV5ExecutionService
 from services.scrapling_amazon_capture import SCRAPLING_TOP40_RULES, capture_top40_batch
 from services.top40_market_analysis import analyze_top40_market
 
@@ -360,9 +358,58 @@ def _normalize_keyword_sales_report(report: dict[str, Any]) -> dict[str, Any]:
 
     if not isinstance(report.get("market_validation_assist"), dict):
         report["market_validation_assist"] = build_asin_selection_assist(report)
+    if not isinstance(report.get("v5_market_decision"), dict):
+        report["v5_market_decision"] = _build_v5_market_decision(report)
     report.setdefault("decision_standard", CosmoOperatorAgent.public_standard_meta("asin_selection"))
 
     return report
+
+
+def _v5_opportunity_level(action: str, score: float) -> str:
+    if action == "Scale" or score >= 75:
+        return "建议推进"
+    if action == "Continue" or score >= 55:
+        return "小预算验证"
+    if action == "Close" or score < 35:
+        return "建议放弃"
+    return "暂缓观察"
+
+
+def _v5_next_step(level: str, inventory_blocked: bool) -> str:
+    if inventory_blocked:
+        return "补齐可售状态后重新验证"
+    if level == "建议推进":
+        return "进入Listing承接"
+    if level == "小预算验证":
+        return "补充验证样本"
+    if level == "建议放弃":
+        return "放弃该机会"
+    return "加入观察池"
+
+
+def _build_v5_market_decision(report: dict[str, Any], core_cycle: dict[str, Any] | None = None) -> dict[str, Any]:
+    summary = report.get("keyword_rank_summary") if isinstance(report.get("keyword_rank_summary"), dict) else {}
+    inventory_blocked = bool(summary.get("inventory_blocker"))
+    capital = core_cycle.get("capital_decision") if isinstance(core_cycle, dict) and isinstance(core_cycle.get("capital_decision"), dict) else {}
+    success_probability = round(_num(capital.get("priority_score")) or _num(report.get("keyword_sales_score")))
+    demand_strength = round(_num(report.get("keyword_sales_score")))
+    competition_pressure = round(min(100, max(_num(report.get("ad_dependency_risk")), 100 - _num(report.get("organic_rank_strength")))))
+    rank_count = len(report.get("rank_snapshots") or [])
+    validation_cost = "低" if rank_count >= 8 and not inventory_blocked else "中" if rank_count >= 3 else "高"
+    risks = report.get("suspicious_signals") if isinstance(report.get("suspicious_signals"), list) else []
+    risk_keywords = report.get("risk_keywords") if isinstance(report.get("risk_keywords"), list) else []
+    max_risk = str(risks[0]) if risks else str(risk_keywords[0]) if risk_keywords else "暂无"
+    action = str(capital.get("suggested_action") or "")
+    opportunity_level = "暂缓观察" if inventory_blocked else _v5_opportunity_level(action, success_probability)
+    return {
+        "success_probability": success_probability,
+        "demand_strength": demand_strength,
+        "competition_pressure": competition_pressure,
+        "validation_cost": validation_cost,
+        "max_risk": max_risk,
+        "opportunity_level": opportunity_level,
+        "next_step": _v5_next_step(opportunity_level, inventory_blocked),
+    }
 
 
 def _build_report(asin: str, marketplace: str, category: str, product: dict[str, Any], ranks: list[dict[str, Any]], qualities: list[dict[str, Any]], days_range: int) -> dict[str, Any]:
@@ -569,6 +616,28 @@ async def _generate_validation(request: KeywordSalesValidationRequest, user_id: 
     except Exception:
         report.setdefault("decision_standard", CosmoOperatorAgent.public_standard_meta("asin_selection"))
 
+    try:
+        opc_payload = await CoreEngineBusinessAdapter(db, user_id).evaluate_cycle(
+            source_type="asin_selection",
+            source_id=asin,
+            opportunity_id=asin,
+            opportunity_score=float(report.get("keyword_sales_score") or 0),
+            risk_score=max(0, 100 - float(report.get("keyword_sales_score") or 0)),
+            information_gain=100 if report.get("rank_snapshots") else 0,
+            evidence_count=len(report.get("rank_snapshots") or []),
+            evidence_quality=float(report.get("keyword_sales_score") or 0),
+            sample_size=len(report.get("rank_snapshots") or []),
+            conversion_signal=0,
+            consistency=float(report.get("organic_rank_strength") or 0),
+            statistical_confidence=100 if report.get("keyword_rank_summary", {}).get("rank_data_source") == "scrapling_top40_search" else 50 if report.get("rank_snapshots") else 0,
+            metrics={},
+        )
+        report["v5_market_decision"] = _build_v5_market_decision(report, opc_payload)
+        report["opc_v5_execution"] = opc_payload
+    except Exception as exc:
+        logger.warning("asin_selection v5 market decision failed for %s: %s", asin, exc)
+        report["v5_market_decision"] = _build_v5_market_decision(report)
+
     for rank in ranks:
         db.add(AsinKeywordRankSnapshot(user_id=user_id, **rank))
     for quality in qualities:
@@ -597,27 +666,6 @@ async def _generate_validation(request: KeywordSalesValidationRequest, user_id: 
             )
         )
     await db.commit()
-    try:
-        opc_result = OPCOSV5ExecutionService(user_id).run_execution_loop(
-            OpportunityInput(
-                title=product.get("title") or asin,
-                human_drivers=["待录入"],
-                demand=", ".join(keywords) if keywords else "待录入",
-                scenario=product.get("category") or "待录入",
-                initial_score=float(report.get("keyword_sales_score") or 0),
-            )
-        )
-        opc_payload = opc_result.model_dump(mode="json")
-        await OPCOSPersistenceService(db).save_execution_bundle(
-            user_id=user_id,
-            bundle=opc_payload,
-            source_module="asin_selection",
-            asin=asin,
-            title=product.get("title") or asin,
-        )
-        report["opc_v5_execution"] = opc_payload
-    except Exception as exc:
-        logger.warning("asin_selection opc_v5 persist failed for %s: %s", asin, exc)
     return report
 
 
