@@ -26,6 +26,7 @@ const routeImports = {
   ListingDiagnosis: () => import('./pages/ListingDiagnosis'),
   PreLaunchTest: () => import('./pages/PreLaunchTest'),
   ABTestComparison: () => import('./pages/ABTestComparison'),
+  AdvertisingStrategy: () => import('./pages/AdvertisingStrategy'),
   OptimizationSuggestions: () => import('./pages/OptimizationSuggestions'),
   SuperAdmin: () => import('./pages/SuperAdmin'),
 };
@@ -43,6 +44,7 @@ const CompetitorAnalysis = lazy(routeImports.CompetitorAnalysis);
 const ListingDiagnosis = lazy(routeImports.ListingDiagnosis);
 const PreLaunchTest = lazy(routeImports.PreLaunchTest);
 const ABTestComparison = lazy(routeImports.ABTestComparison);
+const AdvertisingStrategy = lazy(routeImports.AdvertisingStrategy);
 const OptimizationSuggestions = lazy(routeImports.OptimizationSuggestions);
 const SuperAdmin = lazy(routeImports.SuperAdmin);
 
@@ -56,6 +58,7 @@ const RoutePreloader = () => {
         routeImports.CompetitorAnalysis(),
         routeImports.ListingDiagnosis(),
         routeImports.ABTestComparison(),
+        routeImports.AdvertisingStrategy(),
         routeImports.AdAnalytics(),
         routeImports.OptimizationSuggestions(),
         routeImports.Settings(),
@@ -126,6 +129,7 @@ const AppRoutes = () => {
 
           <Route path="/ad-analytics" element={<AdAnalytics />} />
           <Route path="/ab-test-comparison" element={<ABTestComparison />} />
+          <Route path="/advertising-strategy" element={<AdvertisingStrategy />} />
           <Route path="/competitor-analysis" element={<CompetitorAnalysis />} />
           <Route path="/listing-diagnosis" element={<ListingDiagnosis />} />
           <Route path="/alignxagent" element={<Dashboard />} />

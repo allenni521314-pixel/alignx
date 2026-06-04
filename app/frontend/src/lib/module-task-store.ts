@@ -7,6 +7,7 @@ export type ModuleTaskKey =
   | "listing-diagnosis"
   | "ab-test-comparison"
   | "ad-analytics"
+  | "advertising-strategy"
   | "optimization-suggestions"
   | "settings";
 

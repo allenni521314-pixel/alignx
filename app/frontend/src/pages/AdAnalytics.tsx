@@ -737,6 +737,7 @@ export default function AdAnalytics() {
       action_key: "validate_ad_effect",
       action_name: "广告效果验证",
       product_id: selectedProductId && selectedProductId !== "all" ? Number(selectedProductId) : null,
+      asin: selectedProduct?.asin || "",
       title: `广告效果验证-${validationConclusion.level}`,
       input_snapshot: { selected_product_id: selectedProductId || "all", primary_validation: validationMetrics, records: filteredAds },
       output_snapshot: {
@@ -1344,7 +1345,13 @@ export default function AdAnalytics() {
             currentStep={isValidationView ? "效果验证" : "执行记录"}
             actions={[
               isValidationView
-                ? { label: "进入数据回流", path: "/optimization-suggestions?view=data-feedback", variant: "default" }
+                ? {
+                    label: "进入广告策略",
+                    path: selectedProductId && selectedProductId !== "all"
+                      ? `/advertising-strategy?source=ad_validation&product_id=${selectedProductId}`
+                      : "/advertising-strategy?source=ad_validation",
+                    variant: "default",
+                  }
                 : { label: "进入效果验证", path: "/ad-analytics?view=validation", variant: "default" },
             ]}
           />

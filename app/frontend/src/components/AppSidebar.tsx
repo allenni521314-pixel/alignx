@@ -24,7 +24,6 @@ import {
   Sparkles,
   Layers3,
   Rocket,
-  ClipboardList,
   Database,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -114,7 +113,7 @@ const navGroups: NavGroup[] = [
     color: "text-amber-400",
     activeColor: "text-amber-600",
     items: [
-      { path: "/ab-test-comparison", label: "测试计划", icon: ClipboardList, moduleKey: "ab-test-comparison" },
+      { path: "/advertising-strategy", label: "广告策略", icon: Target, moduleKey: "advertising-strategy" },
       { path: "/ad-analytics?view=records", label: "执行记录", icon: BarChart3, moduleKey: "ad-analytics" },
       { path: "/ad-analytics?view=validation", label: "效果验证", icon: ShieldCheck, moduleKey: "ad-analytics" },
     ],

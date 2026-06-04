@@ -752,6 +752,7 @@ export async function saveActionSnapshot(payload: ActionSnapshotPayload): Promis
 export async function getActionSnapshots(params: {
   module_key?: string;
   action_key?: string;
+  product_id?: number;
   asin?: string;
   limit?: number;
 } = {}): Promise<ActionSnapshot[]> {
@@ -759,6 +760,7 @@ export async function getActionSnapshots(params: {
     const qs = new URLSearchParams();
     if (params.module_key) qs.set("module_key", params.module_key);
     if (params.action_key) qs.set("action_key", params.action_key);
+    if (params.product_id) qs.set("product_id", String(params.product_id));
     if (params.asin) qs.set("asin", params.asin);
     qs.set("limit", String(params.limit || 50));
     const res = await fetch(`/api/v1/action-snapshots?${qs.toString()}`, {

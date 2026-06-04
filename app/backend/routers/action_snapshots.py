@@ -107,6 +107,7 @@ async def create_snapshot(
 async def list_snapshots(
     module_key: str = "",
     action_key: str = "",
+    product_id: Optional[int] = None,
     asin: str = "",
     skip: int = 0,
     limit: int = 50,
@@ -119,6 +120,7 @@ async def list_snapshots(
         user_id=scope_user_ids,
         module_key=module_key,
         action_key=action_key,
+        product_id=product_id,
         asin=asin,
         skip=skip,
         limit=min(limit, 200),

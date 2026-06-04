@@ -17,7 +17,7 @@ const LOOP_STEPS = [
   "上新检测",
   "竞品诊断",
   "本品诊断",
-  "测试计划",
+  "广告策略",
   "执行记录",
   "效果验证",
   "验证回流",
@@ -32,7 +32,8 @@ function inferCurrentStep(actions: NextStepAction[], explicit?: string) {
   if (text.includes("competitor-analysis")) return "上新检测";
   if (text.includes("listing-diagnosis")) return "上新检测";
   if (text.includes("ab-test-comparison")) return "本品诊断";
-  if (text.includes("ad-analytics?view=records")) return "测试计划";
+  if (text.includes("advertising-strategy")) return "效果验证";
+  if (text.includes("ad-analytics?view=records")) return "广告策略";
   if (text.includes("ad-analytics?view=validation")) return "执行记录";
   if (text.includes("optimization-suggestions?view=data-feedback")) return "效果验证";
   if (text.includes("optimization-suggestions?view=conclusion")) return "验证回流";

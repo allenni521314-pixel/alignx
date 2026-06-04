@@ -27,6 +27,7 @@ class ActionSnapshotsService:
         user_id: Optional[str | list[str]] = None,
         module_key: str = "",
         action_key: str = "",
+        product_id: Optional[int] = None,
         asin: str = "",
         skip: int = 0,
         limit: int = 50,
@@ -47,6 +48,9 @@ class ActionSnapshotsService:
         if action_key:
             query = query.where(ActionSnapshot.action_key == action_key)
             count_query = count_query.where(ActionSnapshot.action_key == action_key)
+        if product_id is not None:
+            query = query.where(ActionSnapshot.product_id == product_id)
+            count_query = count_query.where(ActionSnapshot.product_id == product_id)
         if asin:
             query = query.where(ActionSnapshot.asin == asin)
             count_query = count_query.where(ActionSnapshot.asin == asin)
