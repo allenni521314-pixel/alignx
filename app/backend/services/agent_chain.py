@@ -31,6 +31,9 @@ class AgentNodeDefinition(BaseModel):
     path: str
     task: str
     required_stage_keys: list[str] = Field(default_factory=list)
+    execution_roles: list[str] = Field(default_factory=list)
+    forbidden_model_roles: list[str] = Field(default_factory=list)
+    default_depth: Literal["light", "standard", "deep"] = "standard"
 
 
 class AgentNodeRunRequest(BaseModel):
@@ -87,6 +90,9 @@ NODE_DEFINITIONS: dict[AgentNodeKey, AgentNodeDefinition] = {
         path="/asin-manager",
         task="判断当前 ASIN 是否值得进入机会池，并说明进入、观察或淘汰的依据。",
         required_stage_keys=["selection"],
+        execution_roles=["scraping", "rules", "embedding_recall", "evidence_rerank", "text_reasoning"],
+        forbidden_model_roles=["vision_ocr", "image_generation"],
+        default_depth="standard",
     ),
     "launch_check": AgentNodeDefinition(
         key="launch_check",
@@ -96,6 +102,9 @@ NODE_DEFINITIONS: dict[AgentNodeKey, AgentNodeDefinition] = {
         path="/listing-diagnosis?view=launch-check",
         task="判断上架前 Listing 是否具备上线条件，输出风险等级、必改项和上新前修改建议。",
         required_stage_keys=["selection", "launch_check"],
+        execution_roles=["rules", "vision_ocr", "embedding_recall", "evidence_rerank", "text_deep"],
+        forbidden_model_roles=["image_generation_before_brief_ready"],
+        default_depth="deep",
     ),
     "listing_diagnosis": AgentNodeDefinition(
         key="listing_diagnosis",
@@ -105,6 +114,9 @@ NODE_DEFINITIONS: dict[AgentNodeKey, AgentNodeDefinition] = {
         path="/listing-diagnosis",
         task="基于评论需求对齐度、Cosmo 语义对齐度和因果转化对齐度定位本品不转化原因。",
         required_stage_keys=["selection", "launch_check", "listing_diagnosis"],
+        execution_roles=["rules", "buyer_voice", "vision_ocr", "embedding_recall", "evidence_rerank", "text_deep"],
+        forbidden_model_roles=["image_generation"],
+        default_depth="deep",
     ),
     "competitor": AgentNodeDefinition(
         key="competitor",
@@ -114,6 +126,9 @@ NODE_DEFINITIONS: dict[AgentNodeKey, AgentNodeDefinition] = {
         path="/listing-diagnosis?view=competitor",
         task="用同一套标准比较 Top 竞品与本品表达差距，输出差距、优先级和建议动作。",
         required_stage_keys=["selection", "listing_diagnosis"],
+        execution_roles=["scraping", "rules", "vision_ocr", "embedding_recall", "evidence_rerank", "text_deep"],
+        forbidden_model_roles=["image_generation"],
+        default_depth="deep",
     ),
     "ad_validation": AgentNodeDefinition(
         key="ad_validation",
@@ -123,6 +138,9 @@ NODE_DEFINITIONS: dict[AgentNodeKey, AgentNodeDefinition] = {
         path="/ad-analytics?view=validation",
         task="用广告点击、转化、ACOS 和搜索词表现验证 Listing 诊断假设是否成立。",
         required_stage_keys=["listing_diagnosis", "ab_test", "ad_validation"],
+        execution_roles=["rules", "embedding_recall", "evidence_rerank", "text_reasoning"],
+        forbidden_model_roles=["vision_ocr", "image_generation"],
+        default_depth="standard",
     ),
     "review_optimization": AgentNodeDefinition(
         key="review_optimization",
@@ -132,7 +150,77 @@ NODE_DEFINITIONS: dict[AgentNodeKey, AgentNodeDefinition] = {
         path="/optimization-suggestions?view=next-round",
         task="沉淀执行结果、判断命中率和失败原因，生成下一轮优化动作。",
         required_stage_keys=["ad_validation", "review"],
+        execution_roles=["rules", "embedding_recall", "evidence_rerank", "text_deep"],
+        forbidden_model_roles=["vision_ocr", "image_generation"],
+        default_depth="deep",
     ),
+}
+
+HERMES_MODEL_ROUTING_POLICY = {
+    "supervisor": {
+        "role": "hermes_ceo",
+        "model_role": "HERMES_CEO_MODEL|AI_DEEP_MODEL",
+        "allowed_actions": ["dispatch", "block", "prioritize", "learning_gate"],
+        "forbidden_actions": ["replace_business_agent", "generate_listing_directly", "generate_image_directly"],
+    },
+    "model_roles": {
+        "text_light": {
+            "env": "AI_LIGHT_MODEL",
+            "recommended_model": "deepseek-v4-flash",
+            "allowed_for": ["light_labels", "minor_summary"],
+            "forbidden_for": ["final_listing_judgment", "learning_attribution"],
+        },
+        "text_reasoning": {
+            "env": "AI_REASONING_MODEL",
+            "recommended_model": "deepseek-v4-pro",
+            "allowed_for": ["asin_selection", "competitor_strategy", "ad_validation"],
+        },
+        "text_deep": {
+            "env": "AI_DEEP_MODEL",
+            "recommended_model": "deepseek-v4-pro|qwen3-32b",
+            "allowed_for": ["launch_check", "listing_diagnosis", "feedback_loop", "cross_module_reasoning"],
+        },
+        "vision_ocr": {
+            "env": "AI_VISION_MODEL",
+            "recommended_model": "qwen3-vl-plus",
+            "allowed_for": ["main_image_ocr", "secondary_image_ocr", "aplus_ocr", "visual_evidence"],
+            "forbidden_for": ["final_seller_decision"],
+        },
+        "image_generation": {
+            "env": "PRODUCT_IMAGE_MODEL",
+            "recommended_model": "wan2.7-image",
+            "allowed_for": ["listing_image_generation_after_brief_ready"],
+            "forbidden_for": ["judgment", "evidence_scoring", "learning_memory"],
+        },
+        "embedding_recall": {
+            "env": "AI_EMBEDDING_MODEL",
+            "recommended_model": "BAAI/bge-m3",
+            "allowed_for": ["semantic_recall", "history_recall", "intent_matching"],
+            "forbidden_for": ["final_answer_generation"],
+        },
+        "evidence_rerank": {
+            "env": "RERANK_MODEL",
+            "recommended_model": "BAAI/bge-reranker-v2-m3",
+            "allowed_for": ["evidence_filtering", "history_precision"],
+            "forbidden_for": ["business_advice_generation"],
+        },
+    },
+    "stage_routes": {
+        node_key: {
+            "agent": node.agent,
+            "model_route": node.execution_roles,
+            "forbidden_model_roles": node.forbidden_model_roles,
+            "default_depth": node.default_depth,
+        }
+        for node_key, node in NODE_DEFINITIONS.items()
+    },
+    "hard_gates": [
+        "缺少 required_stage_keys 的节点必须 blocked。",
+        "广告记录未绑定 hypothesis_id 时不能判断命中或失败。",
+        "假设级点击少于100时只能输出待验证，不能输出未命中。",
+        "没有 hit_status、miss_reason、next_action 的复盘结论不能进入学习记忆。",
+        "图片生成只能在上架准入与图片Brief完整后执行，不能参与判断。",
+    ],
 }
 
 HERMES_DISPATCH_SYSTEM_PROMPT = "\n".join([
@@ -140,6 +228,10 @@ HERMES_DISPATCH_SYSTEM_PROMPT = "\n".join([
     "你只负责指挥现有 Agent，不替代任何业务 Agent 直接完成判断。",
     "你必须根据 workflow chain、stage 状态、缺失项、已有 agent_decision 和学习记忆决定执行顺序。",
     "只允许调度 allowed_nodes 中列出的节点。",
+    "你必须遵守 model_routing_policy 中的模型角色分工。",
+    "Embedding 只做召回，Reranker 只做证据精排，Vision/OCR 只做图片证据，图片生成模型只做图片生成。",
+    "文本最终判断只能交给对应业务 Agent 的 text_reasoning 或 text_deep 路由。",
+    "Hermes 只能输出调度、阻塞、优先级、学习门控，不得直接输出 Listing 成品或图片成品。",
     "如果节点缺少必要证据，status 必须是 blocked，并写入 blocked_by。",
     "如果节点可以执行，status 必须是 ready。",
     "必须优先补齐阻塞上架准入和 Listing 自动化生成的节点。",
@@ -283,6 +375,7 @@ async def build_hermes_dispatch_plan(chain: dict[str, Any], request: HermesOrche
     payload = {
         "workflow_chain": chain,
         "allowed_nodes": [node.model_dump() for node in NODE_DEFINITIONS.values()],
+        "model_routing_policy": HERMES_MODEL_ROUTING_POLICY,
         "extra_context": request.extra_context,
         "output_contract": {
             "dispatch_order": [
@@ -400,10 +493,11 @@ async def run_hermes_orchestration(chain: dict[str, Any], request: HermesOrchest
                     chain,
                     AgentNodeRunRequest(
                         node=node_key,
-                        depth=request.depth,
+                        depth=NODE_DEFINITIONS[node_key].default_depth,
                         extra_context={
                             **request.extra_context,
                             "hermes_dispatch_plan": plan.model_dump(),
+                            "model_routing_policy": HERMES_MODEL_ROUTING_POLICY,
                         },
                     ),
                 )
