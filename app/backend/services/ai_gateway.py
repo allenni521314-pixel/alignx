@@ -22,6 +22,7 @@ from services.model_invocation_contract import judgment_standard_summary, workfl
 logger = logging.getLogger(__name__)
 
 AgentKey = Literal[
+    "ceo_agent",
     "selection_agent",
     "launch_check_agent",
     "listing_diagnosis_agent",
@@ -43,6 +44,8 @@ class AIGatewayStatus(BaseModel):
     light_model: str
     reasoning_model: str
     deep_model: str
+    ceo_model: str
+    ceo_configured: bool
     api_mode: str
     supported_agents: list[str]
 
@@ -133,6 +136,7 @@ class AIGatewayService:
     """Provider-neutral AI gateway for AlignX decision agents."""
 
     supported_agents = [
+        "ceo_agent",
         "selection_agent",
         "launch_check_agent",
         "listing_diagnosis_agent",
@@ -142,13 +146,39 @@ class AIGatewayService:
     ]
 
     def __init__(self):
-        self.provider = os.getenv("AI_PROVIDER", "openai-compatible")
-        self.api_key = (os.getenv("OPENAI_API_KEY") or os.getenv("APP_AI_KEY") or "").strip()
         self.base_url = (os.getenv("OPENAI_BASE_URL") or os.getenv("APP_AI_BASE_URL") or "https://api.openai.com/v1").rstrip("/")
+        self.provider = os.getenv("AI_PROVIDER", "openai-compatible")
+        if self.provider.lower() in {"qwen", "dashscope"} or "dashscope.aliyuncs.com" in self.base_url:
+            self.api_key = (
+                os.getenv("DASHSCOPE_API_KEY")
+                or os.getenv("QWEN_API_KEY")
+                or os.getenv("VISION_API_KEY")
+                or os.getenv("OPENAI_API_KEY")
+                or os.getenv("APP_AI_KEY")
+                or ""
+            ).strip()
+        else:
+            self.api_key = (
+                os.getenv("OPENAI_API_KEY")
+                or os.getenv("APP_AI_KEY")
+                or os.getenv("DASHSCOPE_API_KEY")
+                or os.getenv("QWEN_API_KEY")
+                or os.getenv("VISION_API_KEY")
+                or ""
+            ).strip()
         self.default_model = os.getenv("AI_DEFAULT_MODEL") or os.getenv("APP_AI_MODEL") or os.getenv("OPENAI_MODEL") or "gpt-4.1-mini"
         self.light_model = os.getenv("AI_LIGHT_MODEL") or self.default_model
         self.reasoning_model = os.getenv("AI_REASONING_MODEL") or os.getenv("AI_STANDARD_MODEL") or self.default_model
         self.deep_model = os.getenv("AI_DEEP_MODEL") or self.reasoning_model
+        self.ceo_provider = os.getenv("HERMES_PROVIDER") or os.getenv("AI_CEO_PROVIDER") or self.provider
+        self.ceo_base_url = (os.getenv("HERMES_BASE_URL") or os.getenv("AI_CEO_BASE_URL") or self.base_url).rstrip("/")
+        self.ceo_api_key = (
+            os.getenv("HERMES_API_KEY")
+            or os.getenv("AI_CEO_API_KEY")
+            or self.api_key
+            or ""
+        ).strip()
+        self.ceo_model = os.getenv("HERMES_CEO_MODEL") or os.getenv("AI_CEO_MODEL") or self.deep_model
         self.api_mode = os.getenv("AI_API_MODE", "auto").lower()
         self.request_timeout = float(os.getenv("AI_REQUEST_TIMEOUT", "180"))
         self.client: AsyncOpenAI | None = None
@@ -169,6 +199,8 @@ class AIGatewayService:
             light_model=self.light_model,
             reasoning_model=self.reasoning_model,
             deep_model=self.deep_model,
+            ceo_model=self.ceo_model or self.deep_model,
+            ceo_configured=bool(self.ceo_model and self.ceo_base_url and self.ceo_api_key),
             api_mode=self.api_mode,
             supported_agents=self.supported_agents,
         )
@@ -190,6 +222,11 @@ class AIGatewayService:
             return self._normalize_text_model(self.deep_model)
         return self._normalize_text_model(self.reasoning_model)
 
+    def select_agent_model(self, agent: AgentKey, depth: DecisionDepth) -> str:
+        if agent == "ceo_agent" and self.ceo_model:
+            return self.ceo_model
+        return self.select_model(depth)
+
     def _normalize_text_model(self, model: str) -> str:
         """Keep text agents on a text-capable model when env vars were edited manually."""
         if self.provider.lower() == "deepseek" and not model.startswith("deepseek-"):
@@ -198,27 +235,94 @@ class AIGatewayService:
             return fallback
         return model
 
-    async def _create_chat_completion(self, model: str, messages: list[dict[str, str]]) -> tuple[str, dict[str, Any] | None]:
+    async def _create_chat_completion(
+        self,
+        model: str,
+        messages: list[dict[str, str]],
+        *,
+        base_url: str | None = None,
+        api_key: str | None = None,
+        provider: str | None = None,
+    ) -> tuple[str, dict[str, Any] | None]:
         """Call an OpenAI-compatible chat endpoint directly for public deploy stability."""
-        url = f"{self.base_url}/chat/completions"
+        call_base_url = (base_url or self.base_url).rstrip("/")
+        call_api_key = self.api_key if api_key is None else api_key
+        call_provider = (provider or self.provider).lower()
+        url = f"{call_base_url}/chat/completions"
         payload = {
             "model": model,
             "messages": messages,
             "response_format": {"type": "json_object"},
             "temperature": 0.2,
         }
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
+        if call_provider in {"qwen", "dashscope"} or "dashscope.aliyuncs.com" in call_base_url:
+            payload["enable_thinking"] = False
+        headers = {"Content-Type": "application/json"}
+        if call_api_key:
+            headers["Authorization"] = f"Bearer {call_api_key}"
         async with httpx.AsyncClient(timeout=self.request_timeout, trust_env=False) as client:
             response = await client.post(url, headers=headers, json=payload)
             response.raise_for_status()
             data = response.json()
         return data["choices"][0]["message"].get("content") or "{}", data.get("usage")
 
+    async def run_json(
+        self,
+        *,
+        system_prompt: str,
+        payload: dict[str, Any],
+        module: str,
+        depth: DecisionDepth = "standard",
+        model_override: str | None = None,
+        base_url_override: str | None = None,
+        api_key_override: str | None = None,
+        provider_override: str | None = None,
+    ) -> dict[str, Any]:
+        if not self.client and not (model_override and base_url_override):
+            raise RuntimeError("AI Gateway is not configured. Set OPENAI_API_KEY or APP_AI_KEY.")
+
+        model = model_override or self.select_model(depth)
+        call_provider = provider_override or self.provider
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": json.dumps(payload, ensure_ascii=False, default=str)},
+        ]
+        try:
+            if base_url_override or call_provider.lower() in {"deepseek", "openai-compatible", "qwen", "dashscope", "hermes", "ollama"}:
+                content, usage = await self._create_chat_completion(
+                    model,
+                    messages,
+                    base_url=base_url_override,
+                    api_key=api_key_override,
+                    provider=call_provider,
+                )
+            else:
+                response = await self.client.chat.completions.create(
+                    model=model,
+                    messages=messages,
+                    response_format={"type": "json_object"},
+                    temperature=0.2,
+                )
+                content = response.choices[0].message.content or "{}"
+                usage = response.usage.model_dump() if response.usage else None
+            await record_ai_usage(
+                provider=call_provider,
+                model=model,
+                module=module,
+                endpoint="chat/completions",
+                usage=usage,
+            )
+            parsed = json.loads(content or "{}")
+            if not isinstance(parsed, dict):
+                raise ValueError("AI JSON response must be an object")
+            return parsed
+        except Exception as exc:
+            logger.exception("AI Gateway JSON call failed")
+            raise RuntimeError(f"AI Gateway JSON call failed: {exc}") from exc
+
     def _agent_role_prompt(self, agent: AgentKey) -> str:
         roles = {
+            "ceo_agent": "你是 AlignX Hermes CEO 调度 Agent，负责指挥现有 Agent 的执行顺序、阻塞判断和学习回流。",
             "selection_agent": "你是 AlignX 选品决策 Agent，判断 ASIN 是否值得进入机会池。",
             "launch_check_agent": "你是 AlignX Listing 上新检测 Agent，判断上架前是否具备上线条件。",
             "listing_diagnosis_agent": "你是 AlignX Listing 诊断 Agent，定位上线后不转化的表达错配原因。",
@@ -441,7 +545,7 @@ class AIGatewayService:
         )
 
     def dry_run(self, request: AgentRequest) -> AgentResponse:
-        model = self.select_model(request.depth)
+        model = self.select_agent_model(request.agent, request.depth)
         agent_name = request.agent
         return AgentResponse(
             agent=agent_name,
@@ -507,10 +611,10 @@ class AIGatewayService:
         if request.dry_run:
             return self.dry_run(request)
 
-        if not self.client:
+        if not self.client and not (request.agent == "ceo_agent" and self.ceo_model and self.ceo_base_url):
             raise RuntimeError("AI Gateway is not configured. Set OPENAI_API_KEY or APP_AI_KEY.")
 
-        model = self.select_model(request.depth)
+        model = self.select_agent_model(request.agent, request.depth)
         schema = AgentDecisionResult.model_json_schema()
         user_input = {
             "task": request.task,
@@ -545,7 +649,15 @@ class AIGatewayService:
                     {"role": "system", "content": self._system_prompt(request.agent)},
                     {"role": "user", "content": json.dumps(user_input, ensure_ascii=False)},
                 ]
-                if self.provider.lower() in {"deepseek", "openai-compatible"}:
+                if request.agent == "ceo_agent" and self.ceo_model:
+                    content, usage = await self._create_chat_completion(
+                        model,
+                        messages,
+                        base_url=self.ceo_base_url,
+                        api_key=self.ceo_api_key,
+                        provider=self.ceo_provider,
+                    )
+                elif self.provider.lower() in {"deepseek", "openai-compatible"}:
                     content, usage = await self._create_chat_completion(model, messages)
                 else:
                     response = await self.client.chat.completions.create(
@@ -561,8 +673,9 @@ class AIGatewayService:
             if not isinstance(raw_result, dict):
                 raw_result = {"problems": [{"title": str(raw_result)}]}
             result = self._normalize_agent_result(raw_result)
+            usage_provider = self.ceo_provider if request.agent == "ceo_agent" and self.ceo_model else self.provider
             await record_ai_usage(
-                provider=self.provider,
+                provider=usage_provider,
                 model=model,
                 module=f"ai_gateway.{request.agent}",
                 endpoint="chat/completions",
@@ -570,7 +683,7 @@ class AIGatewayService:
             )
             return AgentResponse(
                 agent=request.agent,
-                provider=self.provider,
+                provider=usage_provider,
                 model=model,
                 mode="live",
                 result=result,
