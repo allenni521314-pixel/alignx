@@ -365,7 +365,8 @@ AlignX额外要求 = 机制必须能落到平台可识别的关系词和状态�
     async def _detect_side_effects(
         self,
         title: str,
-        bullets: str
+        bullets: str,
+        description: str = ""
     ) -> Dict[str, Any]:
         """检测产品可能带来的副作用（新的状态差距）
         
@@ -382,6 +383,7 @@ AlignX额外要求 = 机制必须能落到平台可识别的关系词和状态�
 【产品信息】
 标题: {title}
 五点描述: {bullets}
+产品描述: {description}
 
 【分析要求】
 请以JSON格式返回：
