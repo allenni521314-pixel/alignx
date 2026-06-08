@@ -151,6 +151,19 @@ interface KeywordSalesValidationReport {
     keyword_expansion?: string[];
     risk_followups?: string[];
   };
+  market_evolution_matrix?: {
+    horizontal_evolution_index?: number | null;
+    meaning_evolution_index?: number | null;
+    technology_evolution_index?: number | null;
+    current_position?: string;
+    recommendation?: string;
+  };
+  solution_evolution?: {
+    generations?: string[];
+    solved_problems?: string[];
+    unsolved_problems?: string[];
+    current_opportunity?: string;
+  };
   rank_snapshots: Array<{
     keyword: string;
     search_page?: number;
@@ -387,6 +400,12 @@ const isOpportunityScore = (score?: FiveDScoreResult) => {
   if (score.pool_status) return score.pool_status === "opportunity_pool";
   return Boolean(score.qualified);
 };
+
+const formatIndexValue = (value?: number | null) =>
+  typeof value === "number" && Number.isFinite(value) ? String(Math.round(value)) : "待录入";
+
+const formatListValue = (items?: string[]) =>
+  Array.isArray(items) && items.filter(Boolean).length ? items.filter(Boolean).join(" / ") : "暂无";
 
 /* ------------------------------------------------------------------ */
 /*  Main Component                                                     */
@@ -3242,6 +3261,77 @@ export default function AsinManager() {
                                 <p className="mt-1 text-sm font-bold text-gray-900 line-clamp-2">{value}</p>
                               </div>
                             ))}
+                          </div>
+
+                          <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 mb-4">
+                            <div className="rounded-lg bg-white border border-gray-100 p-3">
+                              <div className="flex items-center justify-between gap-3 mb-3">
+                                <p className="text-sm font-semibold text-gray-900">市场演化矩阵</p>
+                              </div>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                <div className="rounded-md bg-gray-50 border border-gray-100 p-2.5">
+                                  <p className="text-xs text-gray-500">横向演化指数</p>
+                                  <p className="mt-1 text-sm font-bold text-gray-900">
+                                    {formatIndexValue(
+                                      keywordReport.market_evolution_matrix?.horizontal_evolution_index ??
+                                        keywordReport.market_evolution_matrix?.meaning_evolution_index
+                                    )}
+                                  </p>
+                                </div>
+                                <div className="rounded-md bg-gray-50 border border-gray-100 p-2.5">
+                                  <p className="text-xs text-gray-500">技术演化指数</p>
+                                  <p className="mt-1 text-sm font-bold text-gray-900">
+                                    {formatIndexValue(keywordReport.market_evolution_matrix?.technology_evolution_index)}
+                                  </p>
+                                </div>
+                                <div className="rounded-md bg-gray-50 border border-gray-100 p-2.5">
+                                  <p className="text-xs text-gray-500">当前市场位置</p>
+                                  <p className="mt-1 text-sm font-bold text-gray-900">
+                                    {keywordReport.market_evolution_matrix?.current_position || "待录入"}
+                                  </p>
+                                </div>
+                                <div className="rounded-md bg-gray-50 border border-gray-100 p-2.5">
+                                  <p className="text-xs text-gray-500">推荐突破方向</p>
+                                  <p className="mt-1 text-sm font-bold text-gray-900">
+                                    {keywordReport.market_evolution_matrix?.recommendation || "待录入"}
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="rounded-lg bg-white border border-gray-100 p-3">
+                              <div className="flex items-center justify-between gap-3 mb-3">
+                                <p className="text-sm font-semibold text-gray-900">解决方案演化</p>
+                              </div>
+                              <div className="space-y-2">
+                                <div className="rounded-md bg-gray-50 border border-gray-100 p-2.5">
+                                  <p className="text-xs text-gray-500">方案代际</p>
+                                  <p className="mt-1 text-sm font-bold text-gray-900">
+                                    {formatListValue(keywordReport.solution_evolution?.generations)}
+                                  </p>
+                                </div>
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                                  <div className="rounded-md bg-gray-50 border border-gray-100 p-2.5">
+                                    <p className="text-xs text-gray-500">已解决问题</p>
+                                    <p className="mt-1 text-sm font-bold text-gray-900">
+                                      {formatListValue(keywordReport.solution_evolution?.solved_problems)}
+                                    </p>
+                                  </div>
+                                  <div className="rounded-md bg-gray-50 border border-gray-100 p-2.5">
+                                    <p className="text-xs text-gray-500">未解决问题</p>
+                                    <p className="mt-1 text-sm font-bold text-gray-900">
+                                      {formatListValue(keywordReport.solution_evolution?.unsolved_problems)}
+                                    </p>
+                                  </div>
+                                  <div className="rounded-md bg-gray-50 border border-gray-100 p-2.5">
+                                    <p className="text-xs text-gray-500">当前机会</p>
+                                    <p className="mt-1 text-sm font-bold text-gray-900">
+                                      {keywordReport.solution_evolution?.current_opportunity || "待录入"}
+                                    </p>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
                           </div>
 
                           {keywordReport.market_validation_assist && (

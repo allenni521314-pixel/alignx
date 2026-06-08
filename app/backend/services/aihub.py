@@ -41,16 +41,30 @@ class AIHubService:
     """AI Hub service class that wraps LLM calls based on the OpenAI SDK."""
 
     def __init__(self):
-        self.api_key = (
-            os.getenv("OPENAI_API_KEY")
-            or os.getenv("APP_AI_KEY")
-            or getattr(settings, "app_ai_key", "")
-        ).strip()
         self.base_url = (
             os.getenv("OPENAI_BASE_URL")
             or os.getenv("APP_AI_BASE_URL")
             or getattr(settings, "app_ai_base_url", "")
         )
+        provider = os.getenv("AI_PROVIDER", "openai-compatible").lower()
+        if provider in {"qwen", "dashscope"} or "dashscope.aliyuncs.com" in self.base_url:
+            self.api_key = (
+                os.getenv("DASHSCOPE_API_KEY")
+                or os.getenv("QWEN_API_KEY")
+                or os.getenv("VISION_API_KEY")
+                or os.getenv("OPENAI_API_KEY")
+                or os.getenv("APP_AI_KEY")
+                or getattr(settings, "app_ai_key", "")
+            ).strip()
+        else:
+            self.api_key = (
+                os.getenv("OPENAI_API_KEY")
+                or os.getenv("APP_AI_KEY")
+                or os.getenv("DASHSCOPE_API_KEY")
+                or os.getenv("QWEN_API_KEY")
+                or os.getenv("VISION_API_KEY")
+                or getattr(settings, "app_ai_key", "")
+            ).strip()
         self.default_model = (
             os.getenv("AI_DEFAULT_MODEL")
             or os.getenv("APP_AI_MODEL")
@@ -172,6 +186,7 @@ class AIHubService:
                             "temperature": request.temperature,
                             "max_tokens": request.max_tokens,
                             "stream": False,
+                            "enable_thinking": False,
                         },
                     )
                     response.raise_for_status()
@@ -187,6 +202,49 @@ class AIHubService:
                         "total_tokens": prompt_tokens + completion_tokens,
                     }
             else:
+                if os.getenv("AI_PROVIDER", "openai-compatible").lower() in {"qwen", "dashscope"} or "dashscope.aliyuncs.com" in self.base_url:
+                    async with httpx.AsyncClient(timeout=float(os.getenv("AI_REQUEST_TIMEOUT", "180")), trust_env=False) as client:
+                        direct_response = await client.post(
+                            f"{self.base_url.rstrip('/')}/chat/completions",
+                            headers={
+                                "Authorization": f"Bearer {self.api_key}",
+                                "Content-Type": "application/json",
+                            },
+                            json={
+                                "model": model,
+                                "messages": messages,
+                                "temperature": request.temperature,
+                                "max_tokens": request.max_tokens,
+                                "stream": False,
+                                "enable_thinking": False,
+                            },
+                        )
+                        direct_response.raise_for_status()
+                        data = direct_response.json()
+                    content = data["choices"][0]["message"].get("content") or ""
+                    usage = data.get("usage")
+                    if not usage:
+                        prompt_tokens = _estimate_message_tokens(messages)
+                        completion_tokens = max(1, len(content) // 4)
+                        usage = {
+                            "prompt_tokens": prompt_tokens,
+                            "completion_tokens": completion_tokens,
+                            "total_tokens": prompt_tokens + completion_tokens,
+                        }
+                    await record_ai_usage(
+                        provider=os.getenv("AI_PROVIDER", "openai-compatible"),
+                        model=model,
+                        module="aihub.gentxt",
+                        endpoint="chat/completions",
+                        usage=usage,
+                    )
+
+                    return GenTxtResponse(
+                        content=content,
+                        model=model,
+                        usage=usage,
+                    )
+
                 response = await self.client.chat.completions.create(
                     model=model,
                     messages=messages,

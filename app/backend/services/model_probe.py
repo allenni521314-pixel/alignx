@@ -10,18 +10,31 @@ from __future__ import annotations
 import base64
 import os
 import time
+import struct
 from typing import Any
+import zlib
 
 import httpx
 from openai import AsyncOpenAI
 from schemas.aihub import ChatMessage, ContentPartImage, ContentPartText, GenTxtRequest, ImageUrl
 from services.aihub import AIHubService
 
-ONE_PIXEL_PNG = base64.b64encode(
-    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
-    b"\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc\xf8\xff\xff?"
-    b"\x00\x05\xfe\x02\xfeA\xe2#\xb5\x00\x00\x00\x00IEND\xaeB`\x82"
-).decode("ascii")
+def _png_chunk(chunk_type: bytes, data: bytes) -> bytes:
+    return struct.pack(">I", len(data)) + chunk_type + data + struct.pack(">I", zlib.crc32(chunk_type + data) & 0xFFFFFFFF)
+
+
+def _solid_png_base64(width: int = 16, height: int = 16) -> str:
+    raw = b"".join(b"\x00" + (b"\xff\xff\xff" * width) for _ in range(height))
+    png = (
+        b"\x89PNG\r\n\x1a\n"
+        + _png_chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+        + _png_chunk(b"IDAT", zlib.compress(raw))
+        + _png_chunk(b"IEND", b"")
+    )
+    return base64.b64encode(png).decode("ascii")
+
+
+VISION_PROBE_PNG = _solid_png_base64()
 
 
 def _sanitize_error(exc: Exception) -> str:
@@ -97,10 +110,10 @@ async def probe_ai_models() -> dict[str, Any]:
                     ChatMessage(
                         role="user",
                         content=[
-                            ContentPartText(type="text", text='OCR测试：这是一张1像素图片。只返回JSON: {"image_seen":true}'),
+                            ContentPartText(type="text", text='OCR测试：这是一张测试图片。只返回JSON: {"image_seen":true}'),
                             ContentPartImage(
                                 type="image_url",
-                                image_url=ImageUrl(url=f"data:image/png;base64,{ONE_PIXEL_PNG}"),
+                                image_url=ImageUrl(url=f"data:image/png;base64,{VISION_PROBE_PNG}"),
                             ),
                         ],
                     )
@@ -144,8 +157,8 @@ async def probe_ai_models() -> dict[str, Any]:
         return f"results={len(results)}"
 
     probes = [
-        await _timed_probe("DeepSeek标准推理", os.getenv("AI_PROVIDER", "openai-compatible"), text_model, probe_text_reasoning),
-        await _timed_probe("DeepSeek深度诊断", os.getenv("AI_PROVIDER", "openai-compatible"), deep_model, probe_text_deep),
+        await _timed_probe("文本标准推理", os.getenv("AI_PROVIDER", "openai-compatible"), text_model, probe_text_reasoning),
+        await _timed_probe("文本深度推理", os.getenv("AI_PROVIDER", "openai-compatible"), deep_model, probe_text_deep),
         await _timed_probe("Qwen图片/OCR视觉", os.getenv("VISION_PROVIDER") or "qwen", vision_model, probe_vision),
         await _timed_probe("SiliconFlow语义向量", "SiliconFlow", embedding_model or "未配置", probe_embedding),
         await _timed_probe("SiliconFlow语义精排", "SiliconFlow", rerank_model or "未配置", probe_rerank),

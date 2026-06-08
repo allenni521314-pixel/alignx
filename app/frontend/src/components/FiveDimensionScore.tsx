@@ -628,6 +628,28 @@ export function FiveDimensionScoreCard({
             </div>
           )}
 
+          {(result.next_actions || result.suggestions || []).length > 0 && (
+            <div className="bg-brand-50/50 rounded-lg p-3">
+              <h4 className="text-xs font-semibold text-brand-700 mb-2 flex items-center gap-1">
+                <Route className="w-3.5 h-3.5" />
+                下一步动作
+              </h4>
+              <div className="flex flex-wrap gap-2">
+                {(result.next_actions || result.suggestions).map((s, i) => (
+                  <Button
+                    key={i}
+                    size="sm"
+                    variant={i === 0 ? "default" : "outline"}
+                    className="h-8 text-xs"
+                    onClick={() => handleNextAction(s)}
+                  >
+                    {s}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="rounded-lg border border-teal-100 bg-teal-50/70 px-3 py-2 text-xs text-teal-900 leading-relaxed flex items-start gap-2">
             <Info className="w-3.5 h-3.5 mt-0.5 text-teal-600 flex-shrink-0" />
             <div>
@@ -774,29 +796,6 @@ export function FiveDimensionScoreCard({
               <Info className="w-3.5 h-3.5 inline mr-1 text-brand-500" />
               {selectedAction.note}
               <span className="ml-2 text-brand-600">目标：{selectedAction.route}</span>
-            </div>
-          )}
-
-          {/* Suggestions */}
-          {(result.next_actions || result.suggestions || []).length > 0 && (
-            <div className="bg-brand-50/50 rounded-lg p-3">
-              <h4 className="text-xs font-semibold text-brand-700 mb-2 flex items-center gap-1">
-                <Route className="w-3.5 h-3.5" />
-                下一步动作
-              </h4>
-              <div className="flex flex-wrap gap-2">
-                {(result.next_actions || result.suggestions).map((s, i) => (
-                  <Button
-                    key={i}
-                    size="sm"
-                    variant={i === 0 ? "default" : "outline"}
-                    className="h-8 text-xs"
-                    onClick={() => handleNextAction(s)}
-                  >
-                    {s}
-                  </Button>
-                ))}
-              </div>
             </div>
           )}
         </div>

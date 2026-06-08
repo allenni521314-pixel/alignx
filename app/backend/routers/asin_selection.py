@@ -2,6 +2,7 @@ import json
 import logging
 import math
 import re
+import asyncio
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -21,6 +22,7 @@ from models.action_snapshots import ActionSnapshot
 from schemas.auth import UserResponse
 from services.amazon_scraper import scrape_amazon_product
 from services.amazon_skill_toolbox import build_asin_selection_assist
+from services.ai_gateway import AIGatewayService
 from services.core_engine_adapter import CoreEngineBusinessAdapter
 from services.cosmo_operator_agent import CosmoOperatorAgent
 from services.scrapling_amazon_capture import SCRAPLING_TOP40_RULES, capture_top40_batch
@@ -360,6 +362,10 @@ def _normalize_keyword_sales_report(report: dict[str, Any]) -> dict[str, Any]:
         report["market_validation_assist"] = build_asin_selection_assist(report)
     if not isinstance(report.get("v5_market_decision"), dict):
         report["v5_market_decision"] = _build_v5_market_decision(report)
+    if not isinstance(report.get("market_evolution_matrix"), dict):
+        report["market_evolution_matrix"] = _empty_market_evolution_matrix()
+    if not isinstance(report.get("solution_evolution"), dict):
+        report["solution_evolution"] = _empty_solution_evolution()
     report.setdefault("decision_standard", CosmoOperatorAgent.public_standard_meta("asin_selection"))
 
     return report
@@ -410,6 +416,147 @@ def _build_v5_market_decision(report: dict[str, Any], core_cycle: dict[str, Any]
         "opportunity_level": opportunity_level,
         "next_step": _v5_next_step(opportunity_level, inventory_blocked),
     }
+
+
+def _empty_market_evolution_matrix() -> dict[str, Any]:
+    return {
+        "horizontal_evolution_index": None,
+        "technology_evolution_index": None,
+        "current_position": "待录入",
+        "recommendation": "待录入",
+    }
+
+
+def _empty_solution_evolution() -> dict[str, Any]:
+    return {
+        "generations": [],
+        "solved_problems": [],
+        "unsolved_problems": [],
+        "current_opportunity": "待录入",
+    }
+
+
+def _bounded_index(value: Any) -> int | None:
+    if value is None:
+        return None
+    try:
+        return max(0, min(100, round(float(value))))
+    except (TypeError, ValueError):
+        return None
+
+
+def _text_list(value: Any, limit: int = 6) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    result: list[str] = []
+    for item in value:
+        text = str(item or "").strip()
+        if text and text not in result:
+            result.append(text)
+        if len(result) >= limit:
+            break
+    return result
+
+
+def _normalize_market_evolution_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    matrix = payload.get("market_evolution_matrix") if isinstance(payload.get("market_evolution_matrix"), dict) else {}
+    solution = payload.get("solution_evolution") if isinstance(payload.get("solution_evolution"), dict) else {}
+    horizontal_source = (
+        matrix.get("horizontal_evolution_index")
+        if matrix.get("horizontal_evolution_index") is not None
+        else matrix.get("meaning_evolution_index")
+    )
+    horizontal_index = _bounded_index(horizontal_source)
+    technology_index = _bounded_index(matrix.get("technology_evolution_index"))
+    return {
+        "market_evolution_matrix": {
+            "horizontal_evolution_index": horizontal_index,
+            "technology_evolution_index": technology_index,
+            "current_position": str(matrix.get("current_position") or "待录入").strip() or "待录入",
+            "recommendation": str(matrix.get("recommendation") or "待录入").strip() or "待录入",
+        },
+        "solution_evolution": {
+            "generations": _text_list(solution.get("generations")),
+            "solved_problems": _text_list(solution.get("solved_problems")),
+            "unsolved_problems": _text_list(solution.get("unsolved_problems")),
+            "current_opportunity": str(solution.get("current_opportunity") or "待录入").strip() or "待录入",
+        },
+    }
+
+
+def _market_evolution_input(report: dict[str, Any]) -> dict[str, Any]:
+    product = report.get("product_snapshot") if isinstance(report.get("product_snapshot"), dict) else {}
+    summary = report.get("keyword_rank_summary") if isinstance(report.get("keyword_rank_summary"), dict) else {}
+    return {
+        "product": {
+            "asin": product.get("asin"),
+            "title": product.get("title"),
+            "brand": product.get("brand"),
+            "category": product.get("category"),
+            "price": product.get("price"),
+            "rating": product.get("rating"),
+            "review_count": product.get("review_count"),
+            "bsr_rank": product.get("bsr_rank"),
+            "image_count": product.get("image_count"),
+            "aplus_status": product.get("aplus_status"),
+            "video_status": product.get("video_status"),
+        },
+        "keywords": {
+            "opportunity_keywords": report.get("opportunity_keywords") or [],
+            "risk_keywords": report.get("risk_keywords") or [],
+            "target_keywords": [
+                item.get("keyword")
+                for item in report.get("keyword_intent_scores") or []
+                if isinstance(item, dict) and item.get("keyword")
+            ],
+        },
+        "market_facts": {
+            "rank_data_source": summary.get("rank_data_source"),
+            "core_keywords_checked": summary.get("core_keywords_checked"),
+            "organic_top20_count": summary.get("organic_top20_count"),
+            "sponsored_keyword_count": summary.get("sponsored_keyword_count"),
+            "keyword_sales_score": report.get("keyword_sales_score"),
+        },
+    }
+
+
+async def _attach_market_evolution_reasoning(report: dict[str, Any]) -> dict[str, Any]:
+    gateway = AIGatewayService()
+    if not gateway.status().configured:
+        report["market_evolution_matrix"] = _empty_market_evolution_matrix()
+        report["solution_evolution"] = _empty_solution_evolution()
+        report["market_evolution_source"] = "ai_not_configured"
+        return report
+
+    system_prompt = (
+        "你是 AlignX 市场演化矩阵推理模型。必须只输出JSON对象。\n"
+        "X轴是横向演化：同一核心功能下，材质、外形、颜色、细分类目、使用场景、人群、风格、使用位置等变化。\n"
+        "Y轴是技术演化：解决方案、技术路线、机制、代际升级变化。\n"
+        "禁止把广告位、自然排名、Sponsored密度、投放强度当成X轴或Y轴来源。\n"
+        "根据产品属性推理，不确定时使用待录入或空数组。\n"
+        "输出字段必须为："
+        '{"market_evolution_matrix":{"horizontal_evolution_index":0-100或null,"technology_evolution_index":0-100或null,"current_position":"横向红海 / 技术红海|横向红海 / 技术蓝海|横向蓝海 / 技术红海|横向蓝海 / 技术蓝海|待录入","recommendation":"一句卖家可执行方向或待录入"},"solution_evolution":{"generations":["第一代方案","第二代方案"],"solved_problems":[""],"unsolved_problems":[""],"current_opportunity":"一句机会或待录入"}}'
+    )
+    try:
+        payload = await asyncio.wait_for(
+            gateway.run_json(
+                system_prompt=system_prompt,
+                payload=_market_evolution_input(report),
+                module="asin_selection.market_evolution_matrix",
+                depth="deep",
+            ),
+            timeout=60,
+        )
+        normalized = _normalize_market_evolution_payload(payload)
+        report["market_evolution_matrix"] = normalized["market_evolution_matrix"]
+        report["solution_evolution"] = normalized["solution_evolution"]
+        report["market_evolution_source"] = "deepseek_v4_reasoning"
+    except Exception as exc:
+        logger.warning("market evolution reasoning failed: %s", exc)
+        report["market_evolution_matrix"] = _empty_market_evolution_matrix()
+        report["solution_evolution"] = _empty_solution_evolution()
+        report["market_evolution_source"] = "reasoning_unavailable"
+    return report
 
 
 def _build_report(asin: str, marketplace: str, category: str, product: dict[str, Any], ranks: list[dict[str, Any]], qualities: list[dict[str, Any]], days_range: int) -> dict[str, Any]:
@@ -538,6 +685,8 @@ def _build_report(asin: str, marketplace: str, category: str, product: dict[str,
             "final_recommendation": "先补库存并确认页面可售，再重新进行关键词销量验证；不要把当前无销量误判为广告或促销驱动。",
         }
         blocked_report["market_validation_assist"] = build_asin_selection_assist(blocked_report)
+        blocked_report["market_evolution_matrix"] = _empty_market_evolution_matrix()
+        blocked_report["solution_evolution"] = _empty_solution_evolution()
         return blocked_report
     report = {
         "asin": asin,
@@ -558,6 +707,8 @@ def _build_report(asin: str, marketplace: str, category: str, product: dict[str,
         "final_recommendation": "适合作为候选机会继续验证。" if total >= 65 else "建议先补充真实关键词排名、广告曝光和7-30天评论/BSR趋势后再决定。",
     }
     report["market_validation_assist"] = build_asin_selection_assist(report)
+    report["market_evolution_matrix"] = _empty_market_evolution_matrix()
+    report["solution_evolution"] = _empty_solution_evolution()
     return report
 
 
@@ -603,6 +754,7 @@ async def _generate_validation(request: KeywordSalesValidationRequest, user_id: 
     report = _build_report(asin, marketplace, product["category"], product, ranks, qualities, request.days_range)
     if rank_errors:
         report["keyword_rank_summary"]["rank_capture_errors"] = rank_errors[:8]
+    report = await _attach_market_evolution_reasoning(report)
     try:
         operator_agent = CosmoOperatorAgent(db)
         operator_context = await operator_agent.build_context(
