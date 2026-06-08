@@ -385,7 +385,8 @@ async def deep_dive_side_effects(
         service = CausalDiagnosisService(db)
         side_effect_result = await service._detect_side_effects(
             title=request.title or "",
-            bullets=request.bullet_points or ""
+            bullets=request.bullet_points or "",
+            description=request.description or ""
         )
 
         # 增强分析：按影响领域分类
