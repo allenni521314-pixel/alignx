@@ -897,7 +897,7 @@ const INTERNAL_REASONING_PATTERNS = [
   /人性根层映射[:：]?/g,
   /人性根层[:：]?/g,
   /人性驱动力[:：]?/g,
-  /趋利\s*[\/／]?\s*避害[:：]?/g,
+  /趋利\s*[／/]?\s*避害[:：]?/g,
   /趋利[:：]?/g,
   /避害[:：]?/g,
   /Seek\s*Gain/gi,
@@ -1829,7 +1829,7 @@ export default function CompetitorAnalysis() {
               </Card>
 
               {/* Unanalyzed state */}
-              {false && !singleResult && !analyzing && (
+              {!singleResult && !analyzing && (
                 <div className="space-y-6">
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                     {[

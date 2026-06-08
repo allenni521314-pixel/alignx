@@ -2074,7 +2074,7 @@ const INTERNAL_REASONING_PATTERNS = [
   /人性根层映射[:：]?/g,
   /人性根层[:：]?/g,
   /人性驱动力[:：]?/g,
-  /趋利\s*[\/／]?\s*避害[:：]?/g,
+  /趋利\s*[／/]?\s*避害[:：]?/g,
   /趋利[:：]?/g,
   /避害[:：]?/g,
   /Seek\s*Gain/gi,
@@ -3693,7 +3693,7 @@ export default function ListingDiagnosis() {
 
             {/* ==================== DIAGNOSE TAB ==================== */}
             <TabsContent value="diagnose" className="space-y-6">
-              {false && diagnosisPhase === "idle" && !hasMeaningfulListingData(listing) && !diagResult && (
+              {diagnosisPhase === "idle" && !hasMeaningfulListingData(listing) && !diagResult && (
                 <Card className="border-brand-100 bg-brand-50">
                   <CardContent className="p-5">
                     <div className="flex items-start gap-3">
