@@ -18,6 +18,7 @@ from openai import AsyncOpenAI
 from pydantic import BaseModel, Field
 from services.ai_usage import record_ai_usage
 from services.model_invocation_contract import judgment_standard_summary, workflow_summary
+from services.unified_ai import UnifiedAIClient
 
 logger = logging.getLogger(__name__)
 
@@ -142,14 +143,16 @@ class AIGatewayService:
     ]
 
     def __init__(self):
-        self.provider = os.getenv("AI_PROVIDER", "openai-compatible")
-        self.api_key = (os.getenv("OPENAI_API_KEY") or os.getenv("APP_AI_KEY") or "").strip()
-        self.base_url = (os.getenv("OPENAI_BASE_URL") or os.getenv("APP_AI_BASE_URL") or "https://api.openai.com/v1").rstrip("/")
-        self.default_model = os.getenv("AI_DEFAULT_MODEL") or os.getenv("APP_AI_MODEL") or os.getenv("OPENAI_MODEL") or "gpt-4.1-mini"
-        self.light_model = os.getenv("AI_LIGHT_MODEL") or self.default_model
-        self.reasoning_model = os.getenv("AI_REASONING_MODEL") or os.getenv("AI_STANDARD_MODEL") or self.default_model
-        self.deep_model = os.getenv("AI_DEEP_MODEL") or self.reasoning_model
-        self.api_mode = os.getenv("AI_API_MODE", "auto").lower()
+        self.unified = UnifiedAIClient()
+        status = self.unified.status()
+        self.provider = status.provider
+        self.api_key = self.unified.text_api_key
+        self.base_url = status.text_base_url
+        self.default_model = status.default_model
+        self.light_model = status.light_model
+        self.reasoning_model = status.reasoning_model
+        self.deep_model = status.deep_model
+        self.api_mode = status.api_mode
         self.request_timeout = float(os.getenv("AI_REQUEST_TIMEOUT", "180"))
         self.client: AsyncOpenAI | None = None
 
@@ -163,7 +166,7 @@ class AIGatewayService:
     def status(self) -> AIGatewayStatus:
         return AIGatewayStatus(
             provider=self.provider,
-            configured=bool(self.api_key),
+            configured=bool(self.api_key and self.base_url),
             base_url=self.base_url,
             default_model=self.default_model,
             light_model=self.light_model,
@@ -507,8 +510,8 @@ class AIGatewayService:
         if request.dry_run:
             return self.dry_run(request)
 
-        if not self.client:
-            raise RuntimeError("AI Gateway is not configured. Set OPENAI_API_KEY or APP_AI_KEY.")
+        if not self.api_key:
+            raise RuntimeError("AI Gateway is not configured.")
 
         model = self.select_model(request.depth)
         schema = AgentDecisionResult.model_json_schema()
@@ -522,40 +525,18 @@ class AIGatewayService:
         }
 
         try:
-            if self.api_mode != "chat" and hasattr(self.client, "responses"):
-                response = await self.client.responses.create(
-                    model=model,
-                    input=[
-                        {"role": "system", "content": self._system_prompt(request.agent)},
-                        {"role": "user", "content": json.dumps(user_input, ensure_ascii=False)},
-                    ],
-                    text={
-                        "format": {
-                            "type": "json_schema",
-                            "name": "alignx_agent_decision",
-                            "schema": schema,
-                            "strict": True,
-                        }
-                    },
-                )
-                content = getattr(response, "output_text", "") or ""
-                usage = response.usage.model_dump() if getattr(response, "usage", None) else None
-            else:
-                messages = [
-                    {"role": "system", "content": self._system_prompt(request.agent)},
-                    {"role": "user", "content": json.dumps(user_input, ensure_ascii=False)},
-                ]
-                if self.provider.lower() in {"deepseek", "openai-compatible"}:
-                    content, usage = await self._create_chat_completion(model, messages)
-                else:
-                    response = await self.client.chat.completions.create(
-                        model=model,
-                        messages=messages,
-                        response_format={"type": "json_object"},
-                        temperature=0.2,
-                    )
-                    content = response.choices[0].message.content or "{}"
-                    usage = response.usage.model_dump() if response.usage else None
+            messages = [
+                {"role": "system", "content": self._system_prompt(request.agent)},
+                {"role": "user", "content": json.dumps(user_input, ensure_ascii=False)},
+            ]
+            response = await self.unified.chat_completion(
+                messages=messages,
+                model=model,
+                temperature=0.2,
+                response_format_json=True,
+            )
+            content = response.content or "{}"
+            usage = response.usage
 
             raw_result = json.loads(content or "{}")
             if not isinstance(raw_result, dict):

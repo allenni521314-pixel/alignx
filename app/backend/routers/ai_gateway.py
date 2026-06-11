@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from schemas.auth import UserResponse
 from services.ai_gateway import AgentRequest, AgentResponse, AIGatewayService, AIGatewayStatus
 from services.model_invocation_contract import judgment_standard_summary
+from services.unified_ai import UnifiedAIClient, UnifiedAIStatus, UnifiedChatRequest, UnifiedChatResponse
 
 logger = logging.getLogger(__name__)
 
@@ -24,10 +25,35 @@ async def get_ai_gateway_status():
     return AIGatewayService().status()
 
 
+@router.get("/unified/status", response_model=UnifiedAIStatus)
+async def get_unified_ai_status():
+    """Return unified model configuration status without exposing secrets."""
+    return UnifiedAIClient().status()
+
+
 @router.get("/judgment-standard")
 async def get_judgment_standard():
     """Return the unified evidence, decision, and learning standard for AlignX agents."""
     return judgment_standard_summary()
+
+
+@router.post("/call", response_model=UnifiedChatResponse)
+async def call_unified_ai(request: UnifiedChatRequest, _current_user: UserResponse = Depends(get_current_user)):
+    """Call the configured model through the unified backend interface."""
+    try:
+        return await UnifiedAIClient().chat_completion(
+            messages=request.messages,
+            model=request.model,
+            temperature=request.temperature,
+            max_tokens=request.max_tokens,
+            response_format_json=request.response_format == "json",
+        )
+    except RuntimeError as exc:
+        logger.warning("Unified AI unavailable: %s", exc)
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Unified AI request failed")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)) from exc
 
 
 @router.post("/agent", response_model=AgentResponse)

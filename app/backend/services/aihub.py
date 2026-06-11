@@ -15,6 +15,7 @@ from openai import AsyncOpenAI
 from schemas.aihub import GenImgRequest, GenImgResponse, GenTxtRequest, GenTxtResponse
 from services.ai_usage import record_ai_usage
 from services.model_invocation_contract import TEXT_MODEL_ALIASES, VISION_MODEL_ALIASES
+from services.unified_ai import UnifiedAIClient
 
 logger = logging.getLogger(__name__)
 
@@ -41,46 +42,17 @@ class AIHubService:
     """AI Hub service class that wraps LLM calls based on the OpenAI SDK."""
 
     def __init__(self):
-        self.base_url = (
-            os.getenv("OPENAI_BASE_URL")
-            or os.getenv("APP_AI_BASE_URL")
-            or getattr(settings, "app_ai_base_url", "")
-        )
-        provider = os.getenv("AI_PROVIDER", "openai-compatible").lower()
-        if provider in {"qwen", "dashscope"} or "dashscope.aliyuncs.com" in self.base_url:
-            self.api_key = (
-                os.getenv("DASHSCOPE_API_KEY")
-                or os.getenv("QWEN_API_KEY")
-                or os.getenv("VISION_API_KEY")
-                or os.getenv("OPENAI_API_KEY")
-                or os.getenv("APP_AI_KEY")
-                or getattr(settings, "app_ai_key", "")
-            ).strip()
-        else:
-            self.api_key = (
-                os.getenv("OPENAI_API_KEY")
-                or os.getenv("APP_AI_KEY")
-                or os.getenv("DASHSCOPE_API_KEY")
-                or os.getenv("QWEN_API_KEY")
-                or os.getenv("VISION_API_KEY")
-                or getattr(settings, "app_ai_key", "")
-            ).strip()
-        self.default_model = (
-            os.getenv("AI_DEFAULT_MODEL")
-            or os.getenv("APP_AI_MODEL")
-            or os.getenv("OPENAI_MODEL")
-            or "deepseek-chat"
-        )
-        self.light_model = os.getenv("AI_LIGHT_MODEL") or self.default_model
-        self.reasoning_model = os.getenv("AI_REASONING_MODEL") or os.getenv("AI_STANDARD_MODEL") or self.default_model
-        self.deep_model = os.getenv("AI_DEEP_MODEL") or self.reasoning_model
-        self.vision_api_key = (os.getenv("VISION_API_KEY") or os.getenv("QWEN_API_KEY") or "").strip()
-        self.vision_base_url = (
-            os.getenv("VISION_BASE_URL")
-            or os.getenv("QWEN_BASE_URL")
-            or "https://dashscope.aliyuncs.com/compatible-mode/v1"
-        )
-        self.vision_model = os.getenv("AI_VISION_MODEL") or os.getenv("VISION_MODEL") or "qwen3-vl-plus"
+        self.unified = UnifiedAIClient()
+        status = self.unified.status()
+        self.base_url = status.text_base_url
+        self.api_key = self.unified.text_api_key or getattr(settings, "app_ai_key", "")
+        self.default_model = status.default_model
+        self.light_model = status.light_model
+        self.reasoning_model = status.reasoning_model
+        self.deep_model = status.deep_model
+        self.vision_api_key = self.unified.vision_api_key
+        self.vision_base_url = status.vision_base_url
+        self.vision_model = status.vision_model
         if not self.vision_base_url.startswith(("http://", "https://")):
             logger.warning("Invalid VISION_BASE_URL %s, falling back to DashScope compatible endpoint", self.vision_base_url)
             self.vision_base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"

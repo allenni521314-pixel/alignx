@@ -14,7 +14,14 @@ from models.optimization_timeline import OptimizationTimeline
 from models.prelaunch_test_results import Prelaunch_test_results
 from models.products import Products
 from schemas.auth import UserResponse
-from services.agent_chain import AgentNodeRunRequest, get_agent_node_status, run_agent_node, run_all_agent_nodes
+from services.agent_chain import (
+    AgentNodeRunRequest,
+    HermesOrchestrationRequest,
+    get_agent_node_status,
+    run_agent_node,
+    run_all_agent_nodes,
+    run_hermes_orchestration,
+)
 from services.agent_decision_system import build_agent_decision_system
 from services.cosmo_operator_agent import CosmoOperatorAgent
 from services.judgment_feedback_rounds import JudgmentFeedbackRoundService
@@ -730,3 +737,40 @@ async def run_current_agent_nodes(
         raise HTTPException(status_code=400, detail="depth must be light, standard, or deep")
     chain = await _build_chain(product, scope_user_ids, db)
     return await run_all_agent_nodes(chain, depth=depth)  # type: ignore[arg-type]
+
+
+@router.post("/current/hermes-dispatch")
+async def run_current_hermes_dispatch(
+    request: HermesOrchestrationRequest,
+    current_user: UserResponse = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    scope_user_ids = await get_user_scope_ids(current_user, db)
+    product = await _first(
+        db,
+        select(Products)
+        .where(Products.user_id.in_(scope_user_ids))
+        .order_by(desc(Products.updated_at), desc(Products.created_at), desc(Products.id)),
+    )
+    if not product:
+        raise HTTPException(status_code=404, detail="No product found for workflow chain")
+    chain = await _build_chain(product, scope_user_ids, db)
+    return await run_hermes_orchestration(chain, request)
+
+
+@router.post("/products/{product_id}/hermes-dispatch")
+async def run_product_hermes_dispatch(
+    product_id: int,
+    request: HermesOrchestrationRequest,
+    current_user: UserResponse = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    scope_user_ids = await get_user_scope_ids(current_user, db)
+    product = await _first(
+        db,
+        select(Products).where(Products.id == product_id, Products.user_id.in_(scope_user_ids)),
+    )
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    chain = await _build_chain(product, scope_user_ids, db)
+    return await run_hermes_orchestration(chain, request)
