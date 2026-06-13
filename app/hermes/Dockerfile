@@ -5,17 +5,17 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PORT=9120 \
     HOST=0.0.0.0 \
     HERMES_HOME=/data/.hermes \
-    HERMES_TUI_TOOLSETS=browser
+    HERMES_TUI_TOOLSETS=browser \
+    AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium
 
 WORKDIR /app
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends build-essential curl nodejs npm \
+    && apt-get install -y --no-install-recommends build-essential curl nodejs npm chromium \
     && rm -rf /var/lib/apt/lists/*
 
 RUN pip install --no-cache-dir "hermes-agent[web]" \
-    && npm install -g agent-browser \
-    && agent-browser install --with-deps
+    && npm install -g agent-browser
 
 COPY start.sh ./
 RUN chmod +x ./start.sh
