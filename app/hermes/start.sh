@@ -52,6 +52,8 @@ toolsets:
   - browser
 browser:
   auto_local_for_private_urls: false
+  command_timeout: 120
+  inactivity_timeout: 240
 agent:
   max_turns: 80
 EOF
@@ -66,6 +68,8 @@ toolsets:
   - browser
 browser:
   auto_local_for_private_urls: false
+  command_timeout: 120
+  inactivity_timeout: 240
 agent:
   max_turns: 80
 EOF
