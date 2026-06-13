@@ -74,16 +74,24 @@ services:
       - key: HERMES_HOME
         value: /data/.hermes
       - key: HERMES_MODEL_PROVIDER
-        value: custom
+        sync: false
       - key: HERMES_MODEL_BASE_URL
-        value: https://dashscope.aliyuncs.com/compatible-mode/v1
+        sync: false
       - key: HERMES_MODEL_NAME
-        value: qwen3-32b
+        sync: false
       - key: HERMES_AI_API_MODE
-        value: chat_completions
+        sync: false
       - key: HERMES_MODEL_API_KEY
         sync: false
       - key: OPENAI_API_KEY
+        sync: false
+      - key: DEEPSEEK_API_KEY
+        sync: false
+      - key: DASHSCOPE_API_KEY
+        sync: false
+      - key: QWEN_API_KEY
+        sync: false
+      - key: VISION_API_KEY
         sync: false
       - key: BROWSERBASE_API_KEY
         sync: false
