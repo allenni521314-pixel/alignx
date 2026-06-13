@@ -7,6 +7,7 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 from statistics import median
 from typing import Any
+from urllib.parse import quote_plus
 from uuid import uuid4
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
@@ -120,6 +121,17 @@ def _clean_keyword(value: str) -> str:
 
 def _has_cjk(value: str) -> bool:
     return bool(re.search(r"[\u4e00-\u9fff]", value or ""))
+
+
+def _amazon_search_url(keyword: str, marketplace: str) -> str:
+    host = "www.amazon.com"
+    if (marketplace or "US").upper() == "UK":
+        host = "www.amazon.co.uk"
+    elif (marketplace or "US").upper() == "CA":
+        host = "www.amazon.ca"
+    elif (marketplace or "US").upper() == "DE":
+        host = "www.amazon.de"
+    return f"https://{host}/s?k={quote_plus(keyword.strip())}"
 
 
 def _extract_json_object(text: str) -> dict[str, Any] | None:
@@ -1558,6 +1570,7 @@ async def top40_market_analysis(
 
 
 def _build_local_hermes_keyword_prompt(keyword: str, marketplace: str, max_keywords: int) -> str:
+    search_url = _amazon_search_url(keyword, marketplace)
     schema = {
         "score": "0-100整数；无真实样本时为null",
         "confidence": "low|medium|high",
@@ -1654,29 +1667,107 @@ def _build_local_hermes_keyword_prompt(keyword: str, marketplace: str, max_keywo
             f"最多搜索词数量：{max_keywords}",
             "",
             "任务边界：",
-            "1. 必须使用 Hermes 内置 Browserbase/browser_* 浏览器工具打开亚马逊搜索页、滚动、按键、输入、截图视觉读取、必要点击和返回。",
-            "2. 禁止使用 execute_code、terminal、curl、HTML解析、API抓取、本地脚本、browser_console。",
-            "3. 禁止使用 skill_view、skill_manage、skills_list、read_file、write_file、edit_file、memory 或任何文件工具。",
-            "4. 不读取本机规则文件，不创建文件，不保存文件，不调用 AlignX 旧抓取。",
-            "5. 不绕过验证码、不登录、不访问账号/订单/地址/支付等私有数据。",
-            "6. 每个搜索词只读取亚马逊搜索结果第一页可见样本，最多Top20；样本不足则如实标记。",
-            "7. 样本必须来自可见亚马逊页面；看不到的字段填暂无，不要猜。",
-            "8. 必须输出6维评分、每个维度的真实依据与意见、事实层、语义层、推理层、决策层、验证建议。",
-            "9. 必须做竞品弱点识别；看不到评论原文时，不编造差评原文，只写搜索页可见弱点或填暂无。",
-            "10. 没有真实可见样本时，score和total_score必须为null，sample_status=insufficient。",
-            "11. 输出里不要写模型名、供应商名或内部模型信息。",
-            "12. 如果站点是美国站或英语站，且用户关键词不是英语，必须先转成美国买家会使用的英文搜索词；原关键词只作为用户意图，不作为唯一搜索词。",
-            "13. 搜索词必须围绕真实买家入口，不要用直译词硬搜；优先选择平台能返回真实商品样本的词。",
-            "14. 先搜索1个最贴近买家入口的英文词；如果已获得可见商品样本，立即进入分析，不要继续扩展搜索词。",
-            "15. 每个搜索词最多滚动3次；browser_vision最多使用1次，若截图超时，改用browser_snapshot可见文本继续，不要重复截图。",
-            "16. 一边读取一边整理样本；只要可见样本达到10个即可输出JSON，不等待抓满Top20。",
-            "17. 若搜索结果列表不可读，输出sample_status=insufficient并写明不可读原因，不要继续按键或重复打开页面。",
-            "18. 只返回一个JSON对象，不要Markdown，不要代码块，不要解释。",
+            f"1. 第一步必须调用 browser_navigate 打开这个亚马逊搜索页：{search_url}",
+            "2. 当前运行环境已经提供 Browserbase/browser_* 浏览器工具；不要回答无法浏览、无法操作浏览器或需要用户提供网页。",
+            "3. 必须使用 Hermes 内置 Browserbase/browser_* 浏览器工具打开亚马逊搜索页、滚动、按键、输入、截图视觉读取、必要点击和返回。",
+            "4. 禁止使用 execute_code、terminal、curl、HTML解析、API抓取、本地脚本、browser_console。",
+            "5. 禁止使用 skill_view、skill_manage、skills_list、read_file、write_file、edit_file、memory 或任何文件工具。",
+            "6. 不读取本机规则文件，不创建文件，不保存文件，不调用 AlignX 旧抓取。",
+            "7. 不绕过验证码、不登录、不访问账号/订单/地址/支付等私有数据。",
+            "8. 每个搜索词只读取亚马逊搜索结果第一页可见样本，最多Top20；样本不足则如实标记。",
+            "9. 样本必须来自可见亚马逊页面；看不到的字段填暂无，不要猜。",
+            "10. 必须输出6维评分、每个维度的真实依据与意见、事实层、语义层、推理层、决策层、验证建议。",
+            "11. 必须做竞品弱点识别；看不到评论原文时，不编造差评原文，只写搜索页可见弱点或填暂无。",
+            "12. 没有真实可见样本时，score和total_score必须为null，sample_status=insufficient。",
+            "13. 输出里不要写模型名、供应商名或内部模型信息。",
+            "14. 如果站点是美国站或英语站，且用户关键词不是英语，必须先转成美国买家会使用的英文搜索词；原关键词只作为用户意图，不作为唯一搜索词。",
+            "15. 搜索词必须围绕真实买家入口，不要用直译词硬搜；优先选择平台能返回真实商品样本的词。",
+            "16. 先搜索1个最贴近买家入口的英文词；如果已获得可见商品样本，立即进入分析，不要继续扩展搜索词。",
+            "17. 每个搜索词最多滚动3次；browser_vision最多使用1次，若截图超时，改用browser_snapshot可见文本继续，不要重复截图。",
+            "18. 一边读取一边整理样本；只要可见样本达到10个即可输出JSON，不等待抓满Top20。",
+            "19. 若搜索结果列表不可读，输出sample_status=insufficient并写明不可读原因，不要继续按键或重复打开页面。",
+            "20. 只返回一个JSON对象，不要Markdown，不要代码块，不要解释。",
             "",
             "输出JSON Schema：",
             json.dumps(schema, ensure_ascii=False),
         ]
     )
+
+
+def _build_local_hermes_keyword_retry_prompt(keyword: str, marketplace: str, max_keywords: int) -> str:
+    search_url = _amazon_search_url(keyword, marketplace)
+    schema = {
+        "score": "0-100整数；无真实样本时为null",
+        "confidence": "low|medium|high",
+        "risk_level": "low|medium|high|待录入",
+        "sample_status": "sufficient|insufficient",
+        "keyword_six_dimension": {
+            "success": True,
+            "total_score": "0-100整数；无真实样本时为null",
+            "dimension_scores": {},
+            "analysis": {},
+            "decision": "可验证|需补证|暂缓|待补样本",
+        },
+        "selection_decision_points": [],
+        "market_research": {
+            "keyword": keyword,
+            "marketplace": marketplace,
+            "research_keywords": [{"keyword": keyword, "source": "用户输入"}],
+            "source_steps": [{"step": "打开亚马逊搜索页", "status": "completed|partial|blocked", "source": "亚马逊搜索页", "count": 0}],
+            "lanes": [
+                {
+                    "keyword": keyword,
+                    "source": "浏览器截图",
+                    "status": "ok|partial|blocked",
+                    "items": [
+                        {
+                            "searchRank": 1,
+                            "asin": "看不到则填暂无",
+                            "title": "标题",
+                            "price": 0,
+                            "priceText": "价格文本",
+                            "rating": 0,
+                            "reviewCount": 0,
+                            "isSponsored": False,
+                            "source": "浏览器截图",
+                            "route": "产品/技术路线",
+                            "weakness": "竞品弱点",
+                            "complaintSignal": "差评痛点",
+                        }
+                    ],
+                    "analysis": {"headline": "判断", "summary": {}},
+                }
+            ],
+            "route_summary": [],
+            "complaint_insights": [],
+            "competitor_weaknesses": [],
+            "item_count": 0,
+            "data_source": "亚马逊搜索页 / 浏览器截图",
+        },
+    }
+    return "\n".join(
+        [
+            "使用当前可用的 Browserbase/browser 工具完成任务。",
+            f"第一步调用 browser_navigate 打开：{search_url}",
+            "读取页面标题和前10个可见自然/广告搜索结果；如果只看到部分结果，就按可见结果返回。",
+            "不要回答无法浏览；如果页面可见，就直接提取可见文本。",
+            "禁止使用 execute_code、terminal、curl、HTML解析、API抓取、本地脚本、文件工具。",
+            "只返回一个JSON对象，不要Markdown，不要解释。",
+            "输出JSON Schema：",
+            json.dumps(schema, ensure_ascii=False),
+        ]
+    )
+
+
+def _hermes_keyword_item_count(result: dict[str, Any]) -> int:
+    market = result.get("market_research") if isinstance(result.get("market_research"), dict) else {}
+    count = int(_num(market.get("item_count")) or 0)
+    if count:
+        return count
+    for lane in _list_value(market.get("lanes")):
+        if isinstance(lane, dict):
+            count += len(_list_value(lane.get("items")))
+    return count
 
 
 def _build_route_summary(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -2334,6 +2425,15 @@ async def _execute_direct_hermes_keyword_research(
         on_event=on_event,
     )
     hermes_result = _normalize_local_hermes_keyword_result(raw_result, keyword, marketplace)
+    if _hermes_keyword_item_count(hermes_result) <= 0:
+        retry_prompt = _build_local_hermes_keyword_retry_prompt(keyword, marketplace, max_keywords)
+        raw_result = await LocalHermesClient().run_json(
+            retry_prompt,
+            title=f"AlignX 舒老师关键词浏览补样 {keyword} {datetime.now().strftime('%Y%m%d%H%M%S')}",
+            cwd=os.getcwd(),
+            on_event=on_event,
+        )
+        hermes_result = _normalize_local_hermes_keyword_result(raw_result, keyword, marketplace)
     return _build_hermes_keyword_response(keyword, marketplace, hermes_result)
 
 
@@ -2377,7 +2477,11 @@ def _public_hermes_keyword_task(task_id: str) -> dict[str, Any]:
 
 
 def _has_hermes_browser_evidence(task: dict[str, Any]) -> bool:
-    for step in _list_value(task.get("source_steps")):
+    task_steps = _list_value(task.get("source_steps"))
+    result = task.get("result_payload") if isinstance(task.get("result_payload"), dict) else {}
+    market = result.get("market_research") if isinstance(result.get("market_research"), dict) else {}
+    result_steps = _list_value(market.get("source_steps"))
+    for step in [*task_steps, *result_steps]:
         if not isinstance(step, dict):
             continue
         source = str(step.get("source") or "")
@@ -2414,6 +2518,7 @@ async def _run_hermes_keyword_research_task(task_id: str, keyword: str, marketpl
             task.update({"progress_percent": 18, "updated_at": _now_iso()})
             task["result_payload"] = _partial_hermes_keyword_response(task)
             result = await _execute_hermes_keyword_research(keyword, marketplace, max_keywords, on_event=on_hermes_event)
+            task["result_payload"] = result
             if not _has_hermes_browser_evidence(task):
                 raise LocalHermesError("Hermes未调用Browserbase/browser工具")
         task.update(

@@ -29,6 +29,10 @@ fi
 HERMES_MODEL_PROVIDER="${HERMES_MODEL_PROVIDER:-deepseek}"
 HERMES_MODEL_NAME="${HERMES_MODEL_NAME:-deepseek-v4-pro}"
 
+if [ "$HERMES_MODEL_PROVIDER" = "deepseek" ] && [ -n "$HERMES_MODEL_API_KEY" ] && [ -z "${DEEPSEEK_API_KEY:-}" ]; then
+  export DEEPSEEK_API_KEY="$HERMES_MODEL_API_KEY"
+fi
+
 if [ "${HERMES_MANAGED_CONFIG:-true}" != "false" ]; then
   if [ "$HERMES_MODEL_PROVIDER" = "custom" ]; then
     cat > "$HERMES_HOME/config.yaml" <<EOF
