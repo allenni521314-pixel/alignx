@@ -2376,6 +2376,19 @@ def _public_hermes_keyword_task(task_id: str) -> dict[str, Any]:
     }
 
 
+def _has_hermes_browser_evidence(task: dict[str, Any]) -> bool:
+    for step in _list_value(task.get("source_steps")):
+        if not isinstance(step, dict):
+            continue
+        source = str(step.get("source") or "")
+        name = str(step.get("step") or "")
+        if source in {"亚马逊搜索页", "浏览器截图"}:
+            return True
+        if any(token in name for token in ["打开亚马逊", "读取页面", "视觉读取", "读取更多样本"]):
+            return True
+    return False
+
+
 async def _run_hermes_keyword_research_task(task_id: str, keyword: str, marketplace: str, max_keywords: int) -> None:
     global _HERMES_KEYWORD_RESEARCH_ACTIVE_TASK_ID
     task = _HERMES_KEYWORD_RESEARCH_TASKS.get(task_id)
@@ -2401,6 +2414,8 @@ async def _run_hermes_keyword_research_task(task_id: str, keyword: str, marketpl
             task.update({"progress_percent": 18, "updated_at": _now_iso()})
             task["result_payload"] = _partial_hermes_keyword_response(task)
             result = await _execute_hermes_keyword_research(keyword, marketplace, max_keywords, on_event=on_hermes_event)
+            if not _has_hermes_browser_evidence(task):
+                raise LocalHermesError("Hermes未调用Browserbase/browser工具")
         task.update(
             {
                 "status": "completed",
