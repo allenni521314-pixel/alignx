@@ -2535,9 +2535,11 @@ def _public_hermes_keyword_task(task_id: str) -> dict[str, Any]:
 def _has_hermes_browser_evidence(task: dict[str, Any]) -> bool:
     task_steps = _list_value(task.get("source_steps"))
     result = task.get("result_payload") if isinstance(task.get("result_payload"), dict) else {}
-    market = result.get("market_research") if isinstance(result.get("market_research"), dict) else {}
-    result_steps = _list_value(market.get("source_steps"))
-    for step in [*task_steps, *result_steps]:
+    result_steps = _list_value(result.get("source_steps"))
+    nested = result.get("result") if isinstance(result.get("result"), dict) else {}
+    market = nested.get("market_research") if isinstance(nested.get("market_research"), dict) else {}
+    nested_steps = _list_value(market.get("source_steps"))
+    for step in [*task_steps, *result_steps, *nested_steps]:
         if not isinstance(step, dict):
             continue
         source = str(step.get("source") or "")
