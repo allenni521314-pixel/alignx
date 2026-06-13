@@ -32,6 +32,8 @@ services:
         value: chat
       - key: OPENAI_BASE_URL
         value: https://dashscope.aliyuncs.com/compatible-mode/v1
+      - key: OPENAI_API_KEY
+        sync: false
       - key: AI_DEFAULT_MODEL
         value: qwen3-32b
       - key: AI_LIGHT_MODEL
@@ -46,3 +48,17 @@ services:
         sync: false
       - key: AI_VISION_MODEL
         value: qwen3-vl-plus
+      - key: HERMES_AGENT_URL
+        value: http://127.0.0.1:9120
+      - key: HERMES_AGENT_TIMEOUT
+        value: "900"
+      - key: HERMES_TUI_TOOLSETS
+        value: browser
+      - key: BROWSERBASE_API_KEY
+        sync: false
+      - key: BROWSERBASE_PROJECT_ID
+        sync: false
+      - key: BROWSERBASE_PROXIES
+        value: "true"
+      - key: BROWSERBASE_ADVANCED_STEALTH
+        value: "false"
