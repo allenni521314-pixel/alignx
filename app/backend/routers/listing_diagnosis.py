@@ -45,6 +45,7 @@ from services.amazon_skill_toolbox import (
 from services.judgment_feedback_rounds import JudgmentFeedbackRoundService
 from services.listing_diagnoses import Listing_diagnosesService
 from services.judgment_system import JudgmentSystemService
+from services.listing_title_rules import build_listing_title_rule
 from services.core_engine_adapter import CoreEngineBusinessAdapter
 from services.cosmo_rufus_rules import build_cosmo_rufus_analysis, merge_cosmo_rufus_into_legacy
 from services.cosmo_vector_mapping import evaluate_cosmo_vector_mapping_async
@@ -81,50 +82,7 @@ def _normalize_us_keyword(value) -> str:
     if not text:
         return ""
     if re.search(r"[\u4e00-\u9fff]", text):
-        zh_rules = [
-            (r"旅行箱.*充电宝|旅行.*充电宝", "travel power bank"),
-            (r"适合.*小钱包.*充电器|小钱包.*充电器", "compact charger for small purse"),
-            (r"双装.*移动电源.*礼品|移动电源.*礼品", "power bank gift set"),
-            (r"口袋型.*超薄.*电池组|超薄.*电池组|口袋型.*电池", "slim pocket power bank"),
-            (r"usb\s*c.*移动电源.*iphone.*三星|移动电源.*iphone.*三星", "usb c power bank for iphone and samsung"),
-            (r"slimmest.*10000mah.*移动电源|10000mah.*移动电源", "slimmest 10000mah power bank"),
-            (r"轻型.*飞机.*手机充电器|飞机.*手机充电器", "lightweight phone charger for flights"),
-            (r"便携式.*充电器|充电宝|移动电源|手机充电器", "portable phone power bank"),
-            (r"泳池.*夹式.*蓝牙|夹式.*蓝牙.*泳池", "clip on bluetooth speaker for pool"),
-            (r"夹式.*蓝牙|蓝牙.*夹式", "clip on bluetooth speaker"),
-            (r"便携式.*防水.*扬声器.*调频|防水.*扬声器.*调频|fm.*防水.*扬声器", "portable waterproof speaker with fm radio"),
-            (r"迷你.*户外.*音箱.*背带|户外.*音箱.*背带", "mini outdoor speaker with carrying strap"),
-            (r"适用于.*海滩.*tws|海滩.*tws.*无线.*扬声器|tws.*海滩", "tws speaker for beach trips"),
-            (r"旅行.*徒步.*淋浴.*音箱|淋浴.*音箱.*旅行|淋浴.*音箱.*徒步", "shower speaker for hiking and travel"),
-            (r"沙滩.*专用.*tws|沙滩.*tws.*无线.*音箱", "tws speaker for beach trips"),
-            (r"防水.*蓝牙.*音箱|蓝牙.*音箱.*防水", "waterproof bluetooth speaker"),
-            (r"防水.*扬声器|扬声器.*防水", "waterproof speaker"),
-            (r"便携式.*蓝牙.*音箱|蓝牙.*音箱.*便携式", "portable bluetooth speaker"),
-            (r"海滩|沙滩", "bluetooth speaker for beach trips"),
-            (r"露营|户外", "portable speaker for camping"),
-            (r"泳池|池边", "poolside bluetooth speaker"),
-            (r"调频|收音机|fm", "bluetooth speaker with fm radio"),
-            (r"背带|挂绳|肩带", "portable speaker with carrying strap"),
-            (r"夹式|夹子", "clip on speaker"),
-            (r"淋浴", "shower speaker"),
-            (r"徒步", "speaker for hiking"),
-            (r"tws", "tws bluetooth speaker"),
-            (r"led|灯|彩灯|灯光|炫彩", "bluetooth speaker with led lights"),
-            (r"礼物|送礼|生日", "bluetooth speaker gift"),
-            (r"儿童|孩子|男孩|女孩|青少年", "speaker gift for kids"),
-            (r"卧室|房间", "bedroom bluetooth speaker"),
-            (r"派对|聚会", "party speaker with lights"),
-            (r"猫砂.*臭|除臭|异味", "cat litter box odor control"),
-            (r"氨气", "ammonia odor control"),
-            (r"猫砂.*公寓|公寓.*猫", "litter box for apartment cats"),
-            (r"防外溅|追踪|带砂", "reduce litter tracking"),
-        ]
-        for pattern, replacement in zh_rules:
-            if re.search(pattern, text, flags=re.I):
-                text = replacement
-                break
-        else:
-            text = re.sub(r"[\u4e00-\u9fff]+", " ", text)
+        return ""
     text = re.sub(r"[^a-z0-9 +&/\\-]", " ", text)
     text = re.sub(r"\s+", " ", text).strip(" -_")
     for british, american in _US_SPELLING_REPLACEMENTS.items():
@@ -190,6 +148,7 @@ def _normalize_keyword_payload(data: dict) -> dict:
 
 class ListingInput(BaseModel):
     title: str = ""
+    item_highlights: str = ""
     bullet_points: str = ""
     description: str = ""
     a_plus_content: str = ""
@@ -211,108 +170,7 @@ class ListingInput(BaseModel):
 
 
 def _ensure_scenario_problem_keywords(data: dict, listing: ListingInput) -> dict:
-    """Ensure platform-friendly scenario problem terms exist even when AI under-returns them."""
-    text = " ".join([
-        listing.title or "",
-        listing.bullet_points or "",
-        listing.description or "",
-        listing.a_plus_content or "",
-        listing.main_image_description or "",
-        listing.category or "",
-    ]).lower()
-    candidates: list[str] = []
-
-    def add(*terms: str) -> None:
-        for term in terms:
-            kw = _normalize_us_keyword(term)
-            if kw and kw not in candidates:
-                candidates.append(kw)
-
-    if any(term in text for term in ("dog feeder", "pet feeder", "automatic feeder", "food dispenser")):
-        add(
-            "large dog feeder for vacation",
-            "automatic feeder for work days",
-            "anti clog feeder for large kibble",
-            "pet feeder while away from home",
-            "timed dog feeder for short trips",
-            "large capacity pet feeder no daily feeding",
-            "dual power pet feeder for outages",
-            "stainless steel bowl feeder for messy pets",
-        )
-    elif any(term in text for term in ("cat litter", "litter box")):
-        add(
-            "cat litter odor control for apartments",
-            "reduce litter tracking in small spaces",
-            "easy cleaning litter box for multi cat homes",
-            "enclosed litter box for bedroom odor",
-            "cat litter box with carbon filter smell control",
-            "low mess litter box for indoor cats",
-        )
-    elif any(term in text for term in ("bluetooth", "speaker", "boombox", "wireless speaker")):
-        add(
-            "waterproof speaker for beach trips",
-            "portable speaker for camping music",
-            "bluetooth speaker for outdoor parties",
-            "small speaker for poolside music",
-            "gift ready bluetooth speaker with lights",
-            "long battery speaker for travel",
-        )
-    else:
-        tokens = [w for w in re.sub(r"[^a-z0-9\s]", " ", (listing.title or "").lower()).split() if len(w) > 2]
-        base = " ".join(tokens[:3]) if tokens else "amazon product"
-        add(
-            f"{base} for daily use",
-            f"{base} for travel",
-            f"{base} for small spaces",
-            f"{base} easy maintenance",
-            f"{base} problem solver",
-            f"{base} for busy households",
-        )
-
-    keyword_coverage = data.get("keyword_coverage")
-    if not isinstance(keyword_coverage, dict):
-        keyword_coverage = {}
-        data["keyword_coverage"] = keyword_coverage
-    for side in ("covered_categories", "missing_categories"):
-        if not isinstance(keyword_coverage.get(side), dict):
-            keyword_coverage[side] = {}
-    covered = keyword_coverage["covered_categories"]
-    missing = keyword_coverage["missing_categories"]
-    covered_terms = set(covered.get("scenario_problem") or [])
-    missing_terms = list(missing.get("scenario_problem") or [])
-
-    for kw in candidates:
-        key_tokens = [token for token in kw.split() if len(token) > 3]
-        matched = sum(1 for token in key_tokens if token in text)
-        is_covered = bool(key_tokens) and matched >= max(2, min(3, len(key_tokens)))
-        if is_covered:
-            if kw not in covered_terms:
-                covered.setdefault("scenario_problem", []).append(kw)
-                covered_terms.add(kw)
-        elif kw not in missing_terms:
-            missing_terms.append(kw)
-    missing["scenario_problem"] = missing_terms[:12]
-
-    ad_keywords = data.get("ad_keywords")
-    if not isinstance(ad_keywords, dict):
-        ad_keywords = {}
-        data["ad_keywords"] = ad_keywords
-    long_tail = ad_keywords.setdefault("long_tail", [])
-    existing_ad = {
-        item.get("keyword") for item in long_tail
-        if isinstance(item, dict) and item.get("keyword")
-    }
-    for kw in (missing.get("scenario_problem") or [])[:6]:
-        if kw not in existing_ad:
-            long_tail.append({
-                "keyword": kw,
-                "keyword_type": _keyword_type(kw),
-                "match_type": "phrase",
-                "intent": "验证场景问题词是否能被搜索、平台推荐和广告转化承接",
-                "competition": "low",
-                "priority": "P1",
-            })
-            existing_ad.add(kw)
+    """Keep model output as-is; do not inject local legacy keyword rules."""
     return data
 
 
@@ -376,6 +234,7 @@ class DiagnoseResponse(BaseModel):
     diagnosis_confidence: dict = {}
     ad_validation_plan: dict = {}
     opc_v5_execution: dict = {}
+    listing_health_analysis: dict = {}
     amazon_compliance: dict = {}
     toolbox_enhancements: dict = {}
     trace: dict = {}
@@ -774,9 +633,9 @@ DIAGNOSIS_PROMPT = """【最高优先级指令】你正在诊断的产品是: "{
 1. 人性驱动力：先判断趋利/避害、13个动机节点和动机强度。
 2. 用户意图：再判断用户任务、购买触发、场景、决策属性和反购买风险。
 3. 平台规则：再判断Amazon能否识别商品身份、查询意图、结构化属性和关系图谱。
-4. 验证回流：最后用价格、评论、BSR、关键词和广告数据校准置信度与下一步动作。
+4. 验证回流：最后用价格、评论、BSR、关键词和广告数据校准置信度与动作。
 
-每个analysis字段必须说明：人性动机映射、用户需求映射、平台识别映射、当前证据、扣分原因、问题类型（对齐/缺失/错位/断链/误导）、影响指标（CTR/CVR/CPC/ACOS/退货/差评）、下一步动作。禁止在analysis里直接写内部方法论名称。
+每个analysis字段必须说明：人性动机映射、用户需求映射、平台识别映射、当前证据、扣分原因、问题类型（对齐/缺失/错位/断链/误导）、影响指标（CTR/CVR/CPC/ACOS/退货/差评）、动作。禁止在analysis里直接写内部方法论名称。
 
 ## 诊断维度（共10个维度，每个0-100分）
 
@@ -858,11 +717,11 @@ DIAGNOSIS_PROMPT = """【最高优先级指令】你正在诊断的产品是: "{
 关键词硬性规则：
 - 所有 keyword_coverage、ad_keywords、backend_keywords_addition 必须输出自然美式英语搜索词，不允许中文、不允许直译腔。
 - 每个广告关键词必须增加 keyword_type 字段，值只能是 attribute / relationship / state_trigger。
-- attribute=产品属性词（如 bluetooth speaker、cat litter box），通常竞争激烈，只做基础覆盖。
-- relationship=关系词（for apartments、with replaceable carbon filter、for indoor cats），用于验证使用关系和场景承接。
-- state_trigger=状态触发词（odor control、ammonia smell、reduce litter tracking），用于验证用户状态差距和痛点承接。
+- attribute=产品属性词，通常竞争激烈，只做基础覆盖。
+- relationship=关系词，用于验证使用关系和场景承接。
+- state_trigger=状态触发词，用于验证用户状态差距和痛点承接。
 - 广告验证优先级：state_trigger > relationship > attribute；high_conversion 和 long_tail 中必须优先放 relationship/state_trigger 词。
-- 必须单独识别多场景问题词：不是只列场景，也不是只列痛点，而是“使用场景 + 具体问题/结果”的自然美式英语搜索词，例如 large dog vacation feeder、anti clog dog feeder、cat litter odor control for apartments。它们优先进入 missing_categories.scenario_problem 和 ad_keywords.long_tail/high_conversion。
+- 必须单独识别多场景问题词：不是只列场景，也不是只列痛点，而是“使用场景 + 具体问题/结果”的自然美式英语搜索词。它们优先进入 missing_categories.scenario_problem 和 ad_keywords.long_tail/high_conversion。
 - 必须主动最大化推理场景问题词：根据容量、尺寸、材质、兼容对象、使用时长、适用人群、风险承诺和图片场景，生成不少于6个候选场景问题词；已被Listing明确承接的放入 covered_categories.scenario_problem，未承接但有商业价值的放入 missing_categories.scenario_problem。禁止只复述标题原词。
 - 运营建议必须提醒卖家：在标题、五点、图片文案、A+和后台词里自然承接高价值场景问题词，可以提升平台对商品意图的理解和推荐匹配概率，减少无效广告测试；不要承诺不投广告也一定获得推荐。
 
@@ -1115,6 +974,8 @@ def _build_listing_text(listing: ListingInput) -> str:
     parts = []
     if listing.title:
         parts.append(f"标题: {listing.title}")
+    if listing.item_highlights:
+        parts.append(f"商品亮点: {listing.item_highlights}")
     if listing.bullet_points:
         parts.append(f"五点描述: {listing.bullet_points}")
     if listing.category:
@@ -1247,8 +1108,10 @@ def _normalize_diagnosis_result(result: dict, listing: ListingInput) -> dict:
         data["overall_summary"] = f"系统已完成Listing诊断归一化。当前需优先检查{weak_text}，并结合模块归因图定位标题、五点、图片、A+或后台词的责任。"
     if not data.get("analyzed_product_name"):
         data["analyzed_product_name"] = listing.title or ""
+    data["listing_title_rule"] = build_listing_title_rule(listing.title, listing.item_highlights)
     data = _apply_market_reality_caps(data, listing)
     data = _align_listing_scores_with_canonical(data, listing)
+    data["listing_health_analysis"] = _build_listing_health_analysis(data, listing)
     return data
 
 
@@ -1262,6 +1125,287 @@ def _numeric_score(value: Any) -> float:
 def _avg_scores(values: list[Any]) -> float:
     numbers = [_numeric_score(value) for value in values if value is not None]
     return round(sum(numbers) / len(numbers), 2) if numbers else 0
+
+
+_LISTING_HEALTH_DIMS = [
+    {
+        "key": "buyer_clarity",
+        "label": "买家看懂度",
+        "max": 10,
+        "legacy": ["product_identity", "function_expression"],
+        "positions": ["标题", "主图"],
+    },
+    {
+        "key": "demand_expression",
+        "label": "需求表达",
+        "max": 8,
+        "legacy": ["function_expression", "scenario_expression"],
+        "positions": ["标题", "主图", "副图1"],
+    },
+    {
+        "key": "benefit_expression",
+        "label": "收益表达",
+        "max": 8,
+        "legacy": ["psychology_benefit", "function_expression"],
+        "positions": ["副图2", "A+"],
+    },
+    {
+        "key": "scenario_expression",
+        "label": "场景表达",
+        "max": 8,
+        "legacy": ["scenario_expression", "compatibility"],
+        "positions": ["副图6", "A+05"],
+    },
+    {
+        "key": "differentiation_expression",
+        "label": "差异化表达",
+        "max": 10,
+        "legacy": ["differentiation"],
+        "positions": ["副图3", "A+03"],
+    },
+    {
+        "key": "trust_expression",
+        "label": "信任表达",
+        "max": 8,
+        "legacy": ["risk_elimination", "market_trend"],
+        "positions": ["副图4", "A+06", "Review", "QA"],
+    },
+    {
+        "key": "risk_elimination",
+        "label": "风险消除",
+        "max": 8,
+        "legacy": ["risk_elimination", "compatibility"],
+        "positions": ["副图5", "A+04", "QA"],
+    },
+    {
+        "key": "purchase_driver",
+        "label": "购买驱动力",
+        "max": 8,
+        "legacy": ["psychology_benefit", "market_trend"],
+        "positions": ["主图", "副图7", "Coupon", "Deal"],
+    },
+    {
+        "key": "price_acceptance",
+        "label": "价格承接",
+        "max": 8,
+        "legacy": ["market_trend", "risk_elimination"],
+        "positions": ["全Listing"],
+    },
+    {
+        "key": "visual_acceptance",
+        "label": "视觉承接",
+        "max": 8,
+        "legacy": ["subjective_properties", "psychology_benefit"],
+        "positions": ["主图", "副图", "A+", "视频"],
+    },
+    {
+        "key": "traffic_acceptance",
+        "label": "流量承接",
+        "max": 8,
+        "legacy": ["product_identity", "scenario_expression"],
+        "positions": ["CTR", "CVR", "关键词匹配", "页面承接"],
+    },
+    {
+        "key": "ad_acceptance",
+        "label": "广告承接",
+        "max": 8,
+        "legacy": ["function_expression", "risk_elimination", "differentiation"],
+        "positions": ["整体承接能力", "整体转化能力", "整体竞争力"],
+    },
+]
+
+
+_LISTING_POSITION_META = [
+    ("标题", "卖什么"),
+    ("主图", "卖什么"),
+    ("副图1", "解决什么问题"),
+    ("副图2", "买完得到什么"),
+    ("副图3", "为什么买你"),
+    ("副图4", "是否相信"),
+    ("副图5", "是否敢买"),
+    ("副图6", "在哪里/什么时候/谁使用"),
+    ("副图7", "购买驱动力"),
+    ("A+01", "暂无"),
+    ("A+02", "暂无"),
+    ("A+03", "为什么买你"),
+    ("A+04", "是否敢买"),
+    ("A+05", "在哪里/什么时候/谁使用"),
+    ("A+06", "是否相信"),
+    ("A+07", "暂无"),
+    ("Review", "是否相信"),
+    ("QA", "是否敢买"),
+]
+
+
+def _safe_text(value: Any) -> str:
+    if value is None:
+        return "暂无"
+    if isinstance(value, str):
+        return value.strip() or "暂无"
+    if isinstance(value, (int, float, bool)):
+        return str(value)
+    if isinstance(value, list):
+        text = "；".join(_safe_text(item) for item in value if _safe_text(item) != "暂无")
+        return text or "暂无"
+    if isinstance(value, dict):
+        parts = []
+        for item in value.values():
+            text = _safe_text(item)
+            if text != "暂无":
+                parts.append(text)
+        return "；".join(parts) or "暂无"
+    return "暂无"
+
+
+def _element_average(elements: dict, element_key: str) -> float:
+    item = elements.get(element_key) if isinstance(elements, dict) else {}
+    if not isinstance(item, dict):
+        return 0
+    return _avg_scores([item.get(key) for key in _ELEMENT_DIM_KEYS])
+
+
+def _position_score(elements: dict, position: str) -> float:
+    if position == "标题":
+        return _element_average(elements, "title")
+    if position in {"主图", "副图", "副图1", "副图2", "副图3", "副图4", "副图5", "副图6", "副图7", "视频"}:
+        return _element_average(elements, "images")
+    if position.startswith("A+") or position == "A+":
+        return _element_average(elements, "aplus")
+    if position == "全Listing":
+        return _avg_scores([
+            _element_average(elements, "title"),
+            _element_average(elements, "bullets"),
+            _element_average(elements, "images"),
+            _element_average(elements, "aplus"),
+            _element_average(elements, "backend"),
+        ])
+    return 0
+
+
+def _build_listing_health_analysis(data: dict, listing: ListingInput) -> dict:
+    existing = data.get("listing_health_analysis")
+    if isinstance(existing, dict) and existing.get("dimensions"):
+        return existing
+
+    scores = data.get("scores") if isinstance(data.get("scores"), dict) else {}
+    analysis = data.get("analysis") if isinstance(data.get("analysis"), dict) else {}
+    suggestions = data.get("suggestions") if isinstance(data.get("suggestions"), dict) else {}
+    elements = data.get("elements") if isinstance(data.get("elements"), dict) else {}
+
+    dimensions = []
+    for item in _LISTING_HEALTH_DIMS:
+        legacy_score = _avg_scores([scores.get(key) for key in item["legacy"]])
+        score = round((legacy_score / 100) * item["max"], 1)
+        evidence_texts = [_safe_text(analysis.get(key)) for key in item["legacy"]]
+        evidence = "；".join(text for text in evidence_texts if text != "暂无") or "暂无"
+        position_scores = [
+            {"position": position, "score": round(_position_score(elements, position), 1) or "暂无"}
+            for position in item["positions"]
+        ]
+        dimensions.append(
+            {
+                "key": item["key"],
+                "label": item["label"],
+                "max_score": item["max"],
+                "score": score,
+                "problem_position": "、".join(item["positions"]),
+                "analysis": evidence,
+                "optimization_suggestion": _safe_text(suggestions.get("title_rewrite") if item["key"] in {"buyer_clarity", "demand_expression"} else suggestions.get("a_plus_suggestions") or suggestions.get("image_suggestions")),
+                "position_scores": position_scores,
+            }
+        )
+
+    total_score = round(sum(float(item.get("score") or 0) for item in dimensions), 1)
+    weak_dimensions = sorted(dimensions, key=lambda item: float(item.get("score") or 0))[:5]
+
+    problem_sources = []
+    for item in weak_dimensions:
+        sources = item.get("position_scores") or []
+        problem_sources.append(
+            {
+                "dimension": item["label"],
+                "score": item["score"],
+                "problem_sources": sources,
+                "reason": item.get("analysis") or "暂无",
+                "suggestion": item.get("optimization_suggestion") or "暂无",
+            }
+        )
+
+    position_scores = []
+    for position, responsibility in _LISTING_POSITION_META:
+        raw_score = _position_score(elements, position)
+        issue = "暂无"
+        recommendation = "暂无"
+        if position == "标题":
+            issue = _safe_text(analysis.get("product_identity") or analysis.get("function_expression"))
+            recommendation = _safe_text(suggestions.get("title_rewrite"))
+        elif position.startswith("副图") or position == "主图":
+            issue = _safe_text(analysis.get("psychology_benefit") or analysis.get("scenario_expression"))
+            recommendation = _safe_text(suggestions.get("image_suggestions"))
+        elif position.startswith("A+"):
+            issue = _safe_text(analysis.get("differentiation") or analysis.get("risk_elimination"))
+            recommendation = _safe_text(suggestions.get("a_plus_suggestions"))
+        elif position in {"Review", "QA"}:
+            issue = _safe_text(analysis.get("risk_elimination"))
+        position_scores.append(
+            {
+                "position": position,
+                "responsibility": responsibility,
+                "score": round(raw_score, 1) if raw_score else "暂无",
+                "problem": issue,
+                "optimization_suggestion": recommendation,
+            }
+        )
+
+    priority_labels = [
+        ("TOP1", "影响转化率最大"),
+        ("TOP2", "影响点击率最大"),
+        ("TOP3", "影响广告效果最大"),
+        ("TOP4", "影响价格承接最大"),
+        ("TOP5", "影响购买决策最大"),
+    ]
+    priority_issues = []
+    for index, (rank, impact) in enumerate(priority_labels):
+        weak = weak_dimensions[index] if index < len(weak_dimensions) else {}
+        priority_issues.append(
+            {
+                "rank": rank,
+                "impact": impact,
+                "dimension": weak.get("label") or "暂无",
+                "position": weak.get("problem_position") or "暂无",
+                "problem": weak.get("analysis") or "暂无",
+                "action": weak.get("optimization_suggestion") or "暂无",
+            }
+        )
+
+    dimension_score_map = {item["label"]: item["score"] for item in dimensions}
+    biggest = weak_dimensions[0] if weak_dimensions else {}
+    final_conclusion = {
+        "current_biggest_problem": biggest.get("label") or "暂无",
+        "problem_image": next((p for p in (biggest.get("problem_position") or "").split("、") if "图" in p), "暂无"),
+        "problem_aplus_module": next((p for p in (biggest.get("problem_position") or "").split("、") if p.startswith("A+")), "暂无"),
+        "conversion_reason": biggest.get("analysis") or "暂无",
+        "expected_ctr_decline": "暂无",
+        "expected_cvr_decline": "暂无",
+        "expected_ad_efficiency_decline": "暂无",
+        "immediate_modification": biggest.get("optimization_suggestion") or "暂无",
+        "priority": "★★★★★" if total_score < 70 else "★★★★",
+        "expected_benefits": ["提升点击率", "提升转化率", "降低广告浪费"],
+    }
+
+    return {
+        "total_score": total_score,
+        "dimensions": dimensions,
+        "problem_sources": problem_sources,
+        "position_scores": position_scores,
+        "priority_issues": priority_issues,
+        "business_conclusion": {
+            "listing_health": total_score,
+            **dimension_score_map,
+            "综合评分": total_score,
+        },
+        "final_conclusion": final_conclusion,
+    }
 
 
 async def _build_listing_opc_v5_execution(
@@ -1567,242 +1711,83 @@ async def _apply_shared_asin_score_snapshot(
 
 
 def _derive_fallback_insights(listing: ListingInput) -> dict:
-    text = f"{listing.title} {listing.bullet_points} {listing.description} {listing.a_plus_content} {listing.category}".lower()
-    title = (listing.title or "").lower()
-    price = listing.price or ""
-    review_count = listing.review_count or ""
-    rating = listing.rating or ""
-
-    product_identity = "amazon product"
-    covered: dict[str, list[str]] = {k: [] for k in ("core_category", "function", "scenario", "audience", "pain_point", "scenario_problem", "long_tail")}
-    missing: dict[str, list[str]] = {k: [] for k in ("core_category", "function", "scenario", "audience", "pain_point", "scenario_problem", "long_tail")}
-    ad_keywords: dict[str, list[dict]] = {"high_conversion": [], "traffic": [], "long_tail": []}
-    suggestions: list[str] = []
-    state_keywords: list[dict] = []
-
-    def add_keyword(group: str, keyword: str, keyword_type: str, priority: str = "P1", competition: str = "medium") -> None:
-        ad_keywords[group].append({
-            "keyword": keyword,
-            "keyword_type": keyword_type,
-            "match_type": "phrase" if keyword_type != "attribute" else "exact",
-            "intent": "验证状态触发词/关系词是否能带来更精准点击和转化" if keyword_type != "attribute" else "基础品类覆盖",
-            "competition": competition,
-            "priority": priority,
-        })
-        state_keywords.append({
-            "keyword": keyword,
-            "keyword_type": keyword_type,
-            "source": "local_fallback_rules",
-            "priority": priority,
-            "validation_role": "广告验证关键词",
-        })
-
-    if any(word in text for word in ("bluetooth", "speaker", "boombox", "wireless speaker")):
-        product_identity = "portable bluetooth speaker"
-        covered["core_category"] = ["bluetooth speaker", "portable speaker"]
-        covered["function"] = [kw for kw in ["waterproof", "24h playtime", "tws pairing", "led lights", "deep bass"] if kw in text]
-        covered["scenario"] = [kw for kw in ["outdoor", "camping", "pool", "beach", "travel", "party", "bedroom", "gym"] if kw in text]
-        covered["audience"] = [kw for kw in ["mom gifts", "gifts for women", "teen gifts"] if kw in text]
-        missing["pain_point"] = ["loud sound for outdoor parties", "poolside waterproof speaker", "gift-ready bluetooth speaker"]
-        missing["long_tail"] = ["portable speaker for beach trips", "bluetooth speaker with led lights for gifts", "small waterproof speaker for camping"]
-        suggestions = [
-            "标题已经覆盖蓝牙音箱、IPX5、防水、续航、TWS、礼物和户外场景，但表达偏堆叠，建议把第一优先级改成“portable waterproof bluetooth speaker for beach/pool/camping”。",
-            "五点有功能信息，但状态触发不够强，建议补充“outdoor party sound”“poolside splash protection”“gift-ready speaker”这类可验证表达。",
-            "价格显示为125.13，若实际为美元价格，需要重点复核价格抓取是否准确；该价格带对小型蓝牙音箱会显著影响转化。",
-            "A+ 有内容和图片信号，但抓取到的是图片文本摘要，建议重点检查A+是否强化了户外、礼物、续航、防水和音效证据。",
-        ]
-        add_keyword("high_conversion", "waterproof bluetooth speaker for beach", "relationship", "P0", "medium")
-        add_keyword("high_conversion", "portable speaker for camping", "relationship", "P0", "medium")
-        add_keyword("high_conversion", "bluetooth speaker with led lights gift", "relationship", "P0", "medium")
-        add_keyword("traffic", "portable bluetooth speaker", "attribute", "P2", "high")
-        add_keyword("traffic", "waterproof speaker", "attribute", "P2", "high")
-        add_keyword("long_tail", "small speaker for poolside music", "state_trigger", "P1", "low")
-        add_keyword("long_tail", "outdoor party bluetooth speaker lights", "state_trigger", "P1", "medium")
-    elif any(word in text for word in ("dog feeder", "pet feeder", "automatic feeder", "food dispenser")):
-        product_identity = "automatic pet feeder"
-        covered["core_category"] = ["automatic dog feeder", "pet food dispenser"]
-        covered["function"] = [kw for kw in ["large capacity", "timed feeding", "dual power", "anti blockage", "stainless steel bowl"] if kw in text]
-        covered["scenario"] = [kw for kw in ["travel", "work", "vacation", "large breed", "medium dogs"] if kw in text]
-        missing["pain_point"] = ["no daily feeding", "anti clog kibble feeding", "keep pets fed while away"]
-        missing["scenario_problem"] = ["large dog feeder for vacation", "automatic feeder for work days", "anti clog feeder for large kibble", "pet feeder during short trips"]
-        missing["long_tail"] = ["automatic dog feeder for large breed vacation", "timed pet food dispenser anti clog kibble", "dog feeder for travel and work days"]
-        suggestions = [
-            "把“大容量/定时/防堵”拆成多场景问题词：出差、短途旅行、工作日无人喂食、大颗粒卡粮。",
-            "标题和五点不要只堆参数，优先前置 large dog feeder for vacation、anti clog kibble feeding 这类可验证词。",
-            "高价值场景问题词要自然进入标题、五点、图片文案、A+和后台词，提升平台对商品意图的理解和推荐匹配概率，减少无效广告测试。",
-        ]
-        add_keyword("high_conversion", "large dog feeder for vacation", "relationship", "P0", "medium")
-        add_keyword("high_conversion", "anti clog dog feeder", "state_trigger", "P0", "medium")
-        add_keyword("long_tail", "automatic feeder for large dogs while away", "state_trigger", "P1", "low")
-        add_keyword("long_tail", "timed pet feeder for work days", "relationship", "P1", "low")
-    elif any(word in text for word in ("cat litter", "litter box", "cat")):
-        product_identity = "cat litter box"
-        covered["core_category"] = ["cat litter box"]
-        covered["function"] = [kw for kw in ["carbon filter", "odor", "pull-out tray", "enclosed"] if kw in text]
-        missing["pain_point"] = ["ammonia odor control", "reduce litter tracking", "easy cleaning for apartments"]
-        missing["scenario_problem"] = ["cat litter odor control for apartments", "reduce litter tracking in small spaces", "easy cleaning for multi cat homes"]
-        missing["long_tail"] = ["cat litter box for apartment odor control", "enclosed litter box with carbon filter"]
-        suggestions = [
-            "优先把属性词升级成状态触发词：ammonia odor control、reduce litter tracking、easy cleaning。",
-            "补强公寓/卧室/多猫家庭等关系词，避免只和普通 cat litter box 属性词竞争。",
-            "场景问题词应自然承接到标题、五点、图片文案、A+和后台词，提升平台推荐语义匹配概率。",
-        ]
-        add_keyword("high_conversion", "cat litter box odor control", "state_trigger", "P0", "medium")
-        add_keyword("high_conversion", "litter box for apartment cats", "relationship", "P0", "medium")
-        add_keyword("long_tail", "reduce litter tracking enclosed box", "state_trigger", "P1", "low")
-    else:
-        tokens = [w for w in re.sub(r"[^a-z0-9\s]", " ", title).split() if len(w) > 2]
-        product_identity = " ".join(tokens[:3]) if tokens else "amazon product"
-        covered["core_category"] = [product_identity]
-        missing["pain_point"] = ["state-trigger keyword not explicit", "relationship keyword not explicit"]
-        missing["scenario_problem"] = ["scenario problem keyword not explicit"]
-        suggestions = [
-            "当前可识别产品身份，但缺少稳定的关系词和状态触发词，建议补充具体人群、场景和痛点。",
-            "先用竞品和评论确认买家真实搜索状态，再进入广告验证。",
-        ]
-        add_keyword("traffic", product_identity, "attribute", "P2", "high")
-
-    score_adjust = 0
-    if rating:
-        try:
-            score_adjust += 4 if float(str(rating).split()[0]) >= 4.5 else 0
-        except Exception:
-            pass
-    if review_count:
-        try:
-            score_adjust += 4 if int(re.sub(r"[^0-9]", "", str(review_count)) or "0") >= 100 else 0
-        except Exception:
-            pass
-
     return {
-        "product_identity": product_identity,
-        "covered": covered,
-        "missing": missing,
-        "ad_keywords": ad_keywords,
-        "state_keywords": state_keywords[:10],
-        "suggestions": suggestions,
-        "score_adjust": score_adjust,
-        "price_note": f"当前抓取价格: {price}" if price else "价格未抓取",
+        "product_identity": "",
+        "covered": {k: [] for k in ("core_category", "function", "scenario", "audience", "pain_point", "scenario_problem", "long_tail")},
+        "missing": {k: [] for k in ("core_category", "function", "scenario", "audience", "pain_point", "scenario_problem", "long_tail")},
+        "ad_keywords": {"high_conversion": [], "traffic": [], "long_tail": []},
+        "state_keywords": [],
+        "suggestions": [],
+        "score_adjust": 0,
+        "price_note": "暂无",
     }
 
 
 def _fallback_listing_diagnosis(listing: ListingInput, reason: str = "") -> dict:
-    """Return a conservative diagnosis when the model call times out or returns invalid JSON."""
-    insights = _derive_fallback_insights(listing)
-    has_title = bool((listing.title or "").strip())
-    has_bullets = bool((listing.bullet_points or "").strip())
-    has_aplus = bool((listing.a_plus_content or "").strip())
-    has_image = bool((listing.main_image_description or "").strip())
-    has_price = bool((listing.price or "").strip())
-    base = 58 if has_title and has_bullets else 48
-    base += insights["score_adjust"]
-    scores = {
-        "function_expression": min(base + (10 if has_bullets else 0), 78),
-        "scenario_expression": min(base + (6 if insights["covered"].get("scenario") else -2), 76),
-        "identity_fit": min(base + (5 if insights["covered"].get("audience") else -2), 74),
-        "psychology_benefit": min(base + (5 if insights["missing"].get("pain_point") else -3), 72),
-        "risk_elimination": max(42, base - (3 if has_price else 8)),
-        "product_identity": min(base + (8 if has_title else 0), 80),
-        "compatibility": min(base + (4 if insights["covered"].get("scenario") else -3), 74),
-        "subjective_properties": min(base + (3 if has_aplus else -3), 72),
-        "differentiation": max(45, base - 6),
-        "market_trend": max(48, base - 4),
-        "causal_state_gap_coverage": max(45, base - 2),
-        "causal_mechanism_clarity": max(45, base - 5),
-        "causal_side_effect_transparency": max(40, base - 8),
-        "keyword_validation_readiness": min(base + (8 if insights["state_keywords"] else -4), 76),
+    """Return an empty diagnosis when the model call fails."""
+    scores = {key: 0 for key in _DIMENSION_KEYS}
+    analysis = {key: "暂无" for key in _DIMENSION_KEYS}
+    elements = {
+        key: {**{dim: 0 for dim in _ELEMENT_DIM_KEYS}, "summary": "暂无"}
+        for key in ("title", "bullets", "aplus", "images", "backend", "price")
     }
-    covered = insights["covered"]
-    missing = insights["missing"]
-    analysis = {
-        "function_expression": f"本地兜底判断：产品身份为 {insights['product_identity']}，已识别功能点：{', '.join(covered.get('function') or ['基础功能可识别'])}。AI深度分析超时，但抓取字段足以做基础功能判断。",
-        "scenario_expression": f"已识别场景：{', '.join(covered.get('scenario') or ['场景表达不够集中'])}。建议把最高转化场景前置到标题和主图，而不是平均堆叠多个场景。",
-        "identity_fit": f"已识别人群/关系词：{', '.join(covered.get('audience') or ['人群关系词不足'])}。关系词决定平台是否理解适用人群。",
-        "psychology_benefit": f"待补强状态触发词：{', '.join(missing.get('pain_point') or ['痛点触发词不足'])}。同时要补场景问题词：{', '.join(missing.get('scenario_problem') or ['场景问题词不足'])}，这些词比普通属性词更适合广告验证。",
-        "risk_elimination": f"{insights['price_note']}；评分/评论信号为 {listing.rating or '未抓取'} / {listing.review_count or '未抓取'}。风险消除还需要保修、安全、材质、使用限制或真实证据支撑。",
-        "product_identity": f"产品身份词已可识别为 {insights['product_identity']}，但仍需要用类目路径和后台关键词确认平台语义一致。",
-        "compatibility": "兼容/搭配应从 used with、for、without、compatible with 这类关系词展开，当前仅能从标题/五点做基础推断。",
-        "subjective_properties": "A+或图片信号存在时可支撑感性属性，但仍需检查是否把 sound、portable、gift-ready、waterproof 等感知词视觉化。",
-        "differentiation": "差异化不能只靠功能堆叠，需要与Top竞品同尺比较：价格、评分、评论量、场景词、状态触发词是否更强。",
-        "market_trend": "趋势判断需要竞品和广告数据确认；当前只能先按抓取到的场景词和评论信号做中等置信判断。",
-    }
-    elements = {}
-    for key, present in {
-        "title": has_title,
-        "bullets": has_bullets,
-        "aplus": has_aplus,
-        "images": has_image,
-        "backend": bool((listing.backend_keywords or "").strip()),
-        "price": has_price,
-    }.items():
-        element_base = 55 if present else 25
-        elements[key] = {dim: element_base for dim in _ELEMENT_DIM_KEYS}
-        elements[key]["summary"] = "模型超时后的保守占位评分，需重新诊断获得完整解释。"
     return {
         "scores": scores,
         "analysis": analysis,
         "suggestions": {
             "high_priority": [
-                *insights["suggestions"][:3],
+                "暂无",
             ],
-            "medium_priority": ["补充类目路径、后台关键词和Top竞品，提升平台语义与竞品差距判断置信度。"],
-            "low_priority": ["AI深度分析恢复后，可重跑一次获得更完整解释；当前结果已可进入基础广告验证准备。"],
-            "backend_keywords_addition": (missing.get("long_tail") or [])[:8],
+            "medium_priority": [],
+            "low_priority": [],
+            "backend_keywords_addition": [],
         },
         "keyword_coverage": {
-            "covered_categories": covered,
-            "missing_categories": missing,
-            "covered_keywords": [kw for values in covered.values() for kw in values],
-            "missing_keywords": [kw for values in missing.values() for kw in values],
-            "coverage_score": 58 if insights["state_keywords"] else 42,
-            "coverage_summary": "深度分析暂未完成，当前先用已提取关键词做保守判断；优先使用关系词和状态触发词进入广告验证。",
+            "covered_categories": {},
+            "missing_categories": {},
+            "covered_keywords": [],
+            "missing_keywords": [],
+            "coverage_score": 0,
+            "coverage_summary": "暂无",
         },
         "ad_keywords": {
-            **insights["ad_keywords"],
+            "high_conversion": [],
+            "traffic": [],
+            "long_tail": [],
             "negative_keywords": [],
             "negative": [],
-            "ad_summary": "广告词优先给出关系词和状态触发词，属性词仅做基础覆盖。",
+            "ad_summary": "暂无",
         },
         "elements": elements,
         "market_estimates": {},
-        "overall_summary": f"AI深度诊断超时，系统已基于真实抓取字段生成本地兜底诊断。可先用于判断方向和广告验证准备；完整AI解释可稍后重跑。{reason}",
+        "overall_summary": "暂无" if not reason else f"暂无：{reason}",
         "analyzed_product_name": listing.title or "",
         "product_mismatch": False,
         "product_mismatch_detail": "",
         "causal_diagnosis": {
-            "overall_causal_score": scores["causal_state_gap_coverage"],
-            "summary": "模型超时，因果诊断暂按保守分处理。",
+            "overall_causal_score": 0,
+            "summary": "暂无",
             "keyword_causality": {
-                "framework": "rufus_cosmo_causal_keywords",
-                "priority_order": ["state_trigger", "relationship", "attribute"],
-                "readiness_score": scores["keyword_validation_readiness"],
-                "priority_keywords": insights["state_keywords"],
-                "summary": "本地规则已生成关系词/状态触发词，可先进入小预算广告验证；AI恢复后再补完整因果解释。",
+                "framework": "暂无",
+                "priority_order": [],
+                "readiness_score": 0,
+                "priority_keywords": [],
+                "summary": "暂无",
             },
         },
         "ad_validation_plan": {
-            "validation_items": [
-                {
-                    "diagnosis_issue": "AI深度诊断超时，但已识别可验证关系词/状态触发词",
-                    "suggested_listing_action": (insights["suggestions"][0] if insights["suggestions"] else "先补强关系词和状态触发词，再做广告验证"),
-                    "ad_action": {
-                        "test_type": "fallback_causal_keyword_validation",
-                        "keywords": [item["keyword"] for item in insights["state_keywords"][:5]],
-                        "match_types": ["phrase", "exact"],
-                    },
-                }
-            ]
+            "validation_items": []
         },
         "diagnosis_confidence": {
             "overall": {
-                "level": "low",
-                "reason": "AI完整诊断超时或响应异常，本结果为保守兜底。",
+                "level": "暂无",
+                "reason": "暂无",
             }
         },
         "data_integrity": {
-            "score": 35,
-            "level": "low",
-            "reason": "诊断模型未完整返回结构化结果。",
+            "score": 0,
+            "level": "暂无",
+            "reason": "暂无",
         },
     }
 
@@ -1814,6 +1799,7 @@ def _build_compact_diagnosis_prompt(listing: ListingInput) -> str:
 产品信息：
 - 站点：{listing.marketplace}
 - 标题：{listing.title or "未提供"}
+- 商品亮点：{listing.item_highlights or "未提供"}
 - 五点：{listing.bullet_points or "未提供"}
 - 描述：{listing.description or "未提供"}
 - A+摘要：{listing.a_plus_content or "未提供"}
@@ -1891,6 +1877,28 @@ def _build_compact_diagnosis_prompt(listing: ListingInput) -> str:
     "images": {{"function_expression": 50, "scenario_expression": 50, "identity_fit": 50, "psychology_benefit": 50, "risk_elimination": 50, "product_identity": 50, "compatibility": 50, "subjective_properties": 50, "differentiation": 50, "market_trend": 50, "summary": "图片判断"}},
     "aplus": {{"function_expression": 50, "scenario_expression": 50, "identity_fit": 50, "psychology_benefit": 50, "risk_elimination": 50, "product_identity": 50, "compatibility": 50, "subjective_properties": 50, "differentiation": 50, "market_trend": 50, "summary": "A+判断"}},
     "backend": {{"function_expression": 30, "scenario_expression": 30, "identity_fit": 30, "psychology_benefit": 30, "risk_elimination": 30, "product_identity": 30, "compatibility": 30, "subjective_properties": 30, "differentiation": 30, "market_trend": 30, "summary": "后台关键词判断"}}
+  }},
+  "listing_health_analysis": {{
+    "total_score": 0,
+    "dimensions": [
+      {{"key": "buyer_clarity", "label": "买家看懂度", "max_score": 10, "score": 0, "problem_position": "标题/主图", "analysis": "为什么买家3秒内是否看懂卖什么", "optimization_suggestion": "具体修改哪里"}},
+      {{"key": "demand_expression", "label": "需求表达", "max_score": 8, "score": 0, "problem_position": "标题/主图/副图1", "analysis": "是否表达解决什么问题", "optimization_suggestion": "具体修改哪里"}},
+      {{"key": "benefit_expression", "label": "收益表达", "max_score": 8, "score": 0, "problem_position": "副图2/A+", "analysis": "是否表达买完得到什么", "optimization_suggestion": "具体修改哪里"}},
+      {{"key": "scenario_expression", "label": "场景表达", "max_score": 8, "score": 0, "problem_position": "副图6/A+05", "analysis": "是否表达在哪里、什么时候、谁使用", "optimization_suggestion": "具体修改哪里"}},
+      {{"key": "differentiation_expression", "label": "差异化表达", "max_score": 10, "score": 0, "problem_position": "副图3/A+03", "analysis": "为什么买你不买别人", "optimization_suggestion": "具体修改哪里"}},
+      {{"key": "trust_expression", "label": "信任表达", "max_score": 8, "score": 0, "problem_position": "副图4/A+06/Review/QA", "analysis": "买家是否相信页面承诺", "optimization_suggestion": "具体修改哪里"}},
+      {{"key": "risk_elimination", "label": "风险消除", "max_score": 8, "score": 0, "problem_position": "副图5/A+04/QA", "analysis": "安全、效果、耐用、售后风险是否消除", "optimization_suggestion": "具体修改哪里"}},
+      {{"key": "purchase_driver", "label": "购买驱动力", "max_score": 8, "score": 0, "problem_position": "主图/副图7/Coupon/Deal", "analysis": "为什么现在买", "optimization_suggestion": "具体修改哪里"}},
+      {{"key": "price_acceptance", "label": "价格承接", "max_score": 8, "score": 0, "problem_position": "全Listing", "analysis": "页面表达是否支撑当前售价", "optimization_suggestion": "具体修改哪里"}},
+      {{"key": "visual_acceptance", "label": "视觉承接", "max_score": 8, "score": 0, "problem_position": "主图/副图/A+/视频", "analysis": "图片是否承担销售工作", "optimization_suggestion": "具体修改哪里"}},
+      {{"key": "traffic_acceptance", "label": "流量承接", "max_score": 8, "score": 0, "problem_position": "CTR/CVR/关键词匹配/页面承接", "analysis": "点击进来后能接住多少", "optimization_suggestion": "具体修改哪里"}},
+      {{"key": "ad_acceptance", "label": "广告承接", "max_score": 8, "score": 0, "problem_position": "整体承接能力/整体转化能力/整体竞争力", "analysis": "是否具备放大广告条件", "optimization_suggestion": "继续放量/保持/暂停放量/先优化Listing"}}
+    ],
+    "problem_sources": [{{"dimension": "差异化表达", "score": 0, "problem_sources": [{{"position": "副图3", "score": 0}}, {{"position": "A+03", "score": 0}}], "reason": "原因", "suggestion": "建议"}}],
+    "position_scores": [{{"position": "标题", "responsibility": "卖什么", "score": 0, "problem": "存在问题", "optimization_suggestion": "优化建议"}}],
+    "priority_issues": [{{"rank": "TOP1", "impact": "影响转化率最大", "dimension": "维度", "position": "具体位置", "problem": "问题", "action": "动作"}}],
+    "business_conclusion": {{"Listing健康度": 0, "综合评分": 0}},
+    "final_conclusion": {{"current_biggest_problem": "当前最大问题", "problem_image": "具体哪张图", "problem_aplus_module": "具体哪个A+模块", "conversion_reason": "为什么影响转化", "expected_ctr_decline": "暂无", "expected_cvr_decline": "暂无", "expected_ad_efficiency_decline": "暂无", "immediate_modification": "立即修改", "priority": "★★★★★", "expected_benefits": ["提升点击率", "提升转化率", "降低广告浪费"]}}
   }},
   "market_estimates": {{"estimated_monthly_sales": 0, "estimated_bsr_rank": 0}},
   "analyzed_product_name": "{listing.title or ""}",
@@ -2361,6 +2369,7 @@ async def _diagnose_single(
         "causal_diagnosis": causal_diagnosis,
         "judgment_system": judgment_system,
         "ad_validation_plan": ad_validation_plan,
+        "listing_health_analysis": data.get("listing_health_analysis", {}),
         "opc_v5_execution": data.get("opc_v5_execution", {}),
         "data_integrity": data_integrity,
         "diagnosis_confidence": diagnosis_confidence,
@@ -2693,18 +2702,13 @@ async def diagnose_listing(
         if not listing.title and not listing.bullet_points:
             raise HTTPException(status_code=400, detail="请至少输入标题或五点描述")
 
-        result = None
-        if not request.force_refresh:
-            scope_user_ids = await get_user_scope_ids(current_user, db)
-            result = await _get_exact_cached_listing_diagnosis(listing, db, scope_user_ids, request.diagnosis_mode)
-        if not result:
-            result = await _diagnose_single(
-                listing=listing,
-                user_id=str(current_user.id),
-                db=db,
-                precision_context=request.precision_context,
-                diagnosis_mode=request.diagnosis_mode,
-            )
+        result = await _diagnose_single(
+            listing=listing,
+            user_id=str(current_user.id),
+            db=db,
+            precision_context=request.precision_context,
+            diagnosis_mode=request.diagnosis_mode,
+        )
         result = _normalize_diagnosis_result({**result, "diagnosis_mode": request.diagnosis_mode}, listing)
         content_fingerprint = _listing_content_fingerprint(_sanitize_listing_for_ai(listing))
         trace = {
@@ -2748,6 +2752,7 @@ async def diagnose_listing(
             data_integrity=result.get("data_integrity", {}),
             diagnosis_confidence=result.get("diagnosis_confidence", {}),
             ad_validation_plan=result.get("ad_validation_plan", {}),
+            listing_health_analysis=result.get("listing_health_analysis", {}),
             opc_v5_execution=result.get("opc_v5_execution", {}),
             amazon_compliance=result.get("amazon_compliance", {}),
             trace=trace,

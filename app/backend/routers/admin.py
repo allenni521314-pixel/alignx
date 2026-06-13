@@ -12,7 +12,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import get_db
@@ -80,6 +80,47 @@ class AdminAIModelStatus(BaseModel):
     recharge_links: List[dict]
     legacy_alias_policy: str
     invocation_contract: List[dict]
+
+
+MODULE_HISTORY_TABLES = [
+    "action_snapshots",
+    "ad_campaigns",
+    "ad_data",
+    "ad_recommendations",
+    "ad_validation_results",
+    "advertising_strategy_records",
+    "ai_usage_logs",
+    "asin_analyses",
+    "asin_keyword_intent_scores",
+    "asin_keyword_rank_snapshots",
+    "asin_keyword_sales_validation_reports",
+    "batch_causal_tasks",
+    "capital_allocation_records",
+    "causal_ab_comparisons",
+    "competitor_insights",
+    "consumer_intent_results",
+    "core_engine_evidence",
+    "cosmo_results",
+    "diagnosis_tasks",
+    "execution_records",
+    "fetch_history",
+    "health_reports",
+    "human_nature_graph_edges",
+    "human_nature_graph_nodes",
+    "human_state_body",
+    "judgment_feedback_rounds",
+    "keywords",
+    "knowledge_evolution_events",
+    "listing_diagnoses",
+    "listings",
+    "opc_os_executions",
+    "optimization_timeline",
+    "prelaunch_test_results",
+    "products",
+    "review_causal_validations",
+    "sales_metrics",
+    "scrape_logs",
+]
 
 
 @router.get("/me")
@@ -467,6 +508,35 @@ async def probe_admin_ai_models(
 ):
     """Run tiny real calls against every configured model family."""
     return await probe_ai_models()
+
+
+@router.post("/module-history/clear")
+async def clear_module_history(
+    db: AsyncSession = Depends(get_db),
+    _: UserResponse = Depends(get_super_admin_user),
+):
+    deleted: dict[str, int] = {}
+    try:
+        dialect_name = db.get_bind().dialect.name if db.get_bind() is not None else "sqlite"
+        if dialect_name == "postgresql":
+            existing_result = await db.execute(
+                text("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'")
+            )
+        else:
+            existing_result = await db.execute(text("SELECT name FROM sqlite_master WHERE type='table'"))
+        existing_tables = {str(row[0]) for row in existing_result.fetchall()}
+        for table_name in MODULE_HISTORY_TABLES:
+            if table_name not in existing_tables:
+                deleted[table_name] = 0
+                continue
+            result = await db.execute(text(f"DELETE FROM {table_name}"))
+            deleted[table_name] = int(result.rowcount or 0)
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        logger.exception("Failed to clear module history")
+        raise HTTPException(status_code=500, detail="清除失败")
+    return {"status": "ok", "deleted": deleted}
 
 
 @router.post("/users/{user_id}/role")

@@ -15,7 +15,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from services.canonical_10d_scoring import align_amazon_skill_scores
-from services.intent_platform_memory import IntentPlatformMemoryService, build_action_tags
+from services.intent_platform_memory import build_action_tags
 from services.model_invocation_contract import WORKFLOW_CONTRACTS, WorkflowContract
 
 logger = logging.getLogger(__name__)
@@ -80,8 +80,7 @@ def workflow_for_context(context: str | None) -> str:
         "competitor_diagnosis": "competitor_diagnosis",
         "ad": "ad_validation",
         "ad_validation": "ad_validation",
-        "feedback": "feedback_loop",
-        "feedback_loop": "feedback_loop",
+        "feedback": "ad_validation",
     }
     return aliases.get(key, "listing_diagnosis")
 
@@ -107,7 +106,7 @@ class CosmoOperatorAgent:
             "score_system": "10维诊断",
             "dimensions": list(CANONICAL_10D_PUBLIC),
             "rule_role": "兜底校验",
-            "learning_enabled": True,
+            "learning_enabled": False,
         }
 
     @staticmethod
@@ -128,22 +127,8 @@ class CosmoOperatorAgent:
         workflow_key = workflow_for_context(workflow)
         contract = WORKFLOW_CONTRACTS.get(workflow_key)
 
-        memory_context: dict[str, Any] = {}
-        if self.db is not None and user_id:
-            try:
-                memory_context = await IntentPlatformMemoryService(self.db).build_context(
-                    user_id=str(user_id),
-                    product=product_data,
-                    asin=asin,
-                    marketplace=marketplace,
-                    current_scores=current_scores,
-                )
-            except Exception as exc:
-                logger.warning("Cosmo operator memory unavailable for %s: %s", workflow_key, exc)
-                memory_context = {}
-
-        memories = memory_context.get("memory_samples", []) if isinstance(memory_context, dict) else []
-        feedback_memory = memory_context.get("feedback_memory", {}) if isinstance(memory_context, dict) else {}
+        memories: list[Any] = []
+        feedback_memory: dict[str, Any] = {}
         tags = build_action_tags(
             product=product_data,
             current_scores=current_scores,
@@ -154,7 +139,7 @@ class CosmoOperatorAgent:
         prompt_summary = self._build_prompt_summary(
             workflow_key=workflow_key,
             contract=contract,
-            memory_context=memory_context,
+            memory_context={},
         )
 
         return {
@@ -207,8 +192,8 @@ class CosmoOperatorAgent:
             "rule_track": "fallback_consistency_check_only",
             "learning": {
                 "scope": "current_user_only",
-                "sources": ["diagnosis_snapshot", "ad_validation", "feedback_loop"],
-                "updates": "only_after_user_confirmed_or_ad_validated",
+                "sources": [],
+                "updates": "disabled_for_new_judgment",
             },
             "memory_samples": memories[:3],
             "feedback_memory": feedback_memory,

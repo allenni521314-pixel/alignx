@@ -16,15 +16,12 @@ import {
   Stethoscope,
   Network,
   Megaphone,
-  MessageSquareText,
-  RotateCcw,
   Search,
   CalendarCheck,
   ShieldCheck,
   Sparkles,
   Layers3,
   Rocket,
-  Database,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AlignXLogo } from "@/components/AlignXLogo";
@@ -73,15 +70,21 @@ const navGroups: NavGroup[] = [
     items: [
       {
         path: "/asin-manager",
-        label: "选品决策",
+        label: "关键词调研",
         icon: Layers3,
         moduleKey: "asin-manager",
+      },
+      {
+        path: "/competitor-analysis?tab=score",
+        label: "竞品打法",
+        icon: Swords,
+        moduleKey: "competitor-analysis",
       },
     ],
   },
   {
     stage: "二",
-    title: "Listing 承接",
+    title: "商品诊断",
     icon: Target,
     color: "text-teal-400",
     activeColor: "text-teal-600",
@@ -91,12 +94,6 @@ const navGroups: NavGroup[] = [
         label: "上架准入",
         icon: Rocket,
         moduleKey: "listing-launch-check",
-      },
-      {
-        path: "/competitor-analysis?tab=strategy",
-        label: "竞品打法",
-        icon: Swords,
-        moduleKey: "competitor-analysis",
       },
       {
         path: "/listing-diagnosis",
@@ -119,20 +116,13 @@ const navGroups: NavGroup[] = [
     ],
   },
   {
-    stage: "四",
-    title: "回流学习",
-    icon: RotateCcw,
-    color: "text-emerald-400",
-    activeColor: "text-emerald-600",
+    stage: "",
+    title: "账号中心",
+    icon: Settings,
+    color: "text-gold-400",
+    activeColor: "text-gold-600",
     items: [
-      { path: "/optimization-suggestions?view=data-feedback", label: "数据回流", icon: Database, moduleKey: "optimization-suggestions" },
-      { path: "/optimization-suggestions?view=conclusion", label: "学习复盘", icon: MessageSquareText, moduleKey: "optimization-suggestions" },
-      {
-        path: "/optimization-suggestions?view=next-round",
-        label: "资源配置",
-        icon: RotateCcw,
-        moduleKey: "optimization-suggestions",
-      },
+      { path: "/settings?tab=account", label: "账号信息", icon: Settings, moduleKey: "settings" },
     ],
   },
   {
@@ -243,25 +233,25 @@ export function AppSidebar() {
             onClick={() => !isDisabled && handleNav(item.path)}
             disabled={isDisabled}
             className={cn(
-              "relative flex w-full items-center gap-2.5 rounded-xl border px-2.5 py-2 text-[13px] font-medium transition-all duration-200 group",
+              "relative flex w-full items-center gap-2 rounded-lg border px-2 py-2 text-[13px] font-semibold transition-all duration-200 group",
               isDisabled
-                ? "text-gray-400 cursor-not-allowed opacity-50"
+                ? "text-brand-200/35 cursor-not-allowed opacity-50"
                 : isActive
-                  ? "border-gray-200 bg-gray-100/90 text-gray-950 shadow-sm"
-                  : "border-transparent text-gray-600 hover:bg-gray-100/75 hover:text-gray-950"
+                  ? "border-white/80 bg-white text-brand-900 shadow-sm"
+                  : "border-transparent text-brand-100/75 hover:bg-white/10 hover:text-white"
             )}
           >
             {isActive && (
-              <span className="absolute left-1 top-2 bottom-2 w-0.5 rounded-full bg-gray-950" />
+              <span className="absolute left-1 top-2 bottom-2 w-0.5 rounded-full bg-gold-400" />
             )}
             <item.icon
               className={cn(
-                "w-[16px] h-[16px] flex-shrink-0 transition-colors",
+                "h-[15px] w-[15px] flex-shrink-0 transition-colors",
                 isDisabled
-                  ? "text-gray-400"
+                  ? "text-brand-200/35"
                   : isActive
-                    ? "text-gray-950"
-                    : "text-gray-400 group-hover:text-gray-700"
+                    ? "text-brand-800"
+                    : "text-brand-100/60 group-hover:text-white"
               )}
             />
             {showLabel && (
@@ -307,12 +297,12 @@ export function AppSidebar() {
   const sidebarContent = (
     <aside
       className={cn(
-        "h-screen flex-shrink-0 border-r border-gray-200/60 bg-white/85 backdrop-blur-xl flex flex-col transition-all duration-300",
-        isMobile ? "w-64" : collapsed ? "w-16" : "w-64"
+        "h-screen flex-shrink-0 border-r border-brand-700/70 bg-brand-900/95 text-brand-50 backdrop-blur-xl flex flex-col transition-all duration-300",
+        isMobile ? "w-64" : collapsed ? "w-16" : "w-[180px]"
       )}
     >
       {/* Logo */}
-      <div className="h-16 flex items-center px-4 border-b border-gray-100">
+      <div className="h-16 flex items-center px-3 border-b border-brand-700/60">
         <button
           type="button"
           className="min-w-0 text-left"
@@ -320,15 +310,17 @@ export function AppSidebar() {
           aria-label="返回 AlignX 今日决策"
         >
           <AlignXLogo
+            className="gap-2"
             showWordmark={showLabel}
-            markClassName="h-9 w-9 rounded-xl"
-            wordmarkClassName="text-base"
+            variant="light"
+            markClassName="h-5 w-auto max-w-[40px]"
+            wordmarkClassName="h-10 text-white"
           />
         </button>
         {isMobile && (
           <button
             onClick={() => setMobileOpen(false)}
-            className="ml-auto text-gray-500 hover:text-gray-900 p-1"
+            className="ml-auto text-brand-100/70 hover:text-white p-1"
           >
             <X className="w-5 h-5" />
           </button>
@@ -336,7 +328,7 @@ export function AppSidebar() {
       </div>
 
       {/* Flow-based Navigation */}
-      <nav className="flex-1 overflow-y-auto px-2.5 py-3">
+      <nav className="flex-1 overflow-y-auto px-2 py-2">
         {/* 今日决策 — standalone top button */}
         <div className="mb-2">
           <Tooltip delayDuration={0}>
@@ -344,29 +336,23 @@ export function AppSidebar() {
               <button
                 onClick={() => handleNav("/dashboard")}
                 className={cn(
-                  "w-full flex items-center gap-2.5 px-2.5 py-2.5 rounded-xl text-[13px] font-semibold transition-all duration-200 group border",
+                  "relative flex w-full items-center gap-2 rounded-lg border px-2 py-2 text-[13px] font-semibold transition-all duration-200 group",
                   location.pathname === "/dashboard"
-                    ? "border-gray-900 bg-gray-950 text-white shadow-sm"
-                    : "border-transparent text-gray-700 hover:bg-gray-100/80 hover:text-gray-950"
+                    ? "border-white/80 bg-white text-brand-900 shadow-sm"
+                    : "border-transparent text-brand-100/80 hover:bg-white/10 hover:text-white"
                 )}
               >
-                <div
+                {location.pathname === "/dashboard" && (
+                  <span className="absolute left-1 top-2 bottom-2 w-0.5 rounded-full bg-gold-400" />
+                )}
+                <CalendarCheck
                   className={cn(
-                    "w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors",
+                    "h-[15px] w-[15px] flex-shrink-0",
                     location.pathname === "/dashboard"
-                      ? "bg-white/15"
-                      : "bg-gray-100 group-hover:bg-white"
+                      ? "text-brand-800"
+                      : "text-brand-100/70 group-hover:text-white"
                   )}
-                >
-                  <CalendarCheck
-                    className={cn(
-                      "w-4 h-4",
-                      location.pathname === "/dashboard"
-                        ? "text-white"
-                        : "text-gray-700"
-                    )}
-                  />
-                </div>
+                />
                 {showLabel && <span>今日决策</span>}
               </button>
             </TooltipTrigger>
@@ -375,27 +361,63 @@ export function AppSidebar() {
                 side="right"
                 className="bg-white text-gray-900 border-gray-200"
               >
-                今日决策
+              今日决策
+            </TooltipContent>
+          )}
+        </Tooltip>
+          <div className="mt-1">
+          <Tooltip delayDuration={0}>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => handleNav("/yesterday-report")}
+                className={cn(
+                  "relative flex w-full items-center gap-2 rounded-lg border px-2 py-2 text-[13px] font-semibold transition-all duration-200 group",
+                  location.pathname === "/yesterday-report"
+                    ? "border-white/80 bg-white text-brand-900 shadow-sm"
+                    : "border-transparent text-brand-100/75 hover:bg-white/10 hover:text-white"
+                )}
+              >
+                {location.pathname === "/yesterday-report" && (
+                  <span className="absolute left-1 top-2 bottom-2 w-0.5 rounded-full bg-gold-400" />
+                )}
+                <ClipboardCheck
+                  className={cn(
+                    "h-[15px] w-[15px] flex-shrink-0",
+                    location.pathname === "/yesterday-report"
+                      ? "text-brand-800"
+                      : "text-brand-100/60 group-hover:text-white"
+                  )}
+                />
+                {showLabel && <span className="truncate">昨日战报</span>}
+              </button>
+            </TooltipTrigger>
+            {collapsed && !isMobile && (
+              <TooltipContent
+                side="right"
+                className="bg-white text-gray-900 border-gray-200"
+              >
+                昨日战报
               </TooltipContent>
             )}
           </Tooltip>
+          </div>
         </div>
 
         {navGroups.map((group) => {
           const groupActive = isGroupActive(group);
           return (
-            <div key={group.title} className="mb-2.5">
+            <div key={group.title} className="mb-2">
               {showLabel && (
                 <div
                   className={cn(
-                    "flex select-none items-center gap-1.5 px-2.5 pb-1 pt-2.5 text-[11px] font-semibold transition-colors",
-                    groupActive ? group.activeColor : "text-gray-400"
+                    "flex select-none items-center gap-1 px-2 pb-1 pt-2.5 text-[11px] font-semibold transition-colors",
+                    groupActive ? "text-gold-300" : "text-brand-100/45"
                   )}
                 >
-                  <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full border border-current/20 px-1 text-[10px] leading-none">
+                  <span className="inline-flex h-3.5 min-w-3.5 items-center justify-center rounded-full border border-current/20 px-0.5 text-[9px] leading-none">
                     {group.stage || "设"}
                   </span>
-                  <group.icon className="w-3 h-3" />
+                  <group.icon className="h-2.5 w-2.5" />
                   {group.title}
                   {groupActive && (
                     <span className="ml-auto h-1.5 w-1.5 rounded-full bg-current" />
@@ -403,7 +425,7 @@ export function AppSidebar() {
                 </div>
               )}
               {!showLabel && (
-                <div className="my-1 mx-3 border-t border-gray-100" />
+                <div className="my-1 mx-3 border-t border-white/10" />
               )}
               <div className="space-y-0.5">
                 {group.items.map((item) =>
@@ -416,14 +438,14 @@ export function AppSidebar() {
       </nav>
 
       {/* Bottom: Logout + Collapse */}
-      <div className="p-2 border-t border-gray-100 space-y-0.5">
+      <div className="p-1.5 border-t border-brand-700/60 space-y-0.5">
         <Tooltip delayDuration={0}>
           <TooltipTrigger asChild>
             <button
               onClick={handleLogout}
-              className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium text-gray-500 hover:text-red-500 hover:bg-red-50 transition-colors"
+              className="w-full flex items-center gap-2 px-2 py-2 rounded-lg text-[13px] font-medium text-brand-100/65 hover:text-white hover:bg-white/10 transition-colors"
             >
-              <LogOut className="w-[16px] h-[16px] flex-shrink-0" />
+              <LogOut className="h-[15px] w-[15px] flex-shrink-0" />
               {showLabel && <span>退出登录</span>}
             </button>
           </TooltipTrigger>
@@ -441,7 +463,7 @@ export function AppSidebar() {
             variant="ghost"
             size="sm"
             onClick={() => setCollapsed(!collapsed)}
-            className="w-full flex items-center justify-center text-gray-400 hover:text-gray-900 hover:bg-gray-50"
+            className="w-full flex items-center justify-center text-brand-100/55 hover:text-white hover:bg-white/10"
           >
             {collapsed ? (
               <ChevronRight className="w-4 h-4" />

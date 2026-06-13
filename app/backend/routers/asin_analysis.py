@@ -118,31 +118,6 @@ def _derive_us_keywords_from_real_text(product_data: dict, limit: int = 10) -> l
         return []
 
     candidates: list[str] = []
-    def has(pattern: str) -> bool:
-        return re.search(pattern, text, flags=re.I) is not None
-
-    if has(r"\b(bluetooth|speaker|boombox|audio)\b"):
-        candidates += ["portable bluetooth speaker", "wireless speaker"]
-        if has(r"\b(waterproof|ipx|beach|pool|shower|outdoor|camping)\b"):
-            candidates += ["waterproof bluetooth speaker", "speaker for beach trips", "outdoor waterproof speaker"]
-        if has(r"\b(fm|radio)\b"):
-            candidates.append("bluetooth speaker with fm radio")
-        if has(r"\b(clip|strap|lanyard|carry)\b"):
-            candidates.append("portable speaker with carrying strap")
-    if has(r"\b(cat|litter|odor|ammonia)\b"):
-        candidates += ["cat litter box odor control", "litter box for apartment cats", "ammonia odor control"]
-    if has(r"\b(power bank|portable charger|battery pack|mah)\b"):
-        candidates += ["portable phone power bank", "power bank for travel", "compact charger for purse"]
-    if has(r"(手机壳|保护壳|iphone|magsafe|phone case|\bcase\b)"):
-        candidates += ["iphone case", "magsafe iphone case", "protective iphone case"]
-        if has(r"(透明|clear|translucent)"):
-            candidates.append("clear iphone case")
-        if has(r"(防摔|shock|drop|military|protection|protective)"):
-            candidates.append("shockproof iphone case")
-        if has(r"(磁吸|magnetic|magsafe)"):
-            candidates.append("magnetic phone case")
-        if has(r"(防指纹|fingerprint)"):
-            candidates.append("anti fingerprint phone case")
     if has(r"\b(bamboo|boxer|underwear|trunks)\b"):
         candidates += ["men's bamboo boxer briefs", "breathable boxer briefs for men", "moisture wicking underwear for men"]
     if has(r"\b(gift|mom|dad|women|men|teen|kids)\b"):
@@ -757,8 +732,8 @@ ASIN: {asin}
 - main_keywords 只能来自真实抓取到的英文标题、五点、类目、A+或评论语义；如果原始字段是中文或不确定，返回空数组，不要翻译、不要补中文词。
 - 关键词必须符合平台可识别结构：产品身份词 + 使用关系词 + 场景状态词。
 - 不要只输出 product attribute words（如 material、size、color），必须优先包含 relationship words 与 state-trigger words。
-- relationship words 示例：for apartment cats, with odor filter, under desk speaker, for mom gifts, compatible with xxx。
-- state-trigger words 示例：ammonia odor control, litter tracking mess, outdoor party sound, sleep noise relief。
+- relationship words 必须表达适用对象、使用关系、搭配关系或限制条件。
+- state-trigger words 必须表达用户正在解决的问题或想摆脱的状态。
 - 属性词只做基础覆盖；关系词和状态触发词用于广告验证与转化假设。
 
 请以JSON格式返回（确保返回有效的JSON）：
@@ -814,6 +789,43 @@ ASIN: {asin}
     "differentiation": "差异化分析详情...",
     "market_trend": "市场趋势分析详情...",
     "risk_elimination": "风险消除分析详情..."
+  }},
+  "competitor_business_analysis": {{
+    "dimension_scores": [
+      {{"key": "demand_fit", "label": "需求匹配度", "max_score": 10, "score": 0-10, "analysis": "分析", "core_need": "核心需求", "demand_level": "需求等级"}},
+      {{"key": "audience_fit", "label": "人群匹配度", "max_score": 8, "score": 0-8, "analysis": "分析", "core_user_profile": "核心用户画像"}},
+      {{"key": "scenario_coverage", "label": "场景覆盖度", "max_score": 8, "score": 0-8, "analysis": "分析", "covered_scenarios": ["已覆盖场景"], "missing_scenarios": ["缺失场景"]}},
+      {{"key": "differentiation_advantage", "label": "差异化优势", "max_score": 10, "score": 0-10, "analysis": "分析", "core_differentiation": "核心差异化", "homogenization_risk": "同质化风险"}},
+      {{"key": "trust_system", "label": "信任体系", "max_score": 8, "score": 0-8, "analysis": "分析", "trust_sources": ["信任来源"], "trust_gaps": ["信任缺口"]}},
+      {{"key": "conversion_expression", "label": "转化表达能力", "max_score": 10, "score": 0-10, "analysis": "分析", "conversion_drivers": ["转化驱动点"], "main_purchase_reasons": ["主要购买理由"]}},
+      {{"key": "price_positioning", "label": "价格定位", "max_score": 8, "score": 0-8, "analysis": "分析", "price_band": "低价/主流/高端", "pricing_logic": "定价逻辑"}},
+      {{"key": "traffic_fit", "label": "流量匹配度", "max_score": 8, "score": 0-8, "analysis": "分析", "core_traffic_terms": ["核心流量词"], "traffic_structure": "流量结构"}},
+      {{"key": "visual_competitiveness", "label": "视觉竞争力", "max_score": 6, "score": 0-6, "analysis": "分析", "strongest_image": "最强图片", "weakest_image": "最弱图片"}},
+      {{"key": "brand_momentum", "label": "品牌势能", "max_score": 6, "score": 0-6, "analysis": "分析", "brand_level": "品牌等级", "brand_moat": "品牌护城河"}},
+      {{"key": "ad_dependency", "label": "广告依赖度", "max_score": 10, "score": 0-10, "analysis": "分析", "ad_dependency_level": "广告依赖等级", "organic_strength": "自然流量强度", "risk_level": "风险等级"}},
+      {{"key": "growth_potential", "label": "增长潜力", "max_score": 8, "score": 0-8, "analysis": "分析", "growth_stage": "增长阶段", "future_potential": "未来潜力"}}
+    ],
+    "total_score": 0-100,
+    "why_sells_well": ["TOP1原因", "TOP2原因", "TOP3原因", "TOP4原因", "TOP5原因"],
+    "biggest_weaknesses": ["TOP1问题", "TOP2问题", "TOP3问题", "TOP4问题", "TOP5问题"],
+    "attack_opportunities": ["TOP1突破口", "TOP2突破口", "TOP3突破口", "TOP4突破口", "TOP5突破口"],
+    "traffic_diagnosis": {{
+      "organic_strength": "自然流量强度",
+      "ad_dependency": "广告依赖度",
+      "brand_traffic": "品牌流量",
+      "traffic_health": "流量健康度",
+      "growth_model": "自然增长型/广告驱动型/品牌驱动型/混合增长型"
+    }},
+    "overtake_path": {{
+      "short_term": ["短期动作"],
+      "mid_term": ["中期动作"],
+      "long_term": ["长期动作"]
+    }},
+    "final_conclusion": {{
+      "one_sentence": "一句话总结",
+      "copy_success_probability": "成功概率",
+      "best_overtake_point": "最优突破点"
+    }}
   }},
   "overall_summary": "总体评价摘要...",
   "improvement_suggestions": ["建议1", "建议2", "建议3"]
@@ -1140,7 +1152,7 @@ def _rule_based_competitor_scoring(asin: str, marketplace: str, scraped_data: di
         return re.search(pattern, text_blob, flags=re.I) is not None
 
     product_identity_signal = 0
-    if has(r"(iphone|phone case|手机壳|保护壳|case|power bank|speaker|litter|boxer)"):
+    if scraped_data.get("title"):
         product_identity_signal += 12
     if scraped_data.get("category"):
         product_identity_signal += 8
@@ -1316,6 +1328,7 @@ async def _analyze_single_asin_with_scraped(
         scoring_data = {
             "scores": scores,
             "analysis": combined_data.get("analysis", {}),
+            "competitor_business_analysis": combined_data.get("competitor_business_analysis", {}),
             "overall_summary": combined_data.get("overall_summary", ""),
             "improvement_suggestions": combined_data.get("improvement_suggestions", []),
         }
@@ -1695,16 +1708,6 @@ async def analyze_asin(
         asin = request.asin.strip().upper()
         if not asin or len(asin) != 10:
             raise HTTPException(status_code=400, detail="请输入有效的10位ASIN")
-
-        if not request.force_refresh:
-            scope_user_ids = await get_user_scope_ids(current_user, db)
-            cached = await _get_cached_asin_analysis(asin, request.marketplace, db, scope_user_ids)
-            if cached:
-                if not cached.amazon_compliance:
-                    cached.amazon_compliance = await _evaluate_asin_compliance(cached.product_data, cached.marketplace, db)
-                    cached.analysis_report["amazon_compliance"] = cached.amazon_compliance
-                cached = await _attach_asin_opc_v5_execution(cached, str(current_user.id), db, "asin_analysis")
-                return cached
 
         result = await _analyze_single_asin(
             asin=asin,
@@ -2144,7 +2147,7 @@ ASIN: {asin}
     "business": "一句话证据判断",
     "risk_trend": "一句话证据判断"
   }},
-  "suggestions": ["下一步动作1", "下一步动作2", "下一步动作3"],
+  "suggestions": ["动作1", "动作2", "动作3"],
   "one_sentence_reason": "一句话结论，必须说明主要证据和主要风险"
 }}"""
 

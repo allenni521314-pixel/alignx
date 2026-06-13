@@ -78,11 +78,11 @@ class UnifiedAIClient:
     def _resolve_text_api_key(self) -> str:
         if self._is_dashscope_text():
             return (
-                os.getenv("DASHSCOPE_API_KEY")
+                os.getenv("VISION_API_KEY")
+                or os.getenv("DASHSCOPE_API_KEY")
                 or os.getenv("QWEN_API_KEY")
                 or os.getenv("OPENAI_API_KEY")
                 or os.getenv("APP_AI_KEY")
-                or os.getenv("VISION_API_KEY")
                 or ""
             ).strip()
         return (

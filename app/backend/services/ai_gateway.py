@@ -103,6 +103,11 @@ class AgentLearningUpdate(BaseModel):
 class AgentDecisionResult(BaseModel):
     score: int = Field(..., ge=0, le=100)
     confidence: ConfidenceLevel
+    fact_layer: list[str] = Field(default_factory=list)
+    semantic_layer: list[str] = Field(default_factory=list)
+    reasoning_layer: list[str] = Field(default_factory=list)
+    decision_layer: list[str] = Field(default_factory=list)
+    validation_suggestions: list[str] = Field(default_factory=list)
     problems: list[AgentProblem]
     actions: list[AgentAction]
     next_step: AgentNextStep
@@ -227,30 +232,51 @@ class AIGatewayService:
             "listing_diagnosis_agent": "你是 AlignX Listing 诊断 Agent，定位上线后不转化的表达错配原因。",
             "competitor_agent": "你是 AlignX 竞品诊断 Agent，用同一套标准比较 Top 竞品与本品差距。",
             "ad_validation_agent": "你是 AlignX 广告验证 Agent，用广告数据验证诊断假设是否成立。",
-            "review_optimization_agent": "你是 AlignX 复盘优化 Agent，把执行结果回流为下一轮动作。",
+            "review_optimization_agent": "你是 AlignX 复盘优化 Agent，把执行结果沉淀为下一轮动作。",
         }
         return roles[agent]
 
     def _system_prompt(self, agent: AgentKey) -> str:
-        return (
-            f"{self._agent_role_prompt(agent)}\n"
-            "你必须基于标准化输入、可解释依据、广告验证和反馈回流做判断。\n"
-            "不要输出空泛营销建议。每个问题都要说明依据来源、影响、优先级和验证方法。\n"
-            "输出必须是一个JSON对象，且只能使用以下字段：\n"
-            "{\n"
-            '  "score": 0-100的整数,\n'
-            '  "confidence": "low" | "medium" | "high",\n'
-            '  "problems": [{"title": "问题", "evidence": "依据", "impact": "影响", "priority": "P0" | "P1" | "P2"}],\n'
-            '  "actions": [{"title": "动作", "target_module": "模块", "reason": "原因", "validation": "验证方式"}],\n'
-            '  "next_step": {"module": "下一模块", "path": "前端路径", "reason": "原因"},\n'
-            '  "risk_level": "low" | "medium" | "high",\n'
-            '  "evidence_sources": [{"source_type": "来源类型", "source_ref": "表/记录/字段", "evidence_tier": "market_feedback|buyer_voice|listing_facts|semantic_reasoning|model_inference", "confidence": "low|medium|high", "summary": "证据摘要"}],\n'
-            '  "validation_hypotheses": [{"hypothesis_id": "hypothesis-1", "hypothesis": "要验证的判断", "metric_rule": "命中/失败规则", "observation_window": "观察周期", "required_sample": "最小样本要求"}],\n'
-            '  "learning_update": {"can_enter_learning_memory": false, "hit_status": "待验证|已命中|未命中", "miss_reason": "失败原因", "reusable_learning": "可复用经验", "next_round_action": "下一轮动作"},\n'
-            '  "blocked_by": ["缺失或阻塞原因"]\n'
-            "}\n"
-            "不要输出 diagnosis、suggestions、summary 等额外顶层字段。"
+        lines = [
+            f"{self._agent_role_prompt(agent)}",
+            "你必须基于标准化输入、可解释依据、广告验证和反馈回流做判断。",
+            "不要输出空泛营销建议。每个问题都要说明依据来源、影响、优先级和验证方法。",
+        ]
+        if agent == "selection_agent":
+            lines.append("选品关键词和ASIN分析必须按事实层、语义层、推理层、决策层、验证建议输出。")
+        lines.extend(
+            [
+                "输出必须是一个JSON对象，且只能使用以下字段：",
+                "{",
+                '  "score": 0-100的整数,',
+                '  "confidence": "low" | "medium" | "high",',
+            ]
         )
+        if agent == "selection_agent":
+            lines.extend(
+                [
+                    '  "fact_layer": ["事实层：市场真实数据"],',
+                    '  "semantic_layer": ["语义层：这意味着什么"],',
+                    '  "reasoning_layer": ["推理层：机会在哪"],',
+                    '  "decision_layer": ["决策层：选品师的建议"],',
+                    '  "validation_suggestions": ["验证建议"],',
+                ]
+            )
+        lines.extend(
+            [
+                '  "problems": [{"title": "问题", "evidence": "依据", "impact": "影响", "priority": "P0" | "P1" | "P2"}],',
+                '  "actions": [{"title": "动作", "target_module": "模块", "reason": "原因", "validation": "验证方式"}],',
+                '  "next_step": {"module": "下一模块", "path": "前端路径", "reason": "原因"},',
+                '  "risk_level": "low" | "medium" | "high",',
+                '  "evidence_sources": [{"source_type": "来源类型", "source_ref": "表/记录/字段", "evidence_tier": "market_feedback|buyer_voice|listing_facts|semantic_reasoning|model_inference", "confidence": "low|medium|high", "summary": "证据摘要"}],',
+                '  "validation_hypotheses": [{"hypothesis_id": "hypothesis-1", "hypothesis": "要验证的判断", "metric_rule": "命中/失败规则", "observation_window": "观察周期", "required_sample": "最小样本要求"}],',
+                '  "learning_update": {"can_enter_learning_memory": false, "hit_status": "待验证|已命中|未命中", "miss_reason": "失败原因", "reusable_learning": "可复用经验", "next_round_action": "下一轮动作"},',
+                '  "blocked_by": ["缺失或阻塞原因"]',
+                "}",
+                "不要输出 diagnosis、suggestions、summary 等额外顶层字段。",
+            ]
+        )
+        return "\n".join(lines)
 
     @staticmethod
     def _safe_priority(value: Any) -> PriorityLevel:
@@ -284,6 +310,16 @@ class AIGatewayService:
         if "低" in text or "low" in text:
             return "low"
         return "medium"
+
+    @staticmethod
+    def _safe_string_list(value: Any) -> list[str]:
+        if isinstance(value, list):
+            return [str(item).strip() for item in value if str(item).strip()]
+        if isinstance(value, dict):
+            return [str(item).strip() for item in value.values() if str(item).strip()]
+        if str(value or "").strip():
+            return [str(value).strip()]
+        return []
 
     def _normalize_agent_result(self, raw: dict[str, Any]) -> AgentDecisionResult:
         """Normalize OpenAI-compatible JSON output into the AlignX contract."""
@@ -378,6 +414,37 @@ class AIGatewayService:
                 )
             )
 
+        fact_layer = self._safe_string_list(
+            raw.get("fact_layer")
+            or raw.get("facts_layer")
+            or raw.get("market_facts")
+            or raw.get("事实层")
+        )
+        semantic_layer = self._safe_string_list(
+            raw.get("semantic_layer")
+            or raw.get("semantic_meaning")
+            or raw.get("meaning_layer")
+            or raw.get("语义层")
+        )
+        reasoning_layer = self._safe_string_list(
+            raw.get("reasoning_layer")
+            or raw.get("opportunity_reasoning")
+            or raw.get("opportunity_layer")
+            or raw.get("推理层")
+        )
+        decision_layer = self._safe_string_list(
+            raw.get("decision_layer")
+            or raw.get("selection_advice")
+            or raw.get("advice_layer")
+            or raw.get("决策层")
+        )
+        validation_suggestions = self._safe_string_list(
+            raw.get("validation_suggestions")
+            or raw.get("validation_advice")
+            or raw.get("next_validation")
+            or raw.get("验证建议")
+        )
+
         raw_hypotheses = raw.get("validation_hypotheses") or raw.get("hypotheses") or raw.get("tests") or []
         if isinstance(raw_hypotheses, dict):
             raw_hypotheses = [raw_hypotheses]
@@ -429,11 +496,16 @@ class AIGatewayService:
         return AgentDecisionResult(
             score=score_int,
             confidence=self._safe_confidence(raw.get("confidence")),
+            fact_layer=fact_layer,
+            semantic_layer=semantic_layer,
+            reasoning_layer=reasoning_layer,
+            decision_layer=decision_layer,
+            validation_suggestions=validation_suggestions,
             problems=problems,
             actions=actions,
             next_step=AgentNextStep(
                 module=str(raw_next.get("module") or raw_next.get("target_module") or "广告投放"),
-                path=str(raw_next.get("path") or "/ad-analytics?view=ab-test-plan"),
+                path=str(raw_next.get("path") or "/ad-analytics?view=validation"),
                 reason=str(raw_next.get("reason") or "进入广告验证，用真实流量验证诊断假设。"),
             ),
             risk_level=self._safe_risk(raw.get("risk_level") or raw.get("risk")),
@@ -441,6 +513,49 @@ class AIGatewayService:
             validation_hypotheses=validation_hypotheses,
             learning_update=learning_update,
             blocked_by=list(dict.fromkeys(blocked_by)),
+        )
+
+    def _unparsed_agent_result(self, content: str, exc: Exception) -> AgentDecisionResult:
+        snippet = (content or "").strip()
+        if len(snippet) > 240:
+            snippet = snippet[:240]
+        return self._normalize_agent_result(
+            {
+                "score": 0,
+                "confidence": "low",
+                "risk_level": "high",
+                "problems": [
+                    {
+                        "title": "AI输出结构未完整",
+                        "evidence": f"{exc.__class__.__name__}: {str(exc)[:160]}",
+                        "impact": "本次结果不能作为高置信判断。",
+                        "priority": "P0",
+                    }
+                ],
+                "actions": [
+                    {
+                        "title": "重新运行AI分析",
+                        "target_module": "AI Gateway",
+                        "reason": "模型返回内容未形成完整JSON对象。",
+                        "validation": "重新运行后检查返回结构是否完整。",
+                    }
+                ],
+                "next_step": {
+                    "module": "AI Gateway",
+                    "path": "/settings",
+                    "reason": "需要确认模型输出结构。",
+                },
+                "evidence_sources": [
+                    {
+                        "source_type": "ai_raw_output",
+                        "source_ref": "ai_gateway.response.content",
+                        "evidence_tier": "model_inference",
+                        "confidence": "low",
+                        "summary": snippet or "暂无",
+                    }
+                ],
+                "blocked_by": ["AI输出结构未完整"],
+            }
         )
 
     def dry_run(self, request: AgentRequest) -> AgentResponse:
@@ -455,6 +570,11 @@ class AIGatewayService:
                 score=72,
                 confidence="medium",
                 risk_level="medium",
+                fact_layer=[],
+                semantic_layer=[],
+                reasoning_layer=[],
+                decision_layer=[],
+                validation_suggestions=[],
                 problems=[
                     AgentProblem(
                         title="Listing 核心承诺与买家高频需求未完全对齐",
@@ -473,8 +593,8 @@ class AIGatewayService:
                 ],
                 next_step=AgentNextStep(
                     module="广告投放",
-                    path="/ad-analytics?view=ab-test-plan",
-                    reason="当前诊断应进入 A/B 测试计划，用真实流量验证假设。",
+                    path="/ad-analytics?view=validation",
+                    reason="当前诊断应进入广告验证，用真实流量验证假设。",
                 ),
                 evidence_sources=[
                     AgentEvidenceSource(
@@ -533,12 +653,31 @@ class AIGatewayService:
                 messages=messages,
                 model=model,
                 temperature=0.2,
+                max_tokens=2200,
                 response_format_json=True,
             )
             content = response.content or "{}"
             usage = response.usage
 
-            raw_result = json.loads(content or "{}")
+            try:
+                raw_result = json.loads(content or "{}")
+            except json.JSONDecodeError as exc:
+                result = self._unparsed_agent_result(content, exc)
+                await record_ai_usage(
+                    provider=self.provider,
+                    model=model,
+                    module=f"ai_gateway.{request.agent}",
+                    endpoint="chat/completions",
+                    usage=usage,
+                )
+                return AgentResponse(
+                    agent=request.agent,
+                    provider=self.provider,
+                    model=model,
+                    mode="live",
+                    result=result,
+                    usage=usage,
+                )
             if not isinstance(raw_result, dict):
                 raw_result = {"problems": [{"title": str(raw_result)}]}
             result = self._normalize_agent_result(raw_result)

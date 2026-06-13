@@ -129,7 +129,7 @@ async def probe_ai_models() -> dict[str, Any]:
         api_key = (os.getenv("EMBEDDING_API_KEY") or siliconflow_key).strip()
         base_url = (os.getenv("EMBEDDING_BASE_URL") or os.getenv("SILICONFLOW_BASE_URL") or "").strip().rstrip("/")
         if not embedding_model or not api_key or not base_url:
-            raise RuntimeError("Embedding model/base_url/api_key not configured")
+            return "disabled"
         client = AsyncOpenAI(api_key=api_key, base_url=base_url, timeout=30, http_client=httpx.AsyncClient(trust_env=False))
         response = await client.embeddings.create(model=embedding_model, input=["AlignX semantic probe"])
         dim = len(response.data[0].embedding) if response.data else 0
@@ -139,15 +139,15 @@ async def probe_ai_models() -> dict[str, Any]:
         api_key = (os.getenv("RERANK_API_KEY") or siliconflow_key).strip()
         base_url = (os.getenv("RERANK_BASE_URL") or os.getenv("SILICONFLOW_BASE_URL") or "").strip().rstrip("/")
         if not rerank_model or not api_key or not base_url:
-            raise RuntimeError("Rerank model/base_url/api_key not configured")
+            return "disabled"
         async with httpx.AsyncClient(timeout=30, trust_env=False) as client:
             response = await client.post(
                 f"{base_url}/rerank",
                 headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
                 json={
                     "model": rerank_model,
-                    "query": "cat litter odor control",
-                    "documents": ["cat litter box deodorizer", "wireless phone case"],
+                    "query": "test query",
+                    "documents": ["test document one", "test document two"],
                     "top_n": 2,
                 },
             )
