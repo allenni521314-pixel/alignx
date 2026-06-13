@@ -6,7 +6,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     HOST=0.0.0.0 \
     HERMES_HOME=/data/.hermes \
     HERMES_TUI_TOOLSETS=browser \
-    AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium
+    AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium \
+    AGENT_BROWSER_ARGS=--no-sandbox,--disable-dev-shm-usage,--disable-gpu,--disable-extensions,--disable-background-networking,--disable-background-timer-throttling,--disable-renderer-backgrounding,--blink-settings=imagesEnabled=false
 
 WORKDIR /app
 
