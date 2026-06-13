@@ -49,15 +49,40 @@ services:
       - key: AI_VISION_MODEL
         value: qwen3-vl-plus
       - key: HERMES_AGENT_URL
-        value: http://127.0.0.1:9120
+        value: https://alignxagent-hermes.onrender.com
       - key: HERMES_AGENT_TIMEOUT
         value: "900"
+  - type: web
+    name: alignxagent-hermes
+    env: docker
+    rootDir: app/hermes
+    plan: starter
+    healthCheckPath: /api/status
+    disk:
+      name: alignxagent-hermes-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: ENVIRONMENT
+        value: prod
+      - key: HOST
+        value: 0.0.0.0
+      - key: PORT
+        value: 9120
       - key: HERMES_TUI_TOOLSETS
         value: browser
-      - key: HERMES_MODEL_BASE_URL
-        value: https://dashscope.aliyuncs.com/compatible-mode/v1
+      - key: HERMES_HOME
+        value: /data/.hermes
+      - key: HERMES_MODEL_PROVIDER
+        value: deepseek
       - key: HERMES_MODEL_NAME
-        value: qwen3-32b
+        value: deepseek-v4-pro
+      - key: HERMES_MODEL_API_KEY
+        sync: false
+      - key: DEEPSEEK_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
       - key: BROWSERBASE_API_KEY
         sync: false
       - key: BROWSERBASE_PROJECT_ID

@@ -9,15 +9,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends build-essential curl nodejs npm \
+    && apt-get install -y --no-install-recommends build-essential curl \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
-
-RUN python -m venv /opt/hermes-venv \
-    && /opt/hermes-venv/bin/pip install --no-cache-dir "hermes-agent[web]" \
-    && npm install -g agent-browser
 
 COPY . .
 RUN chmod +x ./start.sh
