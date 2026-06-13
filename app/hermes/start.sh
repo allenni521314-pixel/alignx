@@ -51,7 +51,6 @@ custom_providers:
 toolsets:
   - browser
 browser:
-  cloud_provider: browserbase
   auto_local_for_private_urls: false
 agent:
   max_turns: 80
@@ -66,7 +65,6 @@ model:
 toolsets:
   - browser
 browser:
-  cloud_provider: browserbase
   auto_local_for_private_urls: false
 agent:
   max_turns: 80

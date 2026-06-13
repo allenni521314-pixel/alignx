@@ -14,7 +14,8 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 RUN pip install --no-cache-dir "hermes-agent[web]" \
-    && npm install -g agent-browser
+    && npm install -g agent-browser \
+    && agent-browser install --with-deps
 
 COPY start.sh ./
 RUN chmod +x ./start.sh
