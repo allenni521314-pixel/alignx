@@ -18,12 +18,23 @@ export HERMES_HOME="${HERMES_HOME:-/data/.hermes}"
 export HERMES_AGENT_URL="${HERMES_AGENT_URL:-http://127.0.0.1:9120}"
 mkdir -p "$HERMES_HOME"
 
-if [ ! -f "$HERMES_HOME/config.yaml" ]; then
+AI_PROVIDER_LC="$(printf '%s' "${AI_PROVIDER:-}" | tr '[:upper:]' '[:lower:]')"
+case "${AI_PROVIDER_LC}:${OPENAI_BASE_URL:-}" in
+  *qwen*|*dashscope*)
+    HERMES_MODEL_API_KEY="${HERMES_MODEL_API_KEY:-${VISION_API_KEY:-${DASHSCOPE_API_KEY:-${QWEN_API_KEY:-${OPENAI_API_KEY:-${APP_AI_KEY:-}}}}}}"
+    ;;
+  *)
+    HERMES_MODEL_API_KEY="${HERMES_MODEL_API_KEY:-${OPENAI_API_KEY:-${APP_AI_KEY:-${DASHSCOPE_API_KEY:-${QWEN_API_KEY:-${VISION_API_KEY:-}}}}}}"
+    ;;
+esac
+
+if [ "${HERMES_MANAGED_CONFIG:-true}" != "false" ]; then
   cat > "$HERMES_HOME/config.yaml" <<EOF
 model:
   provider: custom
   base_url: "${OPENAI_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}"
   default: "${AI_DEFAULT_MODEL:-qwen3-32b}"
+  api_key: "${HERMES_MODEL_API_KEY:-}"
 browser:
   cloud_provider: browserbase
 EOF
