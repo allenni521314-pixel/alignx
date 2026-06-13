@@ -51,6 +51,7 @@ custom_providers:
 toolsets:
   - browser
 browser:
+  cloud_provider: browserbase
   auto_local_for_private_urls: false
   command_timeout: 120
   inactivity_timeout: 240
@@ -67,6 +68,7 @@ model:
 toolsets:
   - browser
 browser:
+  cloud_provider: browserbase
   auto_local_for_private_urls: false
   command_timeout: 120
   inactivity_timeout: 240
