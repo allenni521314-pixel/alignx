@@ -55,9 +55,9 @@ services:
       - key: HERMES_TUI_TOOLSETS
         value: browser
       - key: HERMES_MODEL_BASE_URL
-        value: https://api.deepseek.com
+        value: https://dashscope.aliyuncs.com/compatible-mode/v1
       - key: HERMES_MODEL_NAME
-        value: deepseek-v4-flash
+        value: qwen3-32b
       - key: BROWSERBASE_API_KEY
         sync: false
       - key: BROWSERBASE_PROJECT_ID

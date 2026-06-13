@@ -255,7 +255,9 @@ class LocalHermesClient:
         data = extract_json_object(result.text)
         if data is None:
             logger.info("Local Hermes returned non-json text: %s", result.text[:500])
-            raise LocalHermesError("Hermes服务未返回结构化JSON")
+            preview = re.sub(r"\s+", " ", (result.text or "").strip())[:500]
+            detail = f"Hermes服务未返回结构化JSON：{preview}" if preview else "Hermes服务未返回结构化JSON"
+            raise LocalHermesError(detail)
         data.setdefault("_hermes_usage", result.usage or {})
         data.setdefault("_hermes_session_id", result.stored_session_id or result.session_id)
         return data
