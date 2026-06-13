@@ -2033,6 +2033,13 @@ function DataSourceBadge({ source }: { source?: string; confidence?: string }) {
       </span>
     );
   }
+  if (source === "hermes_browserbase") {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-500/15 text-emerald-600 border border-emerald-500/20">
+        <Globe className="w-3 h-3" /> Hermes Browserbase采集
+      </span>
+    );
+  }
   if (source === "local_browser_capture") {
     return (
       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-500/15 text-emerald-600 border border-emerald-500/20">
@@ -2123,8 +2130,8 @@ function SingleResultView({
   const dataSource = result.data_source || (pd as Record<string, unknown>)._data_source as string || "unknown";
   const incompleteSnapshot = isIncompleteSavedResult(result);
   const effectiveDataSource = incompleteSnapshot ? "incomplete_saved_snapshot" : dataSource;
-  const isScraped = !incompleteSnapshot && (dataSource === "amazon_scrape" || dataSource === "amazon_scrape_httpx" || dataSource === "amazon_scrape_browser" || dataSource === "server_proxy_fetch" || dataSource === "local_browser_capture" || dataSource === "browser_proxy");
-  const dataConfidence = (pd as Record<string, unknown>).data_confidence as string || (dataSource === "local_browser_capture" ? "high" : isScraped ? "medium" : "low");
+  const isScraped = !incompleteSnapshot && (dataSource === "hermes_browserbase" || dataSource === "amazon_scrape" || dataSource === "amazon_scrape_httpx" || dataSource === "amazon_scrape_browser" || dataSource === "server_proxy_fetch" || dataSource === "local_browser_capture" || dataSource === "browser_proxy");
+  const dataConfidence = (pd as Record<string, unknown>).data_confidence as string || (dataSource === "hermes_browserbase" || dataSource === "local_browser_capture" ? "high" : isScraped ? "medium" : "low");
   const analysisMode = String((report as Record<string, unknown> | undefined)?.analysis_mode || "");
   const fallbackReason = String((report as Record<string, unknown> | undefined)?.fallback_reason || "");
   const isRuleFallback = analysisMode === "rule_fallback" || Boolean(fallbackReason);
@@ -2145,7 +2152,7 @@ function SingleResultView({
           <div>
             <p className="text-sm font-medium text-emerald-600">数据来源：Amazon真实页面数据</p>
             <p className="text-xs text-emerald-600/70 mt-0.5">
-              产品数据来自{dataSource === "local_browser_capture" ? "本地浏览器页面采集" : "服务器页面采集"}，评分会按数据完整度降低或提高置信。
+              产品数据来自{dataSource === "hermes_browserbase" ? "Hermes Browserbase采集" : dataSource === "local_browser_capture" ? "本地浏览器页面采集" : "服务器页面采集"}，评分会按数据完整度降低或提高置信。
             </p>
           </div>
         </div>

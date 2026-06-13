@@ -21,7 +21,7 @@ from dependencies.auth import get_current_user, get_user_scope_ids
 from schemas.auth import UserResponse
 from services.aihub import AIHubService
 from services.amazon_rules_engine import evaluate_amazon_compliance, load_active_rules
-from services.amazon_scraper import scrape_amazon_product
+from services.hermes_amazon_capture import scrape_amazon_product_via_hermes
 from services.amazon_skill_toolbox import (
     build_review_intent_assets,
     build_toolbox_enhancements,
@@ -1493,8 +1493,8 @@ async def _analyze_single_asin(
 ) -> AnalyzeAsinResponse:
     """Analyze a single ASIN through scrape-first, AI fallback-second pipeline."""
 
-    # Step 1: Try to scrape real product data from Amazon
-    scraped_data = await scrape_amazon_product(asin, marketplace)
+    # Step 1: Public deployment must let Hermes use Browserbase to capture Amazon.
+    scraped_data = await scrape_amazon_product_via_hermes(asin, marketplace)
 
     if not scraped_data.get("scrape_success"):
         logger.warning(f"Scraping failed for {asin}; using low-confidence AI fallback")
@@ -1514,85 +1514,11 @@ async def proxy_fetch_amazon(
     request: ProxyFetchRequest,
     current_user: UserResponse = Depends(get_current_user),
 ):
-    """Fetch Amazon product page HTML via our backend server.
-
-    This replaces public CORS proxies — the backend fetches the page
-    using the same scraping infrastructure (httpx / curl-cffi) and
-    returns raw HTML to the frontend for parse-html-analyze.
-    """
-    try:
-        asin = request.asin.strip().upper()
-        if not asin or len(asin) != 10:
-            return ProxyFetchResponse(success=False, error="无效的ASIN")
-
-        from services.amazon_scraper import (
-            MARKETPLACE_DOMAINS,
-            ACCEPT_LANG,
-            _DESKTOP_UAS,
-            _build_desktop_headers,
-            _is_captcha_page,
-        )
-        import random
-
-        domain = MARKETPLACE_DOMAINS.get(request.marketplace, "www.amazon.com")
-        url = f"https://{domain}/dp/{asin}"
-        lang = ACCEPT_LANG.get(request.marketplace, "en-US,en;q=0.9")
-
-        html = ""
-
-        # Strategy 1: curl-cffi
-        try:
-            from curl_cffi.requests import AsyncSession as CurlSession
-            impersonate = random.choice(["chrome131", "chrome124", "chrome120", "chrome"])
-            async with CurlSession(impersonate=impersonate) as session:
-                headers = _build_desktop_headers(lang)
-                try:
-                    await session.get(f"https://{domain}/", headers=headers, timeout=10)
-                except Exception:
-                    pass
-                import asyncio
-                await asyncio.sleep(random.uniform(0.3, 0.8))
-                resp = await session.get(url, headers=headers, timeout=20)
-                if resp.status_code == 200 and len(resp.text) > 5000:
-                    html = resp.text
-        except Exception as e:
-            logger.info(f"proxy-fetch curl-cffi failed for {asin}: {e}")
-
-        # Strategy 2: httpx fallback
-        if not html or len(html) < 5000:
-            try:
-                import httpx
-                ua = random.choice(_DESKTOP_UAS)
-                headers = {
-                    "User-Agent": ua,
-                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                    "Accept-Language": lang,
-                    "Accept-Encoding": "gzip, deflate, br",
-                    "Cache-Control": "max-age=0",
-                    "Upgrade-Insecure-Requests": "1",
-                }
-                async with httpx.AsyncClient(follow_redirects=True, timeout=httpx.Timeout(25.0, connect=10.0)) as client:
-                    try:
-                        await client.get(f"https://{domain}/", headers=headers)
-                    except Exception:
-                        pass
-                    resp = await client.get(url, headers=headers)
-                    if resp.status_code == 200 and len(resp.text) > 5000:
-                        html = resp.text
-            except Exception as e:
-                logger.info(f"proxy-fetch httpx failed for {asin}: {e}")
-
-        if not html or len(html) < 5000:
-            return ProxyFetchResponse(success=False, error="无法获取Amazon页面，请稍后重试")
-
-        if _is_captcha_page(html):
-            return ProxyFetchResponse(success=False, error="Amazon返回了验证码页面，请稍后重试")
-
-        return ProxyFetchResponse(success=True, html=html)
-
-    except Exception as e:
-        logger.error(f"proxy-fetch error for {request.asin}: {e}")
-        return ProxyFetchResponse(success=False, error=str(e))
+    """Legacy HTML proxy is disabled; Amazon capture must go through Hermes Browserbase."""
+    asin = request.asin.strip().upper()
+    if not asin or len(asin) != 10:
+        return ProxyFetchResponse(success=False, error="无效的ASIN")
+    return ProxyFetchResponse(success=False, error="Amazon采集已切换为Hermes Browserbase链路")
 
 
 @router.post("/parse-html-analyze", response_model=ParseHtmlAnalyzeResponse)

@@ -74,6 +74,7 @@ const isPublicDeployment = () =>
   typeof window !== "undefined" && window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1";
 
 const productFetchSourceLabel = (source?: string) => {
+  if (source === "hermes_browserbase") return "Hermes Browserbase采集";
   if (source === "server_proxy_fetch") return "服务器代理兜底抓取";
   if (source === "local_browser_capture") return "本地浏览器页面采集";
   if (source === "ai_estimated_low_confidence" || source === "低置信度补充分析") return "低置信度补充分析";
@@ -2350,7 +2351,7 @@ export default function AsinManager() {
                           if (e.key === "Enter" && !scraplingLoading)
                             handleScraplingTop40Batch();
                         }}
-                        placeholder="iPhone 16 case"
+                        placeholder="仅输入英文关键词"
                         className="mt-1 bg-gray-50 border-gray-200 text-gray-900"
                       />
                     </div>

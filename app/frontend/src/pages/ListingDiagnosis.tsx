@@ -120,6 +120,7 @@ interface FetchMeta {
 }
 
 const sourceLabel = (source?: string | null) => {
+  if (source === "hermes_browserbase") return "Hermes Browserbase采集";
   if (source === "local_browser_capture") return "本地浏览器页面采集";
   if (source === "server_proxy_fetch") return "服务器页面采集";
   if (source === "manual_paste") return "手动粘贴解析";
@@ -2715,6 +2716,8 @@ export default function ListingDiagnosis() {
       toast.warning("未能获取到该ASIN的产品标题，请手动填写产品信息后再进行诊断", { duration: 6000 });
     } else if (source === "local_browser_capture") {
       toast.success(`🌐 已从本地浏览器页面解析 ASIN: ${data.asin}，完整度 ${data.capture_quality?.completeness ?? "待确认"}%`, { duration: 5000 });
+    } else if (source === "hermes_browserbase") {
+      toast.success(`已采集 ASIN: ${data.asin}，并自动保存`, { duration: 5000 });
     } else if (source === "server_proxy_fetch") {
       toast.success(`已采集 ASIN: ${data.asin}，并自动保存`, { duration: 5000 });
     } else if (source === "manual_paste") {

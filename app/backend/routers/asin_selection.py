@@ -24,7 +24,7 @@ from models.asin_keyword_sales_validation import (
 )
 from models.action_snapshots import ActionSnapshot
 from schemas.auth import UserResponse
-from services.amazon_scraper import scrape_amazon_product
+from services.hermes_amazon_capture import scrape_amazon_product_via_hermes
 from services.amazon_skill_toolbox import build_asin_selection_assist
 from services.ai_gateway import AgentRequest, AIGatewayService
 from services.core_engine_adapter import CoreEngineBusinessAdapter
@@ -124,6 +124,10 @@ def _has_cjk(value: str) -> bool:
 
 
 def _amazon_search_url(keyword: str, marketplace: str) -> str:
+    return f"https://{_amazon_host(marketplace)}/s?k={quote_plus(keyword.strip())}"
+
+
+def _amazon_host(marketplace: str) -> str:
     host = "www.amazon.com"
     if (marketplace or "US").upper() == "UK":
         host = "www.amazon.co.uk"
@@ -131,7 +135,7 @@ def _amazon_search_url(keyword: str, marketplace: str) -> str:
         host = "www.amazon.ca"
     elif (marketplace or "US").upper() == "DE":
         host = "www.amazon.de"
-    return f"https://{host}/s?k={quote_plus(keyword.strip())}"
+    return host
 
 
 def _extract_json_object(text: str) -> dict[str, Any] | None:
@@ -1379,7 +1383,7 @@ async def _generate_validation(request: KeywordSalesValidationRequest, user_id: 
         raise HTTPException(status_code=400, detail="请输入有效的10位ASIN")
     marketplace = (request.marketplace or "US").upper()
     crawl_time = datetime.now(timezone.utc)
-    scraped = await scrape_amazon_product(asin, marketplace)
+    scraped = await scrape_amazon_product_via_hermes(asin, marketplace)
     product = {
         "asin": asin,
         "title": scraped.get("title") or "",
@@ -1571,6 +1575,13 @@ async def top40_market_analysis(
 
 def _build_local_hermes_keyword_prompt(keyword: str, marketplace: str, max_keywords: int) -> str:
     search_url = _amazon_search_url(keyword, marketplace)
+    host = _amazon_host(marketplace)
+    english_site = (marketplace or "US").upper() in {"US", "UK", "CA"}
+    search_instruction = (
+        f"第一步必须先把用户关键词转成美国买家会搜索的英文词，再打开 https://{host}/s?k=<英文搜索词>。不要直接搜索中文词：{keyword}"
+        if english_site and _has_cjk(keyword)
+        else f"第一步必须使用浏览器工具打开这个亚马逊搜索页：{search_url}"
+    )
     schema = {
         "score": "0-100整数；无真实样本时为null",
         "confidence": "low|medium|high",
@@ -1667,7 +1678,7 @@ def _build_local_hermes_keyword_prompt(keyword: str, marketplace: str, max_keywo
             f"最多搜索词数量：{max_keywords}",
             "",
             "任务边界：",
-            f"1. 第一步必须使用浏览器工具打开这个亚马逊搜索页：{search_url}",
+            f"1. {search_instruction}",
             "2. 当前运行环境已经提供 Browserbase/browser_* 浏览器工具；不要回答无法浏览、无法操作浏览器或需要用户提供网页。",
             "3. 必须使用 Hermes 内置 Browserbase/browser_* 浏览器工具打开亚马逊搜索页、滚动、按键、输入、截图视觉读取、必要点击和返回。",
             "4. 禁止使用 execute_code、terminal、curl、HTML解析、API抓取、本地脚本、browser_console。",
@@ -1696,9 +1707,17 @@ def _build_local_hermes_keyword_prompt(keyword: str, marketplace: str, max_keywo
 
 def _build_local_hermes_keyword_retry_prompt(keyword: str, marketplace: str, max_keywords: int) -> str:
     search_url = _amazon_search_url(keyword, marketplace)
+    host = _amazon_host(marketplace)
+    english_site = (marketplace or "US").upper() in {"US", "UK", "CA"}
+    open_instruction = (
+        f"先把用户关键词「{keyword}」转成美国买家英文搜索词，再打开 https://{host}/s?k=<英文搜索词>。不要直接搜索中文词。"
+        if english_site and _has_cjk(keyword)
+        else f"打开 {search_url}。"
+    )
     return "\n".join(
         [
-            f"请使用浏览器工具打开 {search_url}，读取页面标题和前1个可见自然搜索结果。",
+            f"请使用浏览器工具{open_instruction}",
+            "读取亚马逊搜索结果第一页可见商品，最多Top20；至少尽量读取前10个可见商品。",
             "不要先说明你将做什么，不要回答无法浏览；如果页面可见，就直接提取可见文本。",
             "禁止使用 execute_code、terminal、curl、HTML解析、API抓取、本地脚本、文件工具、web_search。",
             "只返回严格JSON对象，不要Markdown，不要解释。",
@@ -1706,8 +1725,19 @@ def _build_local_hermes_keyword_retry_prompt(keyword: str, marketplace: str, max
             json.dumps(
                 {
                     "browser_used": True,
+                    "search_keyword": "实际使用的英文搜索词",
                     "page_title": "页面标题",
-                    "first_result": "第一个自然搜索结果标题",
+                    "items": [
+                        {
+                            "searchRank": 1,
+                            "asin": "ASIN；看不到填暂无",
+                            "title": "商品标题",
+                            "priceText": "价格文本",
+                            "rating": 0,
+                            "reviewCount": 0,
+                            "isSponsored": False,
+                        }
+                    ],
                 },
                 ensure_ascii=False,
             ),

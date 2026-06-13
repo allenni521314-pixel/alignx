@@ -52,6 +52,7 @@ from services.cosmo_vector_mapping import evaluate_cosmo_vector_mapping_async
 from services.canonical_10d_scoring import product_evidence_similarity
 from services.human_nature_model import human_nature_prompt_block
 from services.cosmo_operator_agent import CosmoOperatorAgent
+from services.hermes_amazon_capture import scrape_amazon_product_via_hermes
 
 logger = logging.getLogger(__name__)
 AI_DIAGNOSIS_TIMEOUT_SECONDS = int(os.getenv("AI_DIAGNOSIS_TIMEOUT_SECONDS", "180"))
@@ -2408,10 +2409,8 @@ async def fetch_listing_from_url(
 
         marketplace = _detect_marketplace(url) or request.marketplace
 
-        # ---- Phase 1: Try real Amazon scraping ----
-        from services.amazon_scraper import scrape_amazon_product
-
-        scraped = await scrape_amazon_product(asin, marketplace)
+        # ---- Phase 1: Public deployment delegates Amazon capture to Hermes Browserbase ----
+        scraped = await scrape_amazon_product_via_hermes(asin, marketplace)
         scrape_ok = scraped.get("scrape_success", False)
 
         # Helper to clean markers
@@ -2447,7 +2446,7 @@ async def fetch_listing_from_url(
             return FetchUrlResponse(
                 listing=listing,
                 asin=asin,
-                source="scraped",
+                source=scraped.get("data_source") or "scraped",
                 rating=scraped.get("rating", ""),
                 review_count=scraped.get("review_count", ""),
                 bsr_rank=scraped.get("bsr_rank", ""),
