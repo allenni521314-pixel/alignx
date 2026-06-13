@@ -1168,11 +1168,10 @@ export default function CompetitorAnalysis() {
     return currentProduct?.id && currentProduct.id > 0 ? currentProduct.id : null;
   };
 
-  /* ---- Analysis helpers (no public CORS proxies) ---- */
+  /* ---- Analysis helpers ---- */
 
   /**
-   * Core analysis function. Use the backend's full ASIN analysis endpoint directly,
-   * because public Netlify function proxying can timeout on long Amazon requests.
+   * Core analysis function. Public Amazon capture is delegated to Hermes Browserbase by the backend.
    */
   const analyzeAsinWithProxy = useCallback(async (
     asin: string,
@@ -1180,123 +1179,18 @@ export default function CompetitorAnalysis() {
   ): Promise<AnalysisResult | null> => {
     const apiBase = getLongRunningApiBase();
 
-    {
-      setAnalyzeProgress("服务器正在抓取Amazon页面并生成竞品诊断，通常需要 10-40 秒...");
-      try {
-        const res = await axios.post(
-          `${apiBase}/api/v1/asin-analysis/analyze`,
-          { asin, marketplace: mp, force_refresh: true },
-          { headers: getAuthHeaders(), timeout: 240000 }
-        );
-
-        if (res.data && ("product_title" in res.data || "scores" in res.data)) {
-          const serverDataSource = res.data.data_source || res.data.product_data?._data_source;
-          if (serverDataSource === "ai_estimated" || serverDataSource === "ai_estimated_low_confidence") {
-            toast.warning("未获取到完整页面数据，已生成低置信度预检，建议后续复核。");
-          }
-          const clean = sanitizeAnalysisKeywords(res.data as AnalysisResult);
-          if (!hasUsableScores(clean)) {
-            toast.error("本次诊断没有生成完整评分，请重新分析。");
-            return null;
-          }
-          return clean;
-        }
-
-        toast.error("服务器返回了意外的数据格式，请重试");
-        return null;
-      } catch (err) {
-        if (axios.isAxiosError(err)) {
-          if (err.response?.status === 422) {
-            const detail = err.response?.data?.detail || "";
-            toast.error(typeof detail === "string" ? detail : "请求参数错误");
-            return null;
-          }
-          if (err.code === "ECONNABORTED" || err.message?.includes("timeout")) {
-            toast.error("分析超过240秒，请稍后重试。Amazon页面抓取或诊断生成可能较慢。");
-            return null;
-          }
-          if (!err.response) {
-            toast.error("网络连接失败，请检查网络后重试");
-            return null;
-          }
-          const serverMsg = err.response?.data?.detail || err.response?.data?.error || `服务器错误 (${err.response?.status})`;
-          toast.error(typeof serverMsg === "string" ? serverMsg : "服务器内部错误，请稍后重试");
-          return null;
-        }
-
-        toast.error("分析过程中发生未知错误，请重试");
-        return null;
-      }
-    }
-
-    /* ---- Phase 1: Backend proxy-fetch → parse-html-analyze ---- */
-    try {
-      setAnalyzeProgress("正在采集Amazon页面，通常需要20-60秒...");
-
-      const proxyRes = await axios.post(
-        "/api/v1/asin-analysis/proxy-fetch",
-        { asin, marketplace: mp },
-        { headers: getAuthHeaders(), timeout: 75000 }
-      );
-
-      if (proxyRes.data?.success && proxyRes.data?.html) {
-        const html = proxyRes.data.html;
-        setAnalyzeProgress("已获取到页面证据，正在生成竞品诊断...");
-
-        try {
-          const res = await axios.post(
-            "/api/v1/asin-analysis/parse-html-analyze",
-            { asin, marketplace: mp, html, source: "server_proxy_fetch" },
-            { headers: getAuthHeaders(), timeout: 180000 }
-          );
-          const data = res.data;
-
-          const parsedResult = sanitizeAnalysisKeywords({
-            asin: data?.asin,
-            marketplace: mp,
-            product_title: data?.product_title,
-            product_data: data?.product_data,
-            scores: data?.scores,
-            analysis_report: data?.analysis_report,
-            data_source: data?.data_source || "server_proxy_fetch",
-            id: data?.id,
-          } as AnalysisResult);
-
-          if (data?.success && hasUsableScores(parsedResult)) {
-            return sanitizeAnalysisKeywords({
-              asin: data.asin,
-              marketplace: mp,
-              product_title: data.product_title,
-              product_data: data.product_data,
-              scores: data.scores,
-              analysis_report: data.analysis_report,
-              data_source: data.data_source || "server_proxy_fetch",
-              id: data.id,
-            } as AnalysisResult);
-          }
-        } catch (parseErr) {
-          void parseErr;
-        }
-      } else {
-        void proxyRes;
-      }
-    } catch (phase1Err) {
-      void phase1Err;
-    }
-
-    /* ---- Phase 2: Server-side /analyze (full scraping + diagnosis) ---- */
-    setAnalyzeProgress("正在补充页面证据并生成保守诊断，最长约180秒...");
+    setAnalyzeProgress("Hermes Browserbase正在打开Amazon页面并生成竞品诊断，通常需要 20-90 秒...");
     try {
       const res = await axios.post(
         `${apiBase}/api/v1/asin-analysis/analyze`,
-        { asin, marketplace: mp },
-        { headers: getAuthHeaders(), timeout: 180000 }
+        { asin, marketplace: mp, force_refresh: true },
+        { headers: getAuthHeaders(), timeout: 600000 }
       );
 
       if (res.data && ("product_title" in res.data || "scores" in res.data)) {
         const serverDataSource = res.data.data_source || res.data.product_data?._data_source;
         if (serverDataSource === "ai_estimated" || serverDataSource === "ai_estimated_low_confidence") {
-          toast.warning("未获取到完整页面数据，已生成低置信度预检，建议后续复核。");
+          toast.warning("Hermes未获取到完整页面数据，已生成低置信度预检。");
         }
         const clean = sanitizeAnalysisKeywords(res.data as AnalysisResult);
         if (!hasUsableScores(clean)) {
@@ -1306,10 +1200,9 @@ export default function CompetitorAnalysis() {
         return clean;
       }
 
-      toast.error("服务器返回了意外的数据格式，请重试");
+      toast.error("返回了意外的数据格式，请重试");
       return null;
     } catch (err) {
-
       if (axios.isAxiosError(err)) {
         if (err.response?.status === 422) {
           const detail = err.response?.data?.detail || "";
@@ -1317,15 +1210,15 @@ export default function CompetitorAnalysis() {
           return null;
         }
         if (err.code === "ECONNABORTED" || err.message?.includes("timeout")) {
-          toast.error("分析超过180秒，请稍后重试。Amazon页面抓取或诊断生成可能较慢。");
+          toast.error("Hermes Browserbase分析超时，请稍后重试。");
           return null;
         }
         if (!err.response) {
           toast.error("网络连接失败，请检查网络后重试");
           return null;
         }
-        const serverMsg = err.response?.data?.detail || err.response?.data?.error || `服务器错误 (${err.response?.status})`;
-        toast.error(typeof serverMsg === "string" ? serverMsg : "服务器内部错误，请稍后重试");
+        const serverMsg = err.response?.data?.detail || err.response?.data?.error || `请求错误 (${err.response?.status})`;
+        toast.error(typeof serverMsg === "string" ? serverMsg : "分析失败，请稍后重试");
         return null;
       }
 
@@ -1481,7 +1374,7 @@ export default function CompetitorAnalysis() {
       moduleKey: "competitor-analysis",
       label: `竞品诊断 ${asin}`,
       status: "running",
-      detail: "正在抓取页面并生成竞品诊断",
+      detail: "Hermes Browserbase正在生成竞品诊断",
       path: "/competitor-analysis?tab=overview",
     });
 
@@ -1497,10 +1390,10 @@ export default function CompetitorAnalysis() {
         }
         setSingleResult(cleanResult);
         const source = cleanResult.data_source;
-        if (source === "server_proxy_fetch") {
-          toast.success("已完成页面采集并生成分析");
-        } else if (source === "local_browser_capture") {
+        if (source === "local_browser_capture") {
           toast.success("已用本地浏览器页面采集完成分析");
+        } else if (source === "hermes_browserbase" || source === "server_proxy_fetch" || source === "browser_proxy") {
+          toast.success("Hermes Browserbase分析完成");
         } else if (source === "amazon_scrape" || source === "amazon_scrape_httpx" || source === "amazon_scrape_browser") {
           toast.success("已从Amazon页面采集数据并完成分析");
         } else {
@@ -2049,8 +1942,8 @@ function DataSourceBadge({ source }: { source?: string; confidence?: string }) {
   }
   if (source === "server_proxy_fetch" || source === "browser_proxy") {
     return (
-      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-blue-500/15 text-blue-700 border border-blue-500/20">
-        <Globe className="w-3 h-3" /> 服务器采集
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-500/15 text-emerald-600 border border-emerald-500/20">
+        <Globe className="w-3 h-3" /> Hermes Browserbase采集
       </span>
     );
   }
@@ -2152,7 +2045,7 @@ function SingleResultView({
           <div>
             <p className="text-sm font-medium text-emerald-600">数据来源：Amazon真实页面数据</p>
             <p className="text-xs text-emerald-600/70 mt-0.5">
-              产品数据来自{dataSource === "hermes_browserbase" ? "Hermes Browserbase采集" : dataSource === "local_browser_capture" ? "本地浏览器页面采集" : "服务器页面采集"}，评分会按数据完整度降低或提高置信。
+              产品数据来自{dataSource === "local_browser_capture" ? "本地浏览器页面采集" : "Hermes Browserbase采集"}，评分会按数据完整度降低或提高置信。
             </p>
           </div>
         </div>

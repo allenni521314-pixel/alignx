@@ -122,10 +122,10 @@ interface FetchMeta {
 const sourceLabel = (source?: string | null) => {
   if (source === "hermes_browserbase") return "Hermes Browserbase采集";
   if (source === "local_browser_capture") return "本地浏览器页面采集";
-  if (source === "server_proxy_fetch") return "服务器页面采集";
+  if (source === "server_proxy_fetch") return "Hermes Browserbase采集";
   if (source === "manual_paste") return "手动粘贴解析";
   if (source === "ai_estimated" || source === "ai_estimated_low_confidence") return "低置信度预检";
-  if (source?.includes("scrape") || source === "scraped") return "服务器页面采集";
+  if (source?.includes("scrape") || source === "scraped") return "Hermes Browserbase采集";
   if (source === "ai_search") return "搜索验证";
   return source || "未知来源";
 };
@@ -2770,7 +2770,7 @@ export default function ListingDiagnosis() {
       const amazonUrl = `https://${domain}/dp/${asin}`;
 
       if (isPublicDeployment()) {
-        setFetchProgress("公网服务器正在抓取Amazon页面并生成Listing诊断，通常需要 10-40 秒");
+        setFetchProgress("Hermes Browserbase正在打开Amazon页面并生成Listing诊断");
         setFetchProgressValue(48);
         try {
           const apiBase = getLongRunningApiBase();
@@ -2781,10 +2781,10 @@ export default function ListingDiagnosis() {
           );
           const data = res.data;
           if (data?.listing?.title && data.listing.title.length >= 3) {
-            setFetchProgress("已抓取 Listing，正在生成诊断报告");
+            setFetchProgress("Hermes Browserbase已返回Listing，正在生成诊断报告");
             setFetchProgressValue(88);
             const applied = applyFetchResult(data);
-            logScrapeAttempt(asin, detectedMp, "server_scrape", true, data.source || "server_scrape");
+            logScrapeAttempt(asin, detectedMp, "hermes_browserbase", true, data.source || "hermes_browserbase");
             if (applied?.listing.title) {
               await handleDiagnose(applied.listing, applied.meta);
             }
@@ -2793,75 +2793,28 @@ export default function ListingDiagnosis() {
 
           setDiagnosisPhase("fetch_failed");
           setShowAdvancedEditor(false);
-          logScrapeAttempt(asin, detectedMp, "server_scrape", false, data?.source || "failed", "No valid title returned");
-          toast.error("服务器没有返回有效标题，请检查ASIN或稍后重试");
+          logScrapeAttempt(asin, detectedMp, "hermes_browserbase", false, data?.source || "failed", "No valid title returned");
+          toast.error("Hermes Browserbase没有返回有效标题，请检查ASIN或稍后重试");
           return;
         } catch (publicErr) {
           const errMsg = axios.isAxiosError(publicErr)
             ? publicErr.response?.data?.detail || publicErr.message || "unknown"
             : "unknown";
-          logScrapeAttempt(asin, detectedMp, "server_scrape", false, "failed", errMsg);
+          logScrapeAttempt(asin, detectedMp, "hermes_browserbase", false, "failed", errMsg);
           setDiagnosisPhase("fetch_failed");
           setShowAdvancedEditor(false);
-          toast.error("公网服务器抓取失败，请稍后重试");
+          toast.error("Hermes Browserbase采集失败，请稍后重试");
           return;
         }
       }
 
-      // ---- Phase 1: Backend proxy-fetch → get HTML → send to /parse-html ----
-      setFetchProgress("正在尝试采集Amazon页面，若受限会自动切换备用方式");
-      setFetchProgressValue(12);
-      let phase1Success = false;
-
-      try {
-        const proxyRes = await axios.post(
-          "/api/v1/asin-analysis/proxy-fetch",
-          { asin, marketplace: detectedMp },
-          { headers: getAuthHeaders(), timeout: 30000 }
-        );
-
-        if (proxyRes.data?.success && proxyRes.data?.html) {
-          const html = proxyRes.data.html;
-          setFetchProgress("Phase 2/3：已获取页面 HTML，正在解析 Listing 字段");
-          setFetchProgressValue(48);
-          try {
-            const parseRes = await axios.post(
-              "/api/v1/listing-diagnosis/parse-html",
-              { html, marketplace: detectedMp, asin, source: "server_proxy_fetch" },
-              { headers: getAuthHeaders(), timeout: 60000 }
-            );
-            if (parseRes.data.success && parseRes.data.listing?.title) {
-              const applied = applyFetchResult(parseRes.data);
-              phase1Success = true;
-              logScrapeAttempt(asin, detectedMp, "server_proxy_fetch", true, "server_proxy_fetch");
-              if (applied?.listing.title) {
-                setFetchProgress("Phase 3/3：已抓取 Listing，正在生成诊断报告");
-                setFetchProgressValue(88);
-                await handleDiagnose(applied.listing, applied.meta);
-              }
-            }
-          } catch {
-            // Parse failed, continue to Phase 2
-          }
-        }
-        if (!phase1Success) {
-          logScrapeAttempt(asin, detectedMp, "server_proxy_fetch", false, "failed", "Server proxy HTML invalid or parse failed");
-        }
-      } catch {
-        // Server proxy failed entirely, continue to Phase 2
-        logScrapeAttempt(asin, detectedMp, "server_proxy_fetch", false, "failed", "Server proxy request failed");
-      }
-
-      if (phase1Success) return;
-
-      // ---- Phase 2: Same Amazon retrieval stack, then this page runs its own reverse diagnosis rules ----
-      setFetchProgress("页面采集受限，正在补充搜索验证");
+      setFetchProgress("Hermes Browserbase正在打开Amazon页面并生成Listing诊断");
       setFetchProgressValue(68);
       try {
         const res = await axios.post(
-          "/api/v1/listing-diagnosis/fetch-url",
+          `${getLongRunningApiBase()}/api/v1/listing-diagnosis/fetch-url`,
           { url: amazonUrl, marketplace: detectedMp },
-          { headers: getAuthHeaders(), timeout: 180000 }
+          { headers: getAuthHeaders(), timeout: 600000 }
         );
         const data = res.data;
 
@@ -2871,13 +2824,13 @@ export default function ListingDiagnosis() {
           // Keep AI-estimated data low-confidence; it only feeds the reverse diagnosis after user-visible confirmation.
           if (source === "ai_estimated" || source === "ai_empty") {
             setFetchSource(source);
-            logScrapeAttempt(asin, detectedMp, "server_scrape", false, source, source === "ai_empty" ? "No data found" : "low confidence only");
+            logScrapeAttempt(asin, detectedMp, "hermes_browserbase", false, source, source === "ai_empty" ? "No data found" : "low confidence only");
             if (source === "ai_empty") {
               setDiagnosisPhase("fetch_failed");
               setShowAdvancedEditor(false);
               toast.error("无法获取该ASIN的产品数据，请检查ASIN或稍后重试。");
             } else {
-              toast.warning("服务器返回了低置信度预检数据，建议后续用完整采集结果复核。");
+              toast.warning("Hermes返回了低置信度预检数据。");
               const applied = applyFetchResult(data);
               if (applied?.listing.title) {
                 await handleDiagnose(applied.listing, applied.meta);
@@ -2888,10 +2841,10 @@ export default function ListingDiagnosis() {
 
           // Real scraped data - apply it
           if (data.listing.title && data.listing.title.length >= 3) {
-            setFetchProgress("Phase 3/3：已抓取 Listing，正在生成诊断报告");
+            setFetchProgress("Hermes Browserbase已返回Listing，正在生成诊断报告");
             setFetchProgressValue(88);
             const applied = applyFetchResult(data);
-            logScrapeAttempt(asin, detectedMp, "server_scrape", true, source);
+            logScrapeAttempt(asin, detectedMp, "hermes_browserbase", true, source);
             if (applied?.listing.title) {
               await handleDiagnose(applied.listing, applied.meta);
             }
@@ -2903,19 +2856,19 @@ export default function ListingDiagnosis() {
         setDiagnosisPhase("fetch_failed");
         setShowAdvancedEditor(false);
         toast.error("无法获取该ASIN的产品信息，请检查ASIN或稍后重试");
-        logScrapeAttempt(asin, detectedMp, "server_scrape", false, "failed", "No valid title returned");
+        logScrapeAttempt(asin, detectedMp, "hermes_browserbase", false, "failed", "No valid title returned");
       } catch (serverErr) {
         const errMsg = axios.isAxiosError(serverErr)
           ? (serverErr.code === "ECONNABORTED" ? "timeout" : serverErr.response?.data?.detail || serverErr.message || "unknown")
           : "unknown";
-        logScrapeAttempt(asin, detectedMp, "server_scrape", false, "failed", errMsg);
+        logScrapeAttempt(asin, detectedMp, "hermes_browserbase", false, "failed", errMsg);
         if (axios.isAxiosError(serverErr)) {
           if (serverErr.code === "ECONNABORTED" || serverErr.message?.includes("timeout")) {
-            toast.error("服务器抓取或诊断生成超过180秒，请稍后重试");
+            toast.error("Hermes Browserbase采集或诊断生成超时，请稍后重试");
           } else if (serverErr.response?.status === 400) {
             toast.error(serverErr.response?.data?.detail || "请求参数错误");
           } else {
-            toast.error("服务器抓取失败，请稍后重试");
+            toast.error("Hermes Browserbase采集失败，请稍后重试");
           }
         } else {
           toast.error("抓取失败，请稍后重试");
@@ -4039,7 +3992,7 @@ export default function ListingDiagnosis() {
                       <ClipboardPaste className="w-4 h-4 text-brand-600" />
                       手动补页面内容
                     </CardTitle>
-                    <p className="text-xs text-gray-500">仅在服务器抓取字段缺失时使用，解析后仍按同一套完整性规则判断。</p>
+                    <p className="text-xs text-gray-500">仅在采集字段缺失时使用，解析后仍按同一套完整性规则判断。</p>
                   </CardHeader>
                   <CardContent className="space-y-4">
                     <Textarea
@@ -4577,8 +4530,7 @@ export default function ListingDiagnosis() {
                               <div key={method} className="flex items-center gap-3">
                                 <span className="text-xs text-gray-500 w-28 truncate">{
                                   method === "local_browser_capture" ? "🌐 本地浏览器" :
-                                  method === "server_proxy_fetch" || method === "cors_proxy" || method === "backend_proxy" || method === "browser_proxy" ? "🛰️ 服务器代理" :
-                                  method === "server_scrape" ? "🔍 服务器抓取" :
+                                  method === "hermes_browserbase" || method === "server_proxy_fetch" || method === "cors_proxy" || method === "backend_proxy" || method === "browser_proxy" || method === "server_scrape" ? "Hermes Browserbase" :
                                   method === "manual_paste" ? "📋 手动粘贴" : method
                                 }</span>
                                 <div className="flex-1 h-2 bg-gray-50 rounded-full overflow-hidden">
@@ -4608,8 +4560,7 @@ export default function ListingDiagnosis() {
                                 <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 border-gray-200 text-gray-500">{log.marketplace}</Badge>
                                 <span className="text-gray-500 truncate flex-1">{
                                   log.scrape_method === "local_browser_capture" ? "本地浏览器" :
-                                  log.scrape_method === "server_proxy_fetch" || log.scrape_method === "cors_proxy" || log.scrape_method === "backend_proxy" || log.scrape_method === "browser_proxy" ? "服务器代理" :
-                                  log.scrape_method === "server_scrape" ? "服务器抓取" :
+                                  log.scrape_method === "hermes_browserbase" || log.scrape_method === "server_proxy_fetch" || log.scrape_method === "cors_proxy" || log.scrape_method === "backend_proxy" || log.scrape_method === "browser_proxy" || log.scrape_method === "server_scrape" ? "Hermes Browserbase" :
                                   log.scrape_method === "manual_paste" ? "手动粘贴" : log.scrape_method
                                 }</span>
                                 {log.error_message && (

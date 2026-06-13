@@ -75,10 +75,10 @@ const isPublicDeployment = () =>
 
 const productFetchSourceLabel = (source?: string) => {
   if (source === "hermes_browserbase") return "Hermes Browserbase采集";
-  if (source === "server_proxy_fetch") return "服务器代理兜底抓取";
+  if (source === "server_proxy_fetch") return "Hermes Browserbase采集";
   if (source === "local_browser_capture") return "本地浏览器页面采集";
   if (source === "ai_estimated_low_confidence" || source === "低置信度补充分析") return "低置信度补充分析";
-  if (source?.includes("scrape") || source === "scraped") return "服务器真实抓取";
+  if (source?.includes("scrape") || source === "scraped") return "Hermes Browserbase采集";
   return "商品信息提取";
 };
 
@@ -1429,7 +1429,7 @@ export default function AsinManager() {
       moduleKey: "asin-manager",
       label: `ASIN抓取分析 ${asin}`,
       status: "running",
-      detail: "后台正在抓取Amazon页面并生成选品判断",
+      detail: "Hermes Browserbase正在生成选品判断",
       path: "/asin-manager",
     });
     let task = taskRes.data;
@@ -1461,14 +1461,14 @@ export default function AsinManager() {
     };
   };
 
-  /* ---- Smart fetch: Server proxy → Server scrape → AI (three phases) ---- */
+  /* ---- Smart fetch ---- */
   const smartFetchAsin = async (
     asin: string,
     marketplace: string,
     context: Partial<Omit<ActiveAsinTaskContext, "taskId" | "moduleTaskId" | "asin" | "marketplace" | "startedAt">> = {}
   ): Promise<AsinFetchResult> => {
     if (isPublicDeployment()) {
-      setAutoImportMessage("正在提取商品信息并生成分析结果，通常需要 10-40 秒");
+      setAutoImportMessage("Hermes Browserbase正在提取商品信息并生成分析结果");
       setAutoImportProgress(35);
       try {
         const serverResult = await fetchAsinViaAI(asin, marketplace, context);
@@ -1477,7 +1477,7 @@ export default function AsinManager() {
       } catch (e: unknown) {
         const msg = axios.isAxiosError(e)
           ? e.code === "ECONNABORTED"
-            ? "公网服务器分析超时，请稍后重试。"
+            ? "Hermes Browserbase分析超时，请稍后重试。"
             : e.response?.data?.detail || "商品分析失败"
           : e instanceof Error
             ? e.message
@@ -1486,62 +1486,7 @@ export default function AsinManager() {
       }
     }
 
-    // Phase 1: backend proxy fetch. True local-browser capture is handled by
-    // Listing diagnosis manual HTML capture; this source stays medium-confidence.
-    setAutoImportMessage("正在提取Amazon商品页面信息，通常需要 20-30 秒");
-    setAutoImportProgress(22);
-    try {
-      const proxyRes = await axios.post(
-        "/api/v1/asin-analysis/proxy-fetch",
-        { asin, marketplace },
-        { headers: getAuthHeaders(), timeout: 75000 }
-      );
-      if (proxyRes.data?.success && proxyRes.data?.html) {
-        const html = proxyRes.data.html;
-        try {
-          const parseRes = await axios.post(
-            "/api/v1/asin-analysis/parse-html-analyze",
-            { asin, marketplace, html, source: "server_proxy_fetch" },
-            { headers: getAuthHeaders(), timeout: 120000 }
-          );
-          const d = parseRes.data;
-          if (d?.success && d.product_data) {
-            const pd = d.product_data || {};
-            setAutoImportProgress(100);
-            return {
-              status: "success",
-              data: {
-                asin: d.asin || asin,
-                title: pd.title || d.product_title || "",
-                bullet_points: Array.isArray(pd.bullet_points)
-                  ? pd.bullet_points.join("\n")
-                  : pd.bullet_points || "",
-                a_plus_content: pd.description_summary || "",
-                search_keywords: Array.isArray(pd.main_keywords)
-                  ? pd.main_keywords.join(", ")
-                  : pd.main_keywords || "",
-                price: parseFloat(String(pd.price).replace(/[^0-9.]/g, "")) || 0,
-                review_count:
-                  parseInt(String(pd.review_count).replace(/[^0-9]/g, "")) || 0,
-                rating: parseFloat(String(pd.rating)) || 0,
-                category: pd.category || "",
-              },
-              source: "商品页面提取",
-            };
-          }
-        } catch {
-          // fall through
-        }
-      }
-    } catch (e: unknown) {
-      if (axios.isAxiosError(e) && e.code === "ECONNABORTED") {
-        toast.warning("当前ASIN分析耗时较长，系统已切换到补充分析模式。");
-      }
-      // fall through
-    }
-
-    // Phase 2 + 3: Backend server scrape first, then AI fallback when real data is unavailable.
-    setAutoImportMessage("正在补充商品信息并生成低置信度标记");
+    setAutoImportMessage("Hermes Browserbase正在提取商品信息并生成分析结果");
     setAutoImportProgress(62);
     try {
       const aiResult = await fetchAsinViaAI(asin, marketplace, context);
@@ -1550,7 +1495,7 @@ export default function AsinManager() {
     } catch (e: unknown) {
       const msg = axios.isAxiosError(e)
         ? e.code === "ECONNABORTED"
-          ? "分析超过180秒，请稍后重试；如果连续失败，说明Amazon页面抓取或模型响应过慢。"
+          ? "分析超过180秒，请稍后重试。"
           : e.response?.data?.detail || "AI分析失败"
         : e instanceof Error
           ? e.message

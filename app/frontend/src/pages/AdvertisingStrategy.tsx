@@ -9,11 +9,8 @@ import { useRequireAuth } from "@/hooks/useRequireAuth";
 import { useLocation } from "react-router-dom";
 import {
   Activity,
-  ArrowRight,
   BarChart3,
-  CheckCircle2,
   Gauge,
-  Info,
   Megaphone,
   Route,
   Target,
@@ -154,26 +151,6 @@ const defaultStrategy: AdvertisingStrategySchema = {
 };
 
 const validationGoals = ["需求验证", "卖点验证", "Listing验证", "ROI验证"];
-
-const strategyNavItems = [
-  ["当前广告状态", "current-ad-status"],
-  ["推荐广告路径", "recommended-ad-path"],
-  ["广告矩阵", "campaign-matrix"],
-  ["广告位策略", "placement-strategy"],
-  ["竞价策略", "bid-strategy"],
-  ["预算分配", "budget-allocation"],
-  ["验证目标", "validation-goal"],
-  ["最佳动作", "next-best-action"],
-];
-
-const loopSteps = ["测试计划", "广告策略", "执行记录", "效果验证"];
-
-const operationGoalSteps = [
-  ["输入", "产品阶段、产品类型、预算等级、广告验证结果"],
-  ["判断", "广告路径、广告矩阵、广告位、竞价、预算分配"],
-  ["输出", "验证目标、最大浪费点、最佳动作、预计结果"],
-  ["动作", "进入执行记录"],
-];
 
 function Section({
   title,
@@ -404,34 +381,6 @@ export default function AdvertisingStrategy() {
           </div>
 
           <Card className="mb-4 border-gray-200 bg-white p-4 shadow-sm">
-            <div className="flex gap-3">
-              <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-brand-100 bg-brand-50">
-                <Info className="h-4 w-4 text-brand-700" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-xs font-semibold text-gray-400">运营目标</p>
-                <p className="mt-1 text-base font-bold text-gray-950 sm:text-lg">
-                  定位广告投放优先级，避免无效广告承接
-                </p>
-                <div className="mt-4 border-t border-gray-100 pt-3">
-                  <div className="flex flex-wrap gap-2">
-                    {operationGoalSteps.map(([label, value]) => (
-                      <div
-                        key={label}
-                        className="inline-flex max-w-full items-center gap-2 rounded-full bg-gray-50 px-3 py-2 text-xs font-semibold text-gray-500"
-                      >
-                        <ArrowRight className="h-3.5 w-3.5 shrink-0 text-gray-300" />
-                        <span className="shrink-0 text-gray-400">{label}</span>
-                        <span className="truncate text-gray-600">{value}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </Card>
-
-          <Card className="mb-4 border-gray-200 bg-white p-4 shadow-sm">
             <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_1fr_1fr_auto_auto] md:items-end">
               <SelectField
                 label="产品阶段"
@@ -503,21 +452,6 @@ export default function AdvertisingStrategy() {
               <span className="text-xs font-medium text-gray-400">
                 {upstreamSnapshot?.created_at || "暂无"}
               </span>
-            </div>
-          </Card>
-
-          <Card className="mb-4 border-gray-200 bg-white p-2 shadow-sm">
-            <div className="flex items-center gap-2 overflow-x-auto">
-              <span className="shrink-0 px-2 text-xs font-semibold text-gray-500">运营策略导航</span>
-              {strategyNavItems.map(([label, target]) => (
-                <a
-                  key={target}
-                  href={`#${target}`}
-                  className="shrink-0 rounded-md px-3 py-2 text-xs font-semibold text-gray-600 hover:bg-brand-50 hover:text-brand-700"
-                >
-                  {label}
-                </a>
-              ))}
             </div>
           </Card>
 
@@ -604,40 +538,6 @@ export default function AdvertisingStrategy() {
               </div>
             </Section>
           </div>
-
-          <Card className="mt-4 border-gray-200 bg-white p-4 shadow-sm">
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-              <div className="flex flex-wrap items-center gap-1.5">
-                {loopSteps.map((step, index) => {
-                  const done = index < 1;
-                  const active = step === "广告策略";
-                  return (
-                    <div key={step} className="flex items-center gap-1.5">
-                      <span
-                        className={`inline-flex h-7 items-center gap-1 rounded-full border px-2.5 text-xs font-semibold ${
-                          active
-                            ? "border-brand-200 bg-brand-700 text-white"
-                            : done
-                              ? "border-emerald-100 bg-emerald-50 text-emerald-700"
-                              : "border-gray-200 bg-white text-gray-500"
-                        }`}
-                      >
-                        {done && <CheckCircle2 className="h-3.5 w-3.5" />}
-                        {step}
-                      </span>
-                      {index < loopSteps.length - 1 && <ArrowRight className="h-3.5 w-3.5 text-gray-300" />}
-                    </div>
-                  );
-                })}
-              </div>
-              <Button asChild className="h-10 bg-brand-700 px-5 text-sm font-semibold text-white hover:bg-brand-800">
-                <a href="/ad-analytics?view=records">
-                  进入执行记录
-                  <ArrowRight className="ml-1 h-4 w-4" />
-                </a>
-              </Button>
-            </div>
-          </Card>
         </div>
       </main>
     </div>
