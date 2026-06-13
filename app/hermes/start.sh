@@ -33,6 +33,40 @@ if [ "$HERMES_MODEL_PROVIDER" = "deepseek" ] && [ -n "$HERMES_MODEL_API_KEY" ] &
   export DEEPSEEK_API_KEY="$HERMES_MODEL_API_KEY"
 fi
 
+has_nous_gateway_auth() {
+  if [ -n "${TOOL_GATEWAY_USER_TOKEN:-}" ]; then
+    return 0
+  fi
+  if [ -f "$HERMES_HOME/auth.json" ] && grep -q '"nous"' "$HERMES_HOME/auth.json"; then
+    return 0
+  fi
+  return 1
+}
+
+write_runtime_config() {
+  {
+    echo "toolsets:"
+    echo "  - browser"
+    echo "browser:"
+    if [ -n "${BROWSERBASE_API_KEY:-}" ] && [ -n "${BROWSERBASE_PROJECT_ID:-}" ]; then
+      echo "  cloud_provider: browserbase"
+    elif has_nous_gateway_auth; then
+      echo "  cloud_provider: browser-use"
+    fi
+    echo "  auto_local_for_private_urls: false"
+    echo "  command_timeout: 120"
+    echo "  inactivity_timeout: 240"
+    if [ -z "${BROWSERBASE_API_KEY:-}" ] || [ -z "${BROWSERBASE_PROJECT_ID:-}" ]; then
+      if has_nous_gateway_auth; then
+        echo "tool_gateway:"
+        echo "  browser: gateway"
+      fi
+    fi
+    echo "agent:"
+    echo "  max_turns: 80"
+  } >> "$HERMES_HOME/config.yaml"
+}
+
 if [ "${HERMES_MANAGED_CONFIG:-true}" != "false" ]; then
   if [ "$HERMES_MODEL_PROVIDER" = "custom" ]; then
     cat > "$HERMES_HOME/config.yaml" <<EOF
@@ -48,16 +82,8 @@ custom_providers:
     api_key: "${HERMES_MODEL_API_KEY:-}"
     api_mode: "${HERMES_AI_API_MODE}"
     model: "${HERMES_MODEL_NAME}"
-toolsets:
-  - browser
-browser:
-  cloud_provider: browserbase
-  auto_local_for_private_urls: false
-  command_timeout: 120
-  inactivity_timeout: 240
-agent:
-  max_turns: 80
 EOF
+    write_runtime_config
   else
     cat > "$HERMES_HOME/config.yaml" <<EOF
 model:
@@ -65,16 +91,8 @@ model:
   base_url: "${HERMES_MODEL_BASE_URL}"
   default: "${HERMES_MODEL_NAME}"
   api_key: "${HERMES_MODEL_API_KEY:-}"
-toolsets:
-  - browser
-browser:
-  cloud_provider: browserbase
-  auto_local_for_private_urls: false
-  command_timeout: 120
-  inactivity_timeout: 240
-agent:
-  max_turns: 80
 EOF
+    write_runtime_config
   fi
 fi
 
