@@ -48,6 +48,8 @@ custom_providers:
     api_key: "${HERMES_MODEL_API_KEY:-}"
     api_mode: "${HERMES_AI_API_MODE}"
     model: "${HERMES_MODEL_NAME}"
+toolsets:
+  - browser
 browser:
   cloud_provider: browserbase
   auto_local_for_private_urls: false
@@ -61,6 +63,8 @@ model:
   base_url: "${HERMES_MODEL_BASE_URL}"
   default: "${HERMES_MODEL_NAME}"
   api_key: "${HERMES_MODEL_API_KEY:-}"
+toolsets:
+  - browser
 browser:
   cloud_provider: browserbase
   auto_local_for_private_urls: false
