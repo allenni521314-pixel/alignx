@@ -1667,7 +1667,7 @@ def _build_local_hermes_keyword_prompt(keyword: str, marketplace: str, max_keywo
             f"最多搜索词数量：{max_keywords}",
             "",
             "任务边界：",
-            f"1. 第一步必须调用 browser_navigate 打开这个亚马逊搜索页：{search_url}",
+            f"1. 第一步必须使用浏览器工具打开这个亚马逊搜索页：{search_url}",
             "2. 当前运行环境已经提供 Browserbase/browser_* 浏览器工具；不要回答无法浏览、无法操作浏览器或需要用户提供网页。",
             "3. 必须使用 Hermes 内置 Browserbase/browser_* 浏览器工具打开亚马逊搜索页、滚动、按键、输入、截图视觉读取、必要点击和返回。",
             "4. 禁止使用 execute_code、terminal、curl、HTML解析、API抓取、本地脚本、browser_console。",
@@ -1696,67 +1696,112 @@ def _build_local_hermes_keyword_prompt(keyword: str, marketplace: str, max_keywo
 
 def _build_local_hermes_keyword_retry_prompt(keyword: str, marketplace: str, max_keywords: int) -> str:
     search_url = _amazon_search_url(keyword, marketplace)
-    schema = {
-        "score": "0-100整数；无真实样本时为null",
-        "confidence": "low|medium|high",
-        "risk_level": "low|medium|high|待录入",
-        "sample_status": "sufficient|insufficient",
+    return "\n".join(
+        [
+            f"请使用浏览器工具打开 {search_url}，读取页面标题和前1个可见自然搜索结果。",
+            "不要先说明你将做什么，不要回答无法浏览；如果页面可见，就直接提取可见文本。",
+            "禁止使用 execute_code、terminal、curl、HTML解析、API抓取、本地脚本、文件工具、web_search。",
+            "只返回严格JSON对象，不要Markdown，不要解释。",
+            "输出JSON Schema：",
+            json.dumps(
+                {
+                    "browser_used": True,
+                    "page_title": "页面标题",
+                    "first_result": "第一个自然搜索结果标题",
+                },
+                ensure_ascii=False,
+            ),
+        ]
+    )
+
+
+def _browser_extract_to_hermes_keyword_result(raw: dict[str, Any], keyword: str, marketplace: str) -> dict[str, Any]:
+    rows = raw.get("items") or raw.get("results") or []
+    if not isinstance(rows, list):
+        rows = []
+    items: list[dict[str, Any]] = []
+    for index, row in enumerate(rows[:20], start=1):
+        if not isinstance(row, dict):
+            continue
+        title = str(row.get("title") or row.get("name") or "").strip()
+        if not title:
+            continue
+        items.append(
+            {
+                "searchRank": int(_num(row.get("searchRank")) or index),
+                "asin": str(row.get("asin") or "暂无"),
+                "title": title,
+                "price": _num(row.get("price")) or _num(row.get("priceText")) or 0,
+                "priceText": str(row.get("priceText") or "暂无"),
+                "rating": _num(row.get("rating")) or 0,
+                "reviewCount": int(_num(row.get("reviewCount")) or 0),
+                "isSponsored": bool(row.get("isSponsored") or row.get("sponsored")),
+                "source": "浏览器截图",
+                "route": str(row.get("route") or "暂无"),
+                "weakness": str(row.get("weakness") or "暂无"),
+                "complaintSignal": str(row.get("complaintSignal") or "暂无"),
+            }
+        )
+    if not items and raw.get("first_result"):
+        items.append(
+            {
+                "searchRank": 1,
+                "asin": "暂无",
+                "title": str(raw.get("first_result")),
+                "price": 0,
+                "priceText": "暂无",
+                "rating": 0,
+                "reviewCount": 0,
+                "isSponsored": False,
+                "source": "浏览器截图",
+                "route": "暂无",
+                "weakness": "暂无",
+                "complaintSignal": "暂无",
+            }
+        )
+    item_count = len(items)
+    status = "sufficient" if item_count >= 10 else "insufficient"
+    return {
+        "score": None if item_count <= 0 else 50,
+        "confidence": "medium" if item_count else "low",
+        "risk_level": "待录入",
+        "sample_status": status,
+        "fact_layer": [f"浏览器读取到{item_count}个可见搜索结果。"],
+        "semantic_layer": [],
+        "reasoning_layer": [],
+        "decision_layer": [],
+        "validation_suggestions": [],
         "keyword_six_dimension": {
-            "success": True,
-            "total_score": "0-100整数；无真实样本时为null",
+            "success": item_count > 0,
+            "total_score": None if item_count <= 0 else 50,
             "dimension_scores": {},
+            "detail_scores": {},
             "analysis": {},
-            "decision": "可验证|需补证|暂缓|待补样本",
+            "decision": "需补证" if item_count else "待补样本",
+            "sample_status": status,
         },
         "selection_decision_points": [],
         "market_research": {
             "keyword": keyword,
             "marketplace": marketplace,
             "research_keywords": [{"keyword": keyword, "source": "用户输入"}],
-            "source_steps": [{"step": "打开亚马逊搜索页", "status": "completed|partial|blocked", "source": "亚马逊搜索页", "count": 0}],
+            "source_steps": [{"step": "打开亚马逊搜索页", "status": "completed" if item_count else "blocked", "source": "亚马逊搜索页", "count": item_count}],
             "lanes": [
                 {
                     "keyword": keyword,
                     "source": "浏览器截图",
-                    "status": "ok|partial|blocked",
-                    "items": [
-                        {
-                            "searchRank": 1,
-                            "asin": "看不到则填暂无",
-                            "title": "标题",
-                            "price": 0,
-                            "priceText": "价格文本",
-                            "rating": 0,
-                            "reviewCount": 0,
-                            "isSponsored": False,
-                            "source": "浏览器截图",
-                            "route": "产品/技术路线",
-                            "weakness": "竞品弱点",
-                            "complaintSignal": "差评痛点",
-                        }
-                    ],
-                    "analysis": {"headline": "判断", "summary": {}},
+                    "status": "ok" if item_count else "blocked",
+                    "items": items,
+                    "analysis": {"headline": "待录入", "summary": {"totalListings": item_count}},
                 }
             ],
-            "route_summary": [],
+            "route_summary": _build_route_summary(items),
             "complaint_insights": [],
             "competitor_weaknesses": [],
-            "item_count": 0,
+            "item_count": item_count,
             "data_source": "亚马逊搜索页 / 浏览器截图",
         },
     }
-    return "\n".join(
-        [
-            "使用当前可用的 Browserbase/browser 工具完成任务。",
-            f"第一步调用 browser_navigate 打开：{search_url}",
-            "读取页面标题和前10个可见自然/广告搜索结果；如果只看到部分结果，就按可见结果返回。",
-            "不要回答无法浏览；如果页面可见，就直接提取可见文本。",
-            "禁止使用 execute_code、terminal、curl、HTML解析、API抓取、本地脚本、文件工具。",
-            "只返回一个JSON对象，不要Markdown，不要解释。",
-            "输出JSON Schema：",
-            json.dumps(schema, ensure_ascii=False),
-        ]
-    )
 
 
 def _hermes_keyword_item_count(result: dict[str, Any]) -> int:
@@ -2418,13 +2463,17 @@ async def _execute_direct_hermes_keyword_research(
     on_event: Any = None,
 ) -> dict[str, Any]:
     prompt = _build_local_hermes_keyword_prompt(keyword, marketplace, max_keywords)
-    raw_result = await LocalHermesClient().run_json(
-        prompt,
-        title=f"AlignX 舒老师关键词选品 {keyword} {datetime.now().strftime('%Y%m%d%H%M%S')}",
-        cwd=os.getcwd(),
-        on_event=on_event,
-    )
-    hermes_result = _normalize_local_hermes_keyword_result(raw_result, keyword, marketplace)
+    hermes_result: dict[str, Any] = {}
+    try:
+        raw_result = await LocalHermesClient().run_json(
+            prompt,
+            title=f"AlignX 舒老师关键词选品 {keyword} {datetime.now().strftime('%Y%m%d%H%M%S')}",
+            cwd=os.getcwd(),
+            on_event=on_event,
+        )
+        hermes_result = _normalize_local_hermes_keyword_result(raw_result, keyword, marketplace)
+    except LocalHermesError as exc:
+        logger.info("Hermes keyword primary prompt fell back to browser retry for %s: %s", keyword, exc)
     if _hermes_keyword_item_count(hermes_result) <= 0:
         retry_prompt = _build_local_hermes_keyword_retry_prompt(keyword, marketplace, max_keywords)
         raw_result = await LocalHermesClient().run_json(
@@ -2433,7 +2482,14 @@ async def _execute_direct_hermes_keyword_research(
             cwd=os.getcwd(),
             on_event=on_event,
         )
-        hermes_result = _normalize_local_hermes_keyword_result(raw_result, keyword, marketplace)
+        if isinstance(raw_result.get("market_research"), dict):
+            hermes_result = _normalize_local_hermes_keyword_result(raw_result, keyword, marketplace)
+        else:
+            hermes_result = _normalize_local_hermes_keyword_result(
+                _browser_extract_to_hermes_keyword_result(raw_result, keyword, marketplace),
+                keyword,
+                marketplace,
+            )
     return _build_hermes_keyword_response(keyword, marketplace, hermes_result)
 
 
