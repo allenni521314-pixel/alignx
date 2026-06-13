@@ -32,9 +32,10 @@ def _clean_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     seen: set[str] = set()
     for item in sorted(items, key=lambda row: int(row.get("searchRank") or 999)):
         asin = str(item.get("asin") or "").upper()
-        if not asin or asin in seen:
+        row_key = asin or str(item.get("sourceId") or f"rank:{item.get('searchRank')}")
+        if row_key in seen:
             continue
-        seen.add(asin)
+        seen.add(row_key)
         price = _num(
             item.get("price")
             if item.get("price") is not None
@@ -48,7 +49,7 @@ def _clean_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         rank = int(item.get("searchRank") or len(cleaned) + 1)
         cleaned.append({
             "searchRank": rank,
-            "asin": asin,
+            "asin": asin or "暂无",
             "title": str(item.get("title") or "")[:300],
             "price": price,
             "priceText": str(item.get("priceText") or item.get("searchPriceText") or item.get("price") or ""),

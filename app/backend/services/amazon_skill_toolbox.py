@@ -186,7 +186,7 @@ def build_toolbox_invocation_plan(context: str = "asin") -> dict[str, Any]:
     return {
         "context": context,
         "capability_groups": [PUBLIC_GROUP_LABELS.get(group, group) for group in groups],
-        "public_summary": "系统会按当前业务场景调用对应运营能力，前台只展示诊断结论和下一步动作。",
+        "public_summary": "系统会按当前业务场景调用对应运营能力，前台只展示诊断结论。",
         "internal_skill_ids": deduped_ids,
         "internal_group_count": len(groups),
         "internal_skill_count": len(deduped_ids),
@@ -517,7 +517,7 @@ def build_asin_selection_assist(report: dict[str, Any] | None) -> dict[str, Any]
         })
 
     if score >= 75 and organic_strength >= 70 and ad_risk <= 35:
-        entry_strategy = "可进入下一轮选品验证，优先围绕自然位强词做长尾切入。"
+        entry_strategy = "可进入选品验证，优先围绕自然位强词做长尾切入。"
     elif ad_risk >= 55:
         entry_strategy = "先做小预算广告验证和毛利测算，不建议直接放量。"
     elif score < 55:
@@ -715,7 +715,7 @@ def build_toolbox_enhancements(
     plan = build_toolbox_invocation_plan(context)
 
     result: dict[str, Any] = {
-        "principle": "按当前业务场景调用对应运营能力，前台只展示结论、原因、建议和下一步。",
+        "principle": "按当前业务场景调用对应运营能力，前台只展示结论、原因和建议。",
         "context": context,
         "capability_groups": plan.get("capability_groups", []),
         "public_summary": plan.get("public_summary", ""),
