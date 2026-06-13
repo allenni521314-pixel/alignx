@@ -35,6 +35,13 @@ model:
   base_url: "${OPENAI_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}"
   default: "${AI_DEFAULT_MODEL:-qwen3-32b}"
   api_key: "${HERMES_MODEL_API_KEY:-}"
+  api_mode: "${HERMES_AI_API_MODE:-chat_completions}"
+custom_providers:
+  - name: alignx-ai
+    base_url: "${OPENAI_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}"
+    api_key: "${HERMES_MODEL_API_KEY:-}"
+    api_mode: "${HERMES_AI_API_MODE:-chat_completions}"
+    model: "${AI_DEFAULT_MODEL:-qwen3-32b}"
 browser:
   cloud_provider: browserbase
 EOF
