@@ -54,6 +54,10 @@ services:
         value: "900"
       - key: HERMES_TUI_TOOLSETS
         value: browser
+      - key: HERMES_MODEL_BASE_URL
+        value: https://api.deepseek.com
+      - key: HERMES_MODEL_NAME
+        value: deepseek-v4-flash
       - key: BROWSERBASE_API_KEY
         sync: false
       - key: BROWSERBASE_PROJECT_ID
