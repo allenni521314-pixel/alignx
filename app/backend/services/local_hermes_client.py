@@ -150,7 +150,14 @@ class LocalHermesClient:
         request_id = 1
 
         try:
-            ws = await websockets.connect(ws_url, open_timeout=8, origin=origin, ping_interval=20, ping_timeout=20)
+            ws = await websockets.connect(
+                ws_url,
+                open_timeout=8,
+                origin=origin,
+                ping_interval=20,
+                ping_timeout=20,
+                proxy=None,
+            )
         except (OSError, TimeoutError, WebSocketException) as exc:
             raise LocalHermesError("Hermes服务未启动") from exc
 
