@@ -24,23 +24,27 @@ from models.asin_keyword_sales_validation import (
 )
 from models.action_snapshots import ActionSnapshot
 from schemas.auth import UserResponse
-from services.hermes_amazon_capture import scrape_amazon_product_via_hermes
 from services.amazon_skill_toolbox import build_asin_selection_assist
 from services.ai_gateway import AgentRequest, AIGatewayService
 from services.core_engine_adapter import CoreEngineBusinessAdapter
 from services.cosmo_operator_agent import CosmoOperatorAgent
-from services.local_hermes_client import LocalHermesClient, LocalHermesError
-from services.scrapling_amazon_capture import SCRAPLING_TOP40_RULES, capture_top40_batch
+from services.scrapeless_amazon_capture import (
+    ScrapelessCaptureError,
+    capture_top40_batch_via_scrapeless as capture_top40_batch,
+    scrape_amazon_product_via_scrapeless,
+)
 from services.top40_market_analysis import analyze_top40_market, _rule_analysis
 from services.review_miner import mine_competitor_weaknesses
 
 router = APIRouter(prefix="/api/v1/asin-selection", tags=["asin-selection"])
 logger = logging.getLogger(__name__)
-_HERMES_KEYWORD_RESEARCH_LOCK = asyncio.Lock()
-_HERMES_KEYWORD_TASK_CREATE_LOCK = asyncio.Lock()
-_HERMES_KEYWORD_RESEARCH_ACTIVE_TASK_ID: str | None = None
-_HERMES_KEYWORD_RESEARCH_TASKS: dict[str, dict[str, Any]] = {}
-_HERMES_KEYWORD_ALLOWED_TOOLS = {
+_AMAZON_KEYWORD_RESEARCH_LOCK = asyncio.Lock()
+_AMAZON_KEYWORD_TASK_CREATE_LOCK = asyncio.Lock()
+_AMAZON_KEYWORD_RESEARCH_ACTIVE_TASK_ID: str | None = None
+_AMAZON_KEYWORD_RESEARCH_TASKS: dict[str, dict[str, Any]] = {}
+_AMAZON_KEYWORD_SAMPLE_TARGET = 40
+_AMAZON_KEYWORD_TASK_TIMEOUT_SECONDS = 300
+_AMAZON_KEYWORD_ALLOWED_TOOLS = {
     "browser_back",
     "browser_click",
     "browser_navigate",
@@ -50,7 +54,7 @@ _HERMES_KEYWORD_ALLOWED_TOOLS = {
     "browser_type",
     "browser_vision",
 }
-_HERMES_KEYWORD_FORBIDDEN_TOOLS = {
+_AMAZON_KEYWORD_FORBIDDEN_TOOLS = {
     "execute_code",
     "terminal",
     "read_file",
@@ -61,6 +65,21 @@ _HERMES_KEYWORD_FORBIDDEN_TOOLS = {
     "skills_list",
     "browser_console",
 }
+
+AMAZON_TOP40_RULES = [
+    "Only process a keyword and marketplace explicitly submitted by the user.",
+    "Capture a Top40 search snapshot in four batches: 1-10, 11-20, 21-30, 31-40.",
+    "A single request must read no more than 10 search result rows.",
+    "Do not expand keywords, crawl recommendations, or continue beyond Top40.",
+    "Keep Sponsored listings in rank order and mark isSponsored=true.",
+    "Extract only public listing/search fields visible in the structured Amazon response.",
+    "Do not read account, order, address, payment, or other private user data.",
+    "Return raw structured JSON only; cleaning and market analysis belong to the analysis layer.",
+]
+
+
+class _AmazonKeywordEnoughSamples(ScrapelessCaptureError):
+    pass
 
 
 class KeywordSalesValidationRequest(BaseModel):
@@ -78,7 +97,7 @@ class KeywordRankCrawlRequest(KeywordSalesValidationRequest):
     pass
 
 
-class ScraplingTop40BatchRequest(BaseModel):
+class AmazonTop40BatchRequest(BaseModel):
     keyword: str = Field(..., min_length=2, max_length=120)
     marketplace: str = "US"
     batch_index: int = Field(1, ge=1, le=4)
@@ -91,7 +110,7 @@ class Top40MarketAnalysisRequest(BaseModel):
     items: list[dict[str, Any]] = Field(default_factory=list)
 
 
-class HermesKeywordResearchRequest(BaseModel):
+class AmazonKeywordResearchRequest(BaseModel):
     keyword: str = Field(..., min_length=2, max_length=120)
     marketplace: str = "US"
     max_keywords: int = Field(3, ge=1, le=4)
@@ -128,14 +147,14 @@ def _amazon_search_url(keyword: str, marketplace: str) -> str:
 
 
 def _amazon_host(marketplace: str) -> str:
-    host = "www.amazon.com"
-    if (marketplace or "US").upper() == "UK":
-        host = "www.amazon.co.uk"
-    elif (marketplace or "US").upper() == "CA":
-        host = "www.amazon.ca"
-    elif (marketplace or "US").upper() == "DE":
-        host = "www.amazon.de"
-    return host
+    hosts = {
+        "US": "www.amazon.com",
+        "JP": "www.amazon.co.jp",
+        "UK": "www.amazon.co.uk",
+        "CA": "www.amazon.ca",
+        "DE": "www.amazon.de",
+    }
+    return hosts.get((marketplace or "US").upper(), hosts["US"])
 
 
 def _extract_json_object(text: str) -> dict[str, Any] | None:
@@ -155,7 +174,7 @@ def _extract_json_object(text: str) -> dict[str, Any] | None:
     return None
 
 
-async def _hermes_research_keywords(keyword: str, marketplace: str, limit: int) -> tuple[list[dict[str, str]], bool, str]:
+async def _amazon_research_keywords(keyword: str, marketplace: str, limit: int) -> tuple[list[dict[str, str]], bool, str]:
     cleaned = _clean_keyword(keyword)
     fallback = [{"keyword": cleaned or keyword.strip(), "source": "用户输入"}]
     display_source = "搜索词矩阵"
@@ -168,7 +187,7 @@ async def _hermes_research_keywords(keyword: str, marketplace: str, limit: int) 
             {
                 "role": "system",
                 "content": (
-                    "你是 AlignX 舒老师关键词研究助手。"
+                    "你是 AlignX 选品判断关键词研究助手。"
                     "只基于用户输入生成 Amazon 搜索词矩阵，不编造市场数据。"
                     "输出必须是JSON对象。"
                 ),
@@ -221,8 +240,56 @@ async def _hermes_research_keywords(keyword: str, marketplace: str, limit: int) 
                 break
         return (result or fallback), True, display_source
     except Exception as exc:
-        logger.info("Hermes keyword expansion fell back to input keyword: %s", exc)
+        logger.info("Amazon keyword expansion fell back to input keyword: %s", exc)
         return fallback, False, display_source
+
+
+async def _resolve_amazon_search_keyword(keyword: str, marketplace: str) -> str:
+    cleaned = _clean_keyword(keyword)
+    if not cleaned:
+        return keyword.strip()
+    english_site = (marketplace or "US").upper() in {"US", "UK", "CA"}
+    if not english_site or not _has_cjk(cleaned):
+        return cleaned
+    known_terms = {
+        "充电宝": "power bank",
+        "移动电源": "power bank",
+    }
+    for source, target in known_terms.items():
+        if source in cleaned:
+            return target
+    try:
+        service = AIGatewayService()
+        if not service.status().configured:
+            return cleaned
+        response = await service.unified.chat_completion(
+            messages=[
+                {
+                    "role": "system",
+                    "content": "把用户输入转换为美国Amazon买家会搜索的英文关键词。只输出JSON对象。",
+                },
+                {
+                    "role": "user",
+                    "content": json.dumps(
+                        {
+                            "keyword": cleaned,
+                            "marketplace": marketplace,
+                            "required_schema": {"search_keyword": "English Amazon search keyword"},
+                        },
+                        ensure_ascii=False,
+                    ),
+                },
+            ],
+            model=service.select_model("light"),
+            temperature=0.1,
+            response_format_json=True,
+        )
+        data = _extract_json_object(response.content or "") or {}
+        search_keyword = _clean_keyword(str(data.get("search_keyword") or ""))
+        return search_keyword or cleaned
+    except Exception as exc:
+        logger.info("Amazon keyword translation fell back to original keyword: %s", exc)
+        return cleaned
 
 
 def _classify_technology_route(item: dict[str, Any]) -> str:
@@ -262,7 +329,7 @@ def _build_keyword_six_dimension(
         analysis = {
             "需求强度": {"basis": "未获取到真实搜索页样本。", "opinion": "不做需求强度判断，先补真实样本。"},
             "搜索入口": {"basis": "未获取到自然位或广告位样本。", "opinion": "不判断入口压力，先完成关键词页面取样。"},
-            "竞争结构": {"basis": "未获取到Top20样本。", "opinion": "不判断竞争结构，先补头部搜索结果。"},
+            "竞争结构": {"basis": "未获取到Top40样本。", "opinion": "不判断竞争结构，先补头部搜索结果。"},
             "差异化切口": {"basis": "未获取到产品标题、价格、评论等样本。", "opinion": "不推断差异化路线。"},
             "商业承受力": {"basis": "未获取到价格样本。", "opinion": "不测算价格带和利润承受力。"},
             "风险与趋势": {"basis": "未获取到市场样本。", "opinion": "不做趋势、合规、差评风险判断。"},
@@ -287,7 +354,7 @@ def _build_keyword_six_dimension(
             "sample_status": "insufficient",
             "ai_called": False,
         }
-    top20_items = [row for row in items if int(row.get("searchRank") or 999) <= 20]
+    top40_items = [row for row in items if int(row.get("searchRank") or 999) <= 40]
     prices = [row.get("price") if row.get("price") is not None else row.get("searchPrice") for row in items]
     reviews = [row.get("reviewCount") for row in items]
     median_reviews = _median_number(reviews)
@@ -295,7 +362,7 @@ def _build_keyword_six_dimension(
     route_count = len([row for row in route_summary if row.get("count")])
     low_review_ranked = sum(
         1
-        for row in top20_items
+        for row in top40_items
         if int(row.get("reviewCount") or 0) > 0 and int(row.get("reviewCount") or 0) <= max(300, median_reviews * 0.55)
     )
     price_count = len([value for value in prices if isinstance(value, (int, float)) and float(value) > 0])
@@ -329,7 +396,7 @@ def _build_keyword_six_dimension(
     analysis = {
         "需求强度": {
             "basis": (
-                f"搜索页形成{total}个有效样本，Top20可观察样本{len(top20_items)}个，"
+                f"搜索页形成{total}个有效样本，Top40可观察样本{len(top40_items)}个，"
                 f"评论中位数{round(median_reviews)}。"
             ),
             "opinion": (
@@ -347,7 +414,7 @@ def _build_keyword_six_dimension(
             ),
         },
         "竞争结构": {
-            "basis": f"Top20低评论高排名样本{low_review_ranked}个，评论中位数{round(median_reviews)}。",
+            "basis": f"Top40低评论高排名样本{low_review_ranked}个，评论中位数{round(median_reviews)}。",
             "opinion": (
                 "存在低评论高排名样本，可围绕这些样本拆切入口。"
                 if low_review_ranked
@@ -416,65 +483,70 @@ def _build_keyword_decision_points(
         return [
             {
                 "point": "真实需求",
-                "status": "待补样本",
+                "status": "数据不足",
                 "basis": "未获取到真实搜索页样本。",
                 "opinion": "不做需求判断，先完成关键词页面取样。",
             },
             {
                 "point": "买家意图",
-                "status": "待补样本",
+                "status": "数据不足",
                 "basis": f"搜索词：{keyword_text}。",
                 "opinion": "搜索词已生成，但必须结合真实搜索结果再判断。",
             },
             {
                 "point": "搜索入口",
-                "status": "待补样本",
+                "status": "数据不足",
                 "basis": "自然样本0，广告样本0。",
                 "opinion": "不判断入口压力，先取真实样本。",
             },
             {
                 "point": "竞争结构",
-                "status": "待补样本",
-                "basis": "Top20样本0。",
+                "status": "数据不足",
+                "basis": "Top40样本0。",
                 "opinion": "不判断头部壁垒和新品切入口。",
             },
             {
                 "point": "差异化机会",
-                "status": "待补样本",
+                "status": "数据不足",
                 "basis": "产品路线：暂无。",
                 "opinion": "不推断差异化路线。",
             },
             {
                 "point": "商业承受力",
-                "status": "待补样本",
+                "status": "数据不足",
                 "basis": "价格样本0。",
                 "opinion": "不测算成本、广告承受力和价格带。",
             },
             {
                 "point": "风险判断",
-                "status": "待补样本",
+                "status": "数据不足",
                 "basis": "未获取到市场样本。",
                 "opinion": "不做趋势、合规、偏差和售后风险判断。",
             },
             {
                 "point": "进入方式",
-                "status": "待补样本",
+                "status": "数据不足",
                 "basis": "无真实样本，不生成机会评分。",
                 "opinion": "待补真实样本后再决定。",
             },
         ]
-    top20_items = [row for row in items if int(row.get("searchRank") or 999) <= 20]
+    top40_items = [row for row in items if int(row.get("searchRank") or 999) <= 40]
     prices = [row.get("price") if row.get("price") is not None else row.get("searchPrice") for row in items]
     reviews = [row.get("reviewCount") for row in items]
     median_reviews = _median_number(reviews)
     median_price = _median_number(prices)
     sponsored_count = sum(1 for row in items if row.get("isSponsored"))
     organic_count = max(0, total - sponsored_count)
-    top20_low_review = sum(
+    top40_low_review = sum(
         1
-        for row in top20_items
+        for row in top40_items
         if int(row.get("reviewCount") or 0) > 0 and int(row.get("reviewCount") or 0) <= max(300, median_reviews * 0.55)
     )
+    numeric_prices = [float(value) for value in prices if isinstance(value, (int, float)) and float(value) > 0]
+    price_spread_ratio = ((max(numeric_prices) - min(numeric_prices)) / median_price) if numeric_prices and median_price else 0
+    head_concentrated = len(top40_items) >= 20 and top40_low_review == 0 and median_reviews >= 1000
+    price_concentrated = len(numeric_prices) >= 10 and price_spread_ratio > 0 and price_spread_ratio <= 0.25
+    market_blocked = head_concentrated and price_concentrated
     opportunity_rows: list[dict[str, Any]] = []
     price_bands: list[dict[str, Any]] = []
     lane_headlines: list[str] = []
@@ -504,11 +576,13 @@ def _build_keyword_decision_points(
     decision = str(six_dimension.get("decision") or "待录入")
 
     def level(score: int) -> str:
+        if market_blocked:
+            return "暂不判断"
         if score >= 72:
-            return "可验证"
+            return "可判断"
         if score >= 58:
-            return "需补证"
-        return "暂缓"
+            return "数据不足"
+        return "暂不判断"
 
     return [
         {
@@ -519,7 +593,7 @@ def _build_keyword_decision_points(
         },
         {
             "point": "买家意图",
-            "status": "可验证" if len(research_keywords) >= 2 else "需补证",
+            "status": "可判断" if len(research_keywords) >= 2 else "数据不足",
             "basis": f"搜索词：{keyword_text}。",
             "opinion": "按主词、形态词、场景词拆开看，不把所有需求混成一个市场。",
         },
@@ -532,8 +606,8 @@ def _build_keyword_decision_points(
         {
             "point": "竞争结构",
             "status": level(competition_score),
-            "basis": f"Top20低评论样本{top20_low_review}，机会样本{len(opportunity_rows)}。",
-            "opinion": "围绕低评论高排名样本拆切入口。" if top20_low_review else "头部壁垒偏强，避免直接正面打主词。",
+            "basis": f"Top40低评论样本{top40_low_review}，机会样本{len(opportunity_rows)}。",
+            "opinion": "围绕低评论高排名样本拆切入口。" if top40_low_review else "头部集中，避免直接正面打主词。",
         },
         {
             "point": "差异化机会",
@@ -545,7 +619,7 @@ def _build_keyword_decision_points(
             "point": "商业承受力",
             "status": level(business_score),
             "basis": f"价格中位数{median_price:.2f}美元，价格带{best_price_band[0].get('label') if best_price_band else '暂无'}。",
-            "opinion": "进入前必须核算成本、广告承受力、退货和仓储压力。",
+            "opinion": "价格带集中，利润和广告承受力空间小。" if price_concentrated else "价格带未明显锁死，可继续核算成本和广告承受力。",
         },
         {
             "point": "风险判断",
@@ -557,12 +631,12 @@ def _build_keyword_decision_points(
             "point": "进入方式",
             "status": level(total_score),
             "basis": f"综合评分{total_score}/100，建议{decision}。",
-            "opinion": "先小样本验证，再决定主品、细分品、配件或放弃。",
+            "opinion": "头部和价格带都集中，暂不进入。" if market_blocked else "可进入判断，再决定主品、细分品、配件或放弃。",
         },
     ]
 
 
-async def _synthesize_hermes_keyword_result(
+async def _synthesize_amazon_keyword_result(
     keyword: str,
     marketplace: str,
     research_keywords: list[dict[str, str]],
@@ -694,7 +768,7 @@ async def _synthesize_hermes_keyword_result(
         "evidence_sources": [
             {
                 "source_type": "amazon_search_snapshot",
-                "source_ref": "scrapling_top40_batch",
+                "source_ref": "external_amazon_top40_batch",
                 "evidence_tier": "market_feedback",
                 "confidence": "medium",
                 "summary": f"{marketplace}站关键词搜索样本。",
@@ -727,12 +801,13 @@ async def _synthesize_hermes_keyword_result(
         response = await service.run_agent(
             AgentRequest(
                 agent="selection_agent",
-                task=(
-                    "基于关键词研究样本输出关键词选品完整调研报告。"
-                    "必须按事实层、语义层、推理层、决策层、验证建议组织。"
-                    "必须引用market_rows里的搜索词、排名、标题、价格、评分、评论样本。"
-                    "不要输出任何内部模型名称。"
-                ),
+	                task=(
+	                    "基于关键词研究样本输出关键词选品经营结论。"
+	                    "必须按能不能进、为什么、观察、动作、验证组织。"
+	                    "必须把卖家内部判断翻译成买家使用者能懂的语言。"
+	                    "必须引用market_rows里的搜索词、排名、标题、价格、评分、评论样本。"
+	                    "不要输出任何内部模型名称。"
+	                ),
                 payload={
                     "keyword": keyword,
                     "marketplace": marketplace,
@@ -751,7 +826,7 @@ async def _synthesize_hermes_keyword_result(
         result["selection_decision_points"] = decision_points
         return result
     except Exception as exc:
-        logger.info("Hermes keyword synthesis fell back to rules: %s", exc)
+        logger.info("Amazon keyword synthesis fell back to rules: %s", exc)
         return fallback
 
 
@@ -761,7 +836,7 @@ async def _top40_usage(db: AsyncSession, user_id: str) -> dict[str, Any]:
     query = select(func.count()).select_from(ActionSnapshot).where(
         ActionSnapshot.user_id == user_id,
         ActionSnapshot.module_key == "asin_selection",
-        ActionSnapshot.action_key == "scrapling_top40_batch",
+        ActionSnapshot.action_key == "amazon_top40_batch",
         run_filter,
         ActionSnapshot.created_at >= since,
     )
@@ -772,7 +847,7 @@ async def _top40_usage(db: AsyncSession, user_id: str) -> dict[str, Any]:
         .where(
             ActionSnapshot.user_id == user_id,
             ActionSnapshot.module_key == "asin_selection",
-            ActionSnapshot.action_key == "scrapling_top40_batch",
+            ActionSnapshot.action_key == "amazon_top40_batch",
             run_filter,
         )
         .order_by(ActionSnapshot.created_at.desc())
@@ -805,7 +880,7 @@ async def _has_keyword_history(db: AsyncSession, user_id: str, keyword: str, mar
         .where(
             ActionSnapshot.user_id == user_id,
             ActionSnapshot.module_key == "asin_selection",
-            ActionSnapshot.action_key == "scrapling_top40_batch",
+            ActionSnapshot.action_key == "amazon_top40_batch",
             ActionSnapshot.created_at >= since,
             ActionSnapshot.input_snapshot.like(f'%"keyword": "{normalized_keyword}"%'),
             ActionSnapshot.input_snapshot.like(f'%"marketplace": "{normalized_marketplace}"%'),
@@ -891,7 +966,7 @@ def _rank_snapshot(asin: str, marketplace: str, keyword: str, product: dict[str,
     }
 
 
-async def _scrapling_rank_snapshots(
+async def _external_rank_snapshots(
     asin: str,
     marketplace: str,
     keywords: list[str],
@@ -931,7 +1006,7 @@ async def _scrapling_rank_snapshots(
                 "overall_position": overall,
                 "is_organic": organic_position is not None and organic_position <= 40,
                 "is_sponsored": sponsored_position is not None,
-                "rank_type": "scrapling_top40_search_snapshot" if overall else "scrapling_top40_not_found",
+                "rank_type": "external_amazon_top40_search_snapshot" if overall else "external_amazon_top40_not_found",
                 "crawl_time": crawl_time,
                 "marketplace": marketplace,
             }
@@ -986,8 +1061,8 @@ def _normalize_keyword_sales_report(report: dict[str, Any]) -> dict[str, Any]:
     rank_snapshots = report.get("rank_snapshots") if isinstance(report.get("rank_snapshots"), list) else []
     sponsored_count = sum(1 for row in rank_snapshots if isinstance(row, dict) and row.get("is_sponsored"))
     rank_source = str(summary.get("rank_data_source") or "")
-    has_real_search_snapshot = rank_source == "scrapling_top40_search" or any(
-        isinstance(row, dict) and str(row.get("rank_type") or "").startswith("scrapling_top40")
+    has_real_search_snapshot = rank_source == "external_amazon_top40_search" or any(
+        isinstance(row, dict) and str(row.get("rank_type") or "").startswith("external_amazon_top40")
         for row in rank_snapshots
     )
     organic_strength = _num(report.get("organic_rank_strength"))
@@ -1239,7 +1314,7 @@ def _build_report(asin: str, marketplace: str, category: str, product: dict[str,
     top20_coverage = top20_count / max(1, len(ranks))
     sponsored_ratio = sponsored_count / max(1, len(ranks))
     rank_types = {str(r.get("rank_type") or "") for r in ranks}
-    has_real_search_snapshot = any(rank_type.startswith("scrapling_top40") for rank_type in rank_types)
+    has_real_search_snapshot = any(rank_type.startswith("external_amazon_top40") for rank_type in rank_types)
     ad_signal = sponsored_ratio * 60 + (12 if has_promo else 0) + (25 if not organic_positions else 0)
     organic_credit = organic_strength * 0.45 + top20_coverage * 25
     bsr_credit = 0
@@ -1308,7 +1383,7 @@ def _build_report(asin: str, marketplace: str, category: str, product: dict[str,
         "organic_top50_count": len(organic_positions),
         "sponsored_keyword_count": sponsored_count,
         "avg_organic_position": round(sum(organic_positions) / len(organic_positions), 1) if organic_positions else None,
-        "rank_data_source": "scrapling_top40_search" if has_real_search_snapshot else "estimated_search_snapshot",
+        "rank_data_source": "external_amazon_top40_search" if has_real_search_snapshot else "estimated_search_snapshot",
         "rank_data_note": (
             "当前使用核心关键词亚马逊Top40搜索快照，区分自然位和Sponsored广告位。"
             if has_real_search_snapshot
@@ -1383,7 +1458,7 @@ async def _generate_validation(request: KeywordSalesValidationRequest, user_id: 
         raise HTTPException(status_code=400, detail="请输入有效的10位ASIN")
     marketplace = (request.marketplace or "US").upper()
     crawl_time = datetime.now(timezone.utc)
-    scraped = await scrape_amazon_product_via_hermes(asin, marketplace)
+    scraped = await scrape_amazon_product_via_scrapeless(asin, marketplace)
     product = {
         "asin": asin,
         "title": scraped.get("title") or "",
@@ -1403,7 +1478,7 @@ async def _generate_validation(request: KeywordSalesValidationRequest, user_id: 
         "aplus_status": bool(scraped.get("has_a_plus")),
         "video_status": bool(scraped.get("has_video")),
         "crawl_time": crawl_time.isoformat(),
-        "data_source": scraped.get("data_source") or "amazon_scrape",
+        "data_source": scraped.get("data_source") or "external_amazon_product",
     }
     keywords = [_clean_keyword(k) for k in request.target_keywords if _clean_keyword(k)]
     if not keywords:
@@ -1412,10 +1487,10 @@ async def _generate_validation(request: KeywordSalesValidationRequest, user_id: 
         keywords = [asin.lower()]
 
     qualities = [_keyword_quality(keyword, product["title"], product["category"]) for keyword in keywords]
-    ranks, rank_errors = await _scrapling_rank_snapshots(asin, marketplace, keywords, crawl_time)
+    ranks, rank_errors = await _external_rank_snapshots(asin, marketplace, keywords, crawl_time)
     if not ranks or all(not rank.get("overall_position") for rank in ranks):
         ranks = [_rank_snapshot(asin, marketplace, q["keyword"], product, q, crawl_time) for q in qualities]
-        rank_errors = rank_errors + ["scrapling_top40_no_match_fallback_to_estimated"]
+        rank_errors = rank_errors + ["external_amazon_top40_no_match_fallback_to_estimated"]
     report = _build_report(asin, marketplace, product["category"], product, ranks, qualities, request.days_range)
     if rank_errors:
         report["keyword_rank_summary"]["rank_capture_errors"] = rank_errors[:8]
@@ -1446,7 +1521,7 @@ async def _generate_validation(request: KeywordSalesValidationRequest, user_id: 
             sample_size=len(report.get("rank_snapshots") or []),
             conversion_signal=0,
             consistency=float(report.get("organic_rank_strength") or 0),
-            statistical_confidence=100 if report.get("keyword_rank_summary", {}).get("rank_data_source") == "scrapling_top40_search" else 50 if report.get("rank_snapshots") else 0,
+            statistical_confidence=100 if report.get("keyword_rank_summary", {}).get("rank_data_source") == "external_amazon_top40_search" else 50 if report.get("rank_snapshots") else 0,
             metrics={},
         )
         report["v5_market_decision"] = _build_v5_market_decision(report, opc_payload)
@@ -1505,23 +1580,23 @@ async def keyword_rank_crawl(
     return {"asin": report["asin"], "marketplace": report["marketplace"], "rank_snapshots": report["rank_snapshots"], "keyword_intent_scores": report["keyword_intent_scores"]}
 
 
-@router.get("/scrapling/top40-rules")
-async def scrapling_top40_rules(
+@router.get("/amazon/top40-rules")
+async def amazon_top40_rules(
     current_user: UserResponse = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     usage = await _top40_usage(db, str(current_user.id))
     return {
-        "captureMode": "scrapling_top40_batch",
+        "captureMode": "external_amazon_top40_batch",
         "batchRanges": ["1-10", "11-20", "21-30", "31-40"],
-        "rules": SCRAPLING_TOP40_RULES,
+        "rules": AMAZON_TOP40_RULES,
         "usage": usage,
     }
 
 
-@router.post("/scrapling/top40-batch")
-async def scrapling_top40_batch(
-    request: ScraplingTop40BatchRequest,
+@router.post("/amazon/top40-batch")
+async def amazon_top40_batch(
+    request: AmazonTop40BatchRequest,
     current_user: UserResponse = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -1573,25 +1648,24 @@ async def top40_market_analysis(
     )
 
 
-def _build_local_hermes_keyword_prompt(keyword: str, marketplace: str, max_keywords: int) -> str:
+def _build_external_amazon_keyword_prompt(keyword: str, marketplace: str, max_keywords: int, search_keyword: str | None = None) -> str:
+    amazon_keyword = _clean_keyword(search_keyword or keyword) or keyword
     search_url = _amazon_search_url(keyword, marketplace)
-    host = _amazon_host(marketplace)
-    english_site = (marketplace or "US").upper() in {"US", "UK", "CA"}
-    search_instruction = (
-        f"第一步必须先把用户关键词转成美国买家会搜索的英文词，再打开 https://{host}/s?k=<英文搜索词>。不要直接搜索中文词：{keyword}"
-        if english_site and _has_cjk(keyword)
-        else f"第一步必须使用浏览器工具打开这个亚马逊搜索页：{search_url}"
-    )
+    if amazon_keyword != keyword:
+        search_url = _amazon_search_url(amazon_keyword, marketplace)
+    search_instruction = f"使用 browser_navigate 打开：{search_url}"
     schema = {
         "score": "0-100整数；无真实样本时为null",
         "confidence": "low|medium|high",
         "risk_level": "low|medium|high",
         "sample_status": "sufficient|insufficient",
-        "fact_layer": ["事实层：市场真实数据"],
-        "semantic_layer": ["语义层：这意味着什么"],
-        "reasoning_layer": ["推理层：机会在哪"],
-        "decision_layer": ["决策层：选品师的建议"],
-        "validation_suggestions": ["验证建议"],
+        "operator_conclusion": {
+            "result": "可小预算验证|需补证|暂不进入|数据不足",
+            "basis": ["为什么"],
+            "observations": ["观察"],
+            "actions": ["动作"],
+            "validation": ["验证"],
+        },
         "keyword_six_dimension": {
             "success": True,
             "total_score": "0-100整数；无真实样本时为null",
@@ -1628,6 +1702,39 @@ def _build_local_hermes_keyword_prompt(keyword: str, marketplace: str, max_keywo
             "marketplace": marketplace,
             "research_keywords": [{"keyword": "搜索词", "source": "主词|形态词|场景词|技术路线|相邻形态"}],
             "source_steps": [{"step": "步骤", "status": "completed|partial|blocked", "source": "亚马逊搜索页|浏览器截图", "count": 0}],
+            "frontend_evidence": {
+                "sample_count": 0,
+                "top_sample_asins": [],
+                "price_band": {"min": 0, "median": 0, "max": 0, "dominant_band": "暂无"},
+                "review_barrier": {"median_reviews": 0, "top_review_threshold": 0, "new_low_review_opportunities": 0},
+                "ad_density": {"sponsored_count": 0, "sponsored_ratio": "暂无", "top_of_search_sponsored": "暂无"},
+                "brand_concentration": {"top_brands": [], "concentration_level": "low|medium|high|暂无"},
+                "intent_purity": {"level": "low|medium|high|暂无", "basis": "前台可见依据"},
+                "differentiation_slots": [{"slot": "差异化空位", "evidence": "前台可见依据"}],
+                "visible_complaint_pain_points": [{"pain_point": "差评痛点", "evidence": "前台可见依据或暂无"}],
+                "compliance_sensitivity": [{"risk": "合规/敏感风险", "evidence": "前台可见依据或暂无"}],
+            },
+            "inferred_market_signals": {
+                "search_volume": {"value": "暂无", "basis": "前台证据推断", "confidence": "low|medium|high", "needs_validation": True},
+                "trend": {"value": "暂无", "basis": "BSR/评论/新品/广告密度等前台证据推断", "confidence": "low|medium|high", "needs_validation": True},
+                "seasonality": {"value": "暂无", "basis": "前台证据推断", "confidence": "low|medium|high", "needs_validation": True},
+                "cpc": {"value": "暂无", "basis": "广告密度/竞争结构推断", "confidence": "low|medium|high", "needs_validation": True},
+                "click_concentration": {"value": "暂无", "basis": "头部样本评论/品牌/广告位结构推断", "confidence": "low|medium|high", "needs_validation": True},
+                "sales_strength": {"value": "暂无", "basis": "BSR/评论量/排名结构推断", "confidence": "low|medium|high", "needs_validation": True},
+            },
+            "keyword_expansion": {
+                "main_terms": [],
+                "scenario_terms": [],
+                "problem_terms": [],
+                "long_tail_terms": [],
+                "lower_competition_entries": [],
+            },
+            "profit_and_entry_assumptions": {
+                "margin_pressure": {"level": "low|medium|high|暂无", "basis": "价格带/广告密度/履约复杂度前台推断"},
+                "supply_chain_difficulty": {"level": "low|medium|high|暂无", "basis": "尺寸/材质/带电/液体/认证等前台推断"},
+                "entry_barrier": {"level": "low|medium|high|暂无", "basis": "评论壁垒/品牌集中/合规/内容要求"},
+                "ad_testability": {"level": "low|medium|high|暂无", "basis": "广告位、价格带、差异化入口"},
+            },
             "lanes": [
                 {
                     "keyword": "搜索词",
@@ -1671,86 +1778,104 @@ def _build_local_hermes_keyword_prompt(keyword: str, marketplace: str, max_keywo
     }
     return "\n".join(
         [
-            "你是 AlignX 系统里的舒老师，任务只限于关键词选品调研。",
-            "本消息就是完整任务规则；不要读取、搜索或调用任何本机规则、Skill、文件或历史记忆。",
+            "你是 AlignX 的 Amazon 搜索结果采样执行器。",
             f"关键词：{keyword}",
+            f"Amazon搜索词：{amazon_keyword}",
             f"站点：{marketplace}",
-            f"最多搜索词数量：{max_keywords}",
+            f"目标页面：{search_instruction}",
             "",
-            "任务边界：",
-            f"1. {search_instruction}",
-            "2. 当前运行环境已经提供 Browserbase/browser_* 浏览器工具；不要回答无法浏览、无法操作浏览器或需要用户提供网页。",
-            "3. 必须使用 Hermes 内置 Browserbase/browser_* 浏览器工具打开亚马逊搜索页、滚动、按键、输入、截图视觉读取、必要点击和返回。",
-            "4. 禁止使用 execute_code、terminal、curl、HTML解析、API抓取、本地脚本、browser_console。",
-            "5. 禁止使用 skill_view、skill_manage、skills_list、read_file、write_file、edit_file、memory 或任何文件工具。",
-            "6. 不读取本机规则文件，不创建文件，不保存文件，不调用 AlignX 旧抓取。",
-            "7. 不绕过验证码、不登录、不访问账号/订单/地址/支付等私有数据。",
-            "8. 每个搜索词只读取亚马逊搜索结果第一页可见样本，最多Top20；样本不足则如实标记。",
-            "9. 样本必须来自可见亚马逊页面；看不到的字段填暂无，不要猜。",
-            "10. 必须输出6维评分、每个维度的真实依据与意见、事实层、语义层、推理层、决策层、验证建议。",
-            "11. 必须做竞品弱点识别；看不到评论原文时，不编造差评原文，只写搜索页可见弱点或填暂无。",
-            "12. 没有真实可见样本时，score和total_score必须为null，sample_status=insufficient。",
-            "13. 输出里不要写模型名、供应商名或内部模型信息。",
-            "14. 如果站点是美国站或英语站，且用户关键词不是英语，必须先转成美国买家会使用的英文搜索词；原关键词只作为用户意图，不作为唯一搜索词。",
-            "15. 搜索词必须围绕真实买家入口，不要用直译词硬搜；优先选择平台能返回真实商品样本的词。",
-            "16. 先搜索1个最贴近买家入口的英文词；如果已获得可见商品样本，立即进入分析，不要继续扩展搜索词。",
-            "17. 每个搜索词最多滚动3次；browser_vision最多使用1次，若截图超时，改用browser_snapshot可见文本继续，不要重复截图。",
-            "18. 一边读取一边整理样本；只要可见样本达到10个即可输出JSON，不等待抓满Top20。",
-            "19. 若搜索结果列表不可读，输出sample_status=insufficient并写明不可读原因，不要继续按键或重复打开页面。",
-            "20. 只返回一个JSON对象，不要Markdown，不要代码块，不要解释。",
+            "任务边界：只打开这个 Amazon 搜索结果页，只读取搜索结果商品卡片。",
+            "允许动作：browser_navigate、browser_snapshot、必要时分段滚动读取结果页。",
+            "完成条件：按当前搜索页/分页尽量提取Top40个ASIN；不够40也返回实际可见数量。",
+            "不要做市场分析，不要扩展关键词，不要打开商品详情页，不要等待补齐字段。",
+            "不要只返回数量。看不到的字段填 暂无 或 0。",
+            "输出：只返回严格JSON对象，不要Markdown，不要解释。",
             "",
-            "输出JSON Schema：",
-            json.dumps(schema, ensure_ascii=False),
+            """{
+  "browser_used": true,
+  "search_keyword": "",
+  "page_title": "",
+  "marketplace": "",
+  "item_count": 0,
+  "items": [
+    {
+      "searchRank": 1,
+      "asin": "看不到填暂无",
+      "title": "商品标题",
+      "brand": "看不到填暂无",
+      "priceText": "价格文本；看不到填暂无",
+      "price": 0,
+      "rating": 0,
+      "reviewCount": 0,
+      "isSponsored": false,
+      "badge": "Best Seller/Amazon's Choice/暂无",
+      "coupon": "看不到填暂无",
+      "delivery": "看不到填暂无",
+      "productUrl": "看不到填暂无",
+      "visibleEvidence": "页面可见证据摘要"
+    }
+  ],
+  "capture_quality": {
+    "confidence_level": "low|medium|high",
+    "missing_fields": []
+  }
+}""",
         ]
     )
 
 
-def _build_local_hermes_keyword_retry_prompt(keyword: str, marketplace: str, max_keywords: int) -> str:
-    search_url = _amazon_search_url(keyword, marketplace)
-    host = _amazon_host(marketplace)
-    english_site = (marketplace or "US").upper() in {"US", "UK", "CA"}
-    open_instruction = (
-        f"先把用户关键词「{keyword}」转成美国买家英文搜索词，再打开 https://{host}/s?k=<英文搜索词>。不要直接搜索中文词。"
-        if english_site and _has_cjk(keyword)
-        else f"打开 {search_url}。"
-    )
+def _build_external_amazon_keyword_retry_prompt(keyword: str, marketplace: str, max_keywords: int, search_keyword: str | None = None) -> str:
+    amazon_keyword = _clean_keyword(search_keyword or keyword) or keyword
+    search_url = _amazon_search_url(amazon_keyword, marketplace)
     return "\n".join(
         [
-            f"请使用浏览器工具{open_instruction}",
-            "读取亚马逊搜索结果第一页可见商品，最多Top20；至少尽量读取前10个可见商品。",
-            "不要先说明你将做什么，不要回答无法浏览；如果页面可见，就直接提取可见文本。",
-            "禁止使用 execute_code、terminal、curl、HTML解析、API抓取、本地脚本、文件工具、web_search。",
-            "只返回严格JSON对象，不要Markdown，不要解释。",
-            "输出JSON Schema：",
-            json.dumps(
-                {
-                    "browser_used": True,
-                    "search_keyword": "实际使用的英文搜索词",
-                    "page_title": "页面标题",
-                    "items": [
-                        {
-                            "searchRank": 1,
-                            "asin": "ASIN；看不到填暂无",
-                            "title": "商品标题",
-                            "priceText": "价格文本",
-                            "rating": 0,
-                            "reviewCount": 0,
-                            "isSponsored": False,
-                        }
-                    ],
-                },
-                ensure_ascii=False,
-            ),
+            "你是 AlignX 的 Amazon 搜索结果采样执行器。",
+            f"关键词：{keyword}",
+            f"Amazon搜索词：{amazon_keyword}",
+            f"目标页面：使用 browser_navigate 打开 {search_url}",
+            "任务边界：只打开这个 Amazon 搜索结果页，只读取搜索结果商品卡片。",
+            "允许动作：browser_navigate、browser_snapshot、必要时分段滚动读取结果页。",
+            "完成条件：按当前搜索页/分页尽量提取Top40个ASIN；不够40也返回实际可见数量。",
+            "不要做市场分析，不要扩展关键词，不要打开商品详情页，不要等待补齐字段。",
+            "不要只返回数量。看不到的字段填 暂无 或 0。",
+            "输出：只返回严格JSON对象，不要Markdown，不要解释。",
+            """{
+  "browser_used": true,
+  "search_keyword": "",
+  "item_count": 0,
+  "items": [
+    {
+      "searchRank": 1,
+      "asin": "看不到填暂无",
+      "title": "商品标题",
+      "brand": "看不到填暂无",
+      "priceText": "价格文本；看不到填暂无",
+      "price": 0,
+      "rating": 0,
+      "reviewCount": 0,
+      "isSponsored": false,
+      "badge": "看不到填暂无",
+      "coupon": "看不到填暂无",
+      "delivery": "看不到填暂无",
+      "productUrl": "看不到填暂无",
+      "visibleEvidence": "页面可见证据摘要"
+    }
+  ],
+  "capture_quality": {
+    "confidence_level": "low|medium|high",
+    "missing_fields": []
+  }
+}""",
         ]
     )
 
 
-def _browser_extract_to_hermes_keyword_result(raw: dict[str, Any], keyword: str, marketplace: str) -> dict[str, Any]:
+def _browser_extract_to_amazon_keyword_result(raw: dict[str, Any], keyword: str, marketplace: str) -> dict[str, Any]:
     rows = raw.get("items") or raw.get("results") or []
     if not isinstance(rows, list):
         rows = []
     items: list[dict[str, Any]] = []
-    for index, row in enumerate(rows[:20], start=1):
+    for index, row in enumerate(rows[:_AMAZON_KEYWORD_SAMPLE_TARGET], start=1):
         if not isinstance(row, dict):
             continue
         title = str(row.get("title") or row.get("name") or "").strip()
@@ -1834,15 +1959,26 @@ def _browser_extract_to_hermes_keyword_result(raw: dict[str, Any], keyword: str,
     }
 
 
-def _hermes_keyword_item_count(result: dict[str, Any]) -> int:
+def _amazon_keyword_item_count(result: dict[str, Any]) -> int:
     market = result.get("market_research") if isinstance(result.get("market_research"), dict) else {}
-    count = int(_num(market.get("item_count")) or 0)
-    if count:
-        return count
+    locked_count = int(_num(market.get("item_count") or market.get("sample_count")) or 0)
+    if locked_count >= _AMAZON_KEYWORD_SAMPLE_TARGET:
+        return _AMAZON_KEYWORD_SAMPLE_TARGET
+    count = 0
     for lane in _list_value(market.get("lanes")):
         if isinstance(lane, dict):
-            count += len(_list_value(lane.get("items")))
-    return count
+            count += len([item for item in _list_value(lane.get("items")) if _is_keyword_sample_item(item)])
+    return min(count, _AMAZON_KEYWORD_SAMPLE_TARGET)
+
+
+def _is_keyword_sample_item(value: Any) -> bool:
+    if not isinstance(value, dict):
+        return False
+    return bool(
+        str(value.get("title") or value.get("name") or "").strip()
+        or str(value.get("asin") or "").strip()
+        or str(value.get("productUrl") or value.get("url") or "").strip()
+    )
 
 
 def _build_route_summary(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1868,12 +2004,311 @@ def _build_route_summary(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return sorted(rows, key=lambda row: int(row.get("count") or 0), reverse=True)
 
 
+def _keyword_items_from_market(market: dict[str, Any]) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    for lane in _list_value(market.get("lanes")):
+        lane_dict = _dict_value(lane)
+        for item in _list_value(lane_dict.get("items")):
+            item_dict = _dict_value(item)
+            if _is_keyword_sample_item(item_dict):
+                items.append(item_dict)
+    return items[:_AMAZON_KEYWORD_SAMPLE_TARGET]
+
+
+def _normalize_amazon_keyword_event_item(row: dict[str, Any], index: int) -> dict[str, Any]:
+    rank = int(_num(row.get("searchRank") or row.get("rank") or row.get("idx")) or index)
+    title = str(row.get("title") or row.get("name") or row.get("reviewText") or row.get("text") or "").strip()
+    asin = str(row.get("asin") or "").strip().upper()
+    product_url = str(row.get("productUrl") or row.get("url") or "").strip()
+    if not asin and product_url:
+        match = re.search(r"/dp/([A-Z0-9]{10})", product_url, flags=re.I)
+        if match:
+            asin = match.group(1).upper()
+    return {
+        "searchRank": rank,
+        "asin": asin or "暂无",
+        "title": title or "暂无",
+        "brand": str(row.get("brand") or "暂无").strip() or "暂无",
+        "priceText": str(row.get("priceText") or row.get("price") or "暂无").strip() or "暂无",
+        "price": _num(row.get("price") or row.get("priceText")) or 0,
+        "rating": _num(row.get("rating") or row.get("ratingAria")) or 0,
+        "reviewCount": int(_num(row.get("reviewCount") or row.get("reviews") or row.get("review_count")) or 0),
+        "isSponsored": bool(row.get("isSponsored") or row.get("sponsored")),
+        "badge": str(row.get("badge") or "暂无").strip() or "暂无",
+        "coupon": str(row.get("coupon") or "暂无").strip() or "暂无",
+        "delivery": str(row.get("delivery") or "暂无").strip() or "暂无",
+        "productUrl": product_url or "暂无",
+        "visibleEvidence": str(row.get("visibleEvidence") or "亚马逊搜索页可见样本").strip() or "亚马逊搜索页可见样本",
+        "source": "亚马逊搜索页 / 浏览器截图",
+        "route": str(row.get("route") or "暂无").strip() or "暂无",
+        "weakness": str(row.get("weakness") or "暂无").strip() or "暂无",
+        "complaintSignal": str(row.get("complaintSignal") or "暂无").strip() or "暂无",
+    }
+
+
+def _keyword_event_rows_from_text(text: str) -> list[dict[str, Any]]:
+    data = _extract_json_object(text)
+    if not isinstance(data, dict):
+        return []
+    candidate_lists: list[Any] = []
+    for key in ("items", "results"):
+        if isinstance(data.get(key), list):
+            candidate_lists.append(data.get(key))
+    result = data.get("result")
+    if isinstance(result, dict):
+        for key in ("items", "results"):
+            if isinstance(result.get(key), list):
+                candidate_lists.append(result.get(key))
+    elif isinstance(result, list):
+        candidate_lists.append(result)
+    rows: list[dict[str, Any]] = []
+    for candidate in candidate_lists:
+        for index, row in enumerate(candidate or [], start=1):
+            if isinstance(row, dict):
+                item = _normalize_amazon_keyword_event_item(row, index)
+                if _is_keyword_sample_item(item):
+                    rows.append(item)
+    return rows[:_AMAZON_KEYWORD_SAMPLE_TARGET]
+
+
+def _merge_keyword_event_items(existing: list[dict[str, Any]], incoming: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    merged: list[dict[str, Any]] = [_dict_value(item) for item in existing if isinstance(item, dict)]
+
+    def key_for(item: dict[str, Any]) -> str:
+        rank = int(_num(item.get("searchRank") or item.get("rank")) or 0)
+        asin = str(item.get("asin") or "").strip().upper()
+        if asin and asin != "暂无":
+            return f"rank:{rank}:asin:{asin}" if rank else f"asin:{asin}"
+        product_url = str(item.get("productUrl") or item.get("url") or "").strip().lower()
+        if product_url and product_url != "暂无":
+            return f"rank:{rank}:url:{product_url}" if rank else f"url:{product_url}"
+        title = str(item.get("title") or "").strip().lower()
+        if title and title != "暂无":
+            return f"rank:{rank}:title:{title}" if rank else f"title:{title}"
+        return f"rank:{rank}" if rank else ""
+
+    index_by_key = {key_for(item): idx for idx, item in enumerate(merged) if key_for(item)}
+    for item in incoming:
+        key = key_for(item)
+        if key in index_by_key:
+            current = merged[index_by_key[key]]
+            for field, value in item.items():
+                if value in (None, "", "暂无", 0, False):
+                    continue
+                current_value = current.get(field)
+                if current_value in (None, "", "暂无", 0, False):
+                    current[field] = value
+            continue
+        merged.append(item)
+        index_by_key[key] = len(merged) - 1
+    return sorted(merged, key=lambda item: int(_num(item.get("searchRank")) or 999))[:_AMAZON_KEYWORD_SAMPLE_TARGET]
+
+
+def _default_inferred_signal(basis: str = "暂无") -> dict[str, Any]:
+    return {"value": "暂无", "basis": basis, "confidence": "low", "needs_validation": True}
+
+
+def _complete_keyword_market_fields(market: dict[str, Any]) -> dict[str, Any]:
+    lanes = _list_value(market.get("lanes"))
+    items: list[dict[str, Any]] = []
+    for lane in lanes:
+        lane_dict = _dict_value(lane)
+        analysis = _dict_value(lane_dict.get("analysis"))
+        rows = _list_value(analysis.get("tableRows")) or _list_value(lane_dict.get("items"))
+        items.extend([_dict_value(row) for row in rows if isinstance(row, dict)])
+
+    item_count = max(int(_num(market.get("item_count")) or 0), len(items))
+    market["item_count"] = item_count
+    prices = [
+        float(price)
+        for price in (
+            _num(item.get("price") or item.get("searchPrice") or item.get("detailPrice") or item.get("priceText") or item.get("searchPriceText"))
+            for item in items
+        )
+        if price and price > 0
+    ]
+    reviews = [
+        int(review)
+        for review in (_num(item.get("reviewCount") or item.get("reviews")) for item in items)
+        if review is not None and review >= 0
+    ]
+    sponsored_count = len([item for item in items if item.get("isSponsored") or item.get("sponsored")])
+    top_asins = [
+        str(item.get("asin") or "").strip()
+        for item in sorted(items, key=lambda item: int(_num(item.get("searchRank") or item.get("rank")) or 999))
+        if str(item.get("asin") or "").strip() and str(item.get("asin") or "").strip() != "暂无"
+    ][:12]
+
+    evidence = _dict_value(market.get("frontend_evidence"))
+    evidence["sample_count"] = int(_num(evidence.get("sample_count")) or item_count)
+    evidence["top_sample_asins"] = _list_value(evidence.get("top_sample_asins")) or top_asins
+    price_band = _dict_value(evidence.get("price_band"))
+    price_band.setdefault("min", min(prices) if prices else 0)
+    price_band.setdefault("median", _median_number(prices) if prices else 0)
+    price_band.setdefault("max", max(prices) if prices else 0)
+    price_band.setdefault("dominant_band", "暂无")
+    evidence["price_band"] = price_band
+    review_barrier = _dict_value(evidence.get("review_barrier"))
+    review_barrier.setdefault("median_reviews", _median_number(reviews) if reviews else 0)
+    review_barrier.setdefault("top_review_threshold", max(reviews) if reviews else 0)
+    review_barrier.setdefault("new_low_review_opportunities", 0)
+    evidence["review_barrier"] = review_barrier
+    ad_density = _dict_value(evidence.get("ad_density"))
+    ad_density.setdefault("sponsored_count", sponsored_count)
+    ad_density.setdefault("sponsored_ratio", f"{round((sponsored_count / item_count) * 100)}%" if item_count else "暂无")
+    ad_density.setdefault("top_of_search_sponsored", "暂无")
+    evidence["ad_density"] = ad_density
+    brand_concentration = _dict_value(evidence.get("brand_concentration"))
+    brand_concentration.setdefault("top_brands", [])
+    brand_concentration.setdefault("concentration_level", "暂无")
+    evidence["brand_concentration"] = brand_concentration
+    intent_purity = _dict_value(evidence.get("intent_purity"))
+    intent_purity.setdefault("level", "暂无")
+    intent_purity.setdefault("basis", "暂无")
+    evidence["intent_purity"] = intent_purity
+    evidence.setdefault("differentiation_slots", [])
+    evidence.setdefault("visible_complaint_pain_points", [])
+    evidence.setdefault("compliance_sensitivity", [])
+    market["frontend_evidence"] = evidence
+
+    inferred = _dict_value(market.get("inferred_market_signals"))
+    inferred.setdefault("search_volume", _default_inferred_signal("前台证据推断"))
+    inferred.setdefault("trend", _default_inferred_signal("前台证据推断"))
+    inferred.setdefault("seasonality", _default_inferred_signal("前台证据推断"))
+    inferred.setdefault("cpc", _default_inferred_signal("广告密度/竞争结构推断"))
+    inferred.setdefault("click_concentration", _default_inferred_signal("头部样本结构推断"))
+    inferred.setdefault("sales_strength", _default_inferred_signal("BSR/评论量/排名结构推断"))
+    market["inferred_market_signals"] = inferred
+
+    expansion = _dict_value(market.get("keyword_expansion"))
+    for key in ["main_terms", "scenario_terms", "problem_terms", "long_tail_terms", "lower_competition_entries"]:
+        expansion.setdefault(key, [])
+    market["keyword_expansion"] = expansion
+
+    entry = _dict_value(market.get("profit_and_entry_assumptions"))
+    entry.setdefault("margin_pressure", {"level": "暂无", "basis": "暂无"})
+    entry.setdefault("supply_chain_difficulty", {"level": "暂无", "basis": "暂无"})
+    entry.setdefault("entry_barrier", {"level": "暂无", "basis": "暂无"})
+    entry.setdefault("ad_testability", {"level": "暂无", "basis": "暂无"})
+    market["profit_and_entry_assumptions"] = entry
+    return market
+
+
+def _build_keyword_operator_conclusion(keyword: str, market: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
+    items = _keyword_items_from_market(market)
+    item_count = max(int(_num(market.get("item_count") or market.get("sample_count")) or 0), len(items))
+    if item_count < _AMAZON_KEYWORD_SAMPLE_TARGET:
+        return {
+            "result": "数据不足",
+            "basis": [f"Top40样本{item_count}/{_AMAZON_KEYWORD_SAMPLE_TARGET}"],
+            "actions": ["重新抓取Top40"],
+            "validation": ["待录入"],
+        }
+
+    top40_items = sorted(
+        items,
+        key=lambda item: int(_num(item.get("searchRank") or item.get("rank")) or 999),
+    )[:_AMAZON_KEYWORD_SAMPLE_TARGET]
+    prices = [
+        float(price)
+        for price in (
+            _num(item.get("price") or item.get("searchPrice") or item.get("priceText") or item.get("detailPrice"))
+            for item in top40_items
+        )
+        if price and price > 0
+    ]
+    reviews = [
+        int(review)
+        for review in (_num(item.get("reviewCount") or item.get("reviews")) for item in top40_items)
+        if review is not None and review >= 0
+    ]
+    median_price = _median_number(prices)
+    median_reviews = _median_number(reviews)
+    max_reviews = max(reviews) if reviews else 0
+    sponsored_count = len([item for item in top40_items if item.get("isSponsored") or item.get("sponsored")])
+    low_review_ranked = len([
+        item
+        for item in top40_items
+        if int(_num(item.get("reviewCount") or item.get("reviews")) or 0) > 0
+        and int(_num(item.get("reviewCount") or item.get("reviews")) or 0) <= max(300, median_reviews * 0.55)
+    ])
+    route_summary = _list_value(market.get("route_summary"))
+    route_count = len([row for row in route_summary if _dict_value(row).get("count")])
+    price_spread_ratio = ((max(prices) - min(prices)) / median_price) if prices and median_price else 0
+    price_concentrated = len(prices) >= 10 and price_spread_ratio > 0 and price_spread_ratio <= 0.25
+    head_concentrated = low_review_ranked == 0 and median_reviews >= 1000
+    score = int(_num(result.get("score")) or _num(_dict_value(result.get("keyword_six_dimension")).get("total_score")) or 0)
+
+    if head_concentrated and price_concentrated:
+        decision = "暂不进入"
+        actions = ["换更窄关键词", "找低评论高排名样本", "复查价格带"]
+    elif low_review_ranked >= 3 or route_count >= 3 or sponsored_count <= 6:
+        decision = "可小预算验证"
+        actions = ["选择低评论高排名样本拆解", "验证长尾词", "进入Listing承接"]
+    else:
+        decision = "需补证"
+        actions = ["补充相邻关键词Top40", "复查广告位", "拆解低评样本"]
+
+    basis = [
+        f"Top40样本{item_count}",
+        f"评论中位数{round(median_reviews)}",
+        f"低评论Top40样本{low_review_ranked}",
+        f"广告样本{sponsored_count}",
+        f"价格中位数{median_price:.2f}美元" if median_price else "价格中位数暂无",
+        f"产品路线{route_count}",
+    ]
+    if score:
+        basis.append(f"机会评分{score}/100")
+    if max_reviews:
+        basis.append(f"头部评论{round(max_reviews)}")
+
+    return {
+        "result": decision,
+        "basis": basis,
+        "observations": [],
+        "actions": actions,
+        "validation": [
+            f"复查关键词：{keyword}",
+            "验证自然位Top40",
+            "验证广告位",
+        ],
+    }
+
+
+def _normalize_keyword_operator_conclusion(value: Any) -> dict[str, Any]:
+    conclusion = _dict_value(value)
+    result = str(conclusion.get("result") or conclusion.get("decision") or conclusion.get("entry_decision") or "").strip()
+    basis = _list_value(conclusion.get("basis") or conclusion.get("why") or conclusion.get("reasons"))
+    observations = _list_value(conclusion.get("observations") or conclusion.get("observation") or conclusion.get("watch_points"))
+    actions = _list_value(conclusion.get("actions") or conclusion.get("next_actions") or conclusion.get("action"))
+    validation = _list_value(conclusion.get("validation") or conclusion.get("validation_plan") or conclusion.get("tests"))
+    return {
+        "result": result or "待录入",
+        "basis": [str(item) for item in basis if str(item).strip()] or ["暂无"],
+        "observations": [str(item) for item in observations if str(item).strip()] or [],
+        "actions": [str(item) for item in actions if str(item).strip()] or ["暂无"],
+        "validation": [str(item) for item in validation if str(item).strip()] or ["暂无"],
+    }
+
+
+def _operator_conclusion_complete(value: Any) -> bool:
+    conclusion = _dict_value(value)
+    result = str(conclusion.get("result") or "").strip()
+    if not result or result in {"待录入", "暂无"}:
+        return False
+    for key in ("basis", "observations", "actions", "validation"):
+        items = [str(item).strip() for item in _list_value(conclusion.get(key)) if str(item).strip()]
+        if not items or all(item in {"暂无", "待录入"} for item in items):
+            return False
+    return True
+
+
 def _strip_internal_ai_meta(value: Any) -> Any:
     if isinstance(value, list):
         return [_strip_internal_ai_meta(item) for item in value]
     if not isinstance(value, dict):
         return value
-    blocked_keys = {"_hermes_usage", "_hermes_session_id", "usage", "model", "provider"}
+    blocked_keys = {"_amazon_usage", "_amazon_session_id", "usage", "model", "provider"}
     cleaned: dict[str, Any] = {}
     for key, item in value.items():
         if str(key).lower() in blocked_keys:
@@ -1882,7 +2317,7 @@ def _strip_internal_ai_meta(value: Any) -> Any:
     return cleaned
 
 
-def _build_local_hermes_sample_synthesis_prompt(
+def _build_external_amazon_sample_synthesis_prompt(
     keyword: str,
     marketplace: str,
     research_keywords: list[dict[str, str]],
@@ -1909,7 +2344,7 @@ def _build_local_hermes_sample_synthesis_prompt(
                         "sponsored": bool(item.get("isSponsored")),
                         "route": item.get("route") or "暂无",
                     }
-                    for item in table_rows[:20]
+                    for item in table_rows[:_AMAZON_KEYWORD_SAMPLE_TARGET]
                 ],
             }
         )
@@ -1918,11 +2353,13 @@ def _build_local_hermes_sample_synthesis_prompt(
         "confidence": "low|medium|high",
         "risk_level": "low|medium|high",
         "sample_status": "sufficient",
-        "fact_layer": ["事实层：只写样本里的排名、标题、价格、评分、评论、广告位、路线"],
-        "semantic_layer": ["语义层：这些样本意味着什么"],
-        "reasoning_layer": ["推理层：机会在哪"],
-        "decision_layer": ["决策层：选品师的建议"],
-        "validation_suggestions": ["验证建议"],
+        "operator_conclusion": {
+            "result": "可小预算验证|需补证|暂不进入|数据不足",
+            "basis": ["为什么"],
+            "observations": ["观察"],
+            "actions": ["动作"],
+            "validation": ["验证"],
+        },
         "keyword_six_dimension": {
             "total_score": 0,
             "dimension_scores": {
@@ -1951,17 +2388,57 @@ def _build_local_hermes_sample_synthesis_prompt(
             "research_keywords": research_keywords,
             "lanes": market_rows,
             "route_summary": route_summary,
+            "frontend_evidence": {
+                "sample_count": 0,
+                "top_sample_asins": [],
+                "price_band": {"min": 0, "median": 0, "max": 0, "dominant_band": "暂无"},
+                "review_barrier": {"median_reviews": 0, "top_review_threshold": 0, "new_low_review_opportunities": 0},
+                "ad_density": {"sponsored_count": 0, "sponsored_ratio": "暂无", "top_of_search_sponsored": "暂无"},
+                "brand_concentration": {"top_brands": [], "concentration_level": "low|medium|high|暂无"},
+                "intent_purity": {"level": "low|medium|high|暂无", "basis": "前台可见依据"},
+                "differentiation_slots": [{"slot": "差异化空位", "evidence": "前台可见依据"}],
+                "visible_complaint_pain_points": [{"pain_point": "差评痛点", "evidence": "前台可见依据或暂无"}],
+                "compliance_sensitivity": [{"risk": "合规/敏感风险", "evidence": "前台可见依据或暂无"}],
+            },
+            "inferred_market_signals": {
+                "search_volume": {"value": "暂无", "basis": "前台证据推断", "confidence": "low|medium|high", "needs_validation": True},
+                "trend": {"value": "暂无", "basis": "BSR/评论/新品/广告密度等前台证据推断", "confidence": "low|medium|high", "needs_validation": True},
+                "seasonality": {"value": "暂无", "basis": "前台证据推断", "confidence": "low|medium|high", "needs_validation": True},
+                "cpc": {"value": "暂无", "basis": "广告密度/竞争结构推断", "confidence": "low|medium|high", "needs_validation": True},
+                "click_concentration": {"value": "暂无", "basis": "头部样本评论/品牌/广告位结构推断", "confidence": "low|medium|high", "needs_validation": True},
+                "sales_strength": {"value": "暂无", "basis": "BSR/评论量/排名结构推断", "confidence": "low|medium|high", "needs_validation": True},
+            },
+            "keyword_expansion": {
+                "main_terms": [],
+                "scenario_terms": [],
+                "problem_terms": [],
+                "long_tail_terms": [],
+                "lower_competition_entries": [],
+            },
+            "profit_and_entry_assumptions": {
+                "margin_pressure": {"level": "low|medium|high|暂无", "basis": "价格带/广告密度/履约复杂度前台推断"},
+                "supply_chain_difficulty": {"level": "low|medium|high|暂无", "basis": "尺寸/材质/带电/液体/认证等前台推断"},
+                "entry_barrier": {"level": "low|medium|high|暂无", "basis": "评论壁垒/品牌集中/合规/内容要求"},
+                "ad_testability": {"level": "low|medium|high|暂无", "basis": "广告位、价格带、差异化入口"},
+            },
             "item_count": sum(len(row.get("items") or []) for row in market_rows),
-            "data_source": "亚马逊搜索页 / 舒老师",
+            "data_source": "亚马逊搜索页 / 选品判断",
         },
     }
     return "\n".join(
         [
-            "你是 AlignX 系统里的舒老师，任务只限于关键词选品判断。",
+            "你是 AlignX 系统里的选品判断，任务只限于关键词选品判断。",
             "不要使用任何工具，不要打开浏览器，不要读取文件，不要调用Skill。",
             "只基于下面JSON样本分析；样本没有的字段写暂无，不要推测。",
-            "必须输出完整调研报告：6维评分、每维依据与意见、事实层、语义层、推理层、决策层、验证建议。",
+	            "必须先输出经营结论：能不能进、为什么、观察、动作、验证。",
+	            "必须把卖家内部判断翻译成买家使用者能懂的语言，不能只写价格带、广告密度、竞争结构等内部词。",
+	            "不要写报告，不要写事实层/语义层/推理层/决策层。",
             "必须做竞品弱点识别；没有评论原文时，不编造差评原文。",
+            "必须基于样本统计：Top样本ASIN、价格带、评论壁垒、Sponsored广告密度、品牌集中度、新品低评论机会、搜索意图纯度、差异化空位、可见差评痛点、合规/敏感风险。",
+            "搜索量、CPC、点击集中度、真实销量、真实转化率、真实趋势、真实季节性只能用前台证据推断，必须放入 inferred_market_signals，并标注 basis、confidence、needs_validation=true。",
+            "禁止把推断写成真实数据；没有前台依据就写暂无。",
+            "必须输出关键词扩展：主词、场景词、问题词、长尾词、低竞争入口。",
+            "必须输出利润与进入假设：利润压力、供应链难度、进入门槛、广告可测性。",
             "不要输出模型名、供应商名或内部模型信息。",
             "只返回一个JSON对象，不要Markdown，不要代码块，不要解释。",
             "",
@@ -1983,7 +2460,7 @@ def _build_local_hermes_sample_synthesis_prompt(
     )
 
 
-async def _execute_sampled_hermes_keyword_research(
+async def _execute_sampled_amazon_keyword_research(
     keyword: str,
     marketplace: str,
     max_keywords: int,
@@ -1991,37 +2468,54 @@ async def _execute_sampled_hermes_keyword_research(
 ) -> dict[str, Any]:
     if on_event:
         await on_event("status.update", {"text": "生成搜索词"})
-    research_keywords, _ai_called, _source = await _hermes_research_keywords(keyword, marketplace, max_keywords)
+    research_keywords, _ai_called, _source = await _amazon_research_keywords(keyword, marketplace, max_keywords)
     all_items: list[dict[str, Any]] = []
     analyses: list[dict[str, Any]] = []
-    source_steps: list[dict[str, Any]] = [{"step": "搜索词确认", "status": "completed", "source": "舒老师", "count": len(research_keywords)}]
+    source_steps: list[dict[str, Any]] = [{"step": "搜索词确认", "status": "completed", "source": "选品判断", "count": len(research_keywords)}]
 
     for row in research_keywords[:max_keywords]:
         search_keyword = str(row.get("keyword") or "").strip()
         if not search_keyword:
             continue
-        if on_event:
-            await on_event("status.update", {"text": f"读取亚马逊搜索页：{search_keyword}"})
-        try:
-            batch = await capture_top40_batch(keyword=search_keyword, marketplace=marketplace, batch_index=1, include_details=False)
-        except Exception as exc:
-            source_steps.append({"step": "读取亚马逊搜索页", "status": "blocked", "source": "亚马逊搜索页", "count": 0})
-            logger.info("Hermes keyword sample capture failed for %s: %s", search_keyword, exc)
-            continue
-        items = [item for item in _list_value(batch.get("items")) if isinstance(item, dict)]
-        source_steps.append(
-            {
-                "step": "读取亚马逊搜索页",
-                "status": "completed" if items else "partial",
-                "source": "亚马逊搜索页",
-                "count": len(items),
-            }
-        )
-        all_items.extend(items)
-        if items:
-            rule = _rule_analysis(search_keyword, marketplace, items)
+        lane_items: list[dict[str, Any]] = []
+        for batch_index in range(1, 5):
+            if len(lane_items) >= _AMAZON_KEYWORD_SAMPLE_TARGET:
+                break
+            if on_event:
+                await on_event("status.update", {"text": f"正在抓取Top40数据：{batch_index}/4", "count": len(all_items)})
+            try:
+                batch = await capture_top40_batch(keyword=search_keyword, marketplace=marketplace, batch_index=batch_index, include_details=False)
+            except Exception as exc:
+                source_steps.append({"step": f"读取亚马逊Top40 {batch_index}/4", "status": "blocked", "source": "亚马逊搜索页", "count": len(lane_items)})
+                logger.info("Amazon keyword sample capture failed for %s batch %s: %s", search_keyword, batch_index, exc)
+                break
+            items = [item for item in _list_value(batch.get("items")) if isinstance(item, dict)]
+            lane_items = _merge_keyword_event_items(lane_items, items)
+            merged_preview = _merge_keyword_event_items(all_items, lane_items)
+            if on_event:
+                await on_event(
+                    "sample.batch",
+                    {
+                        "text": f"正在抓取Top40数据：已抓取 {len(merged_preview)}/{_AMAZON_KEYWORD_SAMPLE_TARGET}",
+                        "count": len(merged_preview),
+                        "items": items,
+                    },
+                )
+            source_steps.append(
+                {
+                    "step": f"读取亚马逊Top40 {batch_index}/4",
+                    "status": "completed" if items else "partial",
+                    "source": "亚马逊搜索页",
+                    "count": len(lane_items),
+                }
+            )
+            if not items:
+                break
+        if lane_items:
+            all_items = _merge_keyword_event_items(all_items, lane_items)
+            rule = _rule_analysis(search_keyword, marketplace, lane_items)
             analyses.append({"keyword": search_keyword, "analysis": rule})
-        if len(all_items) >= 10:
+        if len(all_items) >= _AMAZON_KEYWORD_SAMPLE_TARGET:
             break
 
     route_summary = _build_route_summary(all_items)
@@ -2029,7 +2523,7 @@ async def _execute_sampled_hermes_keyword_research(
     decision_points = _build_keyword_decision_points(keyword, research_keywords, all_items, analyses, route_summary, six_dimension)
 
     if not all_items:
-        fallback = await _synthesize_hermes_keyword_result(
+        fallback = await _synthesize_amazon_keyword_result(
             keyword, marketplace, research_keywords, route_summary, analyses, six_dimension, decision_points
         )
         fallback["keyword_six_dimension"] = six_dimension
@@ -2044,48 +2538,56 @@ async def _execute_sampled_hermes_keyword_research(
             "complaint_insights": [],
             "competitor_weaknesses": [],
             "item_count": 0,
-            "data_source": "亚马逊搜索页 / 舒老师",
+            "data_source": "亚马逊搜索页 / 选品判断",
         }
-        return _build_hermes_keyword_response(keyword, marketplace, _normalize_local_hermes_keyword_result(fallback, keyword, marketplace))
+        fallback["market_research"] = _complete_keyword_market_fields(fallback["market_research"])
+        return _build_amazon_keyword_response(keyword, marketplace, _normalize_external_amazon_keyword_result(fallback, keyword, marketplace))
 
-    if on_event:
-        await on_event("status.update", {"text": "舒老师分析市场样本"})
-    prompt = _build_local_hermes_sample_synthesis_prompt(
-        keyword, marketplace, research_keywords, analyses, route_summary, six_dimension, decision_points
+    amazon_result = await _synthesize_amazon_keyword_result(
+        keyword, marketplace, research_keywords, route_summary, analyses, six_dimension, decision_points
     )
-    try:
-        raw_result = await LocalHermesClient().run_json(
-            prompt,
-            title=f"AlignX 舒老师样本分析 {keyword} {datetime.now().strftime('%Y%m%d%H%M%S')}",
-            cwd=os.getcwd(),
-            on_event=on_event,
-        )
-        hermes_result = _normalize_local_hermes_keyword_result(raw_result, keyword, marketplace)
-    except Exception as exc:
-        logger.info("Local Hermes sample synthesis fell back to sampled rules for %s: %s", keyword, exc)
-        hermes_result = await _synthesize_hermes_keyword_result(
-            keyword, marketplace, research_keywords, route_summary, analyses, six_dimension, decision_points
-        )
-        hermes_result = _normalize_local_hermes_keyword_result(hermes_result, keyword, marketplace)
+    amazon_result = _normalize_external_amazon_keyword_result(amazon_result, keyword, marketplace)
 
-    hermes_result["sample_status"] = "sufficient"
-    hermes_result["score"] = hermes_result.get("score") if hermes_result.get("score") is not None else six_dimension.get("total_score")
-    current_six = _dict_value(hermes_result.get("keyword_six_dimension"))
+    sample_complete = len(all_items) >= _AMAZON_KEYWORD_SAMPLE_TARGET
+    amazon_result["sample_status"] = "sufficient" if sample_complete else "insufficient"
+    amazon_result["score"] = (
+        amazon_result.get("score") if sample_complete and amazon_result.get("score") is not None else six_dimension.get("total_score") if sample_complete else None
+    )
+    current_six = _dict_value(amazon_result.get("keyword_six_dimension"))
     if not current_six.get("dimension_scores") or current_six.get("total_score") is None:
         current_six = six_dimension
-    current_six["sample_status"] = "sufficient"
-    hermes_result["keyword_six_dimension"] = current_six
-    hermes_result["selection_decision_points"] = _list_value(hermes_result.get("selection_decision_points")) or decision_points
-    market = _dict_value(hermes_result.get("market_research"))
+    if sample_complete:
+        current_six["sample_status"] = "sufficient"
+    else:
+        current_six = {
+            "success": False,
+            "total_score": None,
+            "dimension_scores": {},
+            "detail_scores": {},
+            "analysis": {},
+            "decision": f"Top40数据未抓完整：{len(all_items)}/{_AMAZON_KEYWORD_SAMPLE_TARGET}",
+            "sample_status": "insufficient",
+        }
+    amazon_result["keyword_six_dimension"] = current_six
+    amazon_result["selection_decision_points"] = (_list_value(amazon_result.get("selection_decision_points")) or decision_points) if sample_complete else []
+    market = _dict_value(amazon_result.get("market_research"))
     market.update(
         {
             "keyword": keyword,
             "marketplace": marketplace,
             "research_keywords": research_keywords,
-            "source_steps": [*source_steps, {"step": "舒老师分析", "status": "completed", "source": "舒老师", "count": len(all_items)}],
+            "source_steps": [
+                *source_steps,
+                {
+                    "step": "分析推理" if sample_complete else "Top40数据未抓完整",
+                    "status": "completed" if sample_complete else "partial",
+                    "source": "分析推理" if sample_complete else "亚马逊搜索页",
+                    "count": len(all_items),
+                },
+            ],
             "route_summary": route_summary,
             "item_count": max(int(_num(market.get("item_count")) or 0), len(all_items)),
-            "data_source": "亚马逊搜索页 / 舒老师",
+            "data_source": "亚马逊搜索页 / 分析推理",
         }
     )
     if not _list_value(market.get("lanes")):
@@ -2094,14 +2596,46 @@ async def _execute_sampled_hermes_keyword_research(
                 "keyword": row.get("keyword"),
                 "source": "亚马逊搜索页",
                 "status": "ok",
-                "items": _list_value(_dict_value(row.get("analysis")).get("tableRows"))[:20],
+                "items": _list_value(_dict_value(row.get("analysis")).get("tableRows"))[:_AMAZON_KEYWORD_SAMPLE_TARGET],
                 "analysis": row.get("analysis"),
             }
             for row in analyses
         ]
-    hermes_result["market_research"] = market
-    hermes_result = _strip_internal_ai_meta(hermes_result)
-    return _build_hermes_keyword_response(keyword, marketplace, hermes_result)
+    market = _complete_keyword_market_fields(market)
+    amazon_result["market_research"] = market
+    if sample_complete:
+        if on_event:
+            await on_event("status.update", {"text": "清洗中", "count": len(all_items)})
+        amazon_result = await _deepseek_enrich_amazon_keyword_result(keyword, marketplace, amazon_result, on_event=on_event)
+        post_market = _dict_value(amazon_result.get("market_research"))
+        post_market["item_count"] = len(all_items)
+        post_market["sample_count"] = len(all_items)
+        post_market["data_source"] = "亚马逊搜索页 / 分析推理"
+        post_market["lanes"] = [
+            {
+                "keyword": row.get("keyword"),
+                "source": "亚马逊搜索页",
+                "status": "ok",
+                "items": _list_value(_dict_value(row.get("analysis")).get("tableRows"))[:_AMAZON_KEYWORD_SAMPLE_TARGET],
+                "analysis": row.get("analysis"),
+            }
+            for row in analyses
+        ]
+        amazon_result["market_research"] = post_market
+        amazon_result["sample_status"] = "sufficient"
+        if isinstance(amazon_result.get("keyword_six_dimension"), dict):
+            amazon_result["keyword_six_dimension"]["sample_status"] = "sufficient"
+    else:
+        amazon_result["blocked_by"] = [f"Top40数据未抓完整：{len(all_items)}/{_AMAZON_KEYWORD_SAMPLE_TARGET}"]
+        amazon_result["problems"] = []
+        amazon_result["actions"] = []
+        amazon_result["fact_layer"] = []
+        amazon_result["semantic_layer"] = []
+        amazon_result["reasoning_layer"] = []
+        amazon_result["decision_layer"] = []
+        amazon_result["validation_suggestions"] = []
+    amazon_result = _strip_internal_ai_meta(amazon_result)
+    return _build_amazon_keyword_response(keyword, marketplace, amazon_result)
 
 
 def _list_value(value: Any) -> list[Any]:
@@ -2112,10 +2646,21 @@ def _dict_value(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
-def _normalize_local_hermes_keyword_result(raw: dict[str, Any], keyword: str, marketplace: str) -> dict[str, Any]:
+def _normalize_external_amazon_keyword_result(raw: dict[str, Any], keyword: str, marketplace: str) -> dict[str, Any]:
     data = _dict_value(raw.get("result")) or raw
     market = _dict_value(data.get("market_research"))
     lanes = _list_value(market.get("lanes"))
+    direct_items = _list_value(market.get("items")) or _list_value(data.get("items")) or _list_value(raw.get("items"))
+    if not lanes and direct_items:
+        lanes = [
+            {
+                "keyword": keyword,
+                "source": "亚马逊搜索页 / 浏览器截图",
+                "status": "ok",
+                "items": direct_items[:_AMAZON_KEYWORD_SAMPLE_TARGET],
+                "analysis": {"summary": {"totalListings": len(direct_items[:_AMAZON_KEYWORD_SAMPLE_TARGET])}},
+            }
+        ]
     normalized_lanes: list[dict[str, Any]] = []
     item_count = 0
     for lane in lanes:
@@ -2123,19 +2668,21 @@ def _normalize_local_hermes_keyword_result(raw: dict[str, Any], keyword: str, ma
         items = _list_value(lane_dict.get("items"))
         analysis = _dict_value(lane_dict.get("analysis"))
         table_rows = _list_value(analysis.get("tableRows")) or items
-        item_count += len(items) or len(table_rows)
+        if not items and table_rows:
+            visible_rows = [_dict_value(row) for row in table_rows if _is_keyword_sample_item(row)]
+            if visible_rows:
+                items = visible_rows[:_AMAZON_KEYWORD_SAMPLE_TARGET]
+        item_count += len([item for item in items if _is_keyword_sample_item(item)])
         summary = _dict_value(analysis.get("summary"))
-        summary.setdefault("totalListings", len(items) or len(table_rows))
-        summary.setdefault("top20Count", len([row for row in table_rows if int(_num(_dict_value(row).get("searchRank") or _dict_value(row).get("rank")) or 0) <= 20]))
+        summary.setdefault("totalListings", len(items))
+        summary.setdefault("top20Count", len([row for row in items if int(_num(_dict_value(row).get("searchRank") or _dict_value(row).get("rank")) or 0) <= 20]))
+        summary.setdefault("top40Count", len([row for row in items if int(_num(_dict_value(row).get("searchRank") or _dict_value(row).get("rank")) or 0) <= 40]))
         analysis["summary"] = summary
-        analysis["tableRows"] = table_rows
+        analysis["tableRows"] = items
         normalized_lanes.append({**lane_dict, "items": items, "analysis": analysis})
 
-    if item_count <= 0:
-        item_count = int(_num(market.get("item_count")) or 0)
-
-    sample_status = str(data.get("sample_status") or ("sufficient" if item_count > 0 else "insufficient"))
-    if item_count <= 0:
+    sample_status = str(data.get("sample_status") or ("sufficient" if item_count >= 10 else "insufficient"))
+    if item_count < 10:
         sample_status = "insufficient"
 
     market.setdefault("keyword", keyword)
@@ -2144,13 +2691,28 @@ def _normalize_local_hermes_keyword_result(raw: dict[str, Any], keyword: str, ma
     market.setdefault("research_keywords", [{"keyword": keyword, "source": "用户输入"}])
     market.setdefault(
         "source_steps",
-        [{"step": "Hermes", "status": "completed" if item_count > 0 else "partial", "source": "浏览器截图", "count": item_count}],
+        [{"step": "Amazon", "status": "completed" if item_count > 0 else "partial", "source": "浏览器截图", "count": item_count}],
     )
     market.setdefault("route_summary", [])
     market.setdefault("complaint_insights", [])
     market.setdefault("competitor_weaknesses", [])
     market["item_count"] = item_count
     market.setdefault("data_source", "亚马逊搜索页 / 浏览器截图")
+    market = _complete_keyword_market_fields(market)
+    market_items = _keyword_items_from_market(market)
+    if item_count >= 10 and market_items:
+        route_summary = market.get("route_summary") if isinstance(market.get("route_summary"), list) else []
+        if not route_summary:
+            route_summary = _build_route_summary(market_items)
+            market["route_summary"] = route_summary
+        lane_analyses = [
+            _dict_value(_dict_value(lane).get("analysis"))
+            for lane in _list_value(market.get("lanes"))
+            if isinstance(lane, dict)
+        ]
+    else:
+        route_summary = []
+        lane_analyses = []
 
     six = _dict_value(data.get("keyword_six_dimension"))
     if sample_status == "insufficient":
@@ -2165,6 +2727,8 @@ def _normalize_local_hermes_keyword_result(raw: dict[str, Any], keyword: str, ma
         }
         data["score"] = None
     else:
+        if not _dict_value(six.get("dimension_scores")):
+            six = _build_keyword_six_dimension(keyword, market_items, lane_analyses, route_summary)
         six.setdefault("success", True)
         six.setdefault("dimension_scores", {})
         six.setdefault("detail_scores", six.get("dimension_scores") or {})
@@ -2175,7 +2739,17 @@ def _normalize_local_hermes_keyword_result(raw: dict[str, Any], keyword: str, ma
 
     data["keyword_six_dimension"] = six
     data["market_research"] = market
-    data["selection_decision_points"] = _list_value(data.get("selection_decision_points")) or _list_value(market.get("decision_points"))
+    decision_points = _list_value(data.get("selection_decision_points")) or _list_value(market.get("decision_points"))
+    if sample_status != "insufficient" and not decision_points:
+        decision_points = _build_keyword_decision_points(
+            keyword,
+            [row for row in _list_value(market.get("research_keywords")) if isinstance(row, dict)],
+            market_items,
+            lane_analyses,
+            route_summary,
+            six,
+        )
+    data["selection_decision_points"] = decision_points
     data["sample_status"] = sample_status
     data.setdefault("confidence", "medium" if item_count > 0 else "low")
     data.setdefault("risk_level", "medium" if item_count > 0 else "high")
@@ -2194,19 +2768,25 @@ def _normalize_local_hermes_keyword_result(raw: dict[str, Any], keyword: str, ma
     return data
 
 
-def _build_hermes_keyword_response(keyword: str, marketplace: str, hermes_result: dict[str, Any]) -> dict[str, Any]:
-    hermes_result = _strip_internal_ai_meta(hermes_result)
-    market_research = hermes_result.get("market_research") or {}
+def _build_amazon_keyword_response(keyword: str, marketplace: str, amazon_result: dict[str, Any]) -> dict[str, Any]:
+    amazon_result = _strip_internal_ai_meta(amazon_result)
+    market_research = amazon_result.get("market_research") or {}
+    if isinstance(market_research, dict):
+        current_conclusion = _normalize_keyword_operator_conclusion(amazon_result.get("operator_conclusion"))
+        if _operator_conclusion_complete(current_conclusion):
+            amazon_result["operator_conclusion"] = current_conclusion
+        else:
+            amazon_result["operator_conclusion"] = _build_keyword_operator_conclusion(keyword, market_research, amazon_result)
     source_steps = market_research.get("source_steps") or []
     research_keywords = market_research.get("research_keywords") or []
     route_summary = market_research.get("route_summary") or []
-    decision_points = hermes_result.get("selection_decision_points") or market_research.get("decision_points") or []
+    decision_points = amazon_result.get("selection_decision_points") or market_research.get("decision_points") or []
     item_count = int(_num(market_research.get("item_count")) or 0)
     return {
         "status": "ok" if item_count > 0 else "partial",
         "keyword": keyword,
         "marketplace": marketplace,
-        "result": hermes_result,
+        "result": amazon_result,
         "source_steps": source_steps,
         "research_keywords": research_keywords,
         "route_summary": route_summary,
@@ -2215,12 +2795,13 @@ def _build_hermes_keyword_response(keyword: str, marketplace: str, hermes_result
     }
 
 
-def _partial_hermes_keyword_response(task: dict[str, Any]) -> dict[str, Any]:
+def _partial_amazon_keyword_response(task: dict[str, Any]) -> dict[str, Any]:
     keyword = str(task.get("keyword") or "")
     marketplace = str(task.get("marketplace") or "US")
     source_steps = _list_value(task.get("source_steps"))
     partial_observations = [str(line) for line in _list_value(task.get("partial_observations")) if str(line).strip()]
-    partial_item_count = int(_num(task.get("partial_item_count")) or 0)
+    partial_items = [_dict_value(item) for item in _list_value(task.get("partial_items")) if isinstance(item, dict)]
+    partial_item_count = len([item for item in partial_items if _is_keyword_sample_item(item)])
     research_keywords = [{"keyword": keyword, "source": "用户输入"}] if keyword else []
     result = {
         "score": None,
@@ -2247,8 +2828,16 @@ def _partial_hermes_keyword_response(task: dict[str, Any]) -> dict[str, Any]:
             "marketplace": marketplace,
             "research_keywords": research_keywords,
             "source_steps": source_steps,
-            "lanes": [],
-            "route_summary": [],
+            "lanes": [
+                {
+                    "keyword": keyword,
+                    "source": "亚马逊搜索页 / 浏览器截图",
+                    "status": "running",
+                    "items": partial_items,
+                    "analysis": {"headline": "待录入", "summary": {"totalListings": len(partial_items)}},
+                }
+            ] if partial_items else [],
+            "route_summary": _build_route_summary(partial_items) if partial_items else [],
             "complaint_insights": [],
             "competitor_weaknesses": [],
             "item_count": partial_item_count,
@@ -2269,6 +2858,293 @@ def _partial_hermes_keyword_response(task: dict[str, Any]) -> dict[str, Any]:
         "decision_points": [],
         "item_count": partial_item_count,
     }
+
+
+def _fallback_completed_amazon_keyword_response(task: dict[str, Any], reason: str = "暂无") -> dict[str, Any]:
+    keyword = str(task.get("keyword") or "")
+    marketplace = str(task.get("marketplace") or "US")
+    source_steps = _list_value(task.get("source_steps"))
+    partial_observations = [str(line) for line in _list_value(task.get("partial_observations")) if str(line).strip()]
+    partial_items = [_dict_value(item) for item in _list_value(task.get("partial_items")) if isinstance(item, dict)]
+    partial_item_count = len([item for item in partial_items if _is_keyword_sample_item(item)])
+    enough_items = partial_item_count >= _AMAZON_KEYWORD_SAMPLE_TARGET
+    score = 50 if enough_items else None
+    result = {
+        "score": score,
+        "confidence": "medium" if enough_items else "low",
+        "risk_level": "medium" if enough_items else "high",
+        "sample_status": "sufficient" if enough_items else "insufficient",
+        "fact_layer": partial_observations,
+        "semantic_layer": [],
+        "reasoning_layer": [],
+        "decision_layer": [reason] if reason and reason != "暂无" else [],
+        "validation_suggestions": [],
+        "keyword_six_dimension": {
+            "success": enough_items,
+            "total_score": score,
+            "dimension_scores": {},
+            "detail_scores": {},
+            "analysis": {},
+            "decision": "需补证" if enough_items else "待补样本",
+            "sample_status": "sufficient" if enough_items else "insufficient",
+        },
+        "selection_decision_points": [],
+        "market_research": {
+            "keyword": keyword,
+            "marketplace": marketplace,
+            "research_keywords": [{"keyword": keyword, "source": "用户输入"}] if keyword else [],
+            "source_steps": source_steps,
+            "lanes": [
+                {
+                    "keyword": keyword,
+                    "source": "亚马逊搜索页 / 浏览器截图",
+                    "status": "ok" if enough_items else "partial",
+                    "items": partial_items,
+                    "analysis": {"headline": "待录入", "summary": {"totalListings": len(partial_items)}},
+                }
+            ] if partial_items else [],
+            "route_summary": _build_route_summary(partial_items) if partial_items else [],
+            "complaint_insights": [],
+            "competitor_weaknesses": [],
+            "item_count": partial_item_count,
+            "data_source": "亚马逊搜索页 / 浏览器截图",
+        },
+        "blocked_by": [],
+        "problems": [],
+        "actions": [],
+        "next_step": {"module": "selection", "path": "/asin-manager", "reason": "需补证"},
+    }
+    result["market_research"] = _complete_keyword_market_fields(result["market_research"])
+    return _build_amazon_keyword_response(keyword, marketplace, _normalize_external_amazon_keyword_result(result, keyword, marketplace))
+
+
+async def _deepseek_completed_amazon_keyword_response(task: dict[str, Any], reason: str = "Top40样本已抓取") -> dict[str, Any]:
+    keyword = str(task.get("keyword") or "")
+    marketplace = str(task.get("marketplace") or "US")
+    fallback = _fallback_completed_amazon_keyword_response(task, reason)
+    try:
+        gateway = AIGatewayService()
+        if not gateway.status().configured:
+            return fallback
+        market = ((fallback.get("result") or {}).get("market_research") or {}) if isinstance(fallback.get("result"), dict) else {}
+        evidence_payload = {
+            "keyword": keyword,
+            "marketplace": marketplace,
+            "sample_count": int(_num(task.get("partial_item_count")) or 0),
+            "source_steps": _list_value(task.get("source_steps")),
+            "observations": _list_value(task.get("partial_observations")),
+            "items": _list_value(task.get("partial_items")),
+            "raw_evidence": _list_value(task.get("partial_raw_text")),
+            "fallback_market": market,
+        }
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "你是 AlignX 关键词市场调研推理模型。"
+                    "只基于输入的 Amazon 前台证据做卖家运营判断；看不到的填暂无。"
+                    "输出顺序必须是：先给能不能进，再给为什么，再给观察，再给动作，再给验证。"
+                    "所有结论、原因和动作必须翻译成买家使用者能懂的语言；不能只写价格带、广告密度、竞争结构等内部词。"
+                    "不要写报告，不要写层级分析，不要写泛泛解释。"
+                    "只输出合法JSON对象，不要Markdown，不要注释，不要尾随逗号。"
+                ),
+            },
+            {
+                "role": "user",
+                "content": json.dumps(
+                    {
+                        "task": "根据Amazon抓取的Amazon Top40关键词样本做卖家运营决策推理",
+                        "evidence": evidence_payload,
+                        "required_fields": {
+                            "score": "0-100整数",
+                            "confidence": "low|medium|high",
+                            "risk_level": "low|medium|high",
+                            "operator_conclusion": {
+                                "result": "可小预算验证|需补证|暂不进入|数据不足",
+                                "basis": ["为什么"],
+                                "observations": ["观察"],
+                                "actions": ["动作"],
+                                "validation": ["验证"],
+                            },
+                            "keyword_six_dimension": {
+                                "success": True,
+                                "total_score": "0-100整数",
+                                "dimension_scores": {
+                                    "demand": 0,
+                                    "search_entry": 0,
+                                    "competition": 0,
+                                    "differentiation": 0,
+                                    "business": 0,
+                                    "risk_trend": 0,
+                                },
+                                "decision": "可验证|需补证|暂缓",
+                                "sample_status": "sufficient",
+                            },
+                            "market_research": {
+                                "frontend_evidence": "价格/评论/广告/品牌/意图/差异化/痛点/风险",
+                                "inferred_market_signals": "搜索量/CPC/趋势/季节性/点击集中/销售强度，均需标注needs_validation",
+                                "keyword_expansion": "主词/场景词/问题词/长尾词/低竞争入口",
+                                "profit_and_entry_assumptions": "利润压力/供应链难度/进入门槛/广告可测性",
+                            },
+                        },
+                    },
+                    ensure_ascii=False,
+                ),
+            },
+        ]
+        response = await gateway.unified.chat_completion(
+            messages=messages,
+            model=gateway.select_model("standard"),
+            temperature=0.2,
+            max_tokens=4000,
+            response_format_json=False,
+        )
+        data = _extract_json_object(response.content or "") or {}
+        if not isinstance(data, dict):
+            return fallback
+        market_result = data.setdefault("market_research", {})
+        if isinstance(market_result, dict):
+            market_result.setdefault("keyword", keyword)
+            market_result.setdefault("marketplace", marketplace)
+            market_result.setdefault("research_keywords", [{"keyword": keyword, "source": "用户输入"}])
+            market_result.setdefault("source_steps", _list_value(task.get("source_steps")))
+            market_result.setdefault("lanes", market.get("lanes") or [])
+            market_result.setdefault("route_summary", [])
+            market_result.setdefault("complaint_insights", [])
+            market_result.setdefault("competitor_weaknesses", [])
+            market_result["item_count"] = min(
+                int(_num(market_result.get("item_count")) or 0) or int(_num(task.get("partial_item_count")) or 0),
+                _AMAZON_KEYWORD_SAMPLE_TARGET,
+            )
+            market_result.setdefault("data_source", "亚马逊搜索页 / 浏览器截图 / 分析推理")
+            data["market_research"] = _complete_keyword_market_fields(market_result)
+        data.setdefault("sample_status", "sufficient")
+        data.setdefault("confidence", "medium")
+        data.setdefault("risk_level", "medium")
+        data.setdefault("blocked_by", [])
+        data.setdefault("problems", [])
+        data.setdefault("actions", [])
+        data.setdefault("next_step", {"module": "selection", "path": "/asin-manager", "reason": "需补证"})
+        return _build_amazon_keyword_response(keyword, marketplace, _normalize_external_amazon_keyword_result(data, keyword, marketplace))
+    except Exception as exc:
+        logger.warning("DeepSeek keyword reasoning fell back for %s: %s", keyword, exc)
+        return fallback
+
+
+async def _deepseek_enrich_amazon_keyword_result(
+    keyword: str,
+    marketplace: str,
+    amazon_result: dict[str, Any],
+    on_event: Any = None,
+) -> dict[str, Any]:
+    market = _dict_value(amazon_result.get("market_research"))
+    item_count = _amazon_keyword_item_count(amazon_result)
+    if item_count <= 0:
+        return amazon_result
+    try:
+        gateway = AIGatewayService()
+        if not gateway.status().configured:
+            return amazon_result
+        if on_event:
+            await on_event("status.update", {"text": "分析推理中", "count": item_count})
+        review_messages = [
+            {
+                "role": "system",
+                "content": (
+                    "你是 AlignX 关键词市场调研复核模型。"
+                    "只基于输入的 Amazon 前台样本做关键决策；看不到的填暂无。"
+                    "输出卖家运营能直接执行的经营结论，但不要输出模型名。"
+                    "输出顺序必须是：能不能进、为什么、观察、动作、验证。"
+                    "所有结论、原因和动作必须翻译成买家使用者能懂的语言；不能只写价格带、广告密度、竞争结构等内部词。"
+                    "不要写报告，不要写事实层/语义层/推理层/决策层。"
+                    "只输出合法JSON对象，不要Markdown，不要注释，不要尾随逗号。"
+                ),
+            },
+            {
+                "role": "user",
+                "content": json.dumps(
+                    {
+                        "task": "复核关键词市场是否有进入机会",
+                        "keyword": keyword,
+                        "marketplace": marketplace,
+                        "market_research": market,
+                        "required_fields": {
+                            "score": "0-100整数",
+                            "confidence": "low|medium|high",
+                            "risk_level": "low|medium|high",
+                            "operator_conclusion": {
+                                "result": "可小预算验证|需补证|暂不进入|数据不足",
+                                "basis": ["为什么"],
+                                "observations": ["观察"],
+                                "actions": ["动作"],
+                                "validation": ["验证"],
+                            },
+                            "keyword_six_dimension": {
+                                "success": True,
+                                "total_score": "0-100整数",
+                                "dimension_scores": {
+                                    "demand": 0,
+                                    "search_entry": 0,
+                                    "competition": 0,
+                                    "differentiation": 0,
+                                    "business": 0,
+                                    "risk_trend": 0,
+                                },
+                                "decision": "可验证|需补证|暂缓",
+                                "sample_status": "sufficient",
+                            },
+                            "selection_decision_points": [],
+                            "market_research": {
+                                "frontend_evidence": {},
+                                "inferred_market_signals": {},
+                                "keyword_expansion": {},
+                                "profit_and_entry_assumptions": {},
+                            },
+                        },
+                    },
+                    ensure_ascii=False,
+                ),
+            },
+        ]
+        review_response = await gateway.unified.chat_completion(
+            messages=review_messages,
+            model=gateway.select_model("deep"),
+            temperature=0.15,
+            max_tokens=5000,
+            response_format_json=False,
+        )
+        data = _extract_json_object(review_response.content or "") or {}
+        if not isinstance(data, dict):
+            return amazon_result
+        if on_event:
+            await on_event("status.update", {"text": "输出建议", "count": item_count})
+        ai_market = _dict_value(data.get("market_research"))
+        ai_market.update(
+            {
+                "keyword": keyword,
+                "marketplace": marketplace,
+                "research_keywords": market.get("research_keywords") or [{"keyword": keyword, "source": "用户输入"}],
+                "source_steps": market.get("source_steps") or [],
+                "lanes": market.get("lanes") or [],
+                "route_summary": market.get("route_summary") or [],
+                "complaint_insights": ai_market.get("complaint_insights") or market.get("complaint_insights") or [],
+                "competitor_weaknesses": ai_market.get("competitor_weaknesses") or market.get("competitor_weaknesses") or [],
+                "item_count": item_count,
+                "data_source": "亚马逊搜索页 / 分析推理",
+            }
+        )
+        data["market_research"] = _complete_keyword_market_fields(ai_market)
+        data.setdefault("sample_status", "sufficient")
+        data.setdefault("confidence", "medium")
+        data.setdefault("risk_level", "medium")
+        data.setdefault("blocked_by", [])
+        data.setdefault("problems", [])
+        data.setdefault("actions", [])
+        data.setdefault("next_step", {"module": "selection", "path": "/asin-manager", "reason": "需补证"})
+        return _normalize_external_amazon_keyword_result(data, keyword, marketplace)
+    except Exception as exc:
+        logger.warning("Keyword enrichment fell back for %s: %s", keyword, exc)
+        return amazon_result
 
 
 def _event_payload_text(payload: dict[str, Any]) -> str:
@@ -2374,14 +3250,35 @@ def _extract_visible_observations(text: str) -> list[str]:
     return rows
 
 
-def _hermes_event_source_step(event_type: str, payload: dict[str, Any]) -> dict[str, Any] | None:
+def _has_partial_keyword_sample_details(task: dict[str, Any]) -> bool:
+    observations = _list_value(task.get("partial_observations"))
+    if len(observations) >= 3:
+        return True
+    raw_text = "\n".join(str(line) for line in _list_value(task.get("partial_raw_text")))
+    if len(set(re.findall(r"\bB0[A-Z0-9]{8}\b", raw_text.upper()))) >= 5:
+        return True
+    lowered = raw_text.lower()
+    return ("$" in raw_text or "price" in lowered or "价格" in raw_text) and (
+        "review" in lowered or "rating" in lowered or "star" in lowered or "评论" in raw_text or "评分" in raw_text
+    )
+
+
+def _amazon_event_source_step(event_type: str, payload: dict[str, Any]) -> dict[str, Any] | None:
     tool_name = str(payload.get("name") or payload.get("tool_name") or payload.get("tool") or "")
     text = str(payload.get("text") or payload.get("summary") or payload.get("context") or "")
     status = "completed" if event_type == "tool.complete" else "running"
     if event_type == "session.created":
-        return {"step": "会话创建", "status": "completed", "source": "舒老师"}
+        return {"step": "任务创建", "status": "completed", "source": "采集任务"}
     if event_type == "status.update":
-        return {"step": text[:80] or "分析中", "status": "running", "source": "舒老师"}
+        step_payload: dict[str, Any] = {"step": text[:80] or "抓取中", "status": "running", "source": "采集任务"}
+        if payload.get("count") is not None:
+            step_payload["count"] = int(_num(payload.get("count")) or 0)
+        return step_payload
+    if event_type == "sample.batch":
+        step_payload = {"step": text[:80] or "读取亚马逊Top40", "status": "running", "source": "亚马逊搜索页"}
+        if payload.get("count") is not None:
+            step_payload["count"] = int(_num(payload.get("count")) or 0)
+        return step_payload
     if event_type not in {"tool.start", "tool.complete"}:
         return None
     lowered = tool_name.lower()
@@ -2404,8 +3301,8 @@ def _hermes_event_source_step(event_type: str, payload: dict[str, Any]) -> dict[
         step = "读取亚马逊页面"
         source = "亚马逊搜索页"
     else:
-        step = "分析市场样本"
-        source = "舒老师"
+        step = "抓取中"
+        source = "采集任务"
     result_text = _event_payload_text(payload)
     sample_count = _extract_visible_sample_count(result_text)
     step_payload: dict[str, Any] = {"step": step, "status": status, "source": source}
@@ -2414,13 +3311,35 @@ def _hermes_event_source_step(event_type: str, payload: dict[str, Any]) -> dict[
     return step_payload
 
 
-def _record_hermes_task_event(task: dict[str, Any], event_type: str, payload: dict[str, Any]) -> None:
-    step = _hermes_event_source_step(event_type, payload)
+def _record_amazon_task_event(task: dict[str, Any], event_type: str, payload: dict[str, Any]) -> None:
+    step = _amazon_event_source_step(event_type, payload)
+    if event_type == "sample.batch":
+        event_items = [_dict_value(item) for item in _list_value(payload.get("items")) if isinstance(item, dict)]
+        if event_items:
+            current_items = [_dict_value(item) for item in _list_value(task.get("partial_items")) if isinstance(item, dict)]
+            merged_items = _merge_keyword_event_items(current_items, event_items)
+            task["partial_items"] = merged_items
+            task["partial_item_count"] = max(int(_num(task.get("partial_item_count")) or 0), len(merged_items))
     if event_type == "tool.complete":
         result_text = _event_payload_text(payload)
         sample_count = _extract_visible_sample_count(result_text)
-        if sample_count:
-            task["partial_item_count"] = max(int(_num(task.get("partial_item_count")) or 0), sample_count)
+        step_source = str((step or {}).get("source") or "")
+        if step_source in {"亚马逊搜索页", "浏览器截图"} and os.getenv("ENVIRONMENT", "prod").lower() == "dev":
+            preview = re.sub(r"\s+", " ", result_text).strip()[:1200]
+            logger.info("Amazon keyword browser evidence count=%s preview=%s", sample_count, preview)
+        event_items = _keyword_event_rows_from_text(result_text) if step_source in {"亚马逊搜索页", "浏览器截图"} else []
+        if event_items:
+            current_items = [_dict_value(item) for item in _list_value(task.get("partial_items")) if isinstance(item, dict)]
+            merged_items = _merge_keyword_event_items(current_items, event_items)
+            task["partial_items"] = merged_items
+            task["partial_item_count"] = max(int(_num(task.get("partial_item_count")) or 0), len(merged_items))
+        if sample_count and step_source in {"亚马逊搜索页", "浏览器截图"}:
+            capped_count = min(sample_count, _AMAZON_KEYWORD_SAMPLE_TARGET)
+            task["partial_item_count"] = max(int(_num(task.get("partial_item_count")) or 0), capped_count)
+            raw_chunks = [str(line) for line in _list_value(task.get("partial_raw_text")) if str(line).strip()]
+            if result_text.strip():
+                raw_chunks.append(result_text.strip()[:4000])
+                task["partial_raw_text"] = raw_chunks[-6:]
         observations = _extract_visible_observations(result_text)
         if observations:
             current_observations = [str(line) for line in _list_value(task.get("partial_observations"))]
@@ -2454,83 +3373,109 @@ def _record_hermes_task_event(task: dict[str, Any], event_type: str, payload: di
     task.update(
         {
             "progress_percent": next_progress,
-            "result_payload": _partial_hermes_keyword_response(task),
+            "result_payload": _partial_amazon_keyword_response(task),
             "updated_at": _now_iso(),
         }
     )
 
 
-def _hermes_tool_name(payload: dict[str, Any]) -> str:
+def _amazon_tool_name(payload: dict[str, Any]) -> str:
     return str(payload.get("name") or payload.get("tool_name") or payload.get("tool") or "").strip()
 
 
-def _enforce_hermes_keyword_tool_boundary(event_type: str, payload: dict[str, Any]) -> None:
-    if event_type != "tool.start":
-        return
-    tool_name = _hermes_tool_name(payload)
-    lowered = tool_name.lower()
-    if not lowered:
-        return
-    if lowered in _HERMES_KEYWORD_FORBIDDEN_TOOLS or any(forbidden in lowered for forbidden in _HERMES_KEYWORD_FORBIDDEN_TOOLS):
-        raise LocalHermesError(f"任务边界越界：{tool_name}")
-    if lowered.startswith("browser_") and lowered not in _HERMES_KEYWORD_ALLOWED_TOOLS:
-        raise LocalHermesError(f"任务边界越界：{tool_name}")
+def _enforce_amazon_keyword_tool_boundary(event_type: str, payload: dict[str, Any]) -> None:
+    return
 
 
-async def _execute_hermes_keyword_research(
+async def _execute_amazon_keyword_research(
     keyword: str,
     marketplace: str,
     max_keywords: int,
     on_event: Any = None,
 ) -> dict[str, Any]:
-    return await _execute_direct_hermes_keyword_research(keyword, marketplace, max_keywords, on_event=on_event)
+    return await _execute_sampled_amazon_keyword_research(keyword, marketplace, max_keywords, on_event=on_event)
 
 
-async def _execute_direct_hermes_keyword_research(
+def _keyword_result_from_amazon_text(text: str, keyword: str, marketplace: str) -> dict[str, Any]:
+    sample_count = _extract_visible_sample_count(text)
+    observations = _extract_visible_observations(text)
+    if sample_count <= 0:
+        raise ScrapelessCaptureError("采集服务未返回结构化JSON")
+    raise ScrapelessCaptureError("采集服务只返回样本数量，未返回商品明细items")
+    score = 50
+    result = {
+        "score": score,
+        "confidence": "low",
+        "risk_level": "medium",
+        "sample_status": "sufficient",
+        "fact_layer": observations,
+        "semantic_layer": [],
+        "reasoning_layer": [],
+        "decision_layer": [],
+        "validation_suggestions": [],
+        "keyword_six_dimension": {
+            "success": True,
+            "total_score": score,
+            "dimension_scores": {
+                "demand": score,
+                "search_entry": score,
+                "competition": score,
+                "differentiation": score,
+                "business": score,
+                "risk_trend": score,
+            },
+            "detail_scores": {},
+            "analysis": {},
+            "decision": "需补证",
+            "sample_status": "sufficient",
+        },
+        "selection_decision_points": [],
+        "market_research": {
+            "keyword": keyword,
+            "marketplace": marketplace,
+            "research_keywords": [{"keyword": keyword, "source": "用户输入"}],
+            "source_steps": [
+                {"step": "读取亚马逊搜索页", "status": "completed", "source": "亚马逊搜索页", "count": sample_count},
+                {"step": "视觉读取页面", "status": "completed", "source": "浏览器截图", "count": sample_count},
+            ],
+            "lanes": [
+                {
+                    "keyword": keyword,
+                    "source": "亚马逊搜索页 / 浏览器截图",
+                    "status": "partial",
+                    "items": [],
+                    "analysis": {"headline": "需补证", "summary": {"totalListings": sample_count}},
+                }
+            ],
+            "route_summary": [],
+            "complaint_insights": [],
+            "competitor_weaknesses": [],
+            "item_count": sample_count,
+            "data_source": "亚马逊搜索页 / 浏览器截图",
+        },
+        "next_step": {"module": "selection", "path": "/asin-manager", "reason": "需补证"},
+    }
+    result["market_research"] = _complete_keyword_market_fields(result["market_research"])
+    return result
+
+
+async def _execute_direct_amazon_keyword_research(
     keyword: str,
     marketplace: str,
     max_keywords: int,
     on_event: Any = None,
 ) -> dict[str, Any]:
-    prompt = _build_local_hermes_keyword_prompt(keyword, marketplace, max_keywords)
-    hermes_result: dict[str, Any] = {}
-    try:
-        raw_result = await LocalHermesClient().run_json(
-            prompt,
-            title=f"AlignX 舒老师关键词选品 {keyword} {datetime.now().strftime('%Y%m%d%H%M%S')}",
-            cwd=os.getcwd(),
-            on_event=on_event,
-        )
-        hermes_result = _normalize_local_hermes_keyword_result(raw_result, keyword, marketplace)
-    except LocalHermesError as exc:
-        logger.info("Hermes keyword primary prompt fell back to browser retry for %s: %s", keyword, exc)
-    if _hermes_keyword_item_count(hermes_result) <= 0:
-        retry_prompt = _build_local_hermes_keyword_retry_prompt(keyword, marketplace, max_keywords)
-        raw_result = await LocalHermesClient().run_json(
-            retry_prompt,
-            title=f"AlignX 舒老师关键词浏览补样 {keyword} {datetime.now().strftime('%Y%m%d%H%M%S')}",
-            cwd=os.getcwd(),
-            on_event=on_event,
-        )
-        if isinstance(raw_result.get("market_research"), dict):
-            hermes_result = _normalize_local_hermes_keyword_result(raw_result, keyword, marketplace)
-        else:
-            hermes_result = _normalize_local_hermes_keyword_result(
-                _browser_extract_to_hermes_keyword_result(raw_result, keyword, marketplace),
-                keyword,
-                marketplace,
-            )
-    return _build_hermes_keyword_response(keyword, marketplace, hermes_result)
+    return await _execute_sampled_amazon_keyword_research(keyword, marketplace, max_keywords, on_event=on_event)
 
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _cleanup_hermes_keyword_tasks() -> None:
+def _cleanup_amazon_keyword_tasks() -> None:
     now = datetime.now(timezone.utc)
     expired: list[str] = []
-    for task_id, task in _HERMES_KEYWORD_RESEARCH_TASKS.items():
+    for task_id, task in _AMAZON_KEYWORD_RESEARCH_TASKS.items():
         created_at = task.get("created_at")
         try:
             created = datetime.fromisoformat(str(created_at))
@@ -2539,16 +3484,16 @@ def _cleanup_hermes_keyword_tasks() -> None:
         if (now - created).total_seconds() > 7200:
             expired.append(task_id)
     for task_id in expired:
-        _HERMES_KEYWORD_RESEARCH_TASKS.pop(task_id, None)
+        _AMAZON_KEYWORD_RESEARCH_TASKS.pop(task_id, None)
 
 
-def _public_hermes_keyword_task(task_id: str) -> dict[str, Any]:
-    task = _HERMES_KEYWORD_RESEARCH_TASKS.get(task_id)
+def _public_amazon_keyword_task(task_id: str) -> dict[str, Any]:
+    task = _AMAZON_KEYWORD_RESEARCH_TASKS.get(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="任务不存在")
     return {
         "task_id": task_id,
-        "task_type": "hermes_keyword_research",
+        "task_type": "amazon_keyword_research",
         "status": task.get("status") or "pending",
         "progress_percent": float(task.get("progress_percent") or 0),
         "keyword": task.get("keyword") or "",
@@ -2562,7 +3507,7 @@ def _public_hermes_keyword_task(task_id: str) -> dict[str, Any]:
     }
 
 
-def _has_hermes_browser_evidence(task: dict[str, Any]) -> bool:
+def _has_amazon_browser_evidence(task: dict[str, Any]) -> bool:
     task_steps = _list_value(task.get("source_steps"))
     result = task.get("result_payload") if isinstance(task.get("result_payload"), dict) else {}
     result_steps = _list_value(result.get("source_steps"))
@@ -2581,34 +3526,38 @@ def _has_hermes_browser_evidence(task: dict[str, Any]) -> bool:
     return False
 
 
-async def _run_hermes_keyword_research_task(task_id: str, keyword: str, marketplace: str, max_keywords: int) -> None:
-    global _HERMES_KEYWORD_RESEARCH_ACTIVE_TASK_ID
-    task = _HERMES_KEYWORD_RESEARCH_TASKS.get(task_id)
+async def _run_amazon_keyword_research_task(task_id: str, keyword: str, marketplace: str, max_keywords: int) -> None:
+    global _AMAZON_KEYWORD_RESEARCH_ACTIVE_TASK_ID
+    task = _AMAZON_KEYWORD_RESEARCH_TASKS.get(task_id)
     if not task:
         return
     task.update(
         {
             "status": "running",
             "progress_percent": 8,
-            "source_steps": [{"step": "任务创建", "status": "completed", "source": "舒老师"}],
+            "source_steps": [{"step": "任务创建", "status": "completed", "source": "采集任务"}],
             "started_at": _now_iso(),
             "updated_at": _now_iso(),
         }
     )
-    task["result_payload"] = _partial_hermes_keyword_response(task)
+    task["result_payload"] = _partial_amazon_keyword_response(task)
 
-    async def on_hermes_event(event_type: str, payload: dict[str, Any]) -> None:
-        _enforce_hermes_keyword_tool_boundary(event_type, payload)
-        _record_hermes_task_event(task, event_type, payload)
+    async def on_amazon_event(event_type: str, payload: dict[str, Any]) -> None:
+        _enforce_amazon_keyword_tool_boundary(event_type, payload)
+        _record_amazon_task_event(task, event_type, payload)
 
     try:
-        async with _HERMES_KEYWORD_RESEARCH_LOCK:
+        async with _AMAZON_KEYWORD_RESEARCH_LOCK:
             task.update({"progress_percent": 18, "updated_at": _now_iso()})
-            task["result_payload"] = _partial_hermes_keyword_response(task)
-            result = await _execute_hermes_keyword_research(keyword, marketplace, max_keywords, on_event=on_hermes_event)
+            task["result_payload"] = _partial_amazon_keyword_response(task)
+            result = await asyncio.wait_for(
+                _execute_amazon_keyword_research(keyword, marketplace, max_keywords, on_event=on_amazon_event),
+                timeout=_AMAZON_KEYWORD_TASK_TIMEOUT_SECONDS,
+            )
             task["result_payload"] = result
-            if not _has_hermes_browser_evidence(task):
-                raise LocalHermesError("Hermes未调用Browserbase/browser工具")
+            item_count = _amazon_keyword_item_count((result.get("result") or {}) if isinstance(result, dict) else {})
+            if item_count < _AMAZON_KEYWORD_SAMPLE_TARGET:
+                raise ScrapelessCaptureError(f"Top40数据未抓完整：{item_count}/{_AMAZON_KEYWORD_SAMPLE_TARGET}")
         task.update(
             {
                 "status": "completed",
@@ -2618,60 +3567,82 @@ async def _run_hermes_keyword_research_task(task_id: str, keyword: str, marketpl
                 "updated_at": _now_iso(),
             }
         )
-    except LocalHermesError as exc:
-        logger.warning("Local Hermes keyword research task failed for %s: %s", keyword, exc)
-        task.update({"status": "failed", "progress_percent": 100, "error_message": f"舒老师分析失败：{exc}", "completed_at": _now_iso(), "updated_at": _now_iso()})
+    except _AmazonKeywordEnoughSamples as exc:
+        logger.info("Keyword research collected Top40 for %s", keyword)
+        fallback_result = await _deepseek_completed_amazon_keyword_response(task, str(exc))
+        task.update(
+            {
+                "status": "completed",
+                "progress_percent": 100,
+                "result_payload": fallback_result,
+                "completed_at": _now_iso(),
+                "updated_at": _now_iso(),
+            }
+        )
+    except ScrapelessCaptureError as exc:
+        logger.warning("Keyword research task failed for %s: %s", keyword, exc)
+        task.update({"status": "failed", "progress_percent": 100, "error_message": f"分析失败：{exc}", "completed_at": _now_iso(), "updated_at": _now_iso()})
     except asyncio.TimeoutError:
-        logger.warning("Local Hermes keyword research task timed out for %s", keyword)
-        task.update({"status": "failed", "progress_percent": 100, "error_message": "舒老师分析超时", "completed_at": _now_iso(), "updated_at": _now_iso()})
+        logger.warning("Keyword research task timed out for %s", keyword)
+        fallback_result = _fallback_completed_amazon_keyword_response(task, "采集未完成，已展示已抓样本")
+        task.update(
+            {
+                "status": "completed",
+                "progress_percent": 100,
+                "result_payload": fallback_result,
+                "error_message": "采集未完成，已展示已抓样本",
+                "completed_at": _now_iso(),
+                "updated_at": _now_iso(),
+            }
+        )
     except Exception as exc:
-        logger.exception("Local Hermes keyword research task crashed for %s", keyword)
+        logger.exception("Keyword research task crashed for %s", keyword)
         task.update({"status": "failed", "progress_percent": 100, "error_message": str(exc), "completed_at": _now_iso(), "updated_at": _now_iso()})
     finally:
-        if _HERMES_KEYWORD_RESEARCH_ACTIVE_TASK_ID == task_id:
-            _HERMES_KEYWORD_RESEARCH_ACTIVE_TASK_ID = None
+        if _AMAZON_KEYWORD_RESEARCH_ACTIVE_TASK_ID == task_id:
+            _AMAZON_KEYWORD_RESEARCH_ACTIVE_TASK_ID = None
 
 
-@router.post("/hermes-keyword-research")
-async def hermes_keyword_research(
-    request: HermesKeywordResearchRequest,
+@router.post("/amazon-keyword-research")
+async def amazon_keyword_research(
+    request: AmazonKeywordResearchRequest,
     current_user: UserResponse = Depends(get_current_user),
 ):
     keyword = request.keyword.strip()
     marketplace = (request.marketplace or "US").upper()
-    if _HERMES_KEYWORD_RESEARCH_LOCK.locked():
-        raise HTTPException(status_code=409, detail="舒老师正在分析，请等待本次完成")
+    if _AMAZON_KEYWORD_RESEARCH_LOCK.locked():
+        raise HTTPException(status_code=409, detail="正在分析，请等待本次完成")
     try:
-        async with _HERMES_KEYWORD_RESEARCH_LOCK:
-            return await _execute_hermes_keyword_research(keyword, marketplace, request.max_keywords)
-    except LocalHermesError as exc:
-        logger.warning("Local Hermes keyword research failed for %s: %s", keyword, exc)
-        raise HTTPException(status_code=502, detail=f"舒老师分析失败：{exc}") from exc
+        async with _AMAZON_KEYWORD_RESEARCH_LOCK:
+            return await _execute_amazon_keyword_research(keyword, marketplace, request.max_keywords)
+    except ScrapelessCaptureError as exc:
+        logger.warning("Keyword research failed for %s: %s", keyword, exc)
+        raise HTTPException(status_code=502, detail=f"分析失败：{exc}") from exc
     except asyncio.TimeoutError as exc:
-        logger.warning("Local Hermes keyword research timed out for %s", keyword)
-        raise HTTPException(status_code=504, detail="舒老师分析超时") from exc
+        logger.warning("Keyword research timed out for %s", keyword)
+        raise HTTPException(status_code=504, detail="分析超时") from exc
 
 
-@router.post("/hermes-keyword-research/tasks")
-async def create_hermes_keyword_research_task(
-    request: HermesKeywordResearchRequest,
+@router.post("/amazon-keyword-research/tasks")
+async def create_amazon_keyword_research_task(
+    request: AmazonKeywordResearchRequest,
     background_tasks: BackgroundTasks,
     current_user: UserResponse = Depends(get_current_user),
 ):
-    global _HERMES_KEYWORD_RESEARCH_ACTIVE_TASK_ID
+    global _AMAZON_KEYWORD_RESEARCH_ACTIVE_TASK_ID
     keyword = request.keyword.strip()
     marketplace = (request.marketplace or "US").upper()
-    _cleanup_hermes_keyword_tasks()
-    async with _HERMES_KEYWORD_TASK_CREATE_LOCK:
-        active_id = _HERMES_KEYWORD_RESEARCH_ACTIVE_TASK_ID
-        active_task = _HERMES_KEYWORD_RESEARCH_TASKS.get(active_id or "")
+    _cleanup_amazon_keyword_tasks()
+    async with _AMAZON_KEYWORD_TASK_CREATE_LOCK:
+        active_id = _AMAZON_KEYWORD_RESEARCH_ACTIVE_TASK_ID
+        active_task = _AMAZON_KEYWORD_RESEARCH_TASKS.get(active_id or "")
         if active_task and active_task.get("status") in {"pending", "running"}:
-            raise HTTPException(status_code=409, detail="舒老师正在分析，请等待本次完成")
-        if _HERMES_KEYWORD_RESEARCH_LOCK.locked():
-            raise HTTPException(status_code=409, detail="舒老师正在分析，请等待本次完成")
+            raise HTTPException(status_code=409, detail="正在分析，请等待本次完成")
+        if _AMAZON_KEYWORD_RESEARCH_LOCK.locked():
+            raise HTTPException(status_code=409, detail="正在分析，请等待本次完成")
         task_id = f"hkw_{uuid4().hex}"
-        _HERMES_KEYWORD_RESEARCH_ACTIVE_TASK_ID = task_id
-        _HERMES_KEYWORD_RESEARCH_TASKS[task_id] = {
+        _AMAZON_KEYWORD_RESEARCH_ACTIVE_TASK_ID = task_id
+        _AMAZON_KEYWORD_RESEARCH_TASKS[task_id] = {
             "status": "pending",
             "progress_percent": 0,
             "keyword": keyword,
@@ -2679,16 +3650,16 @@ async def create_hermes_keyword_research_task(
             "created_at": _now_iso(),
             "updated_at": _now_iso(),
         }
-    background_tasks.add_task(_run_hermes_keyword_research_task, task_id, keyword, marketplace, request.max_keywords)
-    return _public_hermes_keyword_task(task_id)
+    background_tasks.add_task(_run_amazon_keyword_research_task, task_id, keyword, marketplace, request.max_keywords)
+    return _public_amazon_keyword_task(task_id)
 
 
-@router.get("/hermes-keyword-research/tasks/{task_id}")
-async def get_hermes_keyword_research_task(
+@router.get("/amazon-keyword-research/tasks/{task_id}")
+async def get_amazon_keyword_research_task(
     task_id: str,
     current_user: UserResponse = Depends(get_current_user),
 ):
-    return _public_hermes_keyword_task(task_id)
+    return _public_amazon_keyword_task(task_id)
 
 
 @router.get("/{asin}/keyword-sales-history")

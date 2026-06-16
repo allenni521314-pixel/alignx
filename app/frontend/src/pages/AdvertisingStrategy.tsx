@@ -243,9 +243,9 @@ export default function AdvertisingStrategy() {
       const productId = Number(search.get("product_id") || 0);
       await saveActionSnapshot({
         module_key: "advertising_strategy",
-        module_name: "广告策略",
+        module_name: "流量策略",
         action_key: "generate_ad_strategy",
-        action_name: "广告策略",
+        action_name: "流量策略",
         product_id: productId || null,
         asin: sourceSnapshot?.asin || "",
         title: sourceSnapshot?.title || "",
@@ -362,7 +362,7 @@ export default function AdvertisingStrategy() {
             <div>
               <h1 className="flex items-center gap-2 text-xl font-bold sm:text-2xl">
                 <Megaphone className="h-5 w-5 text-amber-600 sm:h-6 sm:w-6" />
-                广告策略中心
+                流量策略中心
               </h1>
             </div>
             <span className="text-xs font-medium text-gray-500">

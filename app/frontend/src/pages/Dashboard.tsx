@@ -138,7 +138,7 @@ export default function Dashboard() {
       const summary = decision ? `${decision.score}分 | ${decision.confidence} | ${decision.risk_level}` : "执行完成";
       setAgentResults(p=>({...p,[cardId]:summary}));
       await loadWorkflowChain();
-      toast.success(`${cardId==="market"?"舒老师":cardId==="listing"?"笛博士":cardId==="ad"?"严工":"盘叔"} 分析完成`);
+      toast.success(`${cardId==="market"?"选品判断":cardId==="listing"?"笛博士":cardId==="ad"?"严工":"盘叔"} 分析完成`);
     } catch { setAgentResults(p=>({...p,[cardId]:"后端未连接"})); }
     setRunningAgent(null);
   };
@@ -147,7 +147,7 @@ export default function Dashboard() {
     const t = marketInput.trim(); if (!t) return;
     setAnalyzing(true); setAnalysisResult(null);
     try {
-      const res = await axios.post("/api/v1/asin-selection/hermes-keyword-research",
+      const res = await axios.post("/api/v1/asin-selection/amazon-keyword-research",
         { keyword: t, marketplace: "US", max_keywords: 2, batches_per_keyword: 1 },
         { headers: getAuthHeaders(), timeout: 300000 }
       );
@@ -184,7 +184,7 @@ export default function Dashboard() {
     <div className="flex h-screen bg-[#FFFAF5] text-gray-900">
       <AppSidebar />
       <main className="flex-1 overflow-y-auto">
-        <div className="max-w-3xl mx-auto px-4 sm:px-6 py-6">
+        <div className="w-full max-w-none px-4 sm:px-6 py-6">
           {/* Product bar */}
           {product && <div className="flex items-center justify-between mb-4 px-4 py-2 rounded-xl bg-white border border-gray-100">
             <div className="flex items-center gap-3"><span className="text-xs font-mono text-[#1B5E3F] font-bold">{product.asin}</span><span className="text-xs text-gray-500 truncate max-w-[200px]">{product.title}</span></div>
@@ -193,7 +193,7 @@ export default function Dashboard() {
 
           <div className="space-y-4">
             {[
-              { id:"market",  title:"市场机会",   agent:"选品师",   nickname:"舒老师", icon:Search,      color:"#1B5E3F", bg:"#F0FDF4", path:"/asin-manager",                         desc:"输入关键词或ASIN，判断值不值得做" },
+              { id:"market",  title:"市场机会",   agent:"选品师",   nickname:"选品判断", icon:Search,      color:"#1B5E3F", bg:"#F0FDF4", path:"/asin-manager",                         desc:"输入关键词或ASIN，判断值不值得做" },
               { id:"listing", title:"Listing 诊断", agent:"诊断官",  nickname:"笛博士", icon:Stethoscope,  color:"#0D9488", bg:"#F0FDFA", path:"/listing-diagnosis",                  desc:"找出 Listing 哪里没说服买家" },
               { id:"ad",      title:"广告验证",   agent:"广告验算师", nickname:"严工",   icon:Megaphone,    color:"#D4920A", bg:"#FFF7ED", path:"/ad-analytics?view=validation",         desc:"用数据验证判断是否成立" },
             ].map(sec => {
@@ -223,7 +223,7 @@ export default function Dashboard() {
                           className="flex-1 px-4 py-2 rounded-xl border border-gray-200 text-sm placeholder:text-gray-300 focus:outline-none focus:border-[#4CAF7D]"/>
                         <button onClick={handleAnalyze} disabled={!marketInput.trim()||analyzing}
                           className="px-5 py-2 rounded-xl text-sm font-semibold text-white disabled:opacity-40 flex items-center gap-2 flex-shrink-0" style={{backgroundColor:analyzing?"#6B6B6B":"#1B5E3F"}}>
-                          {analyzing?<><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"/>分析中...</>:<><Sparkles className="w-4 h-4"/>舒老师开始分析</>}</button>
+                          {analyzing?<><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"/>分析中...</>:<><Sparkles className="w-4 h-4"/>选品判断开始分析</>}</button>
                       </div>
                       {analysisResult && <AnalysisDisplay keyword={marketInput} data={analysisResult}/>}
                       <div className="mt-3 pt-3 border-t border-gray-50">

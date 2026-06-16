@@ -1,4 +1,5 @@
 import logging
+import json
 from typing import Optional, Dict, Any, List
 
 from sqlalchemy import select, func
@@ -16,6 +17,29 @@ class Listing_diagnosesService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
+    @staticmethod
+    def _normalize_asin(value: Any) -> str:
+        text = str(value or "").strip().upper()
+        return text if len(text) == 10 and text.isalnum() else ""
+
+    @classmethod
+    def _record_asin(cls, obj: Listing_diagnoses) -> str:
+        for raw in (obj.input_data, obj.diagnosis_report):
+            try:
+                payload = json.loads(raw or "{}")
+            except (json.JSONDecodeError, TypeError):
+                payload = {}
+            if isinstance(payload, dict):
+                asin = cls._normalize_asin(payload.get("asin"))
+                if asin:
+                    return asin
+                listing = payload.get("listing")
+                if isinstance(listing, dict):
+                    asin = cls._normalize_asin(listing.get("asin"))
+                    if asin:
+                        return asin
+        return ""
+
     async def create(self, data: Dict[str, Any], user_id: Optional[str] = None) -> Optional[Listing_diagnoses]:
         """Create a new listing_diagnoses"""
         try:
@@ -30,6 +54,53 @@ class Listing_diagnosesService:
         except Exception as e:
             await self.db.rollback()
             logger.error(f"Error creating listing_diagnoses: {str(e)}")
+            raise
+
+    async def create_or_update_by_asin(
+        self,
+        data: Dict[str, Any],
+        *,
+        asin: Optional[str],
+        marketplace: Optional[str],
+        user_id: str,
+    ) -> Optional[Listing_diagnoses]:
+        """Upsert a listing diagnosis by user + marketplace + ASIN."""
+        normalized_asin = self._normalize_asin(asin)
+        normalized_marketplace = (marketplace or "US").strip() or "US"
+        if not normalized_asin:
+            return await self.create(data, user_id=user_id)
+
+        try:
+            result = await self.db.execute(
+                select(Listing_diagnoses)
+                .where(
+                    Listing_diagnoses.user_id == user_id,
+                    Listing_diagnoses.marketplace == normalized_marketplace,
+                )
+                .order_by(Listing_diagnoses.id.desc())
+            )
+            rows = result.scalars().all()
+            matches = [row for row in rows if self._record_asin(row) == normalized_asin]
+
+            if not matches:
+                return await self.create(data, user_id=user_id)
+
+            target = matches[0]
+            for key, value in data.items():
+                if hasattr(target, key) and key != "user_id":
+                    setattr(target, key, value)
+            target.user_id = user_id
+
+            for stale in matches[1:]:
+                await self.db.delete(stale)
+
+            await self.db.commit()
+            await self.db.refresh(target)
+            logger.info(f"Updated listing_diagnoses {target.id} for asin={normalized_asin}")
+            return target
+        except Exception as e:
+            await self.db.rollback()
+            logger.error(f"Error upserting listing_diagnoses by asin {normalized_asin}: {str(e)}")
             raise
 
     async def check_ownership(self, obj_id: int, user_id: str) -> bool:

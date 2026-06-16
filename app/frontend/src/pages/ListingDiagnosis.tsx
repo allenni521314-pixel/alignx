@@ -74,6 +74,7 @@ import { finishModuleTask, removeModuleTask, upsertModuleTask } from "@/lib/modu
 
 interface ListingInput {
   title: string;
+  item_highlights: string;
   bullet_points: string;
   description: string;
   a_plus_content: string;
@@ -88,10 +89,13 @@ interface ListingInput {
   review_count?: string;
   bsr_rank?: string;
   image_count?: string;
+  aplus_image_count?: string;
   has_video?: boolean;
   has_a_plus?: boolean;
   image_urls?: string[];
+  main_image_texts?: string[];
   aplus_image_urls?: string[];
+  a_plus_image_texts?: string[];
 }
 
 interface FetchMeta {
@@ -102,6 +106,7 @@ interface FetchMeta {
   bsr_rank?: string;
   bsr_category?: string;
   image_count?: string;
+  aplus_image_count?: string;
   has_video?: boolean;
   has_a_plus?: boolean;
   review_samples?: Array<Record<string, unknown>>;
@@ -120,18 +125,27 @@ interface FetchMeta {
 }
 
 const sourceLabel = (source?: string | null) => {
-  if (source === "hermes_browserbase") return "Hermes Browserbase采集";
-  if (source === "local_browser_capture") return "本地浏览器页面采集";
-  if (source === "server_proxy_fetch") return "Hermes Browserbase采集";
+  if (source === "external_amazon_product") return "页面采集";
+  if (source === "local_browser_capture") return "页面采集";
+  if (source === "server_proxy_fetch") return "页面采集";
   if (source === "manual_paste") return "手动粘贴解析";
   if (source === "ai_estimated" || source === "ai_estimated_low_confidence") return "低置信度预检";
-  if (source?.includes("scrape") || source === "scraped") return "Hermes Browserbase采集";
+  if (source?.includes("scrape") || source === "scraped") return "页面采集";
   if (source === "ai_search") return "搜索验证";
   return source || "未知来源";
 };
 
+const LISTING_FETCH_TIMEOUT_SECONDS = 300;
+const LISTING_FETCH_TIMEOUT_MS = LISTING_FETCH_TIMEOUT_SECONDS * 1000;
+
 const getLongRunningApiBase = () => {
   if (import.meta.env.VITE_API_BASE_URL) return import.meta.env.VITE_API_BASE_URL;
+  if (
+    typeof window !== "undefined" &&
+    (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
+  ) {
+    return "http://127.0.0.1:8000";
+  }
   if (
     typeof window !== "undefined" &&
     window.location.hostname !== "localhost" &&
@@ -234,6 +248,7 @@ interface ComplianceResult {
 
 interface DiagnosisResult {
   scores: Scores;
+  listing?: Partial<ListingInput>;
   analysis: Record<string, unknown>;
   suggestions: {
     title_rewrite?: string;
@@ -271,11 +286,24 @@ interface DiagnosisResult {
   causal_scores?: Record<string, number>;
   judgment_system?: Record<string, any>;
   ad_validation_plan?: Record<string, any>;
+  buyer_language_translation?: Record<string, any>;
+  human_nature_graph?: Record<string, any>;
+  listing_position_diagnosis?: Record<string, any>;
   opc_v5_execution?: Record<string, any>;
   ad_validation_readiness_gate?: Record<string, any>;
   decision_outputs?: Record<string, any>[];
   amazon_compliance?: ComplianceResult;
- trace?: {
+  listing_title_rule?: {
+    title_max_chars?: number;
+    item_highlights_max_chars?: number;
+    title_compliance_status?: string;
+    highlights_status?: string;
+    title_char_count?: number;
+    item_highlights_char_count?: number;
+    effective_date?: string;
+    amazon_title_rule_version?: string;
+  };
+	 trace?: {
     diagnosis_id?: number;
     cache_hit?: string;
     ai_called?: boolean;
@@ -352,21 +380,44 @@ interface PriorityIssue {
   action: string;
 }
 
+type ListingPositionModule = "title" | "highlights" | "main_image" | "secondary_images" | "bullets" | "a_plus";
+
+interface ListingPositionDiagnosisRow {
+  id: string;
+  label: string;
+  contentLabel: string;
+  originalContent: string;
+  snapshotUrl?: string;
+  rule: string;
+  metrics: string;
+  problem: string;
+  suggestion: string;
+  validation: string;
+  crossScores: string;
+  dimensionScores: string;
+  score: number;
+  status: "优秀" | "待优化";
+  focus: string;
+}
+
 /* ------------------------------------------------------------------ */
 /*  Constants                                                          */
 /* ------------------------------------------------------------------ */
 
 const EMPTY_LISTING: ListingInput = {
   title: "",
+  item_highlights: "",
   bullet_points: "",
   description: "",
   a_plus_content: "",
   backend_keywords: "",
   main_image_description: "",
+  main_image_texts: [],
   category: "",
   price: "",
   brand: "",
   marketplace: "US",
+  a_plus_image_texts: [],
 };
 
 const DIMENSIONS: { key: keyof Scores; label: string; labelEn: string; icon: React.ReactNode; color: string; bgColor: string; stroke: string }[] = [
@@ -388,6 +439,28 @@ const ELEMENT_META = [
   { key: "images", label: "图片描述", icon: <Image className="w-4 h-4" /> },
   { key: "aplus", label: "A+内容", icon: <Star className="w-4 h-4" /> },
   { key: "backend", label: "Search Terms", icon: <Database className="w-4 h-4" /> },
+];
+
+const LISTING_IMAGE_POSITION_RULES = [
+  "主图：白底、主体清晰、只展示商品",
+  "副图：核心卖点",
+  "副图：使用场景",
+  "副图：尺寸/结构",
+  "副图：差异化对比",
+  "副图：安全/材质认证",
+  "副图：包装/安装/使用步骤",
+];
+
+const APLUS_IMAGE_POSITION_RULES = [
+  "A+图：品牌/主承诺",
+  "A+图：技术原理",
+  "A+图：场景教育",
+  "A+图：利益证明",
+  "A+图：差异化对比",
+  "A+图：尺寸/适配",
+  "A+图：安全认证",
+  "A+图：使用维护",
+  "A+图：售后保障",
 ];
 
 const MODULE_ATTRIBUTION_ORDER: (keyof Scores)[] = [
@@ -551,8 +624,8 @@ function hasMeaningfulListingData(listing: ListingInput): boolean {
 
 function getListingImageCount(listing: ListingInput, fetchMeta?: { image_count?: string } | null): number {
   const raw = fetchMeta?.image_count || listing.image_count || "";
-  const parsed = parseInt(String(raw).replace(/[^0-9]/g, ""), 10);
-  return Number.isFinite(parsed) ? parsed : 0;
+  const parsed = parseInt(String(raw).match(/\d+/)?.[0] || "", 10);
+  return Number.isFinite(parsed) ? Math.min(parsed, 9) : 0;
 }
 
 function scoreImpact(score: number): "高" | "中" | "低" {
@@ -1292,8 +1365,14 @@ function scoreBgColor(score: number): string {
   return "bg-red-500";
 }
 
+function normalizeScore100(value: unknown): number {
+  const raw = Number(value) || 0;
+  if (raw > 0 && raw <= 10) return Math.round(raw * 10);
+  return Math.max(0, Math.min(100, Math.round(raw)));
+}
+
 function averageScoresByKeys(scores: Scores, keys: (keyof Scores)[]): number {
-  const values = keys.map((key) => Number(scores[key]) || 0).filter((value) => value > 0);
+  const values = keys.map((key) => normalizeScore100(scores[key])).filter((value) => value > 0);
   if (values.length === 0) return 0;
   return Math.round(values.reduce((sum, value) => sum + value, 0) / values.length);
 }
@@ -1393,6 +1472,778 @@ function CopyBtn({ text }: { text: string }) {
     <button onClick={handleCopy} className="text-gray-500 hover:text-gray-900 transition-colors p-1">
       {copied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
     </button>
+  );
+}
+
+function getActualListingImageCount(listing: ListingInput, fetchMeta?: FetchMeta | null): number {
+  return Math.min(9, Math.max(listing.image_urls?.length || 0, getListingImageCount(listing, fetchMeta)));
+}
+
+function getActualAplusImageCount(listing: ListingInput, fetchMeta?: FetchMeta | null): number {
+  const raw = listing.aplus_image_count || fetchMeta?.aplus_image_count || "";
+  const parsed = parseInt(String(raw).match(/\d+/)?.[0] || "", 10);
+  const textCount = String(listing.a_plus_content || "").match(/A\+图片数[:：]\s*(\d+)/i)?.[1];
+  const parsedTextCount = parseInt(textCount || "", 10);
+  const hasAplus = Boolean(
+    listing.has_a_plus ||
+    fetchMeta?.has_a_plus ||
+    listing.aplus_image_urls?.length ||
+    String(listing.a_plus_content || "").trim()
+  );
+  const actualCount = Math.max(
+    listing.aplus_image_urls?.length || 0,
+    Number.isFinite(parsed) ? parsed : 0,
+    Number.isFinite(parsedTextCount) ? parsedTextCount : 0,
+  );
+  if (actualCount > 0) return Math.min(9, actualCount);
+  return hasAplus ? 9 : 0;
+}
+
+function clampListingScore(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+function hasPositionContent(content: { content: string; snapshotUrl?: string }): boolean {
+  const text = String(content.content || "").trim();
+  return Boolean(content.snapshotUrl || (text && text !== "暂无" && text !== "待录入"));
+}
+
+function getComplianceViolationPenalty(result: DiagnosisResult, module: ListingPositionModule): number {
+  const moduleKeys: Record<ListingPositionModule, string[]> = {
+    title: ["title", "标题"],
+    highlights: ["highlight", "亮点"],
+    main_image: ["image", "main_image", "主图", "图片"],
+    secondary_images: ["image", "secondary", "副图", "图片"],
+    bullets: ["bullet", "五点", "描述"],
+    a_plus: ["a+", "aplus", "a_plus", "A+"],
+  };
+  const keys = moduleKeys[module] || [];
+  const violations = result.amazon_compliance?.violations || [];
+  const matched = violations.filter((violation) => {
+    const text = `${violation.module || ""} ${violation.rule_type || ""} ${violation.category || ""}`.toLowerCase();
+    return keys.some((key) => text.includes(key.toLowerCase()));
+  });
+  const risk = matched.reduce((max, violation) => Math.max(max, Number(violation.risk_score) || 0), 0);
+  return Math.min(40, Math.round(risk));
+}
+
+function getAmazonPositionRuleScore(
+  result: DiagnosisResult,
+  listing: ListingInput,
+  module: ListingPositionModule,
+  content: { content: string; snapshotUrl?: string }
+): number {
+  if (!hasPositionContent(content)) return 0;
+  let score = 85;
+  if (module === "title") {
+    const status = result.listing_title_rule?.title_compliance_status;
+    const max = Number(result.listing_title_rule?.title_max_chars) || 75;
+    const count = Number(result.listing_title_rule?.title_char_count) || 0;
+    score = status && status !== "compliant" ? 70 : 100;
+    if (count > max) score = Math.min(score, 70);
+  } else if (module === "highlights") {
+    const status = result.listing_title_rule?.highlights_status;
+    const max = Number(result.listing_title_rule?.item_highlights_max_chars) || 125;
+    const count = Number(result.listing_title_rule?.item_highlights_char_count) || 0;
+    score = status && status !== "compliant" ? 70 : 100;
+    if (count > max) score = Math.min(score, 70);
+  } else if (module === "bullets") {
+    const bulletCount = splitBullets(listing.bullet_points).length;
+    score = bulletCount >= 5 ? 90 : bulletCount > 0 ? 70 : 0;
+  }
+  return clampListingScore(score - getComplianceViolationPenalty(result, module));
+}
+
+function getCosmoPositionAlignmentScore(result: DiagnosisResult, module: ListingPositionModule, index?: number): number {
+  const mappedScore = averageScoresByKeys(result.scores, getPositionDimensionKeys(module, index));
+  const alignmentScore = Number(result.judgment_system?.alignment_scores?.platform_semantic_alignment) || 0;
+  if (alignmentScore > 0 && mappedScore > 0) return clampListingScore(mappedScore * 0.7 + alignmentScore * 0.3);
+  return clampListingScore(mappedScore);
+}
+
+function hasBuyerLanguageText(value: unknown): boolean {
+  if (Array.isArray(value)) {
+    return value.some((item) => hasBuyerLanguageText(item));
+  }
+  const text = String(value || "").trim();
+  return Boolean(text && text !== "暂无" && text !== "待录入");
+}
+
+function getBuyerLanguagePositionScore(
+  result: DiagnosisResult,
+  module: ListingPositionModule,
+  content: { content: string; snapshotUrl?: string }
+): number {
+  if (!hasPositionContent(content)) return 0;
+  const translation = result.buyer_language_translation || {};
+  const buyerLanguage = translation.buyer_language && typeof translation.buyer_language === "object"
+    ? translation.buyer_language as Record<string, unknown>
+    : {};
+  const graph = translation.human_nature_graph || result.human_nature_graph || result.judgment_system?.human_nature_graph;
+  const hasGraph = Boolean(graph && typeof graph === "object" && Object.keys(graph as Record<string, unknown>).length > 0);
+  let hasTranslation = false;
+  if (module === "title") hasTranslation = hasBuyerLanguageText(buyerLanguage.title);
+  else if (module === "bullets" || module === "highlights") hasTranslation = hasBuyerLanguageText(buyerLanguage.bullet_points);
+  else if (module === "a_plus") hasTranslation = hasBuyerLanguageText(buyerLanguage.a_plus_desc) || hasBuyerLanguageText(buyerLanguage.image_texts);
+  else hasTranslation = hasBuyerLanguageText(buyerLanguage.image_texts);
+  if (hasGraph && hasTranslation) return 100;
+  if (hasGraph) return 70;
+  if (hasTranslation) return 70;
+  return 0;
+}
+
+function getListingPositionCrossScore(
+  result: DiagnosisResult,
+  listing: ListingInput,
+  module: ListingPositionModule,
+  content: { content: string; snapshotUrl?: string },
+  index?: number
+): { amazon: number; cosmo: number; buyerLanguage: number; final: number } {
+  const amazon = getAmazonPositionRuleScore(result, listing, module, content);
+  const cosmo = getCosmoPositionAlignmentScore(result, module, index);
+  const buyerLanguage = getBuyerLanguagePositionScore(result, module, content);
+  const final = calculateListingPositionFinalScore(amazon, cosmo, buyerLanguage);
+  return {
+    amazon,
+    cosmo,
+    buyerLanguage,
+    final,
+  };
+}
+
+function calculateListingPositionFinalScore(amazon: number, cosmo: number, buyerLanguage: number): number {
+  const scores = [normalizeScore100(amazon), normalizeScore100(cosmo), normalizeScore100(buyerLanguage)];
+  const weighted = Math.round(scores[0] * 0.3 + scores[1] * 0.35 + scores[2] * 0.35);
+  if (scores.some((score) => score < 60)) return Math.min(weighted, 59);
+  if (scores.some((score) => score < 80)) return Math.min(weighted, 79);
+  return weighted;
+}
+
+function formatListingCrossScores(scores: { amazon: number; cosmo: number; buyerLanguage: number }): string {
+  return `综合分${calculateListingPositionFinalScore(scores.amazon, scores.cosmo, scores.buyerLanguage)}`;
+}
+
+function getListingPositionScoreBadgeClass(score: number): string {
+  if (score >= 80) return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  if (score >= 60) return "border-amber-200 bg-amber-50 text-amber-700";
+  return "border-red-200 bg-red-50 text-red-700";
+}
+
+function getListingPositionScoreTextClass(score: number): string {
+  if (score >= 80) return "text-emerald-700";
+  if (score >= 60) return "text-amber-700";
+  return "text-red-700";
+}
+
+function getCrossScoreIssueText(scores: { amazon: number; cosmo: number; buyerLanguage: number }): string {
+  return calculateListingPositionFinalScore(scores.amazon, scores.cosmo, scores.buyerLanguage) < 80 ? "综合分未达80" : "";
+}
+
+function getBackendPositionKey(module: ListingPositionModule, index?: number): string {
+  if (module === "title") return "title";
+  if (module === "highlights") return "highlights";
+  if (module === "bullets") return "bullets";
+  if (module === "main_image") return "main_image";
+  if (module === "secondary_images") return `secondary_${index || 1}`;
+  return `aplus_${index || 1}`;
+}
+
+function getBackendPositionDiagnosis(result: DiagnosisResult, module: ListingPositionModule, index?: number): Record<string, any> | null {
+  const positions = Array.isArray(result.listing_position_diagnosis?.positions)
+    ? result.listing_position_diagnosis?.positions as Array<Record<string, any>>
+    : [];
+  const key = getBackendPositionKey(module, index);
+  return positions.find((item) => item.position_key === key) || null;
+}
+
+function getPositionDimensionKeys(module: ListingPositionModule, index?: number): (keyof Scores)[] {
+  if (module === "title") return ["product_identity", "function_expression", "scenario_expression", "compatibility"];
+  if (module === "highlights") return ["differentiation", "psychology_benefit", "function_expression", "subjective_properties"];
+  if (module === "main_image") return ["product_identity", "differentiation", "subjective_properties"];
+  if (module === "bullets") return ["function_expression", "psychology_benefit", "risk_elimination", "differentiation", "compatibility"];
+  if (module === "secondary_images") {
+    const map: (keyof Scores)[][] = [
+      ["function_expression", "differentiation", "psychology_benefit"],
+      ["scenario_expression", "identity_fit"],
+      ["compatibility", "function_expression", "risk_elimination"],
+      ["differentiation", "product_identity", "subjective_properties"],
+      ["risk_elimination", "psychology_benefit"],
+      ["compatibility", "risk_elimination", "function_expression"],
+    ];
+    return map[Math.max(0, (index || 1) - 1)] || ["scenario_expression", "compatibility", "risk_elimination"];
+  }
+  const aplusMap: (keyof Scores)[][] = [
+    ["psychology_benefit", "risk_elimination"],
+    ["function_expression", "product_identity"],
+    ["scenario_expression", "identity_fit"],
+    ["psychology_benefit", "subjective_properties", "risk_elimination"],
+    ["differentiation", "product_identity"],
+    ["compatibility", "risk_elimination"],
+    ["risk_elimination", "psychology_benefit"],
+    ["function_expression", "compatibility", "risk_elimination"],
+    ["risk_elimination", "psychology_benefit"],
+  ];
+  return aplusMap[Math.max(0, (index || 1) - 1)] || ["psychology_benefit", "differentiation", "risk_elimination"];
+}
+
+function getMappedDimensionIssueText(result: DiagnosisResult, module: ListingPositionModule, index?: number): string {
+  const rows = getPositionDimensionKeys(module, index)
+    .map((key) => {
+      const dim = DIMENSIONS.find((item) => item.key === key);
+      const score = normalizeScore100(result.scores?.[key]);
+      if (score >= 80) return "";
+      const analysis = compactProblemPoint(result.analysis?.[key]);
+      return analysis ? `${dim?.label || key}：${analysis}` : `${dim?.label || key}：待补充具体问题`;
+    })
+    .filter(Boolean);
+  return rows.length > 0 ? rows.slice(0, 4).join("\n") : "";
+}
+
+function getMappedDimensionSuggestionText(result: DiagnosisResult, module: ListingPositionModule, index?: number): string {
+  const rows = getPositionDimensionKeys(module, index)
+    .map((key) => {
+      const dim = DIMENSIONS.find((item) => item.key === key);
+      const score = normalizeScore100(result.scores?.[key]);
+      if (score >= 80) return "";
+      const action = DIMENSION_RULER_META[key]?.ownAction || "";
+      return action ? `${dim?.label || key}：${action}` : "";
+    })
+    .filter(Boolean);
+  return rows.length > 0 ? rows.slice(0, 4).join("\n") : "";
+}
+
+function getBuyerLanguageSuggestionText(result: DiagnosisResult, module: ListingPositionModule, index?: number): string {
+  const translation = result.buyer_language_translation || {};
+  const buyerLanguage = translation.buyer_language && typeof translation.buyer_language === "object"
+    ? translation.buyer_language as Record<string, unknown>
+    : {};
+  const rewritePriority = translation.rewrite_priority;
+  let target = "";
+  if (module === "title") {
+    target = nonEmptyDisplayText(buyerLanguage.title);
+  } else if (module === "highlights") {
+    target = getIndexedText(buyerLanguage.bullet_points, 0) || nonEmptyDisplayText(buyerLanguage.bullet_points);
+  } else if (module === "bullets") {
+    target = compactTextList([buyerLanguage.bullet_points], 5);
+  } else if (module === "main_image") {
+    target = getIndexedText(buyerLanguage.image_texts, 0);
+  } else if (module === "secondary_images") {
+    target = getIndexedText(buyerLanguage.image_texts, Math.max(1, index || 1));
+  } else if (module === "a_plus") {
+    target = getIndexedText(buyerLanguage.image_texts, Math.max(0, (index || 1) - 1)) || nonEmptyDisplayText(buyerLanguage.a_plus_desc);
+  }
+  const cleanedTarget = nonEmptyDisplayText(target);
+  if (cleanedTarget) return `买家语言转译：${cleanedTarget}`;
+  const priority = compactTextList([rewritePriority], 3);
+  return nonEmptyDisplayText(priority) ? `买家语言转译：${priority}` : "";
+}
+
+function compactProblemPoint(value: unknown): string {
+  const text = formatAnalysisText(value)
+    .replace(/用户需求：|Amazon识别：|当前证据：|扣分原因：|问题类型：|影响指标：|下一步动作：|总结：/g, "")
+    .trim();
+  if (!text) return "";
+  const parts = text
+    .split(/；|。|\n/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const picked = parts.find((item) => /缺|不足|低|未|弱|不|错|模糊|泛|少|待|偏/.test(item)) || parts[0] || text;
+  return picked.length > 42 ? `${picked.slice(0, 42)}...` : picked;
+}
+
+function isGenericProblemText(text: string): boolean {
+  return /评分由系统|AI未返回|用于防止展示为空|基于当前Listing内容稳定推断/.test(text);
+}
+
+function getMappedDimensionScoreText(result: DiagnosisResult, module: ListingPositionModule, index?: number): string {
+  return getPositionDimensionKeys(module, index)
+    .map((key) => {
+      const dim = DIMENSIONS.find((item) => item.key === key);
+      return `${dim?.label || key}${normalizeScore100(result.scores?.[key])}`;
+    })
+    .join(" / ");
+}
+
+function firstText(values: unknown[]): string {
+  for (const value of values) {
+    const text = formatAnalysisText(value).trim();
+    if (text) return text;
+  }
+  return "";
+}
+
+function nonEmptyDisplayText(value: unknown): string {
+  return cleanDisplayLines(formatAnalysisText(value));
+}
+
+function cleanDisplayLines(value: unknown): string {
+  const text = formatAnalysisText(value).trim();
+  if (!text) return "";
+  const emptyValues = new Set(["暂无", "待录入", "未设置", "无", "none", "null", "n/a", "na"]);
+  const lines = text
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter((line) => line && !emptyValues.has(line.toLowerCase()));
+  return lines.join("\n");
+}
+
+function joinDisplayLines(values: unknown[], fallback = "暂无"): string {
+  const lines: string[] = [];
+  values.forEach((value) => {
+    const text = cleanDisplayLines(value);
+    if (!text) return;
+    text.split(/\n+/).forEach((line) => {
+      const cleanLine = line.trim();
+      if (cleanLine && !lines.includes(cleanLine)) lines.push(cleanLine);
+    });
+  });
+  return lines.length > 0 ? lines.join("\n") : fallback;
+}
+
+function compactTextList(values: unknown[], limit = 4): string {
+  const out: string[] = [];
+  values.forEach((value) => {
+    const items = Array.isArray(value) ? value : [value];
+    items.forEach((item) => {
+      const text = formatAnalysisText(item).trim();
+      if (text && !out.includes(text)) out.push(text);
+    });
+  });
+  return out.slice(0, limit).join("；");
+}
+
+function normalizeKeywordCandidate(value: unknown): string {
+  if (typeof value === "string" || typeof value === "number") {
+    return normalizeAmazonAdKeyword(String(value));
+  }
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return normalizeKeywordCandidate(
+      record.keyword ||
+      record.term ||
+      record.phrase ||
+      record.query ||
+      record.text ||
+      record.value
+    );
+  }
+  return "";
+}
+
+function collectKeywordCandidates(value: unknown, out: string[]) {
+  if (!value) return;
+  if (Array.isArray(value)) {
+    value.forEach((item) => collectKeywordCandidates(item, out));
+    return;
+  }
+  const keyword = normalizeKeywordCandidate(value);
+  if (keyword && !out.includes(keyword)) out.push(keyword);
+}
+
+function sanitizeValidationText(value: unknown): string {
+  return formatAnalysisText(value)
+    .replace(/\brufus_question:[a-z_]+\b/g, "搜索问题词")
+    .replace(/\bused_on\b/g, "适用对象词")
+    .replace(/\bused_with\b/g, "搭配词")
+    .replace(/\bused_as\b/g, "使用方式词")
+    .trim();
+}
+
+function getIndexedText(value: unknown, index: number): string {
+  if (!value) return "";
+  if (Array.isArray(value)) return formatAnalysisText(value[index]).trim();
+  if (typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return firstText([
+      record[index],
+      record[String(index)],
+      record[`image_${index + 1}`],
+      record[`aplus_${index + 1}`],
+      record[`position_${index + 1}`],
+    ]);
+  }
+  return index === 0 ? formatAnalysisText(value).trim() : "";
+}
+
+function getPositionElementText(result: DiagnosisResult, elementKey: "images" | "aplus", label: string, index: number): string {
+  const element = result.elements?.[elementKey] || {};
+  return firstText([
+    getIndexedText(element.problems, index),
+    getIndexedText(element.problem_list, index),
+    getIndexedText(element.issues, index),
+    getIndexedText(element.items, index),
+    getIndexedText(element.details, index),
+    getIndexedText(element.positions, index),
+    (element.by_position && typeof element.by_position === "object") ? (element.by_position as Record<string, unknown>)[label] : "",
+  ]);
+}
+
+function getMissingKeywordText(result: DiagnosisResult): string {
+  const words = [
+    ...(result.suggestions?.backend_keywords_addition || []),
+    ...Object.values(result.keyword_coverage?.missing_categories || {}).flat(),
+  ]
+    .map((item) => normalizeKeywordCandidate(item) || formatAnalysisText(item).trim())
+    .filter(Boolean);
+  return Array.from(new Set(words)).slice(0, 8).join("、");
+}
+
+function getExplicitAdKeywordText(result: DiagnosisResult): string {
+  const words: string[] = [];
+  collectKeywordCandidates(result.ad_keywords?.high_conversion || [], words);
+  collectKeywordCandidates(result.ad_keywords?.traffic || [], words);
+  collectKeywordCandidates(result.ad_keywords?.long_tail || [], words);
+  return Array.from(new Set(words)).slice(0, 6).join("、");
+}
+
+function getValidationItem(result: DiagnosisResult, module: ListingPositionModule): Record<string, any> {
+  const items = Array.isArray(result.ad_validation_plan?.validation_items)
+    ? result.ad_validation_plan?.validation_items
+    : [];
+  const moduleIndex: Record<ListingPositionModule, number> = {
+    title: 0,
+    highlights: 0,
+    main_image: 1,
+    secondary_images: 2,
+    bullets: 3,
+    a_plus: 4,
+  };
+  return items[moduleIndex[module]] || {};
+}
+
+function getValidationKeywordText(validation: Record<string, any>, result: DiagnosisResult): string {
+  const words: string[] = [];
+  collectKeywordCandidates(validation.ad_action?.keywords, words);
+  collectKeywordCandidates(validation.ad_test_keywords, words);
+  collectKeywordCandidates(validation.validation_keywords, words);
+  collectKeywordCandidates(validation.keywords, words);
+  collectKeywordCandidates(result.ad_keywords?.high_conversion || [], words);
+  collectKeywordCandidates(result.ad_keywords?.traffic || [], words);
+  collectKeywordCandidates(result.ad_keywords?.long_tail || [], words);
+  collectKeywordCandidates(result.suggestions?.backend_keywords_addition || [], words);
+  collectKeywordCandidates(Object.values(result.keyword_coverage?.missing_categories || {}).flat(), words);
+  return Array.from(new Set(words)).slice(0, 6).join("、");
+}
+
+function isGenericValidationText(text: string): boolean {
+  return /Listing补强|对应搜索词点击|对应搜索词.*转化|点击和转化应提升|验证Listing是否承接/.test(text);
+}
+
+function getListingPositionValidation(result: DiagnosisResult, module: ListingPositionModule): string {
+  const read = adMetricRead(module === "highlights" ? "title" : module);
+  const validation = getValidationItem(result, module);
+  const hypothesis = firstText([sanitizeValidationText(validation.hypothesis)]);
+  const keywordText = getValidationKeywordText(validation, result);
+  if (!keywordText) return "暂无";
+  const supplement = getMissingKeywordText(result) || "暂无";
+  return `假设：${hypothesis && !isGenericValidationText(hypothesis) ? hypothesis : "暂无"}\n词组：${keywordText}\n补词：${supplement}\n指标：${read.metrics.join(" / ")}`;
+}
+
+function getListingPositionProblem(result: DiagnosisResult, listing: ListingInput, module: ListingPositionModule, label: string, index?: number): string {
+  if (module === "highlights" && !hasRequiredText(listing.item_highlights)) return "待录入";
+  if (module === "bullets" && splitBullets(listing.bullet_points).length === 0) return "待录入";
+
+  const positionOnlyProblem = (positionProblem: string) => {
+    const rawPositionProblem = formatAnalysisText(positionProblem).trim();
+    return rawPositionProblem && !isGenericProblemText(rawPositionProblem)
+      ? compactProblemPoint(rawPositionProblem)
+      : "暂无";
+  };
+
+  if (module === "title") {
+    const summary = formatAnalysisText(result.elements?.title?.summary).trim();
+    return positionOnlyProblem(summary);
+  }
+  if (module === "highlights") {
+    const status = result.listing_title_rule?.highlights_status;
+    return positionOnlyProblem(status && status !== "compliant" ? formatAnalysisText(status) : "");
+  }
+  if (module === "bullets") {
+    const summary = formatAnalysisText(result.elements?.bullets?.summary).trim();
+    return positionOnlyProblem(summary);
+  }
+  if (module === "a_plus") {
+    return positionOnlyProblem(getPositionElementText(result, "aplus", label, Math.max(0, (index || 1) - 1)));
+  }
+  return positionOnlyProblem(getPositionElementText(result, "images", label, index || 0));
+}
+
+function getListingPositionSuggestion(result: DiagnosisResult, module: ListingPositionModule, index?: number): string {
+  if (module === "title") return formatAnalysisText(result.suggestions?.title_rewrite).trim() || "暂无";
+  if (module === "highlights") {
+    const suggestions = result.suggestions as Record<string, unknown>;
+    return firstText([suggestions.item_highlights, suggestions.highlights, suggestions.highlight_suggestion]) || "暂无";
+  }
+  if (module === "bullets") return compactTextList(result.suggestions?.bullet_points_optimization || [], 5) || "暂无";
+  if (module === "a_plus") {
+    return getIndexedText(result.suggestions?.a_plus_suggestions, Math.max(0, (index || 1) - 1)) || "暂无";
+  }
+  return getIndexedText(result.suggestions?.image_suggestions, index || 0) || "暂无";
+}
+
+function hasListingPositionProblem(problem: string): boolean {
+  const text = formatAnalysisText(problem).trim();
+  return Boolean(text && text !== "暂无");
+}
+
+function isBackendScoreOnlyProblem(text: string): boolean {
+  const cleaned = text.replace(/\s/g, "");
+  return /^(亚马逊承接规则\d+；?)?(COSMO对齐\d+；?)?(买家语言转译\d+；?)?$/.test(cleaned);
+}
+
+function getListingPositionRule(result: DiagnosisResult, module: ListingPositionModule, index?: number): string {
+  if (module === "title") {
+    const max = result.listing_title_rule?.title_max_chars || 75;
+    const date = result.listing_title_rule?.effective_date || result.listing_title_rule?.amazon_title_rule_version || "2026-07-27";
+    return `标题≤${max}字节；生效日${date}`;
+  }
+  if (module === "highlights") {
+    const max = result.listing_title_rule?.item_highlights_max_chars || 125;
+    const date = result.listing_title_rule?.effective_date || result.listing_title_rule?.amazon_title_rule_version || "2026-07-27";
+    return `亮点≤${max}字节；生效日${date}`;
+  }
+  if (module === "main_image" || module === "secondary_images") {
+    return LISTING_IMAGE_POSITION_RULES[index || 0] || "暂无";
+  }
+  if (module === "bullets") return "功能、效果、场景、信任、售后";
+  return APLUS_IMAGE_POSITION_RULES[(index || 1) - 1] || "暂无";
+}
+
+function getListingPositionContent(listing: ListingInput, module: ListingPositionModule, index?: number): { label: string; content: string; snapshotUrl?: string } {
+  if (module === "title") return { label: "标题", content: listing.title || "待录入" };
+  if (module === "highlights") return { label: "亮点", content: listing.item_highlights || "待录入" };
+  if (module === "bullets") return { label: "5点描述", content: listing.bullet_points || "待录入" };
+  if (module === "main_image") {
+    const imageUrl = listing.image_urls?.[0] || "";
+    const imageText = listing.main_image_texts?.[0] || listing.main_image_description || "";
+    return {
+      label: "主图快照",
+      content: imageText || (imageUrl ? "已采集" : "暂无"),
+      snapshotUrl: imageUrl,
+    };
+  }
+  if (module === "secondary_images") {
+    const imageIndex = Math.max(1, index || 1);
+    const imageUrl = listing.image_urls?.[imageIndex] || "";
+    const imageText = listing.main_image_texts?.[imageIndex] || "";
+    return {
+      label: `副图${imageIndex}快照`,
+      content: imageText || (imageUrl ? "已采集" : "暂无"),
+      snapshotUrl: imageUrl,
+    };
+  }
+  const aplusIndex = Math.max(0, (index || 1) - 1);
+  const imageUrl = listing.aplus_image_urls?.[aplusIndex] || "";
+  const imageText = listing.a_plus_image_texts?.[aplusIndex] || "";
+  return {
+    label: `A+图${index || 1}快照`,
+    content: imageText || (imageUrl ? "已采集" : "暂无"),
+    snapshotUrl: imageUrl,
+  };
+}
+
+function buildUploadTarget(focus: string, listing: ListingInput): string {
+  const params = new URLSearchParams();
+  params.set("focus", focus);
+  if (listing.asin) params.set("asin", listing.asin);
+  return `/listing-launch-check?${params.toString()}`;
+}
+
+function buildListingPositionRows(
+  result: DiagnosisResult,
+  listing: ListingInput,
+  fetchMeta?: FetchMeta | null
+): ListingPositionDiagnosisRow[] {
+  const makeRow = (
+    label: string,
+    module: ListingPositionModule,
+    focus: string,
+    index?: number
+  ): ListingPositionDiagnosisRow => {
+    const content = getListingPositionContent(listing, module, index);
+	    const backendPosition = getBackendPositionDiagnosis(result, module, index);
+	      const crossScore = backendPosition
+	        ? {
+	          amazon: normalizeScore100(backendPosition.amazon_rule_score),
+	          cosmo: normalizeScore100(backendPosition.cosmo_alignment_score),
+	          buyerLanguage: normalizeScore100(backendPosition.buyer_language_score),
+	          final: calculateListingPositionFinalScore(
+	            backendPosition.amazon_rule_score,
+	            backendPosition.cosmo_alignment_score,
+	            backendPosition.buyer_language_score
+	          ),
+	        }
+      : getListingPositionCrossScore(result, listing, module, content, index);
+    const score = crossScore.final;
+    const positionProblem = cleanDisplayLines(getListingPositionProblem(result, listing, module, label, index));
+    const backendProblemRaw = formatAnalysisText(backendPosition?.problem).trim();
+	    const backendProblem = backendProblemRaw && !isBackendScoreOnlyProblem(backendProblemRaw) ? cleanDisplayLines(backendProblemRaw) : "";
+	    const mappedDimensionProblem = cleanDisplayLines(getMappedDimensionIssueText(result, module, index));
+	    const crossScoreIssue = cleanDisplayLines(getCrossScoreIssueText(crossScore));
+	    const crossProblem = joinDisplayLines([backendProblem, mappedDimensionProblem, crossScoreIssue]);
+	    const rawProblem = positionProblem
+	      ? joinDisplayLines([positionProblem, mappedDimensionProblem, crossScoreIssue])
+	      : crossProblem;
+	    const problem = score >= 80 ? "优秀" : rawProblem;
+	    const hasProblem = score < 80 || hasListingPositionProblem(problem);
+    const backendKeywords = backendPosition?.ad_validation && typeof backendPosition.ad_validation === "object"
+      ? formatAnalysisText(backendPosition.ad_validation.keywords)
+      : "";
+    const backendHypothesis = backendPosition?.ad_validation && typeof backendPosition.ad_validation === "object"
+      ? sanitizeValidationText(backendPosition.ad_validation.hypothesis)
+      : "";
+    const backendMetrics = backendPosition?.ad_validation && typeof backendPosition.ad_validation === "object" && Array.isArray(backendPosition.ad_validation.metrics)
+      ? backendPosition.ad_validation.metrics.filter(Boolean).join(" / ")
+      : "";
+    const backendValidation = backendKeywords && !isGenericValidationText(backendHypothesis)
+      ? `假设：${backendHypothesis || "暂无"}\n词组：${backendKeywords}\n指标：${backendMetrics || "暂无"}`
+      : "";
+    const backendSuggestion = nonEmptyDisplayText(backendPosition?.optimization_suggestion);
+    const positionSuggestion = nonEmptyDisplayText(getListingPositionSuggestion(result, module, index));
+    const shouldShowBuyerLanguage = normalizeScore100(crossScore.buyerLanguage) < 80 || module === "title" || module === "bullets" || module === "highlights";
+    const buyerLanguageSuggestion = shouldShowBuyerLanguage
+      ? nonEmptyDisplayText(getBuyerLanguageSuggestionText(result, module, index))
+      : "";
+    const dimensionSuggestion = nonEmptyDisplayText(getMappedDimensionSuggestionText(result, module, index));
+	    const rawSuggestion = [backendSuggestion || positionSuggestion, buyerLanguageSuggestion, dimensionSuggestion]
+	      .filter(Boolean)
+	      .filter((item, itemIndex, items) => items.indexOf(item) === itemIndex)
+	      .join("\n") || "暂无";
+	    const suggestion = score >= 80 ? "暂无" : rawSuggestion;
+	    return {
+      id: `${module}-${label}-${index ?? 0}`,
+      label,
+      contentLabel: content.label,
+      originalContent: content.content,
+      snapshotUrl: content.snapshotUrl,
+      rule: getListingPositionRule(result, module, index),
+      metrics: adMetricRead(module === "highlights" ? "title" : module).metrics.join(" / "),
+      problem,
+	      suggestion: hasProblem ? suggestion : "暂无",
+	      validation: hasProblem ? (backendValidation || getListingPositionValidation(result, module)) : "暂无",
+      crossScores: formatListingCrossScores(crossScore),
+      dimensionScores: getMappedDimensionScoreText(result, module, index),
+      score,
+	      status: score >= 80 ? "优秀" : "待优化",
+      focus,
+    };
+  };
+
+  const rows: ListingPositionDiagnosisRow[] = [
+    makeRow("标题", "title", "title"),
+    makeRow("亮点差异化", "highlights", "item-highlights"),
+    makeRow("5点描述", "bullets", "bullets"),
+  ];
+
+  const imageCount = getActualListingImageCount(listing, fetchMeta);
+  if (imageCount > 0) {
+    rows.push(makeRow("主图", "main_image", "main-images", 0));
+    for (let i = 2; i <= imageCount; i += 1) {
+      rows.push(makeRow(`副图${i - 1}`, "secondary_images", "main-images", i - 1));
+    }
+  }
+
+  const aplusCount = getActualAplusImageCount(listing, fetchMeta);
+  for (let i = 1; i <= aplusCount; i += 1) {
+    rows.push(makeRow(`A+图${i}`, "a_plus", "aplus-images", i));
+  }
+
+  return rows;
+}
+
+function ListingPositionDiagnosisTable({
+  result,
+  listing,
+  fetchMeta,
+}: {
+  result: DiagnosisResult;
+  listing: ListingInput;
+  fetchMeta?: FetchMeta | null;
+}) {
+  const rows = buildListingPositionRows(result, listing, fetchMeta);
+  const textRows = rows.filter((row) => row.focus !== "main-images" && row.focus !== "aplus-images");
+  const listingImageRows = rows.filter((row) => row.focus === "main-images");
+  const aplusRows = rows.filter((row) => row.focus === "aplus-images");
+  const renderSection = (label: string, value: string, tone: "plain" | "muted" = "plain", snapshotUrl?: string) => (
+    <div className="space-y-1.5">
+      <p className="text-xs font-semibold text-gray-500">{label}</p>
+      {snapshotUrl && (
+        <div className="mb-2 flex">
+          <img
+            src={snapshotUrl}
+            alt={label}
+            className={label.includes("A+图")
+              ? "aspect-[1464/600] w-full max-w-3xl rounded-lg border border-gray-200 bg-gray-50 object-contain"
+              : "h-28 w-28 rounded-lg border border-gray-200 bg-gray-50 object-contain"}
+            loading="lazy"
+          />
+        </div>
+      )}
+      <p className={`whitespace-pre-line break-words text-sm leading-relaxed ${tone === "muted" ? "text-gray-600" : "text-gray-800"}`}>
+        {value || "暂无"}
+      </p>
+    </div>
+  );
+  const renderRows = (items: ListingPositionDiagnosisRow[]) => (
+    <div className="space-y-4">
+      {items.map((row) => (
+        <div key={row.id} className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <button
+              type="button"
+              onClick={() => { window.location.href = buildUploadTarget(row.focus, listing); }}
+              className="flex items-center gap-2 text-left text-brand-700 hover:text-brand-900"
+            >
+              <span className="text-base font-semibold">{row.label}</span>
+              <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold ${getListingPositionScoreBadgeClass(row.score)}`}>
+                <span className={getListingPositionScoreTextClass(row.score)}>综合评分 {row.score}</span>
+              </span>
+              {row.status === "优秀" && (
+                <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700">优秀</span>
+              )}
+              <ArrowRight className="h-4 w-4" />
+            </button>
+          </div>
+
+          <div className="space-y-4">
+            {renderSection(row.contentLabel, row.originalContent, "plain", row.snapshotUrl)}
+            {renderSection("待优化", row.problem)}
+            {renderSection("优化建议", row.suggestion)}
+            {renderSection("广告验证方案", row.validation, "muted")}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+
+  return (
+    <Card className="bg-white border-gray-200">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base flex items-center gap-2">
+          <ClipboardCheck className="w-4 h-4 text-brand-600" />
+          Listing诊断
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="space-y-6">
+          {textRows.length > 0 && renderRows(textRows)}
+          {listingImageRows.length > 0 && (
+            <section className="space-y-3">
+              <h3 className="text-sm font-semibold text-gray-700">主图/副图</h3>
+              {renderRows(listingImageRows)}
+            </section>
+          )}
+          {aplusRows.length > 0 && (
+            <section className="space-y-3">
+              <h3 className="text-sm font-semibold text-gray-700">A+图</h3>
+              {renderRows(aplusRows)}
+            </section>
+          )}
+          {rows.length === 0 && <div className="rounded-xl bg-gray-50 px-4 py-8 text-center text-sm text-gray-500">暂无</div>}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -1975,6 +2826,15 @@ function ListingForm({
           />
         </div>
         <div className="md:col-span-2">
+          <label className="text-xs text-gray-500 mb-1 block">亮点</label>
+          <Input
+            placeholder="待录入"
+            value={listing.item_highlights}
+            onChange={(e) => update("item_highlights", e.target.value)}
+            className="bg-gray-50 border-gray-200 text-gray-900 placeholder:text-gray-600"
+          />
+        </div>
+        <div className="md:col-span-2">
           <label className="text-xs text-gray-500 mb-1 block">五点描述</label>
           <Textarea
             placeholder="输入五点描述（每条一行或用分号分隔）"
@@ -2349,6 +3209,7 @@ export default function ListingDiagnosis() {
   const [historyDetailLoading, setHistoryDetailLoading] = useState<number | null>(null);
   const [historyViewId, setHistoryViewId] = useState<number | null>(null);
   const [historyDiagResult, setHistoryDiagResult] = useState<DiagnosisResult | null>(null);
+  const [historyListing, setHistoryListing] = useState<ListingInput | null>(null);
   const [historyResultTab, setHistoryResultTab] = useState("overview");
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [latestDiagnosis, setLatestDiagnosis] = useState<HistoryItem | null>(null);
@@ -2365,7 +3226,7 @@ export default function ListingDiagnosis() {
     const timer = window.setInterval(() => {
       const elapsed = Math.floor((Date.now() - startedAt) / 1000);
       setFetchElapsed(elapsed);
-      setFetchProgressValue((current) => Math.max(current, Math.min(92, Math.round((elapsed / 60) * 92))));
+      setFetchProgressValue((current) => Math.max(current, Math.min(92, Math.round((elapsed / LISTING_FETCH_TIMEOUT_SECONDS) * 92))));
     }, 1000);
     return () => window.clearInterval(timer);
   }, [fetching]);
@@ -2419,16 +3280,22 @@ export default function ListingDiagnosis() {
     diagPayload: Record<string, unknown>
   ) => {
     const uiResult = normalizeDiagnosisResultForUi(result);
+    const enrichedListing = uiResult.listing
+      ? cleanListing({ ...activeListing, ...uiResult.listing })
+      : activeListing;
+    if (uiResult.listing) {
+      setListing(enrichedListing);
+    }
     setDiagResult(uiResult);
     setResultTab("overview");
     setDiagnosisPhase("analyzed");
 
-    setMarketValidation(deriveMarketValidationFromEvidence(activeListing, activeFetchMeta, uiResult.market_estimates));
+    setMarketValidation(deriveMarketValidationFromEvidence(enrichedListing, activeFetchMeta, uiResult.market_estimates));
 
     toast.success("诊断完成！");
     const scores = uiResult.scores || {};
     const activeAsin = activeFetchMeta?.asin || selectedListingAsin || activeListing.asin || "";
-    const activeTitle = activeListing.title || "";
+    const activeTitle = enrichedListing.title || "";
     let workflowProductId = selectedProductId && selectedProductId > 0 ? selectedProductId : null;
     if (!workflowProductId && (activeAsin || activeTitle)) {
       const products = await getAllProducts(100);
@@ -2582,14 +3449,18 @@ export default function ListingDiagnosis() {
   const cleanListing = (l: ListingInput): ListingInput => ({
     ...l,
     title: cleanField(l.title),
+    item_highlights: cleanField(l.item_highlights),
     bullet_points: cleanMultilineField(l.bullet_points),
     description: cleanField(l.description),
     a_plus_content: cleanField(l.a_plus_content).slice(0, 900),
     backend_keywords: cleanField(l.backend_keywords),
     main_image_description: cleanField(l.main_image_description),
+    main_image_texts: Array.isArray(l.main_image_texts) ? l.main_image_texts.map(cleanField) : [],
     category: cleanField(l.category),
     price: cleanField(l.price),
     brand: cleanField(l.brand),
+    aplus_image_count: cleanField(l.aplus_image_count || ""),
+    a_plus_image_texts: Array.isArray(l.a_plus_image_texts) ? l.a_plus_image_texts.map(cleanField) : [],
   });
 
   /** Save fetched listing to database immediately */
@@ -2646,6 +3517,7 @@ export default function ListingDiagnosis() {
     bsr_rank?: string;
     bsr_category?: string;
     image_count?: string;
+    aplus_image_count?: string;
     has_video?: boolean;
     has_a_plus?: boolean;
     review_samples?: Array<Record<string, unknown>>;
@@ -2659,6 +3531,7 @@ export default function ListingDiagnosis() {
       review_count: data.review_count || data.listing.review_count || "",
       bsr_rank: data.bsr_rank || data.listing.bsr_rank || "",
       image_count: data.image_count || data.listing.image_count || "",
+      aplus_image_count: data.aplus_image_count || data.listing.aplus_image_count || "",
       has_video: data.has_video || data.listing.has_video || false,
       has_a_plus: data.has_a_plus || data.listing.has_a_plus || false,
       marketplace: data.listing.marketplace || marketplace,
@@ -2685,6 +3558,7 @@ export default function ListingDiagnosis() {
       bsr_rank: data.bsr_rank || "",
       bsr_category: data.bsr_category || "",
       image_count: data.image_count || "",
+      aplus_image_count: data.aplus_image_count || data.listing.aplus_image_count || "",
       has_video: data.has_video || false,
       has_a_plus: data.has_a_plus || false,
       review_samples: data.review_samples || [],
@@ -2694,7 +3568,7 @@ export default function ListingDiagnosis() {
     setFetchMeta(meta);
 
     // Update market validation with the same evidence that will be sent to diagnosis.
-    const isReliable = ["local_browser_capture", "server_proxy_fetch", "scraped", "amazon_scrape", "amazon_scrape_httpx", "amazon_scrape_mobile", "amazon_scrape_browser", "amazon_scrape_uc", "ai_search"].includes(source);
+    const isReliable = source === "scraperapi_amazon_product";
     setMarketValidation(isReliable ? deriveMarketValidationFromEvidence(cleaned, meta) : null);
 
     // Local browser capture should be visible first, then saved as a real
@@ -2715,8 +3589,8 @@ export default function ListingDiagnosis() {
     if (!cleaned.title || cleaned.title.length < 3) {
       toast.warning("未能获取到该ASIN的产品标题，请手动填写产品信息后再进行诊断", { duration: 6000 });
     } else if (source === "local_browser_capture") {
-      toast.success(`🌐 已从本地浏览器页面解析 ASIN: ${data.asin}，完整度 ${data.capture_quality?.completeness ?? "待确认"}%`, { duration: 5000 });
-    } else if (source === "hermes_browserbase") {
+      toast.success(`已采集 ASIN: ${data.asin}，并自动保存`, { duration: 5000 });
+    } else if (source === "external_amazon_product") {
       toast.success(`已采集 ASIN: ${data.asin}，并自动保存`, { duration: 5000 });
     } else if (source === "server_proxy_fetch") {
       toast.success(`已采集 ASIN: ${data.asin}，并自动保存`, { duration: 5000 });
@@ -2770,21 +3644,21 @@ export default function ListingDiagnosis() {
       const amazonUrl = `https://${domain}/dp/${asin}`;
 
       if (isPublicDeployment()) {
-        setFetchProgress("Hermes Browserbase正在打开Amazon页面并生成Listing诊断");
+        setFetchProgress("抓取中");
         setFetchProgressValue(48);
         try {
           const apiBase = getLongRunningApiBase();
           const res = await axios.post(
             `${apiBase}/api/v1/listing-diagnosis/fetch-url`,
             { url: amazonUrl, marketplace: detectedMp },
-            { headers: getAuthHeaders(), timeout: 240000 }
+            { headers: getAuthHeaders(), timeout: LISTING_FETCH_TIMEOUT_MS }
           );
           const data = res.data;
           if (data?.listing?.title && data.listing.title.length >= 3) {
-            setFetchProgress("Hermes Browserbase已返回Listing，正在生成诊断报告");
+            setFetchProgress("分析推理中");
             setFetchProgressValue(88);
             const applied = applyFetchResult(data);
-            logScrapeAttempt(asin, detectedMp, "hermes_browserbase", true, data.source || "hermes_browserbase");
+            logScrapeAttempt(asin, detectedMp, "external_amazon_product", true, data.source || "external_amazon_product");
             if (applied?.listing.title) {
               await handleDiagnose(applied.listing, applied.meta);
             }
@@ -2793,28 +3667,28 @@ export default function ListingDiagnosis() {
 
           setDiagnosisPhase("fetch_failed");
           setShowAdvancedEditor(false);
-          logScrapeAttempt(asin, detectedMp, "hermes_browserbase", false, data?.source || "failed", "No valid title returned");
-          toast.error("Hermes Browserbase没有返回有效标题，请检查ASIN或稍后重试");
+          logScrapeAttempt(asin, detectedMp, "external_amazon_product", false, data?.source || "failed", "No valid title returned");
+          toast.error("未获取到有效标题，请检查ASIN或稍后重试");
           return;
         } catch (publicErr) {
           const errMsg = axios.isAxiosError(publicErr)
             ? publicErr.response?.data?.detail || publicErr.message || "unknown"
             : "unknown";
-          logScrapeAttempt(asin, detectedMp, "hermes_browserbase", false, "failed", errMsg);
+          logScrapeAttempt(asin, detectedMp, "external_amazon_product", false, "failed", errMsg);
           setDiagnosisPhase("fetch_failed");
           setShowAdvancedEditor(false);
-          toast.error("Hermes Browserbase采集失败，请稍后重试");
+          toast.error("采集失败，请稍后重试");
           return;
         }
       }
 
-      setFetchProgress("Hermes Browserbase正在打开Amazon页面并生成Listing诊断");
+      setFetchProgress("抓取中");
       setFetchProgressValue(68);
       try {
         const res = await axios.post(
           `${getLongRunningApiBase()}/api/v1/listing-diagnosis/fetch-url`,
           { url: amazonUrl, marketplace: detectedMp },
-          { headers: getAuthHeaders(), timeout: 600000 }
+          { headers: getAuthHeaders(), timeout: LISTING_FETCH_TIMEOUT_MS }
         );
         const data = res.data;
 
@@ -2824,13 +3698,13 @@ export default function ListingDiagnosis() {
           // Keep AI-estimated data low-confidence; it only feeds the reverse diagnosis after user-visible confirmation.
           if (source === "ai_estimated" || source === "ai_empty") {
             setFetchSource(source);
-            logScrapeAttempt(asin, detectedMp, "hermes_browserbase", false, source, source === "ai_empty" ? "No data found" : "low confidence only");
+            logScrapeAttempt(asin, detectedMp, "external_amazon_product", false, source, source === "ai_empty" ? "No data found" : "low confidence only");
             if (source === "ai_empty") {
               setDiagnosisPhase("fetch_failed");
               setShowAdvancedEditor(false);
               toast.error("无法获取该ASIN的产品数据，请检查ASIN或稍后重试。");
             } else {
-              toast.warning("Hermes返回了低置信度预检数据。");
+              toast.warning("已生成低置信度预检数据。");
               const applied = applyFetchResult(data);
               if (applied?.listing.title) {
                 await handleDiagnose(applied.listing, applied.meta);
@@ -2841,10 +3715,10 @@ export default function ListingDiagnosis() {
 
           // Real scraped data - apply it
           if (data.listing.title && data.listing.title.length >= 3) {
-            setFetchProgress("Hermes Browserbase已返回Listing，正在生成诊断报告");
+            setFetchProgress("分析推理中");
             setFetchProgressValue(88);
             const applied = applyFetchResult(data);
-            logScrapeAttempt(asin, detectedMp, "hermes_browserbase", true, source);
+            logScrapeAttempt(asin, detectedMp, "external_amazon_product", true, source);
             if (applied?.listing.title) {
               await handleDiagnose(applied.listing, applied.meta);
             }
@@ -2856,19 +3730,19 @@ export default function ListingDiagnosis() {
         setDiagnosisPhase("fetch_failed");
         setShowAdvancedEditor(false);
         toast.error("无法获取该ASIN的产品信息，请检查ASIN或稍后重试");
-        logScrapeAttempt(asin, detectedMp, "hermes_browserbase", false, "failed", "No valid title returned");
+        logScrapeAttempt(asin, detectedMp, "external_amazon_product", false, "failed", "No valid title returned");
       } catch (serverErr) {
         const errMsg = axios.isAxiosError(serverErr)
           ? (serverErr.code === "ECONNABORTED" ? "timeout" : serverErr.response?.data?.detail || serverErr.message || "unknown")
           : "unknown";
-        logScrapeAttempt(asin, detectedMp, "hermes_browserbase", false, "failed", errMsg);
+        logScrapeAttempt(asin, detectedMp, "external_amazon_product", false, "failed", errMsg);
         if (axios.isAxiosError(serverErr)) {
           if (serverErr.code === "ECONNABORTED" || serverErr.message?.includes("timeout")) {
-            toast.error("Hermes Browserbase采集或诊断生成超时，请稍后重试");
+            toast.error("采集或诊断生成超时，请稍后重试");
           } else if (serverErr.response?.status === 400) {
             toast.error(serverErr.response?.data?.detail || "请求参数错误");
           } else {
-            toast.error("Hermes Browserbase采集失败，请稍后重试");
+            toast.error("采集失败，请稍后重试");
           }
         } else {
           toast.error("抓取失败，请稍后重试");
@@ -2910,19 +3784,19 @@ export default function ListingDiagnosis() {
       try {
         const parseRes = await axios.post(
           "/api/v1/listing-diagnosis/parse-html",
-          { html: text, marketplace, asin, source: "local_browser_capture" },
+          { html: text, marketplace, asin, source: "external_amazon_product" },
           { headers: getAuthHeaders(), timeout: 60000 }
         );
         if (parseRes.data?.success && parseRes.data.listing?.title) {
           applyFetchResult(parseRes.data);
-          logScrapeAttempt(asin, marketplace, "local_browser_capture", true, "local_browser_capture");
+          logScrapeAttempt(asin, marketplace, "external_amazon_product", true, "external_amazon_product");
           setShowManualPaste(false);
           setManualPasteText("");
           return;
         }
-        toast.error(parseRes.data?.error || "无法从本地浏览器HTML解析产品信息");
+        toast.error(parseRes.data?.error || "采集失败");
       } catch {
-        toast.error("本地浏览器HTML解析失败，请改为粘贴页面可见文本");
+        toast.error("采集失败");
       }
       return;
     }
@@ -2936,6 +3810,7 @@ export default function ListingDiagnosis() {
 
     const listingData: ListingInput = {
       title: parsed.title,
+      item_highlights: "",
       bullet_points: parsed.bullet_points.join("\n"),
       description: "",
       a_plus_content: "",
@@ -2965,6 +3840,8 @@ export default function ListingDiagnosis() {
     if (authLoading || localCaptureImporting) return;
     const raw = localStorage.getItem("alignx_local_browser_capture");
     if (!raw) return;
+    localStorage.removeItem("alignx_local_browser_capture");
+    return;
 
     let capture: {
       html?: string;
@@ -3038,7 +3915,6 @@ export default function ListingDiagnosis() {
           localStorage.removeItem(LISTING_DIAGNOSIS_TASK_CONTEXT_KEY);
         }
         logScrapeAttempt(capture.asin, capture.marketplace || marketplace, "local_browser_capture", true, "local_browser_capture");
-        localStorage.removeItem("alignx_local_browser_capture");
         if (applied && missing.length === 0) {
           toast.success("已接收Chrome插件采集的本地页面，正在自动生成本品诊断");
           setFetching(false);
@@ -3124,15 +4000,19 @@ export default function ListingDiagnosis() {
           review_count: activeFetchMeta?.review_count || activeListing.review_count || "",
           bsr_rank: activeFetchMeta?.bsr_rank || activeListing.bsr_rank || "",
           image_count: activeFetchMeta?.image_count || activeListing.image_count || "",
+          aplus_image_count: activeFetchMeta?.aplus_image_count || activeListing.aplus_image_count || "",
           has_video: activeFetchMeta?.has_video || activeListing.has_video || false,
           has_a_plus: activeFetchMeta?.has_a_plus || activeListing.has_a_plus || false,
         },
         precision_context: {
+          context_type: "own_listing_acceptance",
+          analysis_mode: activeDiagnosisMode,
           diagnosis_mode: activeDiagnosisMode,
           review_count: activeFetchMeta?.review_count || activeListing.review_count || "",
           rating: activeFetchMeta?.rating || activeListing.rating || "",
           bsr_rank: activeFetchMeta?.bsr_rank || activeListing.bsr_rank || "",
           image_count: activeFetchMeta?.image_count || activeListing.image_count || "",
+          aplus_image_count: activeFetchMeta?.aplus_image_count || activeListing.aplus_image_count || "",
           has_video: activeFetchMeta?.has_video || activeListing.has_video || false,
           has_a_plus: activeFetchMeta?.has_a_plus || activeListing.has_a_plus || false,
           review_samples: activeFetchMeta?.review_samples || [],
@@ -3178,7 +4058,7 @@ export default function ListingDiagnosis() {
       // Robust error handling - never let errors propagate to cause page navigation
       try {
         const msg = axios.isAxiosError(err)
-          ? err.response?.data?.detail || (err.code === "ECONNABORTED" ? "诊断超过180秒，请稍后重试" : "诊断失败，请重试")
+          ? err.response?.data?.detail || (err.code === "ECONNABORTED" ? "诊断超过300秒，请稍后重试" : "诊断失败，请重试")
           : err instanceof Error
             ? err.message
           : "诊断失败，请重试";
@@ -3226,6 +4106,7 @@ export default function ListingDiagnosis() {
       // Toggle off
       setHistoryViewId(null);
       setHistoryDiagResult(null);
+      setHistoryListing(null);
       return;
     }
     setHistoryDetailLoading(id);
@@ -3247,6 +4128,7 @@ export default function ListingDiagnosis() {
         review_count: savedListing.review_count || "",
         bsr_rank: savedListing.bsr_rank || "",
         image_count: savedListing.image_count || "",
+        aplus_image_count: savedListing.aplus_image_count || "",
         has_video: savedListing.has_video || false,
         has_a_plus: savedListing.has_a_plus || false,
       };
@@ -3268,11 +4150,14 @@ export default function ListingDiagnosis() {
         causal_diagnosis: report.causal_diagnosis,
         causal_scores: report.causal_scores,
         judgment_system: report.judgment_system,
+        buyer_language_translation: report.buyer_language_translation,
         ad_validation_plan: report.ad_validation_plan,
         ad_validation_readiness_gate: report.ad_validation_readiness_gate,
         decision_outputs: report.decision_outputs,
+        listing_title_rule: report.listing_title_rule,
       };
       setHistoryDiagResult(normalizeDiagnosisResultForUi(result));
+      setHistoryListing(savedListing);
       setHistoryViewId(id);
       setHistoryResultTab("overview");
     } catch {
@@ -3282,7 +4167,7 @@ export default function ListingDiagnosis() {
     }
   };
 
-  const loadDiagnosisAsCurrent = async (id: number) => {
+  const loadDiagnosisAsCurrent = async (id: number, options: { reanalyze?: boolean } = {}) => {
     try {
       const res = await axios.get(`/api/v1/listing-diagnosis/history/${id}`, {
         headers: getAuthHeaders(),
@@ -3301,6 +4186,7 @@ export default function ListingDiagnosis() {
         review_count: savedListing.review_count || "",
         bsr_rank: savedListing.bsr_rank || "",
         image_count: savedListing.image_count || "",
+        aplus_image_count: savedListing.aplus_image_count || "",
         has_video: savedListing.has_video || false,
         has_a_plus: savedListing.has_a_plus || false,
       };
@@ -3319,28 +4205,33 @@ export default function ListingDiagnosis() {
         id: data.id,
         listing_title: data.listing_title,
         marketplace: data.marketplace,
-        data_integrity: report.data_integrity,
-        diagnosis_confidence: report.diagnosis_confidence,
         causal_diagnosis: report.causal_diagnosis,
         causal_scores: report.causal_scores,
         judgment_system: report.judgment_system,
+        buyer_language_translation: report.buyer_language_translation,
         ad_validation_plan: report.ad_validation_plan,
         ad_validation_readiness_gate: report.ad_validation_readiness_gate,
         decision_outputs: report.decision_outputs,
+        listing_title_rule: report.listing_title_rule,
+        listing_position_diagnosis: report.listing_position_diagnosis,
       };
       setListing(savedListing);
       setFetchMeta(savedMeta);
       setSelectedListingAsin(savedMeta.asin || "");
-      const uiResult = normalizeDiagnosisResultForUi(result);
-      setMarketValidation(deriveMarketValidationFromEvidence(savedListing, savedMeta, uiResult.market_estimates));
-      setDiagResult(uiResult);
-      setResultTab("overview");
       setActiveTab("diagnose");
+      setMarketValidation(deriveMarketValidationFromEvidence(savedListing, savedMeta));
+      if (options.reanalyze) {
+        setDiagResult(null);
+        setDiagnosisPhase("fetch_success");
+        toast.success("正在重新分析");
+        await handleDiagnose(savedListing, savedMeta);
+        return;
+      }
+      setDiagResult(normalizeDiagnosisResultForUi(result));
       setDiagnosisPhase("analyzed");
-      scrollToResultSection();
-      toast.success("已打开历史本品诊断");
+      toast.success("已打开历史诊断");
     } catch {
-      toast.error("加载本品诊断失败");
+      toast.error(options.reanalyze ? "重新分析失败" : "打开历史诊断失败");
     }
   };
 
@@ -3486,12 +4377,12 @@ export default function ListingDiagnosis() {
     <div className="flex h-screen bg-gray-50 text-gray-900">
       <AppSidebar />
       <main className="flex-1 overflow-y-auto bg-[#f5f5f7]">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-8 pt-14 md:pt-8">
+        <div className="w-full max-w-none px-4 sm:px-6 py-6 sm:py-8 pt-14 md:pt-8">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-3">
             <div>
               <h1 className="text-xl sm:text-2xl font-bold flex items-center gap-2">
                 <ClipboardCheck className="w-5 h-5 sm:w-6 sm:h-6 text-brand-600" />
-                Listing承接诊断
+                为什么卖不好？
               </h1>
               <p className="text-gray-500 mt-1 text-sm">
                 输入ASIN，判断标题、主图、五点、A+与广告承接优先级。
@@ -3514,18 +4405,12 @@ export default function ListingDiagnosis() {
             tone="indigo"
           />
 
-          <div className="mb-4 rounded-2xl border border-gray-200/70 bg-white/80 p-4 shadow-sm">
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-[180px_1fr] sm:items-center">
-              <div>
-                <p className="text-sm font-semibold text-gray-950">站点选择</p>
-                <p className="mt-0.5 text-xs text-gray-500">先确定站点，再抓取 Listing 数据。</p>
-              </div>
-              <MarketplaceSelect
-                value={marketplace}
-                onChange={updateListingMarketplace}
-                triggerClassName="h-11 w-full rounded-xl border-gray-200 bg-gray-50 sm:max-w-[220px]"
-              />
-            </div>
+          <div className="mb-4 flex justify-start">
+            <MarketplaceSelect
+              value={marketplace}
+              onChange={updateListingMarketplace}
+              triggerClassName="h-11 w-full rounded-xl border-gray-200 bg-gray-50 sm:max-w-[220px]"
+            />
           </div>
 
           <Card className="bg-white border-gray-200 mb-6 rounded-2xl">
@@ -3553,15 +4438,6 @@ export default function ListingDiagnosis() {
                       <><Zap className="w-4 h-4 mr-1.5" />开始分析</>
                     )}
                   </Button>
-                  <Button
-                    variant="outline"
-                    className="h-11 border-gray-200 text-gray-600 bg-white"
-                    disabled={!latestDiagnosis}
-                    onClick={() => latestDiagnosis && loadDiagnosisAsCurrent(latestDiagnosis.id)}
-                  >
-                    <History className="w-4 h-4 mr-1.5" />
-                    最新结果
-                  </Button>
                 </div>
               </div>
 
@@ -3570,9 +4446,9 @@ export default function ListingDiagnosis() {
                   <div className="flex items-center justify-between text-xs text-brand-700">
                     <span className="flex items-center gap-1.5">
                       <Loader2 className="w-3 h-3 animate-spin" />
-                      {fetchProgress || "正在抓取 Listing 数据，预计 60 秒左右"}
+                      {fetchProgress || "正在抓取 Listing 数据"}
                     </span>
-                    <span>{fetchElapsed}s / 180s</span>
+	                    <span>{Math.round(fetchProgressValue)}% · {fetchElapsed}s / {LISTING_FETCH_TIMEOUT_SECONDS}s</span>
                   </div>
                   <div className="mt-2 h-2 overflow-hidden rounded-full bg-white">
                     <div className="h-full rounded-full bg-brand-600 transition-all duration-500" style={{ width: `${fetchProgressValue}%` }} />
@@ -3582,126 +4458,10 @@ export default function ListingDiagnosis() {
             </CardContent>
           </Card>
 
-          <Card className="mb-6 rounded-2xl border-gray-200/70 bg-white/85 shadow-sm">
-            <CardContent className="p-5">
-              <div className="mb-4 flex items-center justify-between gap-3">
-                <div>
-                  <h2 className="text-sm font-semibold text-gray-950">历史分析列表</h2>
-                  <p className="mt-0.5 text-xs text-gray-500">查看已保存承接诊断，打开历史不会重新抓取。</p>
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => loadHistory(historySearch, historyMpFilter)}
-                  className="h-9 rounded-xl border-gray-200 bg-white text-gray-600 hover:bg-gray-100"
-                >
-                  <History className="mr-1.5 h-3.5 w-3.5" />
-                  刷新
-                </Button>
-              </div>
-              {historyLoading ? (
-                <div className="flex items-center justify-center py-8">
-                  <Loader2 className="h-5 w-5 animate-spin text-gray-400" />
-                </div>
-              ) : history.length === 0 ? (
-                <div className="rounded-xl bg-gray-50 px-4 py-8 text-center text-sm text-gray-500">
-                  暂无诊断历史
-                </div>
-              ) : (
-                <div className="divide-y divide-gray-100">
-                  {history.slice(0, 6).map((item) => {
-                    const isCurrentHistory = diagResult?.id === item.id;
-                    return (
-                    <div
-                      key={item.id}
-                      className={`flex w-full items-center justify-between gap-4 py-3 ${isCurrentHistory ? "rounded-xl bg-brand-50 px-3" : ""}`}
-                    >
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono text-xs font-semibold text-gray-900">{item.asin || "ASIN待补"}</span>
-                          <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] text-gray-500">{item.marketplace || "US"}</span>
-                        </div>
-                        <p className="mt-1 truncate text-sm text-gray-600">{item.listing_title || "已保存承接诊断"}</p>
-                      </div>
-                      <div className="flex shrink-0 items-center gap-3">
-                        <span className="text-xs text-gray-500">
-                          {item.created_at ? new Date(item.created_at).toLocaleString("zh-CN", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : ""}
-                        </span>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => loadDiagnosisAsCurrent(item.id)}
-                          className={`h-8 rounded-xl px-3 text-xs font-semibold ${isCurrentHistory ? "border-brand-200 bg-brand-100 text-brand-700" : "border-gray-200 bg-white text-gray-700 hover:bg-gray-100"}`}
-                        >
-                          {isCurrentHistory ? "已打开" : "回看诊断"}
-                        </Button>
-                      </div>
-                    </div>
-                    );
-                  })}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
           <Tabs value={activeTab} onValueChange={setActiveTab}>
 
             {/* ==================== DIAGNOSE TAB ==================== */}
             <TabsContent value="diagnose" className="space-y-6">
-              {diagnosisPhase === "idle" && !hasMeaningfulListingData(listing) && !diagResult && (
-                <Card className="border-brand-100 bg-brand-50">
-                  <CardContent className="p-5">
-                    <div className="flex items-start gap-3">
-                      <div className="w-10 h-10 rounded-xl bg-white text-brand-600 flex items-center justify-center shrink-0">
-                        <Zap className="w-5 h-5" />
-                      </div>
-                      <div className="flex-1">
-                        <p className="text-sm text-gray-600 leading-relaxed max-w-4xl">
-	                          输入ASIN后，AlignX会定位标题、主图、副图、五点、A+、价格、评分、评论和关键词的承接优先级。
-                        </p>
-                        <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                          {[
-	                            "定位转化阻碍：主图 / 标题 / 价格 / 关键词 / 信任不足",
-	                            "确认 Listing 是否承接买家搜索意图",
-	                            "输出优先项，避免泛泛建议",
-	                            "改动后验证转化变化",
-                          ].map((item) => (
-                            <div key={item} className="rounded-lg border border-brand-100 bg-white px-3 py-2 text-xs text-gray-700">
-                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 inline mr-1.5" />
-                              {item}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
-
-              {diagnosisPhase === "fetch_failed" && (
-                <Card className="border-amber-100 bg-amber-50">
-                  <CardContent className="p-4">
-                    <div className="flex items-start gap-3">
-                      <AlertTriangle className="w-5 h-5 text-amber-600 mt-0.5" />
-                      <div>
-	                        <h3 className="text-sm font-semibold text-gray-900">Listing字段不完整，请补充核心字段。</h3>
-	                        <p className="text-xs text-gray-600 mt-1">补充标题和五点后仍可生成判断，但置信度低于真实页面抓取。</p>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setShowAdvancedEditor(true)}
-                          className="mt-3 border-amber-200 bg-white text-amber-700 hover:bg-amber-50"
-                        >
-                          补齐核心字段
-                        </Button>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
-
               {(diagnosisPhase === "fetch_success" || diagnosisPhase === "analyzing" || diagnosisPhase === "analyzed" || hasMeaningfulListingData(listing) || (diagnosisPhase === "fetch_failed" && showAdvancedEditor)) && (
                 <Card className="bg-white border-gray-200">
                   <CardHeader className="pb-3">
@@ -3958,26 +4718,10 @@ export default function ListingDiagnosis() {
                           )}
                         </Button>
                       )}
-                      <Button
-                        variant="outline"
-                        onClick={() => setShowAdvancedEditor(!showAdvancedEditor)}
-                        className="border-gray-200 text-gray-600 bg-white"
-                      >
-                        {showAdvancedEditor ? <EyeOff className="w-4 h-4 mr-1.5" /> : <Eye className="w-4 h-4 mr-1.5" />}
-                        {showAdvancedEditor ? "收起字段" : "补齐/复核字段"}
-                      </Button>
-                      <Button
-                        variant="outline"
-                        onClick={() => setShowManualPaste(!showManualPaste)}
-                        className="border-gray-200 text-gray-600 bg-white"
-                      >
-                        <ClipboardPaste className="w-4 h-4 mr-1.5" />
-                        {showManualPaste ? "收起文本" : "粘贴页面文本"}
-                      </Button>
-                      {diagnosing && (
+	                      {diagnosing && (
                         <span className="text-sm text-brand-600 flex items-center gap-2 sm:ml-2">
                           <Loader2 className="w-3.5 h-3.5 animate-spin" />
-	                          正在生成承接判断，最多等待180秒...
+	                          正在生成承接判断，最多等待300秒...
                         </span>
                       )}
                     </div>
@@ -4026,7 +4770,9 @@ export default function ListingDiagnosis() {
                     </div>
                   )}
 
-                  {/* Result Sub-tabs */}
+                  <ListingPositionDiagnosisTable result={diagResult} listing={listing} fetchMeta={fetchMeta} />
+
+                  <div className="hidden">
                   <Tabs value={resultTab} onValueChange={setResultTab}>
                     <TabsList className="bg-gray-50 border border-gray-200 flex-wrap">
                       <TabsTrigger value="overview" className="data-[state=active]:bg-brand-100 data-[state=active]:text-brand-600 text-xs sm:text-sm">
@@ -4436,8 +5182,72 @@ export default function ListingDiagnosis() {
                       )}
                     </TabsContent>
                   </Tabs>
+                  </div>
                 </div>
               )}
+
+              <Card className="rounded-2xl border-gray-200/70 bg-white/85 shadow-sm">
+                <CardContent className="p-5">
+                  <div className="mb-4 flex items-center justify-between gap-3">
+                    <div>
+                      <h2 className="text-sm font-semibold text-gray-950">历史诊断</h2>
+                      <p className="mt-0.5 text-xs text-gray-500">历史输入</p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => loadHistory(historySearch, historyMpFilter)}
+                      className="h-9 rounded-xl border-gray-200 bg-white text-gray-600 hover:bg-gray-100"
+                    >
+                      <History className="mr-1.5 h-3.5 w-3.5" />
+                      历史诊断
+                    </Button>
+                  </div>
+                  {historyLoading ? (
+                    <div className="flex items-center justify-center py-8">
+                      <Loader2 className="h-5 w-5 animate-spin text-gray-400" />
+                    </div>
+                  ) : history.length === 0 ? (
+                    <div className="rounded-xl bg-gray-50 px-4 py-8 text-center text-sm text-gray-500">
+                      暂无诊断历史
+                    </div>
+                  ) : (
+                    <div className="divide-y divide-gray-100">
+                      {history.slice(0, 6).map((item) => {
+                        const isCurrentHistory = diagResult?.id === item.id;
+                        return (
+                        <div
+                          key={item.id}
+                          className={`flex w-full items-center justify-between gap-4 py-3 ${isCurrentHistory ? "rounded-xl bg-brand-50 px-3" : ""}`}
+                        >
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono text-xs font-semibold text-gray-900">{item.asin || "ASIN待补"}</span>
+                              <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] text-gray-500">{item.marketplace || "US"}</span>
+                            </div>
+                            <p className="mt-1 truncate text-sm text-gray-600">{item.listing_title || "已保存承接诊断"}</p>
+                          </div>
+                          <div className="flex shrink-0 items-center gap-3">
+                            <span className="text-xs text-gray-500">
+                              {item.created_at ? new Date(item.created_at).toLocaleString("zh-CN", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : ""}
+                            </span>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => loadDiagnosisAsCurrent(item.id)}
+                              className={`h-8 rounded-xl px-3 text-xs font-semibold ${isCurrentHistory ? "border-brand-200 bg-brand-100 text-brand-700" : "border-gray-200 bg-white text-gray-700 hover:bg-gray-100"}`}
+                            >
+                              {isCurrentHistory ? "已打开" : "打开"}
+                            </Button>
+                          </div>
+                        </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
             </TabsContent>
 
             {/* ==================== HISTORY TAB ==================== */}
@@ -4529,8 +5339,8 @@ export default function ListingDiagnosis() {
                             {Object.entries(scrapeStats.method_stats).map(([method, stats]) => (
                               <div key={method} className="flex items-center gap-3">
                                 <span className="text-xs text-gray-500 w-28 truncate">{
-                                  method === "local_browser_capture" ? "🌐 本地浏览器" :
-                                  method === "hermes_browserbase" || method === "server_proxy_fetch" || method === "cors_proxy" || method === "backend_proxy" || method === "browser_proxy" || method === "server_scrape" ? "Hermes Browserbase" :
+                                  method === "local_browser_capture" ? "页面采集" :
+                                  method === "external_amazon_product" || method === "server_proxy_fetch" || method === "cors_proxy" || method === "backend_proxy" || method === "browser_proxy" || method === "server_scrape" ? "页面采集" :
                                   method === "manual_paste" ? "📋 手动粘贴" : method
                                 }</span>
                                 <div className="flex-1 h-2 bg-gray-50 rounded-full overflow-hidden">
@@ -4559,8 +5369,8 @@ export default function ListingDiagnosis() {
                                 <span className="text-gray-500 w-20 truncate font-mono">{log.asin}</span>
                                 <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 border-gray-200 text-gray-500">{log.marketplace}</Badge>
                                 <span className="text-gray-500 truncate flex-1">{
-                                  log.scrape_method === "local_browser_capture" ? "本地浏览器" :
-                                  log.scrape_method === "hermes_browserbase" || log.scrape_method === "server_proxy_fetch" || log.scrape_method === "cors_proxy" || log.scrape_method === "backend_proxy" || log.scrape_method === "browser_proxy" || log.scrape_method === "server_scrape" ? "Hermes Browserbase" :
+                                  log.scrape_method === "local_browser_capture" ? "页面采集" :
+                                  log.scrape_method === "external_amazon_product" || log.scrape_method === "server_proxy_fetch" || log.scrape_method === "cors_proxy" || log.scrape_method === "backend_proxy" || log.scrape_method === "browser_proxy" || log.scrape_method === "server_scrape" ? "页面采集" :
                                   log.scrape_method === "manual_paste" ? "手动粘贴" : log.scrape_method
                                 }</span>
                                 {log.error_message && (
@@ -4700,6 +5510,7 @@ export default function ListingDiagnosis() {
                           <div className="mt-2 ml-2 mr-2 mb-4 animate-in fade-in slide-in-from-top-2 duration-300">
                             <HistoryDetailView
                               result={historyDiagResult}
+                              listing={historyListing || { ...EMPTY_LISTING, title: historyDiagResult.listing_title || historyDiagResult.analyzed_product_name || "", marketplace: historyDiagResult.marketplace || "US" }}
                               resultTab={historyResultTab}
                               setResultTab={setHistoryResultTab}
                               expandedEl={expandedEl}
@@ -4887,12 +5698,14 @@ function ModuleDiagnosisCards({ result, listing }: { result: DiagnosisResult; li
 
 function HistoryDetailView({
   result,
+  listing,
   resultTab,
   setResultTab,
   expandedEl,
   setExpandedEl,
 }: {
   result: DiagnosisResult;
+  listing: ListingInput;
   resultTab: string;
   setResultTab: (t: string) => void;
   expandedEl: string | null;
@@ -4917,8 +5730,9 @@ function HistoryDetailView({
 
   const avg = getAvgScore(result.scores);
   const g = avg >= 80 ? "A" : avg >= 60 ? "B" : avg >= 40 ? "C" : "D";
-  const historyListing: ListingInput = {
+  const tableListing: ListingInput = listing || {
     title: result.listing_title || result.analyzed_product_name || "",
+    item_highlights: "",
     bullet_points: "",
     description: "",
     a_plus_content: "",
@@ -4949,6 +5763,9 @@ function HistoryDetailView({
         </div>
       </div>
 
+      <ListingPositionDiagnosisTable result={result} listing={tableListing} />
+
+      <div className="hidden">
       {/* Sub-tabs */}
       <Tabs value={resultTab} onValueChange={setResultTab}>
         <TabsList className="bg-gray-50 border border-gray-200 flex-wrap">
@@ -5155,7 +5972,7 @@ function HistoryDetailView({
         </TabsContent>
 
         <TabsContent value="hypotheses" className="mt-3">
-          <ListingHypothesisLoopPanel result={result} listing={historyListing} />
+          <ListingHypothesisLoopPanel result={result} listing={tableListing} />
         </TabsContent>
 
         {/* Ad Keywords */}
@@ -5211,6 +6028,7 @@ function HistoryDetailView({
           )}
         </TabsContent>
       </Tabs>
+      </div>
     </div>
   );
 }

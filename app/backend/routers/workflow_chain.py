@@ -16,11 +16,11 @@ from models.products import Products
 from schemas.auth import UserResponse
 from services.agent_chain import (
     AgentNodeRunRequest,
-    HermesOrchestrationRequest,
+    SelectionOrchestrationRequest,
     get_agent_node_status,
     run_agent_node,
     run_all_agent_nodes,
-    run_hermes_orchestration,
+    run_selection_orchestration,
 )
 from services.agent_decision_system import build_agent_decision_system
 from services.cosmo_operator_agent import CosmoOperatorAgent
@@ -739,9 +739,9 @@ async def run_current_agent_nodes(
     return await run_all_agent_nodes(chain, depth=depth)  # type: ignore[arg-type]
 
 
-@router.post("/current/hermes-dispatch")
-async def run_current_hermes_dispatch(
-    request: HermesOrchestrationRequest,
+@router.post("/current/selection-dispatch")
+async def run_current_selection_dispatch(
+    request: SelectionOrchestrationRequest,
     current_user: UserResponse = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -755,13 +755,13 @@ async def run_current_hermes_dispatch(
     if not product:
         raise HTTPException(status_code=404, detail="No product found for workflow chain")
     chain = await _build_chain(product, scope_user_ids, db)
-    return await run_hermes_orchestration(chain, request)
+    return await run_selection_orchestration(chain, request)
 
 
-@router.post("/products/{product_id}/hermes-dispatch")
-async def run_product_hermes_dispatch(
+@router.post("/products/{product_id}/selection-dispatch")
+async def run_product_selection_dispatch(
     product_id: int,
-    request: HermesOrchestrationRequest,
+    request: SelectionOrchestrationRequest,
     current_user: UserResponse = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -773,4 +773,5 @@ async def run_product_hermes_dispatch(
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
     chain = await _build_chain(product, scope_user_ids, db)
-    return await run_hermes_orchestration(chain, request)
+    return await run_selection_orchestration(chain, request)
+

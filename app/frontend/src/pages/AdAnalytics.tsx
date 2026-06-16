@@ -812,7 +812,7 @@ export default function AdAnalytics() {
     <div className="flex h-screen bg-[#f5f5f7] text-gray-900">
       <AppSidebar />
       <main className="flex-1 overflow-y-auto bg-[#f5f5f7]">
-        <div className="p-4 sm:p-6 max-w-7xl mx-auto pt-14 md:pt-6">
+        <div className="p-4 sm:p-6 w-full max-w-none pt-14 md:pt-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 sm:mb-8 gap-3">
             <div>
               <h1 className="text-xl sm:text-2xl font-bold flex items-center gap-2">
@@ -1346,7 +1346,7 @@ export default function AdAnalytics() {
             actions={[
               isValidationView
                 ? {
-                    label: "进入广告策略",
+                    label: "进入流量策略",
                     path: selectedProductId && selectedProductId !== "all"
                       ? `/advertising-strategy?source=ad_validation&product_id=${selectedProductId}`
                       : "/advertising-strategy?source=ad_validation",

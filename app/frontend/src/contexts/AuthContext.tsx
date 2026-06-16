@@ -67,6 +67,27 @@ function getRequestErrorMessage(err: unknown, fallback: string): string {
   return err instanceof Error && err.message ? err.message : fallback;
 }
 
+function isLocalDevHost(): boolean {
+  if (typeof window === 'undefined') return false;
+  return window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+}
+
+function getLocalDevUser(): User {
+  let saved: { account?: string; name?: string } = {};
+  try {
+    saved = JSON.parse(localStorage.getItem('alignx_trial_user') || '{}');
+  } catch {
+    saved = {};
+  }
+  const email = saved.account || 'local@alignx.dev';
+  return {
+    id: `local_${email}`,
+    email,
+    name: saved.name || '本地内测',
+    role: 'super_admin',
+  };
+}
+
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
@@ -76,6 +97,14 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     try {
       setLoading(true);
       setError(null);
+
+      if (isLocalDevHost()) {
+        const localUser = getLocalDevUser();
+        localStorage.setItem(AUTH_TOKEN_KEY, 'local-dev-token');
+        localStorage.setItem(AUTH_USER_KEY, JSON.stringify(localUser));
+        setUser(localUser);
+        return;
+      }
 
       // First check if we have an AlignX email-auth token in localStorage
       const storedToken = localStorage.getItem(AUTH_TOKEN_KEY);

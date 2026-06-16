@@ -245,7 +245,7 @@ const sanitizeSellerText = (text?: string) => {
 /*  Radar Chart (SVG)                                                  */
 /* ------------------------------------------------------------------ */
 
-function RadarChart({
+export function RadarChart({
   scores,
 }: {
   scores: Record<string, number>;

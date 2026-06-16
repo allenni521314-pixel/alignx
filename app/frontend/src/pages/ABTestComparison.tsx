@@ -511,7 +511,7 @@ export default function ABTestComparison() {
     <div className="flex h-screen bg-[#f5f5f7] text-gray-900">
       <AppSidebar />
       <main className="flex-1 overflow-y-auto bg-[#f5f5f7]">
-        <div className="p-4 sm:p-6 max-w-7xl mx-auto pt-14 md:pt-6">
+        <div className="p-4 sm:p-6 w-full max-w-none pt-14 md:pt-6">
           <div className="mb-6 sm:mb-8">
             <h1 className="text-xl sm:text-2xl font-bold flex items-center gap-2">
               <ArrowRightLeft className="w-5 h-5 sm:w-6 sm:h-6 text-amber-600" />

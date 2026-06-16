@@ -19,6 +19,15 @@ from dependencies.auth import get_current_user, get_user_scope_ids
 from schemas.auth import UserResponse
 from services.amazon_skill_toolbox import build_toolbox_enhancements, merge_toolbox_into_ad_validation_plan
 from services.ai_gateway import AgentRequest, AIGatewayService
+from services.buyer_language_translation import (
+    build_buyer_language_messages,
+    build_buyer_language_payload,
+    empty_buyer_language_translation,
+    normalize_buyer_language_translation,
+)
+from services.human_nature_model import build_human_nature_graph
+from services.listing_position_cross_judgment import build_listing_position_diagnosis
+from services.listing_title_rules import build_listing_title_rule
 from services.prelaunch_test_results import Prelaunch_test_resultsService
 
 logger = logging.getLogger(__name__)
@@ -64,6 +73,8 @@ class SaveResultRequest(BaseModel):
     toolbox_enhancements: dict[str, Any] = {}
     product_attribute_profile: dict[str, Any] = {}
     prelaunch_modification_plan: dict[str, Any] = {}
+    buyer_language_translation: dict[str, Any] = {}
+    listing_position_diagnosis: dict[str, Any] = {}
     ad_validation_alignment: dict[str, Any] = {}
     ad_validation_plan: dict[str, Any] = {}
     has_images: int = 0  # 0=none, 1=main, 2=a+, 3=both
@@ -175,6 +186,80 @@ def _dimension(score: int, analysis: str, suggestions: list[str], extra: Optiona
     return payload
 
 
+def _empty_buyer_language_translation(request: EvaluateLaunchRequest) -> dict[str, Any]:
+    return empty_buyer_language_translation(_buyer_language_payload_from_request(request))
+
+
+def _normalize_buyer_language_translation(raw: Any, request: EvaluateLaunchRequest) -> dict[str, Any]:
+    return normalize_buyer_language_translation(raw, _buyer_language_payload_from_request(request))
+
+
+def _buyer_language_payload_from_request(request: EvaluateLaunchRequest) -> dict[str, Any]:
+    source = {
+        "title": request.title,
+        "bullet_points": request.bullet_points,
+        "a_plus_content": request.a_plus_desc,
+        "keywords": request.keywords,
+    }
+    payload = build_buyer_language_payload(
+        title=request.title,
+        bullet_points=request.bullet_points,
+        a_plus_desc=request.a_plus_desc,
+        keywords=request.keywords,
+        main_image_texts=request.main_image_texts,
+        a_plus_image_texts=request.a_plus_image_texts,
+    )
+    payload["human_nature_graph"] = build_human_nature_graph(source)
+    return payload
+
+
+def _position_payload_from_prelaunch_request(request: EvaluateLaunchRequest) -> dict[str, Any]:
+    return {
+        "title": request.title,
+        "item_highlights": "",
+        "bullet_points": request.bullet_points,
+        "a_plus_content": request.a_plus_desc,
+        "main_image_description": "\n".join(request.main_image_texts or []),
+        "main_image_count": request.main_image_count,
+        "a_plus_image_count": request.a_plus_image_count,
+        "main_image_texts": request.main_image_texts or [],
+        "a_plus_image_texts": request.a_plus_image_texts or [],
+        "has_a_plus": bool(request.a_plus_desc or request.a_plus_image_count or request.a_plus_image_texts),
+    }
+
+
+def _position_data_from_prelaunch_result(request: EvaluateLaunchRequest, result: dict[str, Any]) -> dict[str, Any]:
+    title_score = result.get("title_keywords", {}).get("score", 0)
+    image_score = result.get("main_image", {}).get("score", 0)
+    aplus_score = result.get("a_plus_description", {}).get("score", 0)
+    bullet_score = result.get("bullet_points", {}).get("score", 0)
+    keyword_score = result.get("backend_keywords", {}).get("score", 0)
+    overall_score = result.get("overall_score", 0)
+    scores = {
+        "product_identity": title_score,
+        "function_expression": round((title_score + bullet_score + image_score) / 3),
+        "scenario_expression": round((image_score + bullet_score + aplus_score) / 3),
+        "identity_fit": round((title_score + bullet_score) / 2),
+        "psychology_benefit": round((bullet_score + aplus_score) / 2),
+        "risk_elimination": round((bullet_score + aplus_score) / 2),
+        "differentiation": round((image_score + aplus_score) / 2),
+        "compatibility": round((title_score + keyword_score) / 2),
+        "subjective_properties": image_score,
+        "market_trend": overall_score,
+    }
+    return {
+        "scores": scores,
+        "buyer_language_translation": result.get("buyer_language_translation", {}),
+        "ad_validation_plan": result.get("ad_validation_plan", {}),
+        "listing_title_rule": build_listing_title_rule(request.title, ""),
+        "judgment_system": {
+            "alignment_scores": {
+                "platform_semantic_alignment": title_score,
+            }
+        },
+    }
+
+
 MAIN_IMAGE_SEQUENCE = [
     "1 主图：白底真实商品，负责点击率",
     "2 核心卖点图：让用户马上知道核心差异",
@@ -247,68 +332,30 @@ def _infer_product_profile(request: EvaluateLaunchRequest) -> dict[str, Any]:
         request.a_plus_desc,
         request.category,
     ])
-    lower = text.lower()
     extracted = _extract_english_phrases(text)
-
-    if _has_any(lower, ["pet", "cat", "dog", "litter", "odor", "deodorizer", "purifier", "uv-c", "photocatalyst", "臭", "除味", "宠物"]):
-        return {
-            "product_identity": "pet odor deodorizer",
-            "core_terms": ["pet odor deodorizer", "cat litter odor remover", "pet air purifier"],
-            "attribute_terms": ["photocatalyst deodorizer", "UV-C deodorizer", "ozone free odor control", "quiet deodorizer", "compact air purifier"],
-            "audience_terms": ["cat owners", "dog owners", "small pet owners", "apartment pet owners"],
-            "scenario_terms": [
-                "cat litter box", "pet room", "bathroom", "shoe cabinet", "closet", "storage room",
-                "hamster cage", "hedgehog cage", "turtle tank area", "fish pond area",
-            ],
-            "relation_terms": ["for cat litter box", "for pet room", "for bathroom odor", "for small rooms", "with ozone free odor control"],
-            "state_trigger_terms": ["remove pet smell", "reduce ammonia odor", "control litter box odor", "freshen small room", "reduce lingering odor"],
-            "risk_terms": ["ozone free", "quiet operation", "safe around pets", "easy maintenance", "no fragrance masking"],
-        }
-    if _has_any(lower, ["case", "iphone", "magsafe", "phone", "手机壳", "保护壳"]):
-        return {
-            "product_identity": "phone case",
-            "core_terms": ["magnetic phone case", "clear iPhone case", "protective phone case"],
-            "attribute_terms": ["MagSafe compatible", "anti yellowing", "drop protection", "raised camera edge", "slim clear case"],
-            "audience_terms": ["iPhone users", "commuters", "daily phone users"],
-            "scenario_terms": ["daily carry", "commute", "office", "travel", "wireless charging"],
-            "relation_terms": ["for iPhone", "with MagSafe compatibility", "with camera protection", "for wireless charging"],
-            "state_trigger_terms": ["prevent scratches", "reduce drop damage", "keep clear look", "improve grip"],
-            "risk_terms": ["model fit", "magnetic strength", "yellowing resistance", "button response"],
-        }
-    if _has_any(lower, ["power bank", "charger", "battery", "usb c", "充电", "移动电源"]):
-        return {
-            "product_identity": "portable power bank",
-            "core_terms": ["portable power bank", "USB C charger", "backup battery pack"],
-            "attribute_terms": ["USB C charging", "compact size", "travel charger", "fast charging", "built in cable"],
-            "audience_terms": ["travelers", "commuters", "students", "phone users"],
-            "scenario_terms": ["flight", "commute", "office", "school", "emergency backup"],
-            "relation_terms": ["for iPhone", "for Samsung", "for travel", "with USB C"],
-            "state_trigger_terms": ["avoid low battery", "charge without outlet", "backup phone power", "lightweight carry"],
-            "risk_terms": ["device compatibility", "capacity clarity", "charging speed", "travel safety"],
-        }
-    if _has_any(lower, ["speaker", "bluetooth", "音箱", "扬声器"]):
-        return {
-            "product_identity": "bluetooth speaker",
-            "core_terms": ["bluetooth speaker", "portable speaker", "wireless speaker"],
-            "attribute_terms": ["waterproof speaker", "portable sound", "FM radio", "long battery life", "compact speaker"],
-            "audience_terms": ["outdoor users", "travelers", "music listeners"],
-            "scenario_terms": ["camping", "pool", "beach", "patio", "shower", "travel"],
-            "relation_terms": ["for camping", "for pool", "for beach", "with Bluetooth", "with waterproof design"],
-            "state_trigger_terms": ["play music outdoors", "avoid splash worry", "portable party sound", "easy pairing"],
-            "risk_terms": ["waterproof limit", "battery life", "connection stability", "sound clarity"],
-        }
-
-    base_identity = extracted[0] if extracted else "product"
+    base_identity = extracted[0] if extracted else "暂无"
     return {
         "product_identity": base_identity,
-        "core_terms": _dedupe_keep_order([base_identity, *extracted[:3]], 4),
-        "attribute_terms": _dedupe_keep_order(extracted[1:6] + ["clear core benefit", "easy setup"], 6),
-        "audience_terms": ["target buyer", "daily user"],
-        "scenario_terms": ["home use", "daily use", "gift use", "travel use"],
-        "relation_terms": [f"for {base_identity}", "with clear benefit", "for everyday use"],
-        "state_trigger_terms": ["solve daily problem", "reduce purchase risk", "make use easier"],
-        "risk_terms": ["fit", "quality evidence", "setup clarity", "after sale support"],
+        "core_terms": _dedupe_keep_order([base_identity, *extracted[:3]], 4) if base_identity != "暂无" else ["暂无"],
+        "attribute_terms": _dedupe_keep_order(extracted[1:6], 6) or ["暂无"],
+        "audience_terms": ["暂无"],
+        "scenario_terms": ["暂无"],
+        "relation_terms": ["暂无"],
+        "state_trigger_terms": ["暂无"],
+        "risk_terms": ["暂无"],
     }
+
+
+def _profile_items(values: Any, minimum: int = 2) -> list[str]:
+    if isinstance(values, list):
+        items = _dedupe_keep_order([str(item) for item in values if str(item or "").strip()], 12)
+    elif str(values or "").strip():
+        items = [str(values).strip()]
+    else:
+        items = []
+    while len(items) < minimum:
+        items.append("暂无")
+    return items
 
 
 def _build_prelaunch_recommendations(
@@ -318,14 +365,14 @@ def _build_prelaunch_recommendations(
     missing_main_roles: list[str],
     missing_aplus_roles: list[str],
 ) -> dict[str, dict[str, Any]]:
-    identity = profile["product_identity"]
-    core = profile["core_terms"]
-    attrs = profile["attribute_terms"]
-    scenarios = profile["scenario_terms"]
-    relations = profile["relation_terms"]
-    states = profile["state_trigger_terms"]
-    risks = profile["risk_terms"]
-    audience = profile["audience_terms"]
+    identity = str(profile.get("product_identity") or "暂无")
+    core = _profile_items(profile.get("core_terms"))
+    attrs = _profile_items(profile.get("attribute_terms"))
+    scenarios = _profile_items(profile.get("scenario_terms"))
+    relations = _profile_items(profile.get("relation_terms"))
+    states = _profile_items(profile.get("state_trigger_terms"))
+    risks = _profile_items(profile.get("risk_terms"))
+    audience = _profile_items(profile.get("audience_terms"))
 
     title_text = (
         f"{core[0].title()} for {scenarios[0].title()} and {scenarios[1].title()}, "
@@ -519,10 +566,7 @@ def _build_rule_evaluation(request: EvaluateLaunchRequest) -> dict[str, Any]:
     forbidden_keyword_hits = _count_hits(request.keywords, [
         "best", "cheap", "free", "discount", "sale", "deal", "official", "amazon",
     ]) + len(re.findall(r"\bB0[A-Z0-9]{8}\b", request.keywords or "", flags=re.IGNORECASE))
-    has_product_identity = _has_any(title_text, [
-        "speaker", "power bank", "charger", "cat litter", "litter box", "filter",
-        "deodorizer", "organizer", "case", "bag", "toy", "humidifier", "light",
-    ])
+    has_product_identity = bool(title_text.strip())
     has_title_relation = _has_any(title_text, [
         " for ", " with ", " without ", "compatible", "gift", "travel", "outdoor",
         "camping", "pool", "beach", "home", "office", "apartment", "kids",
@@ -709,6 +753,7 @@ def _build_rule_evaluation(request: EvaluateLaunchRequest) -> dict[str, Any]:
         "ordered_first_fixes": ordered_first_fixes,
         "product_attribute_profile": product_profile,
         "prelaunch_modification_plan": recommendations,
+        "buyer_language_translation": _empty_buyer_language_translation(request),
         "ad_validation_alignment": {
             "title_keywords": "曝光和搜索词相关性验证平台是否理解商品身份。",
             "main_image": "CTR验证主图和核心场景是否吸引目标用户。",
@@ -787,6 +832,24 @@ async def _enrich_with_ai(request: EvaluateLaunchRequest, result: dict[str, Any]
     gateway = AIGatewayService()
     if not gateway.status().configured:
         return result
+    translation_payload = _buyer_language_payload_from_request(request)
+    translation_messages = build_buyer_language_messages(translation_payload)
+    try:
+        translation_model = gateway.select_model("light")
+        translation_content, _usage = await asyncio.wait_for(
+            gateway._create_chat_completion(translation_model, translation_messages),
+            timeout=45,
+        )
+        result["buyer_language_translation"] = _normalize_buyer_language_translation(
+            json.loads(translation_content or "{}"),
+            request,
+        )
+        result["buyer_language_ai_called"] = True
+        result["buyer_language_ai_model"] = translation_model
+        result["ai_called"] = True
+        result["ai_model"] = translation_model
+    except Exception as exc:
+        logger.warning("Buyer language translation failed, using empty result: %s", exc)
     payload = {
         "listing_input": request.model_dump(),
         "rule_reverse_score": result,
@@ -828,6 +891,10 @@ async def evaluate_prelaunch(
         raise HTTPException(status_code=400, detail="请至少输入标题或五点描述")
     result = _build_rule_evaluation(request)
     result = await _enrich_with_ai(request, result)
+    result["listing_position_diagnosis"] = build_listing_position_diagnosis(
+        _position_data_from_prelaunch_result(request, result),
+        _position_payload_from_prelaunch_request(request),
+    )
     result["user_id"] = str(current_user.id)
     return result
 
@@ -855,6 +922,8 @@ async def save_test_result(
             "toolbox_enhancements": request.toolbox_enhancements,
             "product_attribute_profile": request.product_attribute_profile,
             "prelaunch_modification_plan": request.prelaunch_modification_plan,
+            "buyer_language_translation": request.buyer_language_translation,
+            "listing_position_diagnosis": request.listing_position_diagnosis,
             "ad_validation_alignment": request.ad_validation_alignment,
             "ad_validation_plan": request.ad_validation_plan,
             "input_snapshot": request.input_snapshot,

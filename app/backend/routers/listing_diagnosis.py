@@ -42,20 +42,28 @@ from services.amazon_skill_toolbox import (
     merge_toolbox_into_ad_validation_plan,
     normalize_review_samples,
 )
+from services.ai_gateway import AIGatewayService
+from services.buyer_language_translation import (
+    build_buyer_language_messages,
+    build_buyer_language_payload,
+    empty_buyer_language_translation,
+    normalize_buyer_language_translation,
+)
 from services.judgment_feedback_rounds import JudgmentFeedbackRoundService
 from services.listing_diagnoses import Listing_diagnosesService
 from services.judgment_system import JudgmentSystemService
 from services.listing_title_rules import build_listing_title_rule
+from services.listing_position_cross_judgment import build_listing_position_diagnosis
 from services.core_engine_adapter import CoreEngineBusinessAdapter
 from services.cosmo_rufus_rules import build_cosmo_rufus_analysis, merge_cosmo_rufus_into_legacy
 from services.cosmo_vector_mapping import evaluate_cosmo_vector_mapping_async
 from services.canonical_10d_scoring import product_evidence_similarity
-from services.human_nature_model import human_nature_prompt_block
+from services.human_nature_model import build_human_nature_graph, human_nature_prompt_block
 from services.cosmo_operator_agent import CosmoOperatorAgent
-from services.hermes_amazon_capture import scrape_amazon_product_via_hermes
+from services.scrapeless_amazon_capture import scrape_amazon_product_via_scrapeless
 
 logger = logging.getLogger(__name__)
-AI_DIAGNOSIS_TIMEOUT_SECONDS = int(os.getenv("AI_DIAGNOSIS_TIMEOUT_SECONDS", "180"))
+AI_DIAGNOSIS_TIMEOUT_SECONDS = int(os.getenv("AI_DIAGNOSIS_TIMEOUT_SECONDS", "300"))
 
 router = APIRouter(prefix="/api/v1/listing-diagnosis", tags=["listing-diagnosis"])
 
@@ -167,7 +175,10 @@ class ListingInput(BaseModel):
     has_video: bool = False
     has_a_plus: bool = False
     image_urls: List[str] = Field(default_factory=list)
+    main_image_texts: List[str] = Field(default_factory=list)
+    aplus_image_count: str = ""
     aplus_image_urls: List[str] = Field(default_factory=list)
+    a_plus_image_texts: List[str] = Field(default_factory=list)
 
 
 def _ensure_scenario_problem_keywords(data: dict, listing: ListingInput) -> dict:
@@ -234,8 +245,10 @@ class DiagnoseResponse(BaseModel):
     data_integrity: dict = {}
     diagnosis_confidence: dict = {}
     ad_validation_plan: dict = {}
+    buyer_language_translation: dict = {}
     opc_v5_execution: dict = {}
     listing_health_analysis: dict = {}
+    listing_position_diagnosis: dict = {}
     amazon_compliance: dict = {}
     toolbox_enhancements: dict = {}
     trace: dict = {}
@@ -281,6 +294,248 @@ async def _evaluate_listing_compliance(listing: ListingInput, db: AsyncSession) 
         "attributes": {},
     }
     return evaluate_amazon_compliance(payload, rules)
+
+
+def _extract_visual_ocr_texts(evidence_chain: dict[str, Any] | None) -> list[str]:
+    visual = (evidence_chain or {}).get("visual_ocr") if isinstance(evidence_chain, dict) else {}
+    structured_texts = []
+    if isinstance(visual, dict):
+        for key in ("main_image_texts", "a_plus_image_texts"):
+            values = visual.get(key)
+            if isinstance(values, list):
+                structured_texts.extend(str(item).strip() for item in values if str(item or "").strip())
+    if structured_texts:
+        return structured_texts[:12]
+
+    summary = visual.get("summary") if isinstance(visual, dict) else ""
+    texts: list[str] = []
+
+    def walk(value: Any) -> None:
+        if isinstance(value, str):
+            text = re.sub(r"\s+", " ", value.strip())
+            if text and text not in texts:
+                texts.append(text)
+        elif isinstance(value, list):
+            for item in value:
+                walk(item)
+        elif isinstance(value, dict):
+            for key, item in value.items():
+                key_text = str(key).lower()
+                if any(token in key_text for token in ("text", "ocr", "copy", "badge", "claim", "wording")):
+                    walk(item)
+                elif isinstance(item, (dict, list)):
+                    walk(item)
+
+    if isinstance(summary, str) and summary.strip():
+        try:
+            walk(json.loads(summary))
+        except Exception:
+            walk(summary)
+    return texts[:12]
+
+
+def _clean_visual_ocr_text(value: Any, max_chars: int = 360) -> str:
+    if value is None:
+        return ""
+    text = re.sub(r"\s+", " ", str(value).strip())
+    if not text or text.lower() in {"none", "null", "n/a", "na", "暂无", "未提供", "没有", "无"}:
+        return ""
+    return text[:max_chars]
+
+
+def _visual_item_text(item: dict[str, Any]) -> str:
+    parts: list[str] = []
+    for label, key in [
+        ("图片文案", "image_text"),
+        ("图片表达", "image_expression"),
+        ("图文错位", "copy_fit"),
+        ("买家语言", "buyer_language_note"),
+    ]:
+        text = _clean_visual_ocr_text(item.get(key), 220)
+        if text:
+            parts.append(f"{label}：{text}")
+    return "；".join(parts)[:520]
+
+
+def _empty_text_slots(count: int) -> list[str]:
+    return ["" for _ in range(max(0, min(count, 9)))]
+
+
+def _parse_visual_ocr_by_position(content: str, main_count: int, aplus_count: int) -> dict[str, Any]:
+    result = {
+        "items": [],
+        "main_image_texts": _empty_text_slots(main_count),
+        "a_plus_image_texts": _empty_text_slots(aplus_count),
+    }
+    if not content or not content.strip():
+        return result
+
+    try:
+        parsed = _extract_json(content)
+    except Exception:
+        return result
+
+    items = parsed.get("items") if isinstance(parsed, dict) else []
+    if not isinstance(items, list):
+        return result
+
+    normalized_items: list[dict[str, Any]] = []
+    for raw_item in items:
+        if not isinstance(raw_item, dict):
+            continue
+        position_id = _clean_visual_ocr_text(raw_item.get("position_id"), 40)
+        image_group = _clean_visual_ocr_text(raw_item.get("image_group"), 40).lower()
+        order_raw = raw_item.get("order")
+        try:
+            order = int(order_raw)
+        except Exception:
+            order = 0
+        item = {
+            "position_id": position_id,
+            "image_group": image_group,
+            "order": order,
+            "image_text": _clean_visual_ocr_text(raw_item.get("image_text"), 320),
+            "image_expression": _clean_visual_ocr_text(raw_item.get("image_expression"), 320),
+            "copy_fit": _clean_visual_ocr_text(raw_item.get("copy_fit"), 240),
+            "buyer_language_note": _clean_visual_ocr_text(raw_item.get("buyer_language_note"), 240),
+        }
+        normalized_items.append(item)
+        item_text = _visual_item_text(item)
+        if not item_text:
+            continue
+
+        if position_id == "主图" or (image_group == "listing" and order == 1):
+            if result["main_image_texts"]:
+                result["main_image_texts"][0] = item_text
+            continue
+        secondary_match = re.search(r"副图\s*(\d+)", position_id)
+        if secondary_match:
+            idx = int(secondary_match.group(1))
+            if 1 <= idx < len(result["main_image_texts"]):
+                result["main_image_texts"][idx] = item_text
+            continue
+        if image_group == "listing" and order > 1:
+            idx = order - 1
+            if 0 <= idx < len(result["main_image_texts"]):
+                result["main_image_texts"][idx] = item_text
+            continue
+
+        aplus_match = re.search(r"A\+\s*图\s*(\d+)", position_id, re.I)
+        if aplus_match:
+            idx = int(aplus_match.group(1)) - 1
+            if 0 <= idx < len(result["a_plus_image_texts"]):
+                result["a_plus_image_texts"][idx] = item_text
+            continue
+        if image_group in {"aplus", "a_plus", "a+"} and order > 0:
+            idx = order - 1
+            if 0 <= idx < len(result["a_plus_image_texts"]):
+                result["a_plus_image_texts"][idx] = item_text
+
+    result["items"] = normalized_items
+    return result
+
+
+def _merge_visual_ocr_into_listing(listing: ListingInput, evidence_chain: dict[str, Any] | None) -> ListingInput:
+    visual = (evidence_chain or {}).get("visual_ocr") if isinstance(evidence_chain, dict) else {}
+    if not isinstance(visual, dict):
+        return listing
+    main_texts = visual.get("main_image_texts") if isinstance(visual.get("main_image_texts"), list) else []
+    aplus_texts = visual.get("a_plus_image_texts") if isinstance(visual.get("a_plus_image_texts"), list) else []
+    if not main_texts and not aplus_texts:
+        return listing
+
+    def merge_slots(existing: list[str], extracted: list[str], count: int) -> list[str]:
+        slot_count = max(len(existing or []), len(extracted or []), min(count, 9))
+        merged = []
+        for idx in range(slot_count):
+            current = existing[idx] if idx < len(existing or []) else ""
+            ocr_text = extracted[idx] if idx < len(extracted or []) else ""
+            merged.append(_clean_visual_ocr_text(current, 520) or _clean_visual_ocr_text(ocr_text, 520))
+        return merged
+
+    return listing.model_copy(update={
+        "main_image_texts": merge_slots(
+            listing.main_image_texts or [],
+            main_texts,
+            len(listing.image_urls or []),
+        ),
+        "a_plus_image_texts": merge_slots(
+            listing.a_plus_image_texts or [],
+            aplus_texts,
+            len(listing.aplus_image_urls or []),
+        ),
+    })
+
+
+def _buyer_language_payload_from_listing(listing: ListingInput, evidence_chain: dict[str, Any] | None = None) -> dict[str, Any]:
+    source = {
+        "title": listing.title,
+        "bullet_points": listing.bullet_points,
+        "description": listing.description,
+        "a_plus_content": listing.a_plus_content,
+        "category": listing.category,
+        "brand": listing.brand,
+        "keywords": listing.backend_keywords,
+    }
+    visual_texts = _extract_visual_ocr_texts(evidence_chain)
+    payload = build_buyer_language_payload(
+        title=listing.title,
+        bullet_points=listing.bullet_points,
+        a_plus_desc=listing.a_plus_content,
+        keywords=listing.backend_keywords,
+        main_image_texts=[
+            *([listing.main_image_description] if listing.main_image_description else []),
+            *(listing.main_image_texts or []),
+            *visual_texts,
+        ],
+        a_plus_image_texts=[
+            *(listing.a_plus_image_texts or []),
+            *([listing.a_plus_content] if listing.a_plus_content else []),
+        ],
+    )
+    payload["human_nature_graph"] = build_human_nature_graph(source)
+    return payload
+
+
+def _position_payload_from_listing(listing: ListingInput) -> dict[str, Any]:
+    return {
+        "title": listing.title,
+        "item_highlights": listing.item_highlights,
+        "bullet_points": listing.bullet_points,
+        "a_plus_content": listing.a_plus_content,
+        "main_image_description": listing.main_image_description,
+        "image_count": listing.image_count,
+        "image_urls": listing.image_urls or [],
+        "main_image_texts": listing.main_image_texts or [],
+        "aplus_image_count": listing.aplus_image_count,
+        "aplus_image_urls": listing.aplus_image_urls or [],
+        "a_plus_image_texts": listing.a_plus_image_texts or [],
+        "has_a_plus": listing.has_a_plus,
+    }
+
+
+async def _build_listing_buyer_language_translation(
+    listing: ListingInput,
+    evidence_chain: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    payload = _buyer_language_payload_from_listing(listing, evidence_chain)
+    fallback = empty_buyer_language_translation(payload)
+    gateway = AIGatewayService()
+    try:
+        if not gateway.status().configured:
+            return fallback
+        model = gateway.select_model("light")
+        content, _usage = await asyncio.wait_for(
+            gateway._create_chat_completion(model, build_buyer_language_messages(payload)),
+            timeout=45,
+        )
+        result = normalize_buyer_language_translation(json.loads(content or "{}"), payload)
+        result["ai_called"] = True
+        result["ai_model"] = model
+        return result
+    except Exception as exc:
+        logger.warning("Listing buyer language translation failed, using fallback: %s", exc)
+        return fallback
 
 
 def _user_filter(column, user_id: str | list[str]):
@@ -428,13 +683,14 @@ class FetchUrlResponse(BaseModel):
     image_count: str = ""
     has_video: bool = False
     has_a_plus: bool = False
+    aplus_image_count: str = ""
 
 
 class ParseHtmlRequest(BaseModel):
     html: str
     marketplace: str = "US"
     asin: str = ""
-    source: str = "server_proxy_fetch"
+    source: str = "external_amazon_product"
     captured_title: str = ""
     captured_price: str = ""
     captured_rating: str = ""
@@ -448,7 +704,7 @@ class ParseHtmlRequest(BaseModel):
 class ParseHtmlResponse(BaseModel):
     listing: ListingInput
     asin: str = ""
-    source: str = "server_proxy_fetch"
+    source: str = "external_amazon_product"
     rating: str = ""
     review_count: str = ""
     bsr_rank: str = ""
@@ -456,6 +712,7 @@ class ParseHtmlResponse(BaseModel):
     image_count: str = ""
     has_video: bool = False
     has_a_plus: bool = False
+    aplus_image_count: str = ""
     capture_quality: dict = {}
     review_intent_assets: dict = Field(default_factory=dict)
     review_samples: List[dict[str, Any]] = Field(default_factory=list)
@@ -1040,6 +1297,7 @@ def _listing_content_fingerprint(listing: ListingInput) -> str:
         "review_count": str(listing.review_count or "").strip(),
         "bsr_rank": str(listing.bsr_rank or "").strip(),
         "image_count": str(listing.image_count or "").strip(),
+        "aplus_image_count": str(listing.aplus_image_count or "").strip(),
         "has_video": bool(listing.has_video),
         "has_a_plus": bool(listing.has_a_plus),
     }
@@ -1110,6 +1368,8 @@ def _normalize_diagnosis_result(result: dict, listing: ListingInput) -> dict:
     if not data.get("analyzed_product_name"):
         data["analyzed_product_name"] = listing.title or ""
     data["listing_title_rule"] = build_listing_title_rule(listing.title, listing.item_highlights)
+    if not isinstance(data.get("buyer_language_translation"), dict):
+        data["buyer_language_translation"] = empty_buyer_language_translation(_buyer_language_payload_from_listing(listing))
     data = _apply_market_reality_caps(data, listing)
     data = _align_listing_scores_with_canonical(data, listing)
     data["listing_health_analysis"] = _build_listing_health_analysis(data, listing)
@@ -1281,6 +1541,310 @@ def _position_score(elements: dict, position: str) -> float:
             _element_average(elements, "backend"),
         ])
     return 0
+
+
+_POSITION_DIMENSION_MAP: dict[str, list[str]] = {
+    "title": ["product_identity", "function_expression", "scenario_expression", "compatibility"],
+    "highlights": ["differentiation", "psychology_benefit", "function_expression", "subjective_properties"],
+    "bullets": ["function_expression", "psychology_benefit", "risk_elimination", "differentiation", "compatibility"],
+    "main_image": ["product_identity", "differentiation", "subjective_properties"],
+    "secondary_1": ["function_expression", "differentiation", "psychology_benefit"],
+    "secondary_2": ["scenario_expression", "identity_fit"],
+    "secondary_3": ["compatibility", "function_expression", "risk_elimination"],
+    "secondary_4": ["differentiation", "product_identity", "subjective_properties"],
+    "secondary_5": ["risk_elimination", "psychology_benefit"],
+    "secondary_6": ["compatibility", "risk_elimination", "function_expression"],
+    "aplus_1": ["psychology_benefit", "risk_elimination"],
+    "aplus_2": ["function_expression", "product_identity"],
+    "aplus_3": ["scenario_expression", "identity_fit"],
+    "aplus_4": ["psychology_benefit", "subjective_properties", "risk_elimination"],
+    "aplus_5": ["differentiation", "product_identity"],
+    "aplus_6": ["compatibility", "risk_elimination"],
+    "aplus_7": ["risk_elimination", "psychology_benefit"],
+    "aplus_8": ["function_expression", "compatibility", "risk_elimination"],
+    "aplus_9": ["risk_elimination", "psychology_benefit"],
+}
+
+
+def _clamp_score(value: Any) -> int:
+    try:
+        number = round(float(value or 0))
+    except (TypeError, ValueError):
+        return 0
+    return max(0, min(100, number))
+
+
+def _avg_dimension_scores(scores: dict, keys: list[str]) -> int:
+    values = [_clamp_score(scores.get(key)) for key in keys if _clamp_score(scores.get(key)) > 0]
+    return _clamp_score(sum(values) / len(values)) if values else 0
+
+
+def _parse_count(value: Any) -> int:
+    match = re.search(r"\d+", str(value or ""))
+    return int(match.group(0)) if match else 0
+
+
+def _actual_listing_image_count(listing: ListingInput) -> int:
+    return min(9, max(len(listing.image_urls or []), _parse_count(listing.image_count)))
+
+
+def _actual_aplus_image_count(listing: ListingInput) -> int:
+    text_count = re.search(r"A\+图片数[:：]\s*(\d+)", listing.a_plus_content or "", re.I)
+    return max(
+        len(listing.aplus_image_urls or []),
+        _parse_count(listing.aplus_image_count),
+        int(text_count.group(1)) if text_count else 0,
+    )
+
+
+def _split_bullets_for_position(value: str) -> list[str]:
+    return [item.strip() for item in re.split(r"\n+", value or "") if item.strip()]
+
+
+def _position_content_exists(listing: ListingInput, module: str, index: int = 0) -> bool:
+    if module == "title":
+        return bool((listing.title or "").strip())
+    if module == "highlights":
+        return bool((listing.item_highlights or "").strip())
+    if module == "bullets":
+        return bool(_split_bullets_for_position(listing.bullet_points))
+    if module == "main_image":
+        return bool((listing.image_urls or [None])[0] if listing.image_urls else listing.main_image_description)
+    if module == "secondary_images":
+        return bool(len(listing.image_urls or []) > index)
+    if module == "a_plus":
+        return bool(len(listing.aplus_image_urls or []) >= index or listing.a_plus_content)
+    return False
+
+
+def _position_source_facts(listing: ListingInput, module: str, index: int = 0) -> dict[str, Any]:
+    if module == "title":
+        return {
+            "source": "amazon_listing_data",
+            "field": "title",
+            "content_present": bool((listing.title or "").strip()),
+            "text": listing.title or "暂无",
+        }
+    if module == "highlights":
+        return {
+            "source": "amazon_listing_data",
+            "field": "item_highlights",
+            "content_present": bool((listing.item_highlights or "").strip()),
+            "text": listing.item_highlights or "暂无",
+        }
+    if module == "bullets":
+        bullet_items = _split_bullets_for_position(listing.bullet_points)
+        return {
+            "source": "amazon_listing_data",
+            "field": "bullet_points",
+            "content_present": bool(bullet_items),
+            "bullet_count": len(bullet_items),
+            "text": listing.bullet_points or "暂无",
+        }
+    if module == "main_image":
+        url = (listing.image_urls or [""])[0] if listing.image_urls else ""
+        return {
+            "source": "amazon_listing_data",
+            "field": "image_urls[0]",
+            "content_present": bool(url or listing.main_image_description),
+            "image_url": url or "暂无",
+            "text": listing.main_image_description or "暂无",
+        }
+    if module == "secondary_images":
+        url = listing.image_urls[index] if len(listing.image_urls or []) > index else ""
+        return {
+            "source": "amazon_listing_data",
+            "field": f"image_urls[{index}]",
+            "content_present": bool(url),
+            "image_url": url or "暂无",
+        }
+    if module == "a_plus":
+        image_index = max(0, index - 1)
+        url = listing.aplus_image_urls[image_index] if len(listing.aplus_image_urls or []) > image_index else ""
+        return {
+            "source": "amazon_listing_data",
+            "field": f"aplus_image_urls[{image_index}]",
+            "content_present": bool(url or listing.a_plus_content),
+            "image_url": url or "暂无",
+            "text": listing.a_plus_content or "暂无",
+        }
+    return {"source": "amazon_listing_data", "content_present": False}
+
+
+def _violation_penalty(amazon_compliance: dict, module: str) -> int:
+    module_keys = {
+        "title": ["title", "标题"],
+        "highlights": ["highlight", "亮点"],
+        "bullets": ["bullet", "五点", "描述"],
+        "main_image": ["image", "main_image", "主图", "图片"],
+        "secondary_images": ["image", "secondary", "副图", "图片"],
+        "a_plus": ["a+", "aplus", "a_plus", "A+"],
+    }.get(module, [])
+    violations = amazon_compliance.get("violations") if isinstance(amazon_compliance, dict) else []
+    risk = 0
+    for violation in violations or []:
+        if not isinstance(violation, dict):
+            continue
+        text = f"{violation.get('module', '')} {violation.get('rule_type', '')} {violation.get('category', '')}".lower()
+        if any(str(key).lower() in text for key in module_keys):
+            risk = max(risk, _clamp_score(violation.get("risk_score")))
+    return min(40, risk)
+
+
+def _amazon_position_rule_score(listing: ListingInput, data: dict, module: str, index: int = 0) -> int:
+    if not _position_content_exists(listing, module, index):
+        return 0
+    rule = data.get("listing_title_rule") if isinstance(data.get("listing_title_rule"), dict) else {}
+    score = 85
+    if module == "title":
+        score = 100 if rule.get("title_compliance_status") in {None, "", "compliant"} else 70
+        if _clamp_score(rule.get("title_char_count")) > _clamp_score(rule.get("title_max_chars") or 75):
+            score = min(score, 70)
+    elif module == "highlights":
+        score = 100 if rule.get("highlights_status") in {None, "", "compliant"} else 70
+        if _clamp_score(rule.get("item_highlights_char_count")) > _clamp_score(rule.get("item_highlights_max_chars") or 125):
+            score = min(score, 70)
+    elif module == "bullets":
+        count = len(_split_bullets_for_position(listing.bullet_points))
+        score = 90 if count >= 5 else 70 if count > 0 else 0
+    return _clamp_score(score - _violation_penalty(data.get("amazon_compliance") or {}, module))
+
+
+def _buyer_language_has_text(value: Any) -> bool:
+    if isinstance(value, list):
+        return any(_buyer_language_has_text(item) for item in value)
+    text = str(value or "").strip()
+    return bool(text and text not in {"暂无", "待录入"})
+
+
+def _buyer_language_position_score(data: dict, module: str, listing: ListingInput, index: int = 0) -> int:
+    if not _position_content_exists(listing, module, index):
+        return 0
+    translation = data.get("buyer_language_translation") if isinstance(data.get("buyer_language_translation"), dict) else {}
+    buyer_language = translation.get("buyer_language") if isinstance(translation.get("buyer_language"), dict) else {}
+    graph = translation.get("human_nature_graph") or data.get("human_nature_graph") or (data.get("judgment_system") or {}).get("human_nature_graph")
+    has_graph = isinstance(graph, dict) and bool(graph)
+    if module == "title":
+        has_translation = _buyer_language_has_text(buyer_language.get("title"))
+    elif module in {"highlights", "bullets"}:
+        has_translation = _buyer_language_has_text(buyer_language.get("bullet_points"))
+    elif module == "a_plus":
+        has_translation = _buyer_language_has_text(buyer_language.get("a_plus_desc")) or _buyer_language_has_text(buyer_language.get("image_texts"))
+    else:
+        has_translation = _buyer_language_has_text(buyer_language.get("image_texts"))
+    if has_graph and has_translation:
+        return 100
+    if has_graph or has_translation:
+        return 70
+    return 0
+
+
+def _position_ad_validation(data: dict, module: str) -> dict:
+    plan = data.get("ad_validation_plan") if isinstance(data.get("ad_validation_plan"), dict) else {}
+    items = plan.get("validation_items") if isinstance(plan.get("validation_items"), list) else []
+    module_index = {"title": 0, "highlights": 0, "main_image": 1, "secondary_images": 2, "bullets": 3, "a_plus": 4}.get(module, 0)
+    item = items[module_index] if module_index < len(items) and isinstance(items[module_index], dict) else {}
+    keywords = item.get("ad_test_keywords") or item.get("validation_keywords") or item.get("keywords") or (item.get("ad_action") or {}).get("keywords") or []
+    if not keywords:
+        collected_keywords: list[str] = []
+        _collect_keywords((data.get("ad_keywords") or {}).get("high_conversion"), collected_keywords)
+        _collect_keywords((data.get("ad_keywords") or {}).get("traffic"), collected_keywords)
+        _collect_keywords((data.get("ad_keywords") or {}).get("long_tail"), collected_keywords)
+        _collect_keywords((data.get("suggestions") or {}).get("backend_keywords_addition"), collected_keywords)
+        coverage = data.get("keyword_coverage") if isinstance(data.get("keyword_coverage"), dict) else {}
+        missing = coverage.get("missing_categories") if isinstance(coverage.get("missing_categories"), dict) else {}
+        for values in missing.values():
+            _collect_keywords(values, collected_keywords)
+        keywords = collected_keywords[:8]
+    hypothesis = _safe_text(item.get("hypothesis"))
+    if re.search(r"Listing补强|对应搜索词点击|对应搜索词.*转化|点击和转化应提升|验证Listing是否承接", hypothesis):
+        hypothesis = "暂无"
+    return {
+        "hypothesis": hypothesis,
+        "keywords": keywords,
+        "metrics": ["CTR", "CVR", "CPC", "ACOS"] if keywords else [],
+    }
+
+
+def _keyword_text(value: Any) -> str:
+    if isinstance(value, str):
+        return re.sub(r"\s+", " ", value.strip().lower())
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, dict):
+        for key in ("keyword", "term", "phrase", "query", "text", "value"):
+            text = _keyword_text(value.get(key))
+            if text:
+                return text
+    return ""
+
+
+def _collect_keywords(value: Any, out: list[str]) -> None:
+    if not value:
+        return
+    if isinstance(value, list):
+        for item in value:
+            _collect_keywords(item, out)
+        return
+    text = _keyword_text(value)
+    if text and text not in out:
+        out.append(text)
+
+
+def _position_problem_from_scores(scores: dict[str, int]) -> str:
+    return "暂无"
+
+
+def _build_listing_position_diagnosis(data: dict, listing: ListingInput) -> dict:
+    scores = data.get("scores") if isinstance(data.get("scores"), dict) else {}
+    alignment = (data.get("judgment_system") or {}).get("alignment_scores") if isinstance(data.get("judgment_system"), dict) else {}
+    platform_score = _clamp_score((alignment or {}).get("platform_semantic_alignment"))
+
+    def row(label: str, module: str, key: str, focus: str, index: int = 0) -> dict:
+        dimension_keys = _POSITION_DIMENSION_MAP.get(key) or _POSITION_DIMENSION_MAP.get(module) or []
+        mapped_score = _avg_dimension_scores(scores, dimension_keys)
+        cosmo_score = _clamp_score(mapped_score * 0.7 + platform_score * 0.3) if platform_score and mapped_score else mapped_score
+        cross_scores = {
+            "amazon_rule_score": _amazon_position_rule_score(listing, data, module, index),
+            "cosmo_alignment_score": cosmo_score,
+            "buyer_language_score": _buyer_language_position_score(data, module, listing, index),
+        }
+        final_score = min(cross_scores.values()) if cross_scores else 0
+        return {
+            "id": f"{module}-{index}",
+            "label": label,
+            "module": module,
+            "position_key": key,
+            "index": index,
+            "focus": focus,
+            "source_facts": _position_source_facts(listing, module, index),
+            **cross_scores,
+            "final_score": final_score,
+            "status": "合格" if final_score >= 80 else "待优化",
+            "dimension_keys": dimension_keys,
+            "problem": _position_problem_from_scores(cross_scores),
+            "optimization_suggestion": "暂无",
+            "ad_validation": _position_ad_validation(data, module),
+        }
+
+    positions = [
+        row("标题", "title", "title", "title"),
+        row("亮点差异化", "highlights", "highlights", "item-highlights"),
+        row("5点描述", "bullets", "bullets", "bullets"),
+    ]
+    image_count = _actual_listing_image_count(listing)
+    if image_count > 0:
+        positions.append(row("主图", "main_image", "main_image", "main-images", 0))
+        for image_index in range(1, image_count):
+            positions.append(row(f"副图{image_index}", "secondary_images", f"secondary_{image_index}", "main-images", image_index))
+    for aplus_index in range(1, min(_actual_aplus_image_count(listing), 9) + 1):
+        positions.append(row(f"A+图{aplus_index}", "a_plus", f"aplus_{aplus_index}", "aplus-images", aplus_index))
+
+    return {
+        "basis": "amazon_rule_cosmo_buyer_language_position_cross",
+        "threshold": 80,
+        "positions": positions,
+    }
 
 
 def _build_listing_health_analysis(data: dict, listing: ListingInput) -> dict:
@@ -1926,6 +2490,55 @@ def _listing_semantic_text(listing: ListingInput) -> str:
     )[:12000]
 
 
+async def _run_visual_ocr_batch(
+    ai_service: AIHubService,
+    listing: ListingInput,
+    image_items: list[dict[str, Any]],
+    main_count: int,
+    aplus_count: int,
+) -> dict[str, Any]:
+    from schemas.aihub import (
+        ChatMessage,
+        ContentPartImage,
+        ContentPartText,
+        GenTxtRequest,
+        ImageUrl,
+    )
+
+    prompt = (
+        "你是AlignX视觉/OCR证据提取器。只提取事实，不做最终评分，不改写Listing。"
+        "请严格按图片输入顺序逐张识别图片内文字和可见表达，判断图片表达与图片文案是否错位，以及文案是否是买家容易理解的语言。"
+        "不能做最终评分，不能凭空补图中不存在的信息。"
+        "只返回JSON，格式："
+        '{"items":[{"position_id":"主图","image_group":"listing","order":1,"image_text":"图片内可见文字，保持原文；没有则空字符串","image_expression":"图片实际表达的产品/场景/人群/利益点","copy_fit":"只写图文是否一致的事实；未知则空字符串","buyer_language_note":"只写图片文案是否买家易懂的事实；未知则空字符串"}]}'
+        f"\n图片顺序：{json.dumps([{k: v for k, v in item.items() if k != 'url'} for item in image_items], ensure_ascii=False)}"
+        f"\nListing标题：{listing.title}"
+        f"\n五点描述：{listing.bullet_points[:1000] if listing.bullet_points else '未提供'}"
+        f"\n主图描述：{listing.main_image_description or '未提供'}"
+        f"\n已有图片文字：{json.dumps({'main_image_texts': listing.main_image_texts or [], 'a_plus_image_texts': listing.a_plus_image_texts or []}, ensure_ascii=False)[:1200]}"
+        f"\nA+摘要：{listing.a_plus_content[:700] if listing.a_plus_content else '未提供'}"
+    )
+    content = [ContentPartText(type="text", text=prompt)]
+    for item in image_items:
+        content.append(ContentPartImage(type="image_url", image_url=ImageUrl(url=item["url"])))
+    response = await asyncio.wait_for(
+        ai_service.gentxt(
+            GenTxtRequest(
+                messages=[ChatMessage(role="user", content=content)],
+                model="AI_VISION_MODEL",
+                temperature=0,
+                max_tokens=1400,
+            )
+        ),
+        timeout=min(AI_DIAGNOSIS_TIMEOUT_SECONDS, 75),
+    )
+    parsed = _parse_visual_ocr_by_position(response.content or "", main_count=main_count, aplus_count=aplus_count)
+    parsed["summary"] = (response.content or "")[:1400]
+    parsed["usage"] = response.usage or {}
+    parsed["model"] = response.model
+    return parsed
+
+
 async def _build_listing_evidence_chain(listing: ListingInput, ai_service: AIHubService) -> dict:
     """Run mandatory platform evidence enhancement for every Listing diagnosis.
 
@@ -1975,49 +2588,99 @@ async def _build_listing_evidence_chain(listing: ListingInput, ai_service: AIHub
         logger.warning("Listing semantic vector evidence failed: %s", exc)
         evidence["semantic_vector"] = {"ok": False, "error": "semantic_vector_failed"}
 
-    image_urls = [
-        url
-        for url in [*(listing.image_urls or []), *(listing.aplus_image_urls or [])]
-        if isinstance(url, str) and url.startswith(("http://", "https://", "data:image/"))
-    ][:4]
+    image_items: list[dict[str, Any]] = []
+    for idx, url in enumerate((listing.image_urls or [])[:9]):
+        if isinstance(url, str) and url.startswith(("http://", "https://", "data:image/")):
+            image_items.append({
+                "position_id": "主图" if idx == 0 else f"副图{idx}",
+                "image_group": "listing",
+                "order": idx + 1,
+                "url": url,
+            })
+    for idx, url in enumerate((listing.aplus_image_urls or [])[:9]):
+        if isinstance(url, str) and url.startswith(("http://", "https://", "data:image/")):
+            image_items.append({
+                "position_id": f"A+图{idx + 1}",
+                "image_group": "aplus",
+                "order": idx + 1,
+                "url": url,
+            })
+    image_items = image_items[:18]
+    image_urls = [item["url"] for item in image_items]
     try:
-        from schemas.aihub import (
-            ChatMessage,
-            ContentPartImage,
-            ContentPartText,
-            GenTxtRequest,
-            ImageUrl,
-        )
+        main_count = len((listing.image_urls or [])[:9])
+        aplus_count = len((listing.aplus_image_urls or [])[:9])
+        parsed_visual = {
+            "items": [],
+            "main_image_texts": _empty_text_slots(main_count),
+            "a_plus_image_texts": _empty_text_slots(aplus_count),
+        }
+        summaries: list[str] = []
+        usages: list[dict[str, Any]] = []
+        vision_model = ""
+        batch_errors: list[str] = []
+        batch_size = 6
 
-        prompt = (
-            "你是AlignX视觉/OCR证据提取器。只提取事实，不做最终评分，不改写Listing。"
-            "请按平台证据边界识别图片或图片描述中的产品身份、使用场景、搭配对象、使用时机、状态承诺、图片内文字、徽章、认证、风险承诺、合规风险，输出JSON。"
-            "必须区分事实evidence与推断inference；不能凭空补图中不存在的信息。"
-            f"\nListing标题：{listing.title}"
-            f"\n主图描述：{listing.main_image_description or '未提供'}"
-            f"\nA+摘要：{listing.a_plus_content[:800] if listing.a_plus_content else '未提供'}"
-        )
-        content = [ContentPartText(type="text", text=prompt)]
-        for url in image_urls:
-            content.append(ContentPartImage(type="image_url", image_url=ImageUrl(url=url)))
-        vision_response = await asyncio.wait_for(
-            ai_service.gentxt(
-                GenTxtRequest(
-                    messages=[ChatMessage(role="user", content=content)],
-                    model="AI_VISION_MODEL",
-                    temperature=0,
-                    max_tokens=900,
+        def merge_batch_result(batch_result: dict[str, Any]) -> None:
+            nonlocal vision_model
+            parsed_visual["items"].extend(batch_result.get("items", []))
+            for key in ("main_image_texts", "a_plus_image_texts"):
+                target = parsed_visual.get(key) or []
+                source = batch_result.get(key) or []
+                for idx, text in enumerate(source):
+                    if idx < len(target) and text and not target[idx]:
+                        target[idx] = text
+            if batch_result.get("summary"):
+                summaries.append(str(batch_result.get("summary"))[:900])
+            if isinstance(batch_result.get("usage"), dict):
+                usages.append(batch_result["usage"])
+            vision_model = str(batch_result.get("model") or vision_model)
+
+        for start in range(0, len(image_items), batch_size):
+            batch = image_items[start:start + batch_size]
+            try:
+                batch_result = await _run_visual_ocr_batch(
+                    ai_service=ai_service,
+                    listing=listing,
+                    image_items=batch,
+                    main_count=main_count,
+                    aplus_count=aplus_count,
                 )
-            ),
-            timeout=min(AI_DIAGNOSIS_TIMEOUT_SECONDS, 90),
-        )
+                merge_batch_result(batch_result)
+            except Exception as batch_exc:
+                logger.warning("Listing visual/OCR batch failed: %s", batch_exc)
+                retry_success = False
+                if len(batch) > 1:
+                    for single_item in batch:
+                        try:
+                            single_result = await _run_visual_ocr_batch(
+                                ai_service=ai_service,
+                                listing=listing,
+                                image_items=[single_item],
+                                main_count=main_count,
+                                aplus_count=aplus_count,
+                            )
+                            merge_batch_result(single_result)
+                            retry_success = True
+                        except Exception as single_exc:
+                            logger.warning("Listing visual/OCR single image failed: %s", single_exc)
+                if not retry_success:
+                    batch_errors.append("visual_ocr_batch_failed")
+
+        if image_items and not parsed_visual["items"] and batch_errors:
+            raise RuntimeError("visual_ocr_failed")
+
         evidence["visual_ocr"] = {
             "ok": True,
-            "model": vision_response.model,
+            "model": vision_model,
             "image_count": len(image_urls),
             "input_mode": "image_urls" if image_urls else "description_only",
-            "summary": (vision_response.content or "")[:1800],
-            "usage": vision_response.usage or {},
+            "summary": "\n".join(summaries)[:2400],
+            "items": parsed_visual.get("items", []),
+            "main_image_texts": parsed_visual.get("main_image_texts", []),
+            "a_plus_image_texts": parsed_visual.get("a_plus_image_texts", []),
+            "usage": usages[:4],
+            "batch_errors": batch_errors[:3],
         }
     except Exception as exc:
         logger.warning("Listing visual/OCR evidence failed: %s", exc)
@@ -2066,6 +2729,9 @@ async def _diagnose_single(
 
     product_title = listing.title or "未提供"
     evidence_chain = await _build_listing_evidence_chain(listing, ai_service)
+    listing = _merge_visual_ocr_into_listing(listing, evidence_chain)
+    buyer_language_translation = await _build_listing_buyer_language_translation(listing, evidence_chain)
+    precision_context["buyer_language_translation"] = buyer_language_translation
     operator_agent = CosmoOperatorAgent(db)
     alignment_context: dict = {}
     try:
@@ -2093,6 +2759,8 @@ async def _diagnose_single(
         + _build_compact_diagnosis_prompt(listing)
         + "\n\n【强制证据链】以下证据来自平台识别主链路，必须优先使用；后台规则只可作为兜底或一致性校验，不能替代主判断：\n"
         + json.dumps(evidence_chain, ensure_ascii=False)[:6000]
+        + "\n\n【买家语言转译层】以下内容是本次上架准入和承接决策共用的买家语言翻译层。必须先用它判断Listing是否还是卖家思维，再做10维评分、模块归因和广告验证。不要把内部字段名暴露给卖家：\n"
+        + json.dumps(buyer_language_translation, ensure_ascii=False)[:3600]
     )
     if review_intent_assets:
         prompt += (
@@ -2121,6 +2789,7 @@ async def _diagnose_single(
         f' 6.elements中每个要素的每个维度评分都必须是合理的非零值，绝对禁止全部给0分。'
         f' 7.本次诊断采用“1人性根层 → 2用户意图 → 3平台规则 → 4验证回流 → 10维诊断”的后台动作顺序；禁止把10项当作平铺平均分。输出面向卖家，禁止暴露内部方法论名称。'
         f' 8.判断优先级：语义召回和证据精排 > 图片识别事实 > AI综合判断；后台规则只做兜底和一致性校验。'
+        f' 9.必须先检查卖家语言是否被买家看懂：卖家参数/技术/营销表达需要转成买家会搜索、会点击、会相信的语言，再映射到标题、五点、图片、A+和Search Terms。'
         f'你是亚马逊Listing优化专家。只输出JSON。'
     )
 
@@ -2168,6 +2837,7 @@ async def _diagnose_single(
         data = _fallback_listing_diagnosis(listing, reason=str(last_error or ""))
 
     data = _normalize_keyword_payload(data)
+    data["buyer_language_translation"] = buyer_language_translation
 
     # Validate product name match
     analyzed_name = data.get("analyzed_product_name", "")
@@ -2267,6 +2937,8 @@ async def _diagnose_single(
     ad_validation_plan = merge_toolbox_into_ad_validation_plan(ad_validation_plan, toolbox_enhancements)
     data["ad_validation_plan"] = ad_validation_plan
     data["diagnosis_mode"] = diagnosis_mode
+    data["buyer_language_translation"] = buyer_language_translation
+    data["listing_position_diagnosis"] = build_listing_position_diagnosis(data, _position_payload_from_listing(listing))
     data["ad_validation_readiness_gate"] = JudgmentSystemService.apply_ad_validation_gate_to_outputs(data, listing)
     data["opc_v5_execution"] = await _build_listing_opc_v5_execution(data, listing, user_id, db)
     sanitized_listing = _sanitize_listing_for_ai(listing)
@@ -2309,7 +2981,12 @@ async def _diagnose_single(
             "created_at": datetime.now(timezone.utc),
         }
         
-        record = await svc.create(create_data, user_id=user_id)
+        record = await svc.create_or_update_by_asin(
+            create_data,
+            asin=listing.asin,
+            marketplace=listing.marketplace,
+            user_id=user_id,
+        )
         if record:
             record_id = record.id
             try:
@@ -2352,6 +3029,7 @@ async def _diagnose_single(
 
     return {
         "listing_title": listing.title or "",
+        "listing": listing.model_dump(),
         "marketplace": listing.marketplace,
         "scores": scores,
         "analysis": data.get("analysis", {}),
@@ -2370,7 +3048,9 @@ async def _diagnose_single(
         "causal_diagnosis": causal_diagnosis,
         "judgment_system": judgment_system,
         "ad_validation_plan": ad_validation_plan,
+        "buyer_language_translation": buyer_language_translation,
         "listing_health_analysis": data.get("listing_health_analysis", {}),
+        "listing_position_diagnosis": data.get("listing_position_diagnosis", {}),
         "opc_v5_execution": data.get("opc_v5_execution", {}),
         "data_integrity": data_integrity,
         "diagnosis_confidence": diagnosis_confidence,
@@ -2409,8 +3089,8 @@ async def fetch_listing_from_url(
 
         marketplace = _detect_marketplace(url) or request.marketplace
 
-        # ---- Phase 1: Public deployment delegates Amazon capture to Hermes Browserbase ----
-        scraped = await scrape_amazon_product_via_hermes(asin, marketplace)
+        # ---- Phase 1: Public deployment delegates Amazon capture to external Amazon capture ----
+        scraped = await scrape_amazon_product_via_scrapeless(asin, marketplace)
         scrape_ok = scraped.get("scrape_success", False)
 
         # Helper to clean markers
@@ -2420,6 +3100,13 @@ async def fetch_listing_from_url(
             for marker in ["[未确认]", "[未确认] ", "[unknown]", "[Unknown]", "[unconfirmed]"]:
                 val = val.replace(marker, "")
             return val.strip()
+
+        def _listing_text_value(val: Any) -> str:
+            if val is None:
+                return ""
+            if isinstance(val, str):
+                return val.strip()
+            return str(val).strip()
 
         if scrape_ok and scraped.get("title"):
             logger.info(f"Scrape succeeded for {asin}: {scraped['title'][:60]}")
@@ -2437,23 +3124,27 @@ async def fetch_listing_from_url(
                 backend_keywords="",
                 main_image_description=f"共{scraped.get('image_count', '?')}张产品图片" + (", 含视频" if scraped.get("has_video") else ""),
                 category=scraped.get("category", ""),
-                price=scraped.get("price", ""),
+                price=_listing_text_value(scraped.get("price", "")),
                 brand=scraped.get("brand", ""),
                 marketplace=marketplace,
                 image_urls=scraped.get("image_urls", []) or [],
+                main_image_texts=scraped.get("main_image_texts", []) or [],
+                aplus_image_count=str(scraped.get("aplus_image_count", "") or ""),
                 aplus_image_urls=scraped.get("aplus_image_urls", []) or [],
+                a_plus_image_texts=scraped.get("a_plus_image_texts", []) or [],
             )
             return FetchUrlResponse(
                 listing=listing,
                 asin=asin,
                 source=scraped.get("data_source") or "scraped",
-                rating=scraped.get("rating", ""),
-                review_count=scraped.get("review_count", ""),
-                bsr_rank=scraped.get("bsr_rank", ""),
+                rating=_listing_text_value(scraped.get("rating", "")),
+                review_count=_listing_text_value(scraped.get("review_count", "")),
+                bsr_rank=_listing_text_value(scraped.get("bsr_rank", "")),
                 bsr_category=scraped.get("bsr_category", ""),
-                image_count=scraped.get("image_count", ""),
+                image_count=str(scraped.get("image_count", "") or ""),
                 has_video=scraped.get("has_video", False),
                 has_a_plus=scraped.get("has_a_plus", False),
+                aplus_image_count=str(scraped.get("aplus_image_count", "") or ""),
             )
 
         # ---- Phase 2: Scraping failed, fall back to AI search ----
@@ -2560,68 +3251,30 @@ async def parse_html_content(
     request: ParseHtmlRequest,
     current_user: UserResponse = Depends(get_current_user),
 ):
-    """Parse raw HTML from an Amazon product page.
-
-    Source is explicit so local-browser captures and backend proxy fetches
-    never get mixed into the same confidence bucket.
-    """
+    """Legacy HTML parsing endpoint; Amazon capture is delegated to external Amazon capture."""
     try:
-        html = request.html
-        if not html or len(html) < 500:
+        asin = request.asin.strip().upper()
+        if not re.fullmatch(r"[A-Z0-9]{10}", asin):
             return ParseHtmlResponse(
                 listing=ListingInput(marketplace=request.marketplace),
-                asin=request.asin,
+                asin=asin,
                 success=False,
-                error="HTML内容过短，无法解析",
+                error="请输入有效的10位ASIN",
             )
 
-        from services.amazon_scraper import _parse_product_page
-        from services.capture_quality import capture_quality
-
-        parsed = _parse_product_page(html, request.marketplace)
-        if not parsed or not parsed.get("title"):
-            from services.amazon_scraper import _is_captcha_page
-            if _is_captcha_page(html):
-                return ParseHtmlResponse(
-                    listing=ListingInput(marketplace=request.marketplace),
-                    asin=request.asin,
-                    success=False,
-                    error="检测到CAPTCHA验证页面，请使用手动粘贴模式",
-                )
+        parsed = await scrape_amazon_product_via_scrapeless(asin, request.marketplace)
+        if not parsed.get("scrape_success"):
             return ParseHtmlResponse(
                 listing=ListingInput(marketplace=request.marketplace),
-                asin=request.asin,
+                asin=asin,
                 success=False,
-                error="无法从HTML中解析出产品信息，页面可能不是有效的Amazon产品页",
+                error=str(parsed.get("error") or "外部采集失败"),
             )
 
         marketplace = request.marketplace
-        captured_bullets = [
-            str(item).strip()
-            for item in (request.captured_bullets or [])
-            if str(item).strip()
-        ][:5]
-        parsed_bullets = parsed.get("bullet_points") or []
-        if request.source == "local_browser_capture" and len(captured_bullets) > len(parsed_bullets):
-            parsed["bullet_points"] = captured_bullets
-        if request.source == "local_browser_capture" and request.captured_title and len(request.captured_title.strip()) > len(str(parsed.get("title", "")).strip()):
-            parsed["title"] = request.captured_title.strip()
-        if request.source == "local_browser_capture":
-            if request.captured_price.strip():
-                parsed["price"] = request.captured_price.strip()
-            if request.captured_rating.strip():
-                parsed["rating"] = request.captured_rating.strip()
-            if request.captured_review_count.strip():
-                parsed["review_count"] = request.captured_review_count.strip()
-            if request.captured_bsr_rank.strip() and not parsed.get("bsr_rank"):
-                parsed["bsr_rank"] = request.captured_bsr_rank.strip()
-            if request.captured_image_count.strip():
-                parsed["image_count"] = request.captured_image_count.strip()
-        review_samples = normalize_review_samples(request.captured_reviews, limit=40)
+        review_samples = normalize_review_samples(parsed.get("review_samples") or [], limit=40)
         review_intent_assets = {}
         if review_samples:
-            parsed["review_samples"] = review_samples
-            parsed["reviews"] = review_samples
             review_intent_assets = build_review_intent_assets({
                 **parsed,
                 "review_samples": review_samples,
@@ -2641,38 +3294,42 @@ async def parse_html_content(
             backend_keywords="",
             main_image_description=f"共{parsed.get('image_count', '?')}张产品图片" + (", 含视频" if parsed.get("has_video") else ""),
             category=parsed.get("category", ""),
-            price=parsed.get("price", ""),
+            price=str(parsed.get("price", "") or ""),
             brand=parsed.get("brand", ""),
             marketplace=marketplace,
             asin=request.asin.strip().upper() if request.asin else parsed.get("asin", ""),
-            rating=parsed.get("rating", ""),
-            review_count=parsed.get("review_count", ""),
-            bsr_rank=parsed.get("bsr_rank", ""),
+            rating=str(parsed.get("rating", "") or ""),
+            review_count=str(parsed.get("review_count", "") or ""),
+            bsr_rank=str(parsed.get("bsr_rank", "") or ""),
             image_count=str(parsed.get("image_count", "") or ""),
             has_video=bool(parsed.get("has_video", False)),
             has_a_plus=bool(parsed.get("has_a_plus", False)),
+            aplus_image_count=str(parsed.get("aplus_image_count", "") or ""),
             image_urls=parsed.get("image_urls", []) or [],
+            main_image_texts=parsed.get("main_image_texts", []) or [],
             aplus_image_urls=parsed.get("aplus_image_urls", []) or [],
+            a_plus_image_texts=parsed.get("a_plus_image_texts", []) or [],
         )
 
         bsr = parsed.get("bsr_rank", "")
         bsr_cat = parsed.get("bsr_category", "")
-        source = request.source if request.source in {"local_browser_capture", "server_proxy_fetch", "manual_paste"} else "server_proxy_fetch"
-        quality = capture_quality(parsed, source)
+        source = parsed.get("data_source") or "external_amazon_product"
+        quality = parsed.get("capture_quality") if isinstance(parsed.get("capture_quality"), dict) else {}
 
-        logger.info(f"parse-html succeeded for ASIN {request.asin}: {parsed['title'][:60]}")
+        logger.info("parse-html delegated to external Amazon capture for ASIN %s: %s", asin, parsed.get("title", "")[:60])
 
         return ParseHtmlResponse(
             listing=listing,
-            asin=request.asin,
+            asin=asin,
             source=source,
             rating=parsed.get("rating", ""),
             review_count=parsed.get("review_count", ""),
             bsr_rank=bsr,
             bsr_category=bsr_cat,
-            image_count=parsed.get("image_count", ""),
+            image_count=str(parsed.get("image_count", "") or ""),
             has_video=parsed.get("has_video", False),
             has_a_plus=parsed.get("has_a_plus", False),
+            aplus_image_count=str(parsed.get("aplus_image_count", "") or ""),
             capture_quality=quality,
             review_intent_assets=review_intent_assets,
             review_samples=review_samples,
@@ -2751,7 +3408,9 @@ async def diagnose_listing(
             data_integrity=result.get("data_integrity", {}),
             diagnosis_confidence=result.get("diagnosis_confidence", {}),
             ad_validation_plan=result.get("ad_validation_plan", {}),
+            buyer_language_translation=result.get("buyer_language_translation", {}),
             listing_health_analysis=result.get("listing_health_analysis", {}),
+            listing_position_diagnosis=result.get("listing_position_diagnosis", {}),
             opc_v5_execution=result.get("opc_v5_execution", {}),
             amazon_compliance=result.get("amazon_compliance", {}),
             trace=trace,
@@ -2941,20 +3600,27 @@ async def get_diagnosis_history(
         select(LD)
         .where(*base_filter)
         .order_by(LD.id.desc())
-        .offset(skip)
-        .limit(limit)
     )
     items_result = await db.execute(items_q)
     rows = items_result.scalars().all()
 
+    deduped_rows = []
+    seen_asins = set()
+    for row in rows:
+        asin = Listing_diagnosesService._record_asin(row)
+        if asin:
+            key = (asin, row.marketplace or "")
+            if key in seen_asins:
+                continue
+            seen_asins.add(key)
+        deduped_rows.append((row, asin))
+
+    total = len(deduped_rows)
+    if stats:
+        stats["total_count"] = total
+
     items = []
-    for item in rows:
-        asin = ""
-        try:
-            input_payload = json.loads(item.input_data or "{}")
-            asin = str(input_payload.get("asin") or "").strip().upper()
-        except (json.JSONDecodeError, TypeError, AttributeError):
-            asin = ""
+    for item, asin in deduped_rows[skip: skip + limit]:
         items.append({
             "id": item.id,
             "asin": asin,
@@ -3189,7 +3855,7 @@ async def save_fetched_listing(
             return {"success": False, "message": "No title to save"}
 
         svc = Listing_diagnosesService(db)
-        record = await svc.create({
+        record = await svc.create_or_update_by_asin({
             "listing_title": (listing.title or "")[:500],
             "marketplace": listing.marketplace or "US",
             "input_data": json.dumps(listing.model_dump(), ensure_ascii=False),
@@ -3213,7 +3879,7 @@ async def save_fetched_listing(
             }, ensure_ascii=False),
             "keyword_report": "{}",
             "created_at": datetime.now(timezone.utc),
-        }, user_id=str(current_user.id))
+        }, asin=request.asin or listing.asin, marketplace=listing.marketplace or "US", user_id=str(current_user.id))
 
         record_id = record.id if record else None
         logger.info(f"Saved fetched listing '{listing.title[:60]}' with id={record_id}")

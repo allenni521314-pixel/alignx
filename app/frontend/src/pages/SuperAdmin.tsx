@@ -227,7 +227,7 @@ export default function SuperAdmin() {
       <div className="flex h-screen bg-gray-50 text-gray-900">
         <AppSidebar />
         <main className="flex-1 overflow-y-auto bg-[#f5f5f7]">
-          <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto pt-14 md:pt-6">
+          <div className="p-4 sm:p-6 lg:p-8 w-full max-w-none pt-14 md:pt-6">
             {/* Back + header */}
             <div className="mb-6">
               <Button
@@ -438,7 +438,7 @@ export default function SuperAdmin() {
     <div className="flex h-screen bg-gray-50 text-gray-900">
       <AppSidebar />
       <main className="flex-1 overflow-y-auto bg-[#f5f5f7]">
-        <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto pt-14 md:pt-6">
+        <div className="p-4 sm:p-6 lg:p-8 w-full max-w-none pt-14 md:pt-6">
           {/* Header */}
           <div className="mb-6">
             <div className="flex items-center gap-2 mb-2">

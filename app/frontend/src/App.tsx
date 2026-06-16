@@ -28,6 +28,7 @@ const routeImports = {
   ABTestComparison: () => import('./pages/ABTestComparison'),
   AdvertisingStrategy: () => import('./pages/AdvertisingStrategy'),
   OptimizationSuggestions: () => import('./pages/OptimizationSuggestions'),
+  YesterdayReport: () => import('./pages/YesterdayReport'),
   SuperAdmin: () => import('./pages/SuperAdmin'),
 };
 
@@ -46,6 +47,7 @@ const PreLaunchTest = lazy(routeImports.PreLaunchTest);
 const ABTestComparison = lazy(routeImports.ABTestComparison);
 const AdvertisingStrategy = lazy(routeImports.AdvertisingStrategy);
 const OptimizationSuggestions = lazy(routeImports.OptimizationSuggestions);
+const YesterdayReport = lazy(routeImports.YesterdayReport);
 const SuperAdmin = lazy(routeImports.SuperAdmin);
 
 const RoutePreloader = () => {
@@ -61,6 +63,7 @@ const RoutePreloader = () => {
         routeImports.AdvertisingStrategy(),
         routeImports.AdAnalytics(),
         routeImports.OptimizationSuggestions(),
+        routeImports.YesterdayReport(),
         routeImports.Settings(),
       ]);
     }, 1200);
@@ -124,6 +127,7 @@ const AppRoutes = () => {
         <Routes location={location}>
           <Route path="/" element={<Landing />} />
           <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/yesterday-report" element={<YesterdayReport />} />
           <Route path="/asin-manager" element={<AsinManager />} />
           <Route path="/health-report" element={<ListingDiagnosis />} />
 

@@ -48,56 +48,11 @@ services:
         sync: false
       - key: AI_VISION_MODEL
         value: qwen3-vl-plus
-      - key: HERMES_AGENT_URL
-        value: https://alignxagent-hermes.onrender.com
-      - key: HERMES_AGENT_TIMEOUT
-        value: "900"
-  - type: web
-    name: alignxagent-hermes
-    env: docker
-    rootDir: app/hermes
-    plan: starter
-    healthCheckPath: /api/status
-    disk:
-      name: alignxagent-hermes-data
-      mountPath: /data
-      sizeGB: 1
-    envVars:
-      - key: ENVIRONMENT
-        value: prod
-      - key: HOST
-        value: 0.0.0.0
-      - key: PORT
-        value: 9120
-      - key: HERMES_TUI_TOOLSETS
-        value: browser
-      - key: HERMES_HOME
-        value: /data/.hermes
-      - key: HERMES_MODEL_PROVIDER
+      - key: AMAZON_CAPTURE_PROVIDER
+        value: scraperapi
+      - key: SCRAPERAPI_KEY
         sync: false
-      - key: HERMES_MODEL_BASE_URL
-        sync: false
-      - key: HERMES_MODEL_NAME
-        sync: false
-      - key: HERMES_AI_API_MODE
-        sync: false
-      - key: HERMES_MODEL_API_KEY
-        sync: false
-      - key: OPENAI_API_KEY
-        sync: false
-      - key: DEEPSEEK_API_KEY
-        sync: false
-      - key: DASHSCOPE_API_KEY
-        sync: false
-      - key: QWEN_API_KEY
-        sync: false
-      - key: VISION_API_KEY
-        sync: false
-      - key: BROWSERBASE_API_KEY
-        sync: false
-      - key: BROWSERBASE_PROJECT_ID
-        sync: false
-      - key: BROWSERBASE_PROXIES
-        value: "true"
-      - key: BROWSERBASE_ADVANCED_STEALTH
-        value: "false"
+      - key: SCRAPERAPI_BASE_URL
+        value: https://api.scraperapi.com
+      - key: SCRAPERAPI_TIMEOUT_SECONDS
+        value: "300"

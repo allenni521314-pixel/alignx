@@ -52,7 +52,7 @@ class AgentNodeRunResponse(BaseModel):
     ai: AgentResponse
 
 
-class HermesDispatchStep(BaseModel):
+class SelectionDispatchStep(BaseModel):
     node: AgentNodeKey
     priority: Literal["P0", "P1", "P2"] = "P1"
     status: Literal["ready", "blocked", "skip"] = "blocked"
@@ -60,17 +60,17 @@ class HermesDispatchStep(BaseModel):
     blocked_by: list[str] = Field(default_factory=list)
 
 
-class HermesDispatchPlan(BaseModel):
-    supervisor: str = "Hermes"
+class SelectionDispatchPlan(BaseModel):
+    supervisor: str = "Selection"
     mode: Literal["dry_run", "live"] = "dry_run"
-    dispatch_order: list[HermesDispatchStep] = Field(default_factory=list)
+    dispatch_order: list[SelectionDispatchStep] = Field(default_factory=list)
     run_now: list[AgentNodeKey] = Field(default_factory=list)
     blocked_by: list[str] = Field(default_factory=list)
     learning_update: dict[str, Any] = Field(default_factory=dict)
     raw: dict[str, Any] = Field(default_factory=dict)
 
 
-class HermesOrchestrationRequest(BaseModel):
+class SelectionOrchestrationRequest(BaseModel):
     depth: Literal["light", "standard", "deep"] = "deep"
     dry_run: Optional[bool] = None
     auto_run: bool = True
@@ -78,8 +78,8 @@ class HermesOrchestrationRequest(BaseModel):
     extra_context: dict[str, Any] = Field(default_factory=dict)
 
 
-class HermesOrchestrationResponse(BaseModel):
-    plan: HermesDispatchPlan
+class SelectionOrchestrationResponse(BaseModel):
+    plan: SelectionDispatchPlan
     executed_nodes: list[AgentNodeRunResponse] = Field(default_factory=list)
 
 
@@ -158,9 +158,9 @@ NODE_DEFINITIONS: dict[AgentNodeKey, AgentNodeDefinition] = {
     ),
 }
 
-HERMES_MODEL_ROUTING_POLICY = {
+SELECTION_MODEL_ROUTING_POLICY = {
     "supervisor": {
-        "role": "hermes_ceo",
+        "role": "selection_coordinator",
         "model_role": "AI_DEEP_MODEL",
         "allowed_actions": ["dispatch", "block", "prioritize", "learning_gate"],
         "forbidden_actions": ["replace_business_agent", "generate_listing_directly", "generate_image_directly"],
@@ -183,14 +183,14 @@ HERMES_MODEL_ROUTING_POLICY = {
     ],
 }
 
-HERMES_DISPATCH_SYSTEM_PROMPT = "\n".join(
+SELECTION_DISPATCH_SYSTEM_PROMPT = "\n".join(
     [
-        "你是 AlignX Hermes Agent 总指挥。",
+        "你是 AlignX 选品调度。",
         "你只负责调度现有 Agent，不替代任何业务 Agent 直接完成判断。",
         "你必须根据 workflow chain、stage 状态、缺失项、已有 agent_decision 和学习记忆决定执行顺序。",
         "只允许调度 allowed_nodes 中列出的节点。",
         "你必须遵守 model_routing_policy 中的模型角色分工。",
-        "Hermes 只能输出调度、阻塞、优先级、学习门控，不得直接输出 Listing 成品、广告方案成品或图片成品。",
+        "系统只能输出调度、阻塞、优先级、学习门控，不得直接输出 Listing 成品、广告方案成品或图片成品。",
         "如果节点缺少必要证据，status 必须是 blocked，并写入 blocked_by。",
         "如果节点可以执行，status 必须是 ready。",
         "输出必须是JSON对象，不要输出Markdown，不要输出额外解释。",
@@ -226,9 +226,9 @@ def _node_missing_stage_keys(chain: dict[str, Any], node: AgentNodeDefinition) -
     ]
 
 
-def _rule_dispatch_plan(chain: dict[str, Any], *, reason: str, mode: Literal["dry_run", "live"] = "dry_run") -> HermesDispatchPlan:
+def _rule_dispatch_plan(chain: dict[str, Any], *, reason: str, mode: Literal["dry_run", "live"] = "dry_run") -> SelectionDispatchPlan:
     stage_status = {stage.get("key"): stage.get("status") for stage in chain.get("stages", [])}
-    steps: list[HermesDispatchStep] = []
+    steps: list[SelectionDispatchStep] = []
     run_now: list[AgentNodeKey] = []
 
     for node_key, node in NODE_DEFINITIONS.items():
@@ -242,7 +242,7 @@ def _rule_dispatch_plan(chain: dict[str, Any], *, reason: str, mode: Literal["dr
         if status == "ready" and node_key not in run_now:
             run_now.append(node_key)
         steps.append(
-            HermesDispatchStep(
+            SelectionDispatchStep(
                 node=node_key,
                 priority="P1",
                 status=status,
@@ -251,7 +251,7 @@ def _rule_dispatch_plan(chain: dict[str, Any], *, reason: str, mode: Literal["dr
             )
         )
 
-    return HermesDispatchPlan(
+    return SelectionDispatchPlan(
         mode=mode,
         dispatch_order=steps,
         run_now=run_now[:3],
@@ -265,11 +265,11 @@ def _rule_dispatch_plan(chain: dict[str, Any], *, reason: str, mode: Literal["dr
     )
 
 
-def _normalize_dispatch_plan(raw: dict[str, Any], *, mode: Literal["dry_run", "live"]) -> HermesDispatchPlan:
+def _normalize_dispatch_plan(raw: dict[str, Any], *, mode: Literal["dry_run", "live"]) -> SelectionDispatchPlan:
     raw_steps = raw.get("dispatch_order") or raw.get("steps") or raw.get("dispatch_plan") or []
     if isinstance(raw_steps, dict):
         raw_steps = [raw_steps]
-    steps: list[HermesDispatchStep] = []
+    steps: list[SelectionDispatchStep] = []
     for item in raw_steps:
         if not isinstance(item, dict):
             item = {"node": item}
@@ -284,7 +284,7 @@ def _normalize_dispatch_plan(raw: dict[str, Any], *, mode: Literal["dry_run", "l
         else:
             blocked_by = []
         steps.append(
-            HermesDispatchStep(
+            SelectionDispatchStep(
                 node=node_key,
                 priority=_safe_priority(item.get("priority")),
                 status=_safe_dispatch_status(item.get("status")),
@@ -313,7 +313,7 @@ def _normalize_dispatch_plan(raw: dict[str, Any], *, mode: Literal["dry_run", "l
     else:
         blocked_by = []
     learning = raw.get("learning_update") if isinstance(raw.get("learning_update"), dict) else {}
-    return HermesDispatchPlan(
+    return SelectionDispatchPlan(
         mode=mode,
         dispatch_order=steps,
         run_now=run_now,
@@ -323,7 +323,7 @@ def _normalize_dispatch_plan(raw: dict[str, Any], *, mode: Literal["dry_run", "l
     )
 
 
-def _apply_hermes_hard_gates(chain: dict[str, Any], plan: HermesDispatchPlan) -> HermesDispatchPlan:
+def _apply_selection_hard_gates(chain: dict[str, Any], plan: SelectionDispatchPlan) -> SelectionDispatchPlan:
     rule_plan = _rule_dispatch_plan(chain, reason="待录入", mode=plan.mode)
     rule_steps = {step.node: step for step in rule_plan.dispatch_order}
     existing_nodes = {step.node for step in plan.dispatch_order}
@@ -332,7 +332,7 @@ def _apply_hermes_hard_gates(chain: dict[str, Any], plan: HermesDispatchPlan) ->
         *[step for step in rule_plan.dispatch_order if step.node not in existing_nodes],
     ]
 
-    gated_steps: list[HermesDispatchStep] = []
+    gated_steps: list[SelectionDispatchStep] = []
     ready_nodes: list[AgentNodeKey] = []
     for step in complete_steps:
         node = NODE_DEFINITIONS[step.node]
@@ -369,17 +369,17 @@ def _apply_hermes_hard_gates(chain: dict[str, Any], plan: HermesDispatchPlan) ->
     )
 
 
-async def build_hermes_dispatch_plan(chain: dict[str, Any], request: HermesOrchestrationRequest) -> HermesDispatchPlan:
+async def build_selection_dispatch_plan(chain: dict[str, Any], request: SelectionOrchestrationRequest) -> SelectionDispatchPlan:
     unified = UnifiedAIClient()
     status = unified.status()
     dry_run = request.dry_run if request.dry_run is not None else not status.text_configured
     if dry_run:
-        return _rule_dispatch_plan(chain, reason="Hermes未配置", mode="dry_run")
+        return _rule_dispatch_plan(chain, reason="AI调度未配置", mode="dry_run")
 
     payload = {
         "workflow_chain": chain,
         "allowed_nodes": [node.model_dump() for node in NODE_DEFINITIONS.values()],
-        "model_routing_policy": HERMES_MODEL_ROUTING_POLICY,
+        "model_routing_policy": SELECTION_MODEL_ROUTING_POLICY,
         "extra_context": request.extra_context,
         "output_contract": {
             "dispatch_order": [
@@ -403,7 +403,7 @@ async def build_hermes_dispatch_plan(chain: dict[str, Any], request: HermesOrche
     }
     response = await unified.chat_completion(
         messages=[
-            {"role": "system", "content": HERMES_DISPATCH_SYSTEM_PROMPT},
+            {"role": "system", "content": SELECTION_DISPATCH_SYSTEM_PROMPT},
             {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
         ],
         model="AI_DEEP_MODEL",
@@ -413,11 +413,11 @@ async def build_hermes_dispatch_plan(chain: dict[str, Any], request: HermesOrche
     )
     raw = json.loads(response.content or "{}")
     if not isinstance(raw, dict):
-        return _rule_dispatch_plan(chain, reason="Hermes返回待录入", mode="dry_run")
+        return _rule_dispatch_plan(chain, reason="AI调度返回待录入", mode="dry_run")
     plan = _normalize_dispatch_plan(raw, mode="live")
     if not plan.dispatch_order:
-        return _rule_dispatch_plan(chain, reason="Hermes返回待录入", mode="dry_run")
-    return _apply_hermes_hard_gates(chain, plan)
+        return _rule_dispatch_plan(chain, reason="AI调度返回待录入", mode="dry_run")
+    return _apply_selection_hard_gates(chain, plan)
 
 
 def get_agent_node_status(chain: dict[str, Any]) -> list[dict[str, Any]]:
@@ -487,8 +487,8 @@ async def run_all_agent_nodes(chain: dict[str, Any], depth: Literal["light", "st
     return responses
 
 
-async def run_hermes_orchestration(chain: dict[str, Any], request: HermesOrchestrationRequest) -> HermesOrchestrationResponse:
-    plan = await build_hermes_dispatch_plan(chain, request)
+async def run_selection_orchestration(chain: dict[str, Any], request: SelectionOrchestrationRequest) -> SelectionOrchestrationResponse:
+    plan = await build_selection_dispatch_plan(chain, request)
     executed: list[AgentNodeRunResponse] = []
     ready_nodes = {step.node for step in plan.dispatch_order if step.status == "ready"}
 
@@ -504,11 +504,11 @@ async def run_hermes_orchestration(chain: dict[str, Any], request: HermesOrchest
                         depth=NODE_DEFINITIONS[node_key].default_depth,
                         extra_context={
                             **request.extra_context,
-                            "hermes_dispatch_plan": plan.model_dump(),
-                            "model_routing_policy": HERMES_MODEL_ROUTING_POLICY,
+                            "selection_dispatch_plan": plan.model_dump(),
+                            "model_routing_policy": SELECTION_MODEL_ROUTING_POLICY,
                         },
                     ),
                 )
             )
 
-    return HermesOrchestrationResponse(plan=plan, executed_nodes=executed)
+    return SelectionOrchestrationResponse(plan=plan, executed_nodes=executed)

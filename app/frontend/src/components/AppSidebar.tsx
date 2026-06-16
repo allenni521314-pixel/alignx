@@ -97,7 +97,7 @@ const navGroups: NavGroup[] = [
       },
       {
         path: "/listing-diagnosis",
-        label: "承接决策",
+        label: "转化承接",
         icon: Stethoscope,
         moduleKey: "listing-diagnosis",
       },
@@ -110,7 +110,7 @@ const navGroups: NavGroup[] = [
     color: "text-amber-400",
     activeColor: "text-amber-600",
     items: [
-      { path: "/advertising-strategy", label: "广告策略", icon: Target, moduleKey: "advertising-strategy" },
+      { path: "/advertising-strategy", label: "流量策略", icon: Target, moduleKey: "advertising-strategy" },
       { path: "/ad-analytics?view=records", label: "执行记录", icon: BarChart3, moduleKey: "ad-analytics" },
       { path: "/ad-analytics?view=validation", label: "效果验证", icon: ShieldCheck, moduleKey: "ad-analytics" },
     ],

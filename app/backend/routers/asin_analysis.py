@@ -21,7 +21,7 @@ from dependencies.auth import get_current_user, get_user_scope_ids
 from schemas.auth import UserResponse
 from services.aihub import AIHubService
 from services.amazon_rules_engine import evaluate_amazon_compliance, load_active_rules
-from services.hermes_amazon_capture import scrape_amazon_product_via_hermes
+from services.scrapeless_amazon_capture import scrape_amazon_product_via_scrapeless
 from services.amazon_skill_toolbox import (
     build_review_intent_assets,
     build_toolbox_enhancements,
@@ -117,6 +117,9 @@ def _derive_us_keywords_from_real_text(product_data: dict, limit: int = 10) -> l
     if not text:
         return []
 
+    def has(pattern: str) -> bool:
+        return re.search(pattern, text, re.I) is not None
+
     candidates: list[str] = []
     if has(r"\b(bamboo|boxer|underwear|trunks)\b"):
         candidates += ["men's bamboo boxer briefs", "breathable boxer briefs for men", "moisture wicking underwear for men"]
@@ -166,6 +169,44 @@ def _keywords_from_module_text(values: Any, category: str = "", limit: int = 8) 
         "bullet_points": usable_chunks[1:],
     }
     return _derive_us_keywords_from_real_text(data, limit)
+
+
+def _review_rating_value(review: Any) -> float:
+    if not isinstance(review, dict):
+        return 0
+    raw = review.get("rating") or review.get("stars") or review.get("score") or ""
+    match = re.search(r"(\d+(?:\.\d+)?)", str(raw))
+    return float(match.group(1)) if match else 0
+
+
+def _review_text_value(review: Any) -> str:
+    if isinstance(review, str):
+        return review
+    if not isinstance(review, dict):
+        return ""
+    return " ".join(
+        str(review.get(key) or "")
+        for key in ("title", "body", "content", "text", "review", "comment")
+        if review.get(key)
+    )
+
+
+def _extract_review_terms(reviews: Any, mode: str, limit: int = 8) -> list[str]:
+    if not isinstance(reviews, list):
+        return []
+    selected: list[str] = []
+    for review in reviews:
+        rating = _review_rating_value(review)
+        if mode == "positive" and rating and rating < 4.5:
+            continue
+        if mode == "negative" and rating and rating > 2:
+            continue
+        text = _review_text_value(review)
+        if text:
+            selected.append(text)
+    if not selected:
+        return []
+    return _keywords_from_module_text(selected, "", limit)
 
 
 def _build_listing_breakdown(product_data: dict, scoring_data: dict) -> dict:
@@ -430,6 +471,24 @@ async def _evaluate_asin_compliance(product_data: dict, marketplace: str, db: As
     return evaluate_amazon_compliance(payload, rules)
 
 
+def _has_real_external_product_data(product_data: dict) -> bool:
+    source = str(product_data.get("_data_source") or product_data.get("data_source") or "")
+    title = str(product_data.get("title") or "").strip().lower()
+    if source != "scraperapi_amazon_product":
+        return False
+    if not title or title in {"amazon.com", "amazon"}:
+        return False
+    return bool(
+        product_data.get("price")
+        or product_data.get("rating")
+        or product_data.get("review_count")
+        or product_data.get("bullet_points")
+        or product_data.get("image_urls")
+        or product_data.get("brand")
+        or product_data.get("category")
+    )
+
+
 async def _get_cached_asin_analysis(
     asin: str,
     marketplace: str,
@@ -447,12 +506,18 @@ async def _get_cached_asin_analysis(
         .where(user_filter)
         .where(Asin_analyses.product_title.isnot(None), Asin_analyses.analysis_report.isnot(None))
         .order_by(Asin_analyses.id.desc())
-        .limit(1)
+        .limit(20)
     )
-    record = result.scalar_one_or_none()
-    if not record:
-        return None
-    return await _analysis_record_to_response(record, marketplace, db, user_id)
+    records = result.scalars().all()
+    for record in records:
+        try:
+            product_data = json.loads(record.product_data or "{}")
+        except Exception:
+            product_data = {}
+        if not _has_real_external_product_data(product_data):
+            continue
+        return await _analysis_record_to_response(record, marketplace, db, user_id)
+    return None
 
 
 async def _analysis_record_to_response(
@@ -500,6 +565,11 @@ async def _analysis_record_to_response(
         _apply_shared_listing_snapshot(analysis_report, shared_snapshot)
     if not analysis_report.get("listing_breakdown"):
         analysis_report["listing_breakdown"] = _build_listing_breakdown(product_data, analysis_report)
+    if not _has_business_dimensions(analysis_report):
+        _, fallback_scoring_data = _rule_based_competitor_scoring(record.asin, marketplace, product_data)
+        analysis_report["competitor_business_analysis"] = fallback_scoring_data.get("competitor_business_analysis", {})
+        if not analysis_report.get("overall_summary"):
+            analysis_report["overall_summary"] = fallback_scoring_data.get("overall_summary", "")
     analysis_report["toolbox_enhancements"] = analysis_report.get("toolbox_enhancements") or build_toolbox_enhancements(
         product_data=product_data,
         scores=analysis_report["scores"],
@@ -613,7 +683,7 @@ class ParseHtmlAnalyzeRequest(BaseModel):
     asin: str
     marketplace: str = "US"
     html: str
-    source: str = "server_proxy_fetch"
+    source: str = "external_amazon_product"
     captured_title: str = ""
     captured_price: str = ""
     captured_rating: str = ""
@@ -632,7 +702,7 @@ class ParseHtmlAnalyzeResponse(BaseModel):
     scores: dict = {}
     analysis_report: dict = {}
     amazon_compliance: dict = {}
-    data_source: str = "server_proxy_fetch"
+    data_source: str = "external_amazon_product"
     capture_quality: dict = {}
     error: str = ""
     id: Optional[int] = None
@@ -836,14 +906,14 @@ ASIN: {asin}
 
 AI_FALLBACK_ANALYSIS_PROMPT = """你是AlignX亚马逊ASIN分析专家。
 
-当前系统无法通过本地浏览器页面采集或服务器抓取获得该ASIN的完整页面数据。
+当前系统无法通过外部Amazon采集获得该ASIN的完整页面数据。
 请基于用户提供的ASIN、站点和你可推断的公开常识，生成一个低置信度的结构化分析结果。
 
 重要规则：
 1. 不要伪装成真实抓取数据。
 2. 不确定字段必须留空或标记“待确认”。
 3. data_confidence 必须为 low。
-4. data_notes 必须说明“AI兜底估算，需以本地浏览器页面采集、服务器抓取或人工核实为准”。
+4. data_notes 必须说明“低置信估算，需以外部Amazon采集或人工核实为准”。
 5. 仍需给出可用于初步测试的10维诊断评分，但分数要保守；analysis必须说明低置信度和待补证据。
 
 ASIN: {asin}
@@ -873,7 +943,7 @@ ASIN: {asin}
     "has_a_plus": false,
     "variation_count": "",
     "data_confidence": "low",
-    "data_notes": "AI兜底估算，需以本地浏览器页面采集、服务器抓取或人工核实为准"
+    "data_notes": "低置信估算，需以外部Amazon采集或人工核实为准"
   }},
   "scores": {{
     "functionality": 50,
@@ -1083,6 +1153,12 @@ def _format_scraped_context(scraped: dict) -> str:
     review_samples = scraped.get("review_samples") or scraped.get("reviews") or []
     if isinstance(review_samples, list) and review_samples:
         lines.append(f"页面评论样本: {len(review_samples)}条")
+        positive_terms = _extract_review_terms(review_samples, "positive", 8)
+        negative_terms = _extract_review_terms((scraped.get("low_star_reviews") or review_samples), "negative", 8)
+        if positive_terms:
+            lines.append("5星评价买家认可词: " + ", ".join(positive_terms))
+        if negative_terms:
+            lines.append("1星/低星评论抱怨词: " + ", ".join(negative_terms))
     review_assets = scraped.get("review_intent_assets") if isinstance(scraped.get("review_intent_assets"), dict) else {}
     review_keywords = review_assets.get("intent_keywords") if isinstance(review_assets, dict) else []
     if isinstance(review_keywords, list) and review_keywords:
@@ -1123,6 +1199,14 @@ def _has_positive_scores(scores: Any) -> bool:
         except (TypeError, ValueError):
             continue
     return False
+
+
+def _has_business_dimensions(scoring_data: dict) -> bool:
+    business = scoring_data.get("competitor_business_analysis")
+    if not isinstance(business, dict):
+        return False
+    dimensions = business.get("dimension_scores")
+    return isinstance(dimensions, list) and len(dimensions) > 0
 
 
 def _rule_based_competitor_scoring(asin: str, marketplace: str, scraped_data: dict) -> tuple[dict, dict]:
@@ -1236,9 +1320,217 @@ def _rule_based_competitor_scoring(asin: str, marketplace: str, scraped_data: di
         "market_trend": "基于购买人数、BSR、评论规模等市场热度信号判断。",
         "risk_elimination": "基于评分、评论规模、评分分布和防护/售后信号判断。",
     }
+
+    def _evidence_or_pending(value: Any) -> str:
+        text = str(value or "").strip()
+        return text if text else "待补证据"
+
+    def _list_or_pending(values: list[str]) -> list[str]:
+        cleaned = [str(item).strip() for item in values if str(item or "").strip()]
+        return cleaned or ["待补证据"]
+
+    def _price_band() -> str:
+        price = _as_number(scraped_data.get("price"))
+        if price <= 0:
+            return "待补证据"
+        if price >= 100:
+            return "高价"
+        if price >= 35:
+            return "主流"
+        return "低价"
+
+    visible_assets = []
+    if image_count:
+        visible_assets.append(f"图片{int(image_count)}张")
+    if has_video:
+        visible_assets.append("视频")
+    if has_a_plus:
+        visible_assets.append("A+")
+
+    covered_scenarios = []
+    for pattern, label in [
+        (r"(home|home use)", "居家"),
+        (r"(travel|portable|rechargeable)", "外出/旅行"),
+        (r"(face|facial|neck|skin|skincare)", "面部/颈部护理"),
+        (r"(acne|wrinkle|puffiness|firming|smoothing)", "问题改善"),
+    ]:
+        if has(pattern):
+            covered_scenarios.append(label)
+
+    traffic_terms = _clean_original_english_keywords([], scraped_data, 5)
+    if not traffic_terms:
+        traffic_terms = [word for word in re.findall(r"[A-Za-z][A-Za-z0-9-]{2,}", title.lower())[:5]]
+
+    traffic_health = []
+    if scraped_data.get("bought_count"):
+        traffic_health.append(f"购买人数 {scraped_data.get('bought_count')}")
+    if scraped_data.get("bsr_rank"):
+        traffic_health.append(f"BSR {scraped_data.get('bsr_rank')}")
+    if review_count:
+        traffic_health.append(f"评论数 {int(review_count)}")
+
+    def _business_dim(
+        key: str,
+        label: str,
+        max_score: int,
+        score: float,
+        analysis_text: str,
+        **extra: Any,
+    ) -> dict:
+        return {
+            "key": key,
+            "label": label,
+            "max_score": max_score,
+            "score": round(max(0, min(max_score, score)), 1),
+            "analysis": analysis_text,
+            **extra,
+        }
+
+    competitor_business_analysis = {
+        "dimension_scores": [
+            _business_dim(
+                "demand_fit",
+                "需求匹配度",
+                10,
+                scores["functionality"] / 10,
+                f"基于标题、五点数量({bullet_count})、价格、评分和评论数做保守判断。",
+                core_need=_evidence_or_pending(title),
+                demand_level="有评分/评论证据" if rating or review_count else "待补证据",
+            ),
+            _business_dim(
+                "audience_fit",
+                "人群匹配度",
+                8,
+                scores["user_profile"] / 100 * 8,
+                "基于标题中的适用对象、部位、设备型号或使用场景判断。",
+                core_user_profile=_evidence_or_pending(scraped_data.get("category") or title),
+            ),
+            _business_dim(
+                "scenario_coverage",
+                "场景覆盖度",
+                8,
+                scores["scenario"] / 100 * 8,
+                "基于标题/五点中的使用关系词、场景词和问题词判断。",
+                covered_scenarios=_list_or_pending(covered_scenarios),
+                missing_scenarios=["待补评论/QA场景证据"],
+            ),
+            _business_dim(
+                "differentiation_advantage",
+                "差异化优势",
+                10,
+                scores["differentiation"] / 10,
+                "基于A+、视频、图片数量和标题中的差异化属性判断。",
+                core_differentiation=_evidence_or_pending(", ".join(visible_assets)),
+                homogenization_risk="待补同页竞品对比证据",
+            ),
+            _business_dim(
+                "trust_system",
+                "信任体系",
+                8,
+                scores["risk_elimination"] / 100 * 8,
+                "基于评分、评论数、评分分布和可见承诺字段判断。",
+                trust_sources=_list_or_pending([f"评分 {scraped_data.get('rating')}" if scraped_data.get("rating") else "", f"评论数 {scraped_data.get('review_count')}" if scraped_data.get("review_count") else ""]),
+                trust_gaps=["待补低星评论原因"],
+            ),
+            _business_dim(
+                "conversion_expression",
+                "转化表达能力",
+                10,
+                scores["emotional"] / 10,
+                "基于标题、五点、图片、视频和A+承接资产判断。",
+                conversion_drivers=_list_or_pending([title, f"五点{bullet_count}条" if bullet_count else "", ", ".join(visible_assets)]),
+                main_purchase_reasons=_list_or_pending(traffic_terms[:3]),
+            ),
+            _business_dim(
+                "price_positioning",
+                "价格定位",
+                8,
+                6 if has_price else 3,
+                "基于前台价格字段判断。",
+                price_band=_price_band(),
+                pricing_logic=_evidence_or_pending(scraped_data.get("price")),
+            ),
+            _business_dim(
+                "traffic_fit",
+                "流量匹配度",
+                8,
+                scores["product_identity"] / 100 * 8,
+                "基于标题、类目、核心词和可见热度字段判断。",
+                core_traffic_terms=_list_or_pending(traffic_terms),
+                traffic_structure="待补自然位/广告位证据",
+            ),
+            _business_dim(
+                "visual_competitiveness",
+                "视觉竞争力",
+                6,
+                min(6, max(2, image_count / 2 if image_count else 2) + (1 if has_video else 0) + (1 if has_a_plus else 0)),
+                "基于图片数量、视频和A+可见资产判断。",
+                strongest_image=_evidence_or_pending(", ".join(visible_assets)),
+                weakest_image="待补主图/副图逐张视觉证据",
+            ),
+            _business_dim(
+                "brand_momentum",
+                "品牌势能",
+                6,
+                4 if scraped_data.get("brand") else 2,
+                "基于品牌字段和评论规模判断。",
+                brand_level=_evidence_or_pending(scraped_data.get("brand")),
+                brand_moat="待补品牌词流量证据",
+            ),
+            _business_dim(
+                "ad_dependency",
+                "广告依赖度",
+                10,
+                scores["market_trend"] / 10,
+                "当前未抓取广告位排名，只能基于购买人数、BSR和评论规模保守判断。",
+                ad_dependency_level="待补广告位证据",
+                organic_strength=_evidence_or_pending(", ".join(traffic_health)),
+                risk_level="待补自然位/广告位对照",
+            ),
+            _business_dim(
+                "growth_potential",
+                "增长潜力",
+                8,
+                scores["market_trend"] / 100 * 8,
+                "基于评论规模、购买人数、BSR和页面承接资产判断。",
+                growth_stage="待补销量/评论增长证据",
+                future_potential=_evidence_or_pending(", ".join(traffic_health)),
+            ),
+        ],
+        "why_sells_well": _list_or_pending([
+            f"标题承接：{title}" if title else "",
+            f"评分 {scraped_data.get('rating')} / 评论 {scraped_data.get('review_count')}" if rating or review_count else "",
+            f"页面资产：{', '.join(visible_assets)}" if visible_assets else "",
+            f"价格：{scraped_data.get('price')}" if scraped_data.get("price") else "",
+        ]),
+        "biggest_weaknesses": ["待补低星评论证据", "待补广告位/自然位证据", "待补同页竞品对比证据"],
+        "attack_opportunities": ["从低星评论找突破口", "用关键词排名验证自然流量", "对比主图/五点/A+承接差异"],
+        "traffic_diagnosis": {
+            "organic_strength": _evidence_or_pending(", ".join(traffic_health)),
+            "ad_dependency": "待补广告位证据",
+            "brand_traffic": "待补品牌词证据",
+            "traffic_health": _evidence_or_pending(", ".join(traffic_health)),
+            "growth_model": "待补自然位/广告位对照",
+        },
+        "overtake_path": {
+            "short_term": ["补抓低星评论", "补抓关键词自然位/广告位"],
+            "mid_term": ["对比标题/五点/A+承接差异"],
+            "long_term": ["跟踪评论增长和价格变化"],
+        },
+        "final_conclusion": {
+            "one_sentence": "当前为真实抓取字段驱动的保守竞品判断。",
+            "copy_success_probability": "待补证据",
+            "best_overtake_point": "待补低星评论和关键词排名证据",
+        },
+    }
+    competitor_business_analysis["total_score"] = round(
+        sum(float(item.get("score") or 0) for item in competitor_business_analysis["dimension_scores"])
+    )
+
     scoring_data = {
         "scores": scores,
         "analysis": analysis,
+        "competitor_business_analysis": competitor_business_analysis,
         "overall_summary": "深度分析暂未完成，当前为保守预检。分数可用于快速排查，但不应作为最终决策。",
         "improvement_suggestions": ["稍后重新生成完整诊断", "优先核实价格、评论数、购买人数和五点/A+内容", "进入单品分析前先确认该ASIN是否为真实目标竞品"],
         "analysis_mode": "rule_fallback",
@@ -1271,7 +1563,7 @@ async def _analyze_single_asin_with_scraped(
     if not (scrape_success and scraped_data.get("title")):
         data_source = "ai_estimated_low_confidence"
     elif data_source == "unknown" and scrape_success:
-        data_source = "amazon_scrape"
+        data_source = "external_amazon_product"
 
     if data_source == "ai_estimated_low_confidence":
         combined_prompt = AI_FALLBACK_ANALYSIS_PROMPT.format(asin=asin, marketplace=marketplace)
@@ -1303,7 +1595,7 @@ async def _analyze_single_asin_with_scraped(
         messages=[ChatMessage(role="user", content=combined_prompt)],
         model="AI_REASONING_MODEL",
         temperature=0,
-        max_tokens=4096,
+        max_tokens=8192,
     )
 
     combined_data = None
@@ -1394,6 +1686,11 @@ async def _analyze_single_asin_with_scraped(
         product_data["has_video"] = scraped_data.get("has_video", False)
         product_data["has_a_plus"] = scraped_data.get("has_a_plus", False)
 
+    review_samples_for_terms = product_data.get("review_samples") or product_data.get("reviews") or scraped_data.get("review_samples") or scraped_data.get("reviews") or []
+    low_reviews_for_terms = product_data.get("low_star_reviews") or scraped_data.get("low_star_reviews") or review_samples_for_terms
+    product_data["positive_review_terms"] = _extract_review_terms(review_samples_for_terms, "positive", 10)
+    product_data["negative_review_terms"] = _extract_review_terms(low_reviews_for_terms, "negative", 10)
+
     product_data["_data_source"] = data_source
     product_data["_scrape_success"] = scrape_success
     if isinstance(product_data.get("capture_quality"), dict):
@@ -1401,9 +1698,12 @@ async def _analyze_single_asin_with_scraped(
     if data_source == "ai_estimated_low_confidence":
         product_data["asin"] = asin
         product_data["data_confidence"] = "low"
-        product_data["data_notes"] = "AI兜底估算，需以本地浏览器页面采集、服务器抓取或人工核实为准。"
+        product_data["data_notes"] = "低置信估算，需以外部Amazon采集或人工核实为准。"
 
     product_data["main_keywords"] = _clean_original_english_keywords(product_data.get("main_keywords"), product_data, 10)
+    if not _has_business_dimensions(scoring_data):
+        _, fallback_scoring_data = _rule_based_competitor_scoring(asin, marketplace, {**scraped_data, **product_data})
+        scoring_data["competitor_business_analysis"] = fallback_scoring_data.get("competitor_business_analysis", {})
     if not _has_positive_scores(scoring_data.get("scores") or scores):
         logger.warning(f"Empty score payload for {asin}; using conservative rule scoring from captured evidence")
         _, fallback_scoring_data = _rule_based_competitor_scoring(asin, marketplace, {**scraped_data, **product_data})
@@ -1493,11 +1793,15 @@ async def _analyze_single_asin(
 ) -> AnalyzeAsinResponse:
     """Analyze a single ASIN through scrape-first, AI fallback-second pipeline."""
 
-    # Step 1: Public deployment must let Hermes use Browserbase to capture Amazon.
-    scraped_data = await scrape_amazon_product_via_hermes(asin, marketplace)
+    # Step 1: Public deployment uses external Amazon structured capture.
+    scraped_data = await scrape_amazon_product_via_scrapeless(asin, marketplace)
 
     if not scraped_data.get("scrape_success"):
         logger.warning(f"Scraping failed for {asin}; using low-confidence AI fallback")
+        cached = await _get_cached_asin_analysis(asin, marketplace, db, user_id)
+        if cached:
+            logger.info("Using cached ASIN analysis for %s after fresh capture failure", asin)
+            return cached
 
     # Step 2: Delegate to the shared analysis pipeline.
     return await _analyze_single_asin_with_scraped(
@@ -1514,11 +1818,11 @@ async def proxy_fetch_amazon(
     request: ProxyFetchRequest,
     current_user: UserResponse = Depends(get_current_user),
 ):
-    """Legacy HTML proxy is disabled; Amazon capture must go through Hermes Browserbase."""
+    """Legacy HTML proxy is disabled; Amazon capture must go through external Amazon capture."""
     asin = request.asin.strip().upper()
     if not asin or len(asin) != 10:
         return ProxyFetchResponse(success=False, error="无效的ASIN")
-    return ProxyFetchResponse(success=False, error="Amazon采集已切换为Hermes Browserbase链路")
+    return ProxyFetchResponse(success=False, error="Amazon采集已切换为外部采集链路")
 
 
 @router.post("/parse-html-analyze", response_model=ParseHtmlAnalyzeResponse)
@@ -1527,74 +1831,15 @@ async def parse_html_and_analyze(
     current_user: UserResponse = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Parse raw Amazon HTML and run full 10-dimension analysis.
-
-    Source is explicit so local-browser captures and backend proxy fetches
-    never get mixed into the same confidence bucket.
-    """
+    """Legacy HTML parsing endpoint; Amazon capture is delegated to external Amazon capture."""
     try:
         asin = request.asin.strip().upper()
         if not asin or len(asin) != 10:
             return ParseHtmlAnalyzeResponse(success=False, asin=asin, error="无效的ASIN")
 
-        html = request.html
-        if not html or len(html) < 500:
-            return ParseHtmlAnalyzeResponse(success=False, asin=asin, error="HTML内容过短")
-
-        from services.amazon_scraper import _parse_product_page, _is_captcha_page, fetch_low_star_reviews
-        from services.capture_quality import capture_quality
-
-        if _is_captcha_page(html):
-            return ParseHtmlAnalyzeResponse(success=False, asin=asin, error="检测到CAPTCHA验证页面")
-
-        parsed = _parse_product_page(html, request.marketplace)
-        if not parsed or not parsed.get("title"):
-            return ParseHtmlAnalyzeResponse(success=False, asin=asin, error="无法从HTML中解析出产品信息")
-        if request.source == "local_browser_capture":
-            captured_bullets = [str(item).strip() for item in (request.captured_bullets or []) if str(item).strip()][:5]
-            if request.captured_title.strip() and len(request.captured_title.strip()) > len(str(parsed.get("title", "")).strip()):
-                parsed["title"] = request.captured_title.strip()
-            if captured_bullets and len(captured_bullets) > len(parsed.get("bullet_points") or []):
-                parsed["bullet_points"] = captured_bullets
-            if request.captured_price.strip():
-                parsed["price"] = request.captured_price.strip()
-            if request.captured_rating.strip():
-                parsed["rating"] = request.captured_rating.strip()
-            if request.captured_review_count.strip():
-                parsed["review_count"] = request.captured_review_count.strip()
-            if request.captured_bsr_rank.strip() and not parsed.get("bsr_rank"):
-                parsed["bsr_rank"] = request.captured_bsr_rank.strip()
-            if request.captured_image_count.strip():
-                parsed["image_count"] = request.captured_image_count.strip()
-        if not parsed.get("low_star_reviews") and request.source != "local_browser_capture":
-            parsed["low_star_reviews"] = await fetch_low_star_reviews(asin, request.marketplace)
-        review_samples = normalize_review_samples(request.captured_reviews, limit=40)
-        if review_samples:
-            parsed["review_samples"] = review_samples
-            parsed["reviews"] = review_samples
-            parsed["review_intent_assets"] = build_review_intent_assets({
-                **parsed,
-                "review_samples": review_samples,
-            })
-
-        logger.info(f"parse-html-analyze: parsed {asin}: {parsed['title'][:60]}")
-
-        domain_map = {
-            "US": "www.amazon.com", "UK": "www.amazon.co.uk", "DE": "www.amazon.de",
-            "JP": "www.amazon.co.jp", "CA": "www.amazon.ca", "FR": "www.amazon.fr",
-            "IT": "www.amazon.it", "ES": "www.amazon.es", "AU": "www.amazon.com.au",
-        }
-        domain = domain_map.get(request.marketplace, "www.amazon.com")
-        source = request.source if request.source in {"local_browser_capture", "server_proxy_fetch"} else "server_proxy_fetch"
-        quality = capture_quality(parsed, source)
-        scraped_data = {
-            "asin": asin,
-            "url": f"https://{domain}/dp/{asin}",
-            "scrape_success": True,
-            "data_source": source,
-            "capture_quality": quality,
-            **parsed,
-        }
+        scraped_data = await scrape_amazon_product_via_scrapeless(asin, request.marketplace)
+        if not scraped_data.get("scrape_success"):
+            return ParseHtmlAnalyzeResponse(success=False, asin=asin, error=str(scraped_data.get("error") or "外部采集失败"))
 
         result = await _analyze_single_asin_with_scraped(
             asin=asin,
@@ -1614,7 +1859,7 @@ async def parse_html_and_analyze(
             analysis_report=result.analysis_report,
             amazon_compliance=result.amazon_compliance,
             data_source=result.data_source,
-            capture_quality=quality,
+            capture_quality=scraped_data.get("capture_quality") if isinstance(scraped_data.get("capture_quality"), dict) else {},
             id=result.id,
             opc_v5_execution=result.opc_v5_execution,
         )
