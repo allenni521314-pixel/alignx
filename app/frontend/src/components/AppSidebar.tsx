@@ -1,8 +1,6 @@
 import { useNavigate, useLocation } from "react-router-dom";
 import {
-  Package,
   BarChart3,
-  Lightbulb,
   Settings,
   LogOut,
   ChevronLeft,
@@ -11,15 +9,11 @@ import {
   X,
   Target,
   Swords,
-  FileSearch,
   ClipboardCheck,
   Stethoscope,
-  Network,
-  Megaphone,
   Search,
   CalendarCheck,
   ShieldCheck,
-  Sparkles,
   Layers3,
   Rocket,
 } from "lucide-react";
@@ -47,100 +41,91 @@ interface NavItem {
   label: string;
   icon: React.ElementType;
   moduleKey: ModuleTaskKey;
+  number?: number;
   disabled?: boolean;
   locked?: boolean;
 }
 
 interface NavGroup {
-  stage: string;
   title: string;
   icon: React.ElementType;
-  color: string;
-  activeColor: string;
   items: NavItem[];
 }
 
 const navGroups: NavGroup[] = [
   {
-    stage: "一",
-    title: "市场机会",
+    title: "机会验证",
     icon: Search,
-    color: "text-brand-400",
-    activeColor: "text-brand-600",
     items: [
       {
         path: "/asin-manager",
-        label: "关键词调研",
+        label: "产品调研",
         icon: Layers3,
         moduleKey: "asin-manager",
+        number: 1,
       },
       {
         path: "/competitor-analysis?tab=score",
-        label: "竞品打法",
+        label: "竞品分析",
         icon: Swords,
         moduleKey: "competitor-analysis",
+        number: 2,
       },
     ],
   },
   {
-    stage: "二",
-    title: "商品诊断",
+    title: "经营验证",
     icon: Target,
-    color: "text-teal-400",
-    activeColor: "text-teal-600",
     items: [
+      {
+        path: "/yesterday-report",
+        label: "昨日战报",
+        icon: ClipboardCheck,
+        moduleKey: "yesterday-report",
+        number: 1,
+      },
+      {
+        path: "/dashboard",
+        label: "今日决策",
+        icon: CalendarCheck,
+        moduleKey: "dashboard",
+        number: 2,
+      },
       {
         path: "/listing-launch-check",
         label: "上架准入",
         icon: Rocket,
         moduleKey: "listing-launch-check",
+        number: 3,
       },
       {
         path: "/listing-diagnosis",
         label: "转化承接",
         icon: Stethoscope,
         moduleKey: "listing-diagnosis",
+        number: 4,
       },
-    ],
-  },
-  {
-    stage: "三",
-    title: "广告验证",
-    icon: Megaphone,
-    color: "text-amber-400",
-    activeColor: "text-amber-600",
-    items: [
-      { path: "/advertising-strategy", label: "流量策略", icon: Target, moduleKey: "advertising-strategy" },
-      { path: "/ad-analytics?view=records", label: "执行记录", icon: BarChart3, moduleKey: "ad-analytics" },
-      { path: "/ad-analytics?view=validation", label: "效果验证", icon: ShieldCheck, moduleKey: "ad-analytics" },
-    ],
-  },
-  {
-    stage: "",
-    title: "账号中心",
-    icon: Settings,
-    color: "text-gold-400",
-    activeColor: "text-gold-600",
-    items: [
-      { path: "/settings?tab=account", label: "账号信息", icon: Settings, moduleKey: "settings" },
-    ],
-  },
-  {
-    stage: "",
-    title: "系统设置",
-    icon: Settings,
-    color: "text-gold-400",
-    activeColor: "text-gold-600",
-    items: [
-      { path: "/settings", label: "系统设置", icon: Settings, moduleKey: "settings" },
+      { path: "/advertising-strategy", label: "流量策略", icon: Target, moduleKey: "advertising-strategy", number: 5 },
+      { path: "/ad-analytics?view=records", label: "执行记录", icon: BarChart3, moduleKey: "ad-analytics", number: 6 },
+      { path: "/ad-analytics?view=validation", label: "效果验证", icon: ShieldCheck, moduleKey: "ad-analytics", number: 7 },
     ],
   },
 ];
 
+const bottomNavItems: NavItem[] = [
+  { path: "/settings?tab=account", label: "账号中心", icon: Settings, moduleKey: "settings" },
+  { path: "/settings", label: "系统设置", icon: Settings, moduleKey: "settings" },
+];
+
 const pathOnly = (path: string) => path.split("?")[0];
 
-const navPathCounts = navGroups
-  .flatMap((group) => group.items.map((item) => pathOnly(item.path)))
+const allNavItems = [
+  ...navGroups.flatMap((group) => group.items),
+  ...bottomNavItems,
+];
+
+const navPathCounts = allNavItems
+  .map((item) => pathOnly(item.path))
   .reduce<Record<string, number>>((counts, pathname) => {
     counts[pathname] = (counts[pathname] || 0) + 1;
     return counts;
@@ -256,6 +241,9 @@ export function AppSidebar() {
             />
             {showLabel && (
               <span className="truncate flex items-center gap-1.5 min-w-0">
+                {item.number !== undefined && (
+                  <span className="text-[10px] font-bold text-current/55">{item.number}</span>
+                )}
                 <span className="truncate">{item.label}</span>
                 {isDisabled && (
                   <span className="ml-1 text-[10px] text-gray-400">
@@ -306,8 +294,8 @@ export function AppSidebar() {
         <button
           type="button"
           className="min-w-0 text-left"
-          onClick={() => handleNav("/dashboard")}
-          aria-label="返回 AlignX 今日决策"
+          onClick={() => handleNav("/yesterday-report")}
+          aria-label="返回昨日战报"
         >
           <AlignXLogo
             className="gap-2"
@@ -329,95 +317,18 @@ export function AppSidebar() {
 
       {/* Flow-based Navigation */}
       <nav className="flex-1 overflow-y-auto px-2 py-2">
-        {/* 今日决策 — standalone top button */}
-        <div className="mb-2">
-          <Tooltip delayDuration={0}>
-            <TooltipTrigger asChild>
-              <button
-                onClick={() => handleNav("/dashboard")}
-                className={cn(
-                  "relative flex w-full items-center gap-2 rounded-lg border px-2 py-2 text-[13px] font-semibold transition-all duration-200 group",
-                  location.pathname === "/dashboard"
-                    ? "border-white/80 bg-white text-brand-900 shadow-sm"
-                    : "border-transparent text-brand-100/80 hover:bg-white/10 hover:text-white"
-                )}
-              >
-                {location.pathname === "/dashboard" && (
-                  <span className="absolute left-1 top-2 bottom-2 w-0.5 rounded-full bg-gold-400" />
-                )}
-                <CalendarCheck
-                  className={cn(
-                    "h-[15px] w-[15px] flex-shrink-0",
-                    location.pathname === "/dashboard"
-                      ? "text-brand-800"
-                      : "text-brand-100/70 group-hover:text-white"
-                  )}
-                />
-                {showLabel && <span>今日决策</span>}
-              </button>
-            </TooltipTrigger>
-            {collapsed && !isMobile && (
-              <TooltipContent
-                side="right"
-                className="bg-white text-gray-900 border-gray-200"
-              >
-              今日决策
-            </TooltipContent>
-          )}
-        </Tooltip>
-          <div className="mt-1">
-          <Tooltip delayDuration={0}>
-            <TooltipTrigger asChild>
-              <button
-                onClick={() => handleNav("/yesterday-report")}
-                className={cn(
-                  "relative flex w-full items-center gap-2 rounded-lg border px-2 py-2 text-[13px] font-semibold transition-all duration-200 group",
-                  location.pathname === "/yesterday-report"
-                    ? "border-white/80 bg-white text-brand-900 shadow-sm"
-                    : "border-transparent text-brand-100/75 hover:bg-white/10 hover:text-white"
-                )}
-              >
-                {location.pathname === "/yesterday-report" && (
-                  <span className="absolute left-1 top-2 bottom-2 w-0.5 rounded-full bg-gold-400" />
-                )}
-                <ClipboardCheck
-                  className={cn(
-                    "h-[15px] w-[15px] flex-shrink-0",
-                    location.pathname === "/yesterday-report"
-                      ? "text-brand-800"
-                      : "text-brand-100/60 group-hover:text-white"
-                  )}
-                />
-                {showLabel && <span className="truncate">昨日战报</span>}
-              </button>
-            </TooltipTrigger>
-            {collapsed && !isMobile && (
-              <TooltipContent
-                side="right"
-                className="bg-white text-gray-900 border-gray-200"
-              >
-                昨日战报
-              </TooltipContent>
-            )}
-          </Tooltip>
-          </div>
-        </div>
-
         {navGroups.map((group) => {
           const groupActive = isGroupActive(group);
           return (
-            <div key={group.title} className="mb-2">
+            <div key={group.title} className="mb-3">
               {showLabel && (
                 <div
                   className={cn(
-                    "flex select-none items-center gap-1 px-2 pb-1 pt-2.5 text-[11px] font-semibold transition-colors",
-                    groupActive ? "text-gold-300" : "text-brand-100/45"
+                    "flex select-none items-center gap-1.5 px-2 pb-1.5 pt-2.5 text-[15px] font-bold transition-colors",
+                    groupActive ? "text-gold-300" : "text-gold-300/80"
                   )}
                 >
-                  <span className="inline-flex h-3.5 min-w-3.5 items-center justify-center rounded-full border border-current/20 px-0.5 text-[9px] leading-none">
-                    {group.stage || "设"}
-                  </span>
-                  <group.icon className="h-2.5 w-2.5" />
+                  <group.icon className="h-4 w-4" />
                   {group.title}
                   {groupActive && (
                     <span className="ml-auto h-1.5 w-1.5 rounded-full bg-current" />
@@ -439,6 +350,7 @@ export function AppSidebar() {
 
       {/* Bottom: Logout + Collapse */}
       <div className="p-1.5 border-t border-brand-700/60 space-y-0.5">
+        {bottomNavItems.map((item) => renderNavButton(item))}
         <Tooltip delayDuration={0}>
           <TooltipTrigger asChild>
             <button

@@ -4,7 +4,6 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
-import Landing from './pages/Landing';
 import Login from './pages/Login';
 import NotFound from './pages/NotFound';
 // MODULE_IMPORTS_START
@@ -102,13 +101,13 @@ class AppErrorBoundary extends Component<{ children: ReactNode; routeKey: string
         <div className="min-h-screen bg-gray-50 text-gray-900 flex items-center justify-center p-6">
           <div className="max-w-md w-full bg-white border border-gray-200 rounded-lg p-6 shadow-sm">
             <p className="text-sm font-semibold text-red-600 mb-2">页面模块加载失败</p>
-            <h1 className="text-lg font-bold mb-2">请刷新或返回今日决策</h1>
+            <h1 className="text-lg font-bold mb-2">请刷新或返回昨日战报</h1>
             <p className="text-sm text-gray-500 mb-4">{this.state.message}</p>
             <button
               className="px-4 py-2 rounded-md bg-brand-600 text-white text-sm"
-              onClick={() => { window.location.href = '/dashboard'; }}
+              onClick={() => { window.location.href = '/yesterday-report'; }}
             >
-              返回今日决策
+              返回昨日战报
             </button>
           </div>
         </div>
@@ -125,7 +124,7 @@ const AppRoutes = () => {
     <AppErrorBoundary routeKey={`${location.pathname}${location.search}`}>
       <Suspense fallback={<PageLoader />}>
         <Routes location={location}>
-          <Route path="/" element={<Landing />} />
+          <Route path="/" element={<YesterdayReport />} />
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/yesterday-report" element={<YesterdayReport />} />
           <Route path="/asin-manager" element={<AsinManager />} />
@@ -136,7 +135,7 @@ const AppRoutes = () => {
           <Route path="/advertising-strategy" element={<AdvertisingStrategy />} />
           <Route path="/competitor-analysis" element={<CompetitorAnalysis />} />
           <Route path="/listing-diagnosis" element={<ListingDiagnosis />} />
-          <Route path="/alignxagent" element={<Dashboard />} />
+          <Route path="/alignxagent" element={<YesterdayReport />} />
           <Route path="/alignxagent/dashboard" element={<Dashboard />} />
           <Route path="/alignxagent/listing-diagnosis" element={<ListingDiagnosis />} />
           <Route path="/prelaunch-test" element={<PreLaunchTest />} />

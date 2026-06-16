@@ -1,6 +1,8 @@
 export type ModuleTaskStatus = "pending" | "running" | "completed" | "failed";
 
 export type ModuleTaskKey =
+  | "dashboard"
+  | "yesterday-report"
   | "asin-manager"
   | "listing-launch-check"
   | "competitor-analysis"
