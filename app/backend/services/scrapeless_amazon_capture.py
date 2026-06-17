@@ -397,15 +397,145 @@ async def _scraperapi_html(url: str, marketplace: str) -> str:
         return ""
 
 
-async def _search_raw(keyword: str, domain: str, domain_suffix: str, batch_index: int) -> dict[str, Any]:
-    return await _scraperapi_request(
-        "search",
-        {
-            "query": keyword,
-            "tld": domain_suffix,
-            "page": batch_index,
-        },
-    )
+def _parse_search_html(html: str, keyword: str, marketplace: str, batch_index: int) -> list[dict[str, Any]]:
+    """Parse Amazon search results from raw HTML, extracting items from s-search-result cards."""
+    if not html:
+        return []
+    soup = BeautifulSoup(html, "lxml")
+    cards = soup.select('[data-component-type="s-search-result"]')
+    if not cards:
+        cards = soup.select('.s-result-item[data-asin]')
+    if not cards:
+        return []
+
+    marketplace_code, domain, _ = _marketplace_domain(marketplace)
+    rank_start = (batch_index - 1) * 10 + 1
+    items: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    for idx, card in enumerate(cards):
+        if len(items) >= 10:
+            break
+        asin = (card.get("data-asin") or "").strip().upper()
+        if not asin or not re.fullmatch(r"[A-Z0-9]{10}", asin):
+            continue
+        if asin in seen:
+            continue
+        seen.add(asin)
+
+        # Title
+        title_el = card.select_one("h2 a span") or card.select_one("h2 span") or card.select_one(".a-text-normal")
+        title = _clean_text(title_el.get_text() if title_el else "")
+
+        # Price
+        price_whole = card.select_one(".a-price-whole")
+        price_fraction = card.select_one(".a-price-fraction")
+        price_symbol = card.select_one(".a-price-symbol")
+        price = None
+        price_text = ""
+        if price_whole:
+            price_text = (price_symbol.get_text(strip=True) if price_symbol else "$") + price_whole.get_text(strip=True)
+            if price_fraction:
+                price_text += price_fraction.get_text(strip=True)
+            price = _price_to_number(price_text)
+
+        # Rating
+        rating_el = card.select_one(".a-icon-alt") or card.select_one("[aria-label*='out of']")
+        rating_text = _clean_text(rating_el.get_text() if rating_el else "")
+        rating_match = re.search(r"([\d.]+)", rating_text) if rating_text else None
+        rating = float(rating_match.group(1)) if rating_match else None
+
+        # Review count
+        review_count = None
+        review_el = card.select_one("[aria-label*='ratings']") or card.select_one(".a-size-base.s-underline-text")
+        if review_el:
+            review_text = _clean_text(review_el.get_text() or review_el.get("aria-label", ""))
+            rc_match = re.search(r"([\d,]+)", review_text)
+            if rc_match:
+                review_count = int(rc_match.group(1).replace(",", ""))
+
+        # URL
+        url = ""
+        for a_el in card.select("a"):
+            href = (a_el.get("href") or "").strip()
+            if f"/dp/{asin}" in href:
+                url = f"https://{domain}{href}" if href.startswith("/") else href
+                url = url.split("/ref=")[0]
+                break
+        if not url:
+            url = f"https://{domain}/dp/{asin}"
+
+        # Sponsored
+        is_sponsored = bool(card.select_one(".s-sponsored-label-text"))
+        if not is_sponsored:
+            card_text = card.get_text(" ", strip=True)
+            is_sponsored = "Sponsored" in card_text
+
+        rank = rank_start + idx
+        items.append({
+            "searchRank": int(rank),
+            "asin": asin,
+            "url": url,
+            "title": title,
+            "price": price,
+            "priceText": price_text,
+            "searchPrice": price,
+            "searchPriceText": price_text,
+            "detailPrice": None,
+            "detailPriceText": "",
+            "priceSource": "search_html" if price_text else "missing",
+            "priceStatus": "search_price" if price_text else "missing",
+            "rating": rating,
+            "reviewCount": review_count,
+            "imageUrl": "",
+            "isSponsored": is_sponsored,
+            "source": "scraperapi_search_html_fallback",
+            "status": "search_snapshot",
+            "error": "",
+            "captureDepth": "search_result",
+            "keyword": keyword,
+            "marketplace": marketplace,
+        })
+
+    page_items = items[:10]
+    for index, item in enumerate(page_items, start=rank_start):
+        item["searchRank"] = index
+    return page_items
+
+
+async def _search_html_fallback(keyword: str, domain: str, marketplace: str, batch_index: int) -> dict[str, Any]:
+    """Fetch Amazon search page HTML via ScraperAPI generic endpoint and parse locally."""
+    html = await _scraperapi_html(f"https://{domain}/s?k={keyword}&page={batch_index}", marketplace)
+    if not html:
+        raise ScrapelessCaptureError("ScraperAPI搜索HTML获取失败")
+    items = _parse_search_html(html, keyword, marketplace, batch_index)
+    if not items:
+        raise ScrapelessCaptureError("搜索HTML解析无结果")
+    return {
+        "items": items,
+    }
+
+
+async def _search_raw(keyword: str, domain: str, domain_suffix: str, batch_index: int, marketplace: str = "US") -> dict[str, Any]:
+    """Try ScraperAPI structured search endpoint, fall back to HTML parsing on failure."""
+    try:
+        result = await _scraperapi_request(
+            "search",
+            {
+                "query": keyword,
+                "tld": domain_suffix,
+                "page": batch_index,
+            },
+        )
+        # Check if structured endpoint returned empty results
+        rows = _candidate_lists(result)
+        if not any(len(r) > 0 for r in rows):
+            logger.info("ScraperAPI search returned empty, falling back to HTML")
+            return await _search_html_fallback(keyword, domain, marketplace, batch_index)
+        return result
+    except ScrapelessCaptureError:
+        logger.info("ScraperAPI search structured endpoint failed, falling back to HTML")
+        return await _search_html_fallback(keyword, domain, marketplace, batch_index)
 
 
 async def _product_raw(asin: str, domain: str, domain_suffix: str) -> dict[str, Any]:
@@ -524,7 +654,7 @@ async def capture_top40_batch_via_scrapeless(
 ) -> dict[str, Any]:
     marketplace, domain, domain_suffix = _marketplace_domain(marketplace)
     rank_start = (batch_index - 1) * 10 + 1
-    raw = await _search_raw(keyword, domain, domain_suffix, batch_index)
+    raw = await _search_raw(keyword, domain, domain_suffix, batch_index, marketplace)
     items = _normalize_search_items(raw, keyword, marketplace, batch_index)
     quality = _search_quality(items)
     return {
