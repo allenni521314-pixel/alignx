@@ -20,6 +20,7 @@ from models.asin_business_profile import (
     AsinSkuMap,
     ReportRowStaging,
     ReportUpload,
+    ValidationTask,
 )
 from services.asin_business_profile import DEFAULT_STORE_ID, normalize_asin, normalize_marketplace, parse_float, parse_int
 
@@ -71,9 +72,12 @@ FIELD_ALIASES = {
     "customer_search_term": ["customer search term", "search term", "customer_search_term"],
     "targeting": ["targeting", "target", "targeting expression"],
     "targeting_type": ["targeting type", "targeting_type"],
+    "validation_id": ["validation id", "validation_id"],
     "action_type": ["action type", "operation", "entity"],
     "before_value": ["before value", "before_value"],
     "after_value": ["after value", "after_value"],
+    "executed_at": ["executed at", "executed_at", "date/time", "datetime"],
+    "note": ["note", "notes"],
 }
 
 
@@ -315,9 +319,12 @@ class ReportImportService:
             "customer_search_term": _text(_first(row, "customer_search_term")),
             "targeting": _text(_first(row, "targeting")),
             "targeting_type": _text(_first(row, "targeting_type")),
+            "validation_id": _text(_first(row, "validation_id")),
             "action_type": _text(_first(row, "action_type")),
             "before_value": _text(_first(row, "before_value")),
             "after_value": _text(_first(row, "after_value")),
+            "executed_at": _parse_date(_first(row, "executed_at"), report.date_range_start),
+            "note": _text(_first(row, "note")),
         }
         normalized["ctr"] = _ratio(clicks, impressions)
         normalized["cvr"] = _ratio(orders, sessions)
@@ -366,6 +373,10 @@ class ReportImportService:
     async def _match_ad_entity(self, report: ReportUpload, normalized: dict[str, Any]) -> list[str]:
         ad_id = _text(normalized.get("ad_id"))
         sku = _text(normalized.get("sku"))
+        campaign_id = _text(normalized.get("campaign_id"))
+        ad_group_id = _text(normalized.get("ad_group_id"))
+        campaign_name = _text(normalized.get("campaign_name"))
+        ad_group_name = _text(normalized.get("ad_group_name"))
         if not ad_id and not sku:
             return []
         query = select(AdEntityAsinMap.asin).where(
@@ -375,12 +386,20 @@ class ReportImportService:
         )
         if ad_id:
             query = query.where(AdEntityAsinMap.ad_id == ad_id)
+            if campaign_id:
+                query = query.where(AdEntityAsinMap.campaign_id == campaign_id)
+            if ad_group_id:
+                query = query.where(AdEntityAsinMap.ad_group_id == ad_group_id)
         elif sku:
             query = query.where(AdEntityAsinMap.sku == sku)
-            if normalized.get("campaign_name"):
-                query = query.where(AdEntityAsinMap.campaign_name == normalized.get("campaign_name"))
-            if normalized.get("ad_group_name"):
-                query = query.where(AdEntityAsinMap.ad_group_name == normalized.get("ad_group_name"))
+            if campaign_id:
+                query = query.where(AdEntityAsinMap.campaign_id == campaign_id)
+            elif campaign_name:
+                query = query.where(AdEntityAsinMap.campaign_name == campaign_name)
+            if ad_group_id:
+                query = query.where(AdEntityAsinMap.ad_group_id == ad_group_id)
+            elif ad_group_name:
+                query = query.where(AdEntityAsinMap.ad_group_name == ad_group_name)
         result = await self.db.execute(query.distinct())
         return [row[0] for row in result.all() if normalize_asin(row[0])]
 
@@ -559,6 +578,45 @@ class ReportImportService:
     async def _write_bulk_mapping(self, report: ReportUpload, normalized: dict[str, Any]) -> None:
         await self._write_profile_and_sku(report, normalized)
         await self._upsert_ad_entity_map(report, normalized)
+        await self._write_bulk_execution_log(report, normalized)
+
+    async def _write_bulk_execution_log(self, report: ReportUpload, normalized: dict[str, Any]) -> None:
+        validation_id = _text(normalized.get("validation_id"))
+        action_type = _text(normalized.get("action_type"))
+        asin = normalize_asin(normalized.get("asin"))
+        if not validation_id or not action_type or not asin:
+            return
+        result = await self.db.execute(
+            select(ValidationTask.validation_id).where(
+                ValidationTask.validation_id == validation_id,
+                ValidationTask.seller_id == report.seller_id,
+                ValidationTask.store_id == report.store_id,
+                ValidationTask.marketplace == normalize_marketplace(report.marketplace),
+                ValidationTask.asin == asin,
+            )
+        )
+        if not result.scalar_one_or_none():
+            return
+        self.db.add(
+            AsinExecutionLog(
+                execution_id=f"exec_{uuid.uuid4().hex}",
+                validation_id=validation_id,
+                seller_id=report.seller_id,
+                store_id=report.store_id,
+                marketplace=normalize_marketplace(report.marketplace),
+                asin=asin,
+                action_type=action_type,
+                before_value=normalized.get("before_value"),
+                after_value=normalized.get("after_value"),
+                executed_by=report.uploaded_by or report.seller_id,
+                executed_at=datetime.combine(normalized.get("executed_at"), datetime.min.time(), tzinfo=timezone.utc)
+                if normalized.get("executed_at")
+                else datetime.now(timezone.utc),
+                note=normalized.get("note"),
+                source="BULK_OPERATIONS",
+                data_source=report.report_type,
+            )
+        )
 
     async def _snapshot(self, report: ReportUpload, normalized: dict[str, Any]) -> AsinDailySnapshot:
         result = await self.db.execute(
@@ -581,6 +639,96 @@ class ReportImportService:
             )
             self.db.add(snapshot)
         return snapshot
+
+    async def resolve_staging_rows(
+        self,
+        *,
+        seller_id: str,
+        report_id: str,
+        action: str,
+        asin: Optional[str],
+        staging_row_ids: list[int],
+    ) -> dict[str, Any]:
+        normalized_action = str(action or "").strip()
+        if normalized_action not in {"bind_existing", "create_profile", "ignore"}:
+            raise ValueError("action")
+        result = await self.db.execute(
+            select(ReportUpload).where(ReportUpload.report_id == report_id, ReportUpload.seller_id == seller_id)
+        )
+        report = result.scalar_one_or_none()
+        if not report:
+            raise ValueError("report_id")
+
+        normalized_asin = normalize_asin(asin) if asin else ""
+        if normalized_action in {"bind_existing", "create_profile"} and not normalized_asin:
+            raise ValueError("asin")
+
+        query = select(ReportRowStaging).where(
+            ReportRowStaging.report_id == report.report_id,
+            ReportRowStaging.seller_id == seller_id,
+            ReportRowStaging.match_status.in_([AMBIGUOUS, UNRESOLVED]),
+        )
+        if staging_row_ids:
+            query = query.where(ReportRowStaging.id.in_(staging_row_ids))
+        rows = list((await self.db.execute(query.order_by(ReportRowStaging.id.asc()))).scalars().all())
+
+        summary = {
+            "report_id": report.report_id,
+            "report_type": report.report_type,
+            "parse_status": report.parse_status or "Parsed",
+            "action": normalized_action,
+            "total_rows": len(rows),
+            "matched_asin_rows": 0,
+            "unmatched_rows": 0,
+            "ambiguous_rows": 0,
+            "writable_rows": 0,
+        }
+        if normalized_action == "ignore":
+            for row in rows:
+                await self.db.delete(row)
+            summary["unmatched_rows"] = len(rows)
+            await self.db.commit()
+            return summary
+
+        if normalized_action == "create_profile":
+            profile = AsinBusinessProfile(
+                seller_id=report.seller_id,
+                store_id=report.store_id,
+                marketplace=normalize_marketplace(report.marketplace),
+                asin=normalized_asin,
+                data_source="REPORT_ROW_STAGING",
+            )
+            existing = await self.db.execute(
+                select(AsinBusinessProfile).where(
+                    AsinBusinessProfile.seller_id == report.seller_id,
+                    AsinBusinessProfile.store_id == report.store_id,
+                    AsinBusinessProfile.marketplace == normalize_marketplace(report.marketplace),
+                    AsinBusinessProfile.asin == normalized_asin,
+                )
+            )
+            if not existing.scalar_one_or_none():
+                self.db.add(profile)
+
+        for row in rows:
+            normalized = json.loads(row.normalized_data or "{}")
+            if not isinstance(normalized, dict):
+                normalized = {}
+            normalized["asin"] = normalized_asin
+            normalized["date"] = _parse_date(normalized.get("date"), report.date_range_start)
+            row.asin = normalized_asin
+            row.normalized_data = json.dumps(normalized, ensure_ascii=False, default=str)
+            if not normalized.get("date"):
+                row.match_status = UNRESOLVED
+                summary["unmatched_rows"] += 1
+                continue
+            row.match_status = DIRECT_MATCHED
+            await self._write_matched_row(report, normalized)
+            summary["matched_asin_rows"] += 1
+            summary["writable_rows"] += 1
+
+        report.parse_status = "Parsed"
+        await self.db.commit()
+        return summary
 
     async def _upsert_ad_entity_map(self, report: ReportUpload, normalized: dict[str, Any]) -> None:
         asin = normalize_asin(normalized.get("asin"))
