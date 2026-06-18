@@ -214,6 +214,25 @@ class StagingRowListResponse(BaseModel):
     limit: int
 
 
+class StagingRowResolveRequest(BaseModel):
+    report_id: str
+    action: str
+    asin: Optional[str] = None
+    staging_row_ids: List[int] = Field(default_factory=list)
+
+
+class StagingRowResolveResponse(BaseModel):
+    report_id: str
+    report_type: str
+    parse_status: str
+    action: str
+    total_rows: int
+    matched_asin_rows: int
+    unmatched_rows: int
+    ambiguous_rows: int
+    writable_rows: int
+
+
 class ValidationTaskCreate(BaseModel):
     store_id: str = "default"
     marketplace: str = "US"
