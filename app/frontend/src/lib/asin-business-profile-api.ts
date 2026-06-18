@@ -218,6 +218,33 @@ export interface ReportParseSummary {
   writable_rows: number;
 }
 
+export interface ReportStagingRow {
+  id: number;
+  report_id: string;
+  seller_id: string;
+  store_id: string;
+  marketplace: string;
+  asin?: string | null;
+  date?: string | null;
+  row_number: number;
+  report_type: string;
+  match_status: string;
+  raw_data?: string | null;
+  normalized_data?: string | null;
+  created_at?: string | null;
+}
+
+export interface ReportStagingListResponse {
+  items: ReportStagingRow[];
+  total: number;
+  skip: number;
+  limit: number;
+}
+
+export interface ReportStagingResolveResponse extends ReportParseSummary {
+  action: string;
+}
+
 export async function listAsinProfiles(params: {
   store_id?: string;
   marketplace?: string;
@@ -348,5 +375,30 @@ export async function uploadReport(params: {
 
 export async function parseReport(reportId: string): Promise<ReportParseSummary> {
   const res = await axios.post(`/api/reports/${reportId}/parse`, null, { headers: getAuthHeaders() });
+  return res.data;
+}
+
+export async function listReportStagingRows(params: {
+  report_id: string;
+  match_status?: string;
+  skip?: number;
+  limit?: number;
+}): Promise<ReportStagingListResponse> {
+  const res = await axios.get("/api/reports/staging", { params, headers: getAuthHeaders() });
+  return res.data;
+}
+
+export async function resolveReportStagingRows(params: {
+  report_id: string;
+  action: "bind_existing" | "create_profile" | "ignore";
+  asin?: string;
+  staging_row_ids?: number[];
+}): Promise<ReportStagingResolveResponse> {
+  const res = await axios.post("/api/reports/staging/resolve", {
+    report_id: params.report_id,
+    action: params.action,
+    asin: params.asin,
+    staging_row_ids: params.staging_row_ids || [],
+  }, { headers: getAuthHeaders() });
   return res.data;
 }
