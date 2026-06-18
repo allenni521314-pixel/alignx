@@ -203,6 +203,10 @@ function UploadPanel({
 
   return (
     <Card className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+      <div className="mb-3 text-xs font-medium leading-5 text-gray-500">
+        当前未接入 Amazon API，需上传报表生成经营数据；后期接入 Amazon API 授权后无需上传。
+        需上传：{config.options.map((option) => option.label).join("、")}。
+      </div>
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-[180px_160px_160px_1fr_160px]">
         <label className="block">
           <span className="mb-1 block text-xs font-medium text-gray-500">报表类型</span>
