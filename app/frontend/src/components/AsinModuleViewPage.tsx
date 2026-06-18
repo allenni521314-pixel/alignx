@@ -10,9 +10,11 @@ import {
   type AsinModuleView,
   type AsinModuleViewType,
   getAsinModuleView,
+  listReportStagingRows,
   listAsinProfiles,
   parseReport,
   type ReportParseSummary,
+  resolveReportStagingRows,
   uploadReport,
 } from "@/lib/asin-business-profile-api";
 
@@ -150,7 +152,15 @@ function UploadPanel({
   const [dateEnd, setDateEnd] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [summary, setSummary] = useState<ReportParseSummary | null>(null);
+  const [pendingRows, setPendingRows] = useState(0);
+  const [resolveAsin, setResolveAsin] = useState("");
   const [busy, setBusy] = useState(false);
+
+  const loadPendingRows = useCallback(async (reportId: string) => {
+    const unresolved = await listReportStagingRows({ report_id: reportId, match_status: "Unresolved", limit: 1 });
+    const ambiguous = await listReportStagingRows({ report_id: reportId, match_status: "Ambiguous", limit: 1 });
+    setPendingRows((unresolved.total || 0) + (ambiguous.total || 0));
+  }, []);
 
   const submit = useCallback(async () => {
     if (!file || !reportType) return;
@@ -166,11 +176,30 @@ function UploadPanel({
       });
       const parsed = await parseReport(upload.report_id);
       setSummary(parsed);
+      await loadPendingRows(upload.report_id);
       await onParsed();
     } finally {
       setBusy(false);
     }
-  }, [dateEnd, dateStart, file, onParsed, reportType, selectedProfile?.marketplace, selectedProfile?.store_id]);
+  }, [dateEnd, dateStart, file, loadPendingRows, onParsed, reportType, selectedProfile?.marketplace, selectedProfile?.store_id]);
+
+  const resolveRows = useCallback(async (action: "bind_existing" | "create_profile" | "ignore") => {
+    if (!summary?.report_id) return;
+    if (action !== "ignore" && !resolveAsin.trim()) return;
+    setBusy(true);
+    try {
+      const resolved = await resolveReportStagingRows({
+        report_id: summary.report_id,
+        action,
+        asin: resolveAsin.trim() || undefined,
+      });
+      setSummary(resolved);
+      await loadPendingRows(summary.report_id);
+      await onParsed();
+    } finally {
+      setBusy(false);
+    }
+  }, [loadPendingRows, onParsed, resolveAsin, summary?.report_id]);
 
   return (
     <Card className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
@@ -224,14 +253,36 @@ function UploadPanel({
         </div>
       </div>
       {summary ? (
-        <div className="mt-3 grid grid-cols-2 gap-2 text-xs font-semibold text-gray-700 md:grid-cols-5">
-          <div>总行数：{summary.total_rows}</div>
-          <div>已匹配 ASIN 行数：{summary.matched_asin_rows}</div>
-          <div>未匹配行数：{summary.unmatched_rows}</div>
-          <div>多重匹配行数：{summary.ambiguous_rows}</div>
-          <div>可写入 ASIN档案的行数：{summary.writable_rows}</div>
-          {summary.unmatched_rows || summary.ambiguous_rows ? (
-            <div className="col-span-2 text-amber-700 md:col-span-5">部分数据无法对应到 ASIN，需确认后才能进入经营档案。</div>
+        <div className="mt-3 space-y-3">
+          <div className="grid grid-cols-2 gap-2 text-xs font-semibold text-gray-700 md:grid-cols-5">
+            <div>总行数：{summary.total_rows}</div>
+            <div>已匹配 ASIN 行数：{summary.matched_asin_rows}</div>
+            <div>未匹配行数：{summary.unmatched_rows}</div>
+            <div>多重匹配行数：{summary.ambiguous_rows}</div>
+            <div>可写入 ASIN档案的行数：{summary.writable_rows}</div>
+          </div>
+          {pendingRows ? (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+              <div className="text-xs font-semibold text-amber-800">发现 {pendingRows} 行数据无法匹配 ASIN</div>
+              <div className="mt-1 text-xs font-semibold text-amber-800">部分数据无法对应到 ASIN，需确认后才能进入经营档案。</div>
+              <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-[1fr_auto_auto_auto]">
+                <input
+                  value={resolveAsin}
+                  onChange={(event) => setResolveAsin(event.target.value)}
+                  placeholder="ASIN"
+                  className="h-9 rounded-lg border border-amber-200 bg-white px-3 text-sm font-semibold text-gray-900 outline-none focus:border-amber-500"
+                />
+                <Button type="button" variant="outline" disabled={busy || !resolveAsin.trim()} onClick={() => resolveRows("bind_existing")} className="h-9">
+                  绑定到已有 ASIN
+                </Button>
+                <Button type="button" variant="outline" disabled={busy || !resolveAsin.trim()} onClick={() => resolveRows("create_profile")} className="h-9">
+                  新建 ASIN档案
+                </Button>
+                <Button type="button" variant="outline" disabled={busy} onClick={() => resolveRows("ignore")} className="h-9">
+                  忽略该数据
+                </Button>
+              </div>
+            </div>
           ) : null}
         </div>
       ) : null}
