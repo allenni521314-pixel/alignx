@@ -2146,7 +2146,8 @@ def _fill_inferred_signal(current: Any, value: str, basis: str, confidence: str 
     row = _dict_value(current)
     if not str(row.get("value") or "").strip() or str(row.get("value")) == "暂无":
         row["value"] = value
-    if not str(row.get("basis") or "").strip() or str(row.get("basis")) == "暂无":
+    current_basis = str(row.get("basis") or "").strip()
+    if not current_basis or current_basis in {"暂无", "前台证据不足", "证据不足", "品牌字段不足", "评论证据不足"}:
         row["basis"] = basis
     row.setdefault("confidence", confidence)
     row.setdefault("needs_validation", True)
@@ -2194,6 +2195,12 @@ def _complete_keyword_market_fields(market: dict[str, Any]) -> dict[str, Any]:
         brand_counts[brand] = brand_counts.get(brand, 0) + 1
     top_brands = [brand for brand, _count in sorted(brand_counts.items(), key=lambda row: row[1], reverse=True)[:5]]
     top_brand_ratio = (max(brand_counts.values()) / len(brands)) if brands else 0
+    ranked_reviews = [
+        int(item.get("reviewCount") or item.get("reviews") or 0)
+        for item in sorted(items, key=lambda item: int(_num(item.get("searchRank") or item.get("rank")) or 999))[:10]
+    ]
+    total_ranked_reviews = sum(review for review in ranked_reviews if review > 0)
+    top_review_ratio = (sum(ranked_reviews[:3]) / total_ranked_reviews) if total_ranked_reviews else 0
     route_summary = _list_value(market.get("route_summary"))
     route_names = [
         str(route.get("route") or "").strip()
@@ -2284,9 +2291,9 @@ def _complete_keyword_market_fields(market: dict[str, Any]) -> dict[str, Any]:
     )
     inferred["click_concentration"] = _fill_inferred_signal(
         inferred.get("click_concentration"),
-        _market_level_from_ratio(top_brand_ratio, 0.25, 0.45) if brands else "暂无",
-        "头部品牌集中度" if brands else "品牌字段不足",
-        "medium" if brands else "low",
+        _market_level_from_ratio(top_brand_ratio, 0.25, 0.45) if brands else _market_level_from_ratio(top_review_ratio, 0.35, 0.55) if total_ranked_reviews else "暂无",
+        "头部品牌集中度" if brands else f"Top10评论集中度{round(top_review_ratio * 100)}%" if total_ranked_reviews else "评论集中度证据不足",
+        "medium" if brands or total_ranked_reviews else "low",
     )
     inferred["sales_strength"] = _fill_inferred_signal(
         inferred.get("sales_strength"),
@@ -2325,7 +2332,7 @@ def _complete_keyword_market_fields(market: dict[str, Any]) -> dict[str, Any]:
             "basis": f"广告样本{sponsored_count}/{item_count}，价格中位数{round(_median_number(prices), 2) if prices else '暂无'}",
         },
     )
-    fill_entry_row("supply_chain_difficulty", {"level": "暂无", "basis": "暂无"})
+    fill_entry_row("supply_chain_difficulty", {"level": "待验证", "basis": "搜索结果快照不包含供应链字段"})
     fill_entry_row(
         "entry_barrier",
         {
