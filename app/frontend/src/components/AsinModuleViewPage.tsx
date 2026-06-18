@@ -12,6 +12,7 @@ import {
   createExecutionLog,
   createValidationTask,
   getAsinModuleView,
+  importFromListingDiagnosisHistory,
   listReportStagingRows,
   listAsinProfiles,
   parseReport,
@@ -68,10 +69,24 @@ function valueOrEmpty(value: unknown) {
   return String(value);
 }
 
+function valueOrPrompt(value: unknown, prompt: string) {
+  const text = valueOrEmpty(value);
+  return text === EMPTY ? prompt : text;
+}
+
 function formatDate(value: unknown) {
   const text = valueOrEmpty(value);
   if (text === EMPTY) return text;
   return text.replace("T", " ").replace(/\.\d+Z?$/, "");
+}
+
+function formatDateOrPrompt(value: unknown, prompt: string) {
+  const text = formatDate(value);
+  return text === EMPTY ? prompt : text;
+}
+
+function metricEmptyPrompt(label: string) {
+  return `上传报表后生成${label}`;
 }
 
 function statusClass(status: string) {
@@ -83,7 +98,7 @@ function statusClass(status: string) {
 
 function StatusValue({ value }: { value: unknown }) {
   const text = valueOrEmpty(value);
-  if (text === EMPTY) return <span>{EMPTY}</span>;
+  if (text === EMPTY) return <span>待生成</span>;
   return <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${statusClass(text)}`}>{text}</span>;
 }
 
@@ -96,7 +111,7 @@ function MetricGrid({ metrics, values }: { metrics: AsinModuleMetric[]; values: 
         {metrics.map((metric) => (
           <div key={metric.key} className="min-h-[76px] rounded-lg border border-gray-100 bg-gray-50 px-3 py-2.5">
             <div className="text-xs font-medium text-gray-500">{metric.label}</div>
-            <div className="mt-2 break-words text-[15px] font-semibold text-gray-950">{valueOrEmpty(values[metric.key])}</div>
+            <div className="mt-2 break-words text-[15px] font-semibold text-gray-950">{valueOrPrompt(values[metric.key], metricEmptyPrompt(metric.label))}</div>
           </div>
         ))}
       </div>
@@ -134,9 +149,51 @@ function RecordsTable({ columns, records }: { columns: AsinModuleColumn[]; recor
           </table>
         ) : (
           <div className="rounded-lg border border-dashed border-gray-200 bg-gray-50 px-4 py-8 text-center text-sm text-gray-500">
-            {EMPTY}
+            上传报表或执行后生成记录
           </div>
         )}
+      </div>
+    </Card>
+  );
+}
+
+function FirstUseEmptyState({
+  uploadConfig,
+  historyImporting,
+  historyImportChecked,
+}: {
+  uploadConfig?: AsinModuleUploadConfig;
+  historyImporting: boolean;
+  historyImportChecked: boolean;
+}) {
+  if (historyImporting || !historyImportChecked) {
+    return (
+      <Card className="rounded-xl border border-amber-200 bg-amber-50 p-4 shadow-sm">
+        <h2 className="text-[15px] font-semibold text-gray-950">读取转化承接历史</h2>
+        <div className="mt-3 rounded-lg border border-amber-100 bg-white px-3 py-2.5">
+          <div className="text-xs font-medium text-gray-500">ASIN</div>
+          <div className="mt-1 text-sm font-semibold text-gray-950">正在识别历史诊断 ASIN</div>
+        </div>
+      </Card>
+    );
+  }
+  if (!uploadConfig) return null;
+  return (
+    <Card className="rounded-xl border border-amber-200 bg-amber-50 p-4 shadow-sm">
+      <h2 className="text-[15px] font-semibold text-gray-950">首次使用</h2>
+      <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
+        <div className="rounded-lg border border-amber-100 bg-white px-3 py-2.5">
+          <div className="text-xs font-medium text-gray-500">第一步</div>
+          <div className="mt-1 text-sm font-semibold text-gray-950">上传销售流量报表</div>
+        </div>
+        <div className="rounded-lg border border-amber-100 bg-white px-3 py-2.5">
+          <div className="text-xs font-medium text-gray-500">第二步</div>
+          <div className="mt-1 text-sm font-semibold text-gray-950">上传广告商品报表</div>
+        </div>
+        <div className="rounded-lg border border-amber-100 bg-white px-3 py-2.5">
+          <div className="text-xs font-medium text-gray-500">第三步</div>
+          <div className="mt-1 text-sm font-semibold text-gray-950">选择 ASIN 查看结果</div>
+        </div>
       </div>
     </Card>
   );
@@ -208,8 +265,8 @@ function UploadPanel({
   return (
     <Card className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
       <div className="mb-3 space-y-1 text-xs font-medium leading-5 text-gray-500">
-        <p>上传报表后，系统会按 ASIN 生成昨日战报和今日决策，让优化建议更精准。</p>
-        <p>需上传：{config.options.map((option) => option.label).join("、")}。接入 Amazon API 后无需上传。</p>
+        <p>先上传：{config.options.map((option) => option.label).join("、")}。</p>
+        <p>上传后：识别卖家自己的 ASIN，生成昨日战报和今日决策。接入 Amazon API 后无需上传。</p>
       </div>
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-[180px_160px_160px_1fr_160px]">
         <label className="block">
@@ -267,7 +324,7 @@ function UploadPanel({
             <div>已匹配 ASIN 行数：{summary.matched_asin_rows}</div>
             <div>未匹配行数：{summary.unmatched_rows}</div>
             <div>多重匹配行数：{summary.ambiguous_rows}</div>
-            <div>可写入 ASIN档案的行数：{summary.writable_rows}</div>
+            <div>可写入经营数据的行数：{summary.writable_rows}</div>
           </div>
           {pendingRows ? (
             <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
@@ -284,7 +341,7 @@ function UploadPanel({
                   绑定到已有 ASIN
                 </Button>
                 <Button type="button" variant="outline" disabled={busy || !resolveAsin.trim()} onClick={() => resolveRows("create_profile")} className="h-9">
-                  新建 ASIN档案
+                  新建 ASIN 数据
                 </Button>
                 <Button type="button" variant="outline" disabled={busy} onClick={() => resolveRows("ignore")} className="h-9">
                   忽略该数据
@@ -526,6 +583,8 @@ export function AsinModuleViewPage({ title, viewType, metrics, columns, uploadCo
   const [selectedKey, setSelectedKey] = useState("");
   const [view, setView] = useState<AsinModuleView | null>(null);
   const [loading, setLoading] = useState(true);
+  const [historyImporting, setHistoryImporting] = useState(false);
+  const [historyImportChecked, setHistoryImportChecked] = useState(false);
 
   const selectedProfile = useMemo(
     () => profiles.find((profile) => `${profile.store_id}::${profile.marketplace}::${profile.asin}` === selectedKey) || profiles[0] || null,
@@ -552,7 +611,17 @@ export function AsinModuleViewPage({ title, viewType, metrics, columns, uploadCo
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const profileData = await listAsinProfiles({ limit: 100 });
+      let profileData = await listAsinProfiles({ limit: 100 });
+      if (!profileData.items.length && !historyImportChecked) {
+        setHistoryImporting(true);
+        try {
+          await importFromListingDiagnosisHistory({ limit: 100 });
+          profileData = await listAsinProfiles({ limit: 100 });
+        } finally {
+          setHistoryImporting(false);
+          setHistoryImportChecked(true);
+        }
+      }
       setProfiles(profileData.items);
       const nextProfile = profileData.items[0] || null;
       setSelectedKey(nextProfile ? `${nextProfile.store_id}::${nextProfile.marketplace}::${nextProfile.asin}` : "");
@@ -560,9 +629,10 @@ export function AsinModuleViewPage({ title, viewType, metrics, columns, uploadCo
     } catch {
       setProfiles([]);
       setView(null);
+      setHistoryImportChecked(true);
       setLoading(false);
     }
-  }, [loadView]);
+  }, [historyImportChecked, loadView]);
 
   useEffect(() => {
     if (!authLoading) void loadData();
@@ -604,25 +674,32 @@ export function AsinModuleViewPage({ title, viewType, metrics, columns, uploadCo
                     <option key={`${profile.store_id}::${profile.marketplace}::${profile.asin}`} value={`${profile.store_id}::${profile.marketplace}::${profile.asin}`}>
                       {profile.asin} · {profile.product_name || UNSET}
                     </option>
-                  )) : <option value="">{EMPTY}</option>}
+                  )) : <option value="">请先上传报表导入 ASIN 数据</option>}
                 </select>
               </label>
               <div>
                 <div className="text-xs font-medium text-gray-500">站点</div>
                 <div className="mt-1 flex h-10 items-center rounded-lg border border-gray-100 bg-gray-50 px-3 text-sm font-semibold text-gray-900">
-                  {valueOrEmpty(selectedProfile?.marketplace)}
+                  {valueOrPrompt(selectedProfile?.marketplace, "选择 ASIN 后显示")}
                 </div>
               </div>
               <div>
                 <div className="text-xs font-medium text-gray-500">店铺</div>
                 <div className="mt-1 flex h-10 items-center rounded-lg border border-gray-100 bg-gray-50 px-3 text-sm font-semibold text-gray-900">
-                  {valueOrEmpty(selectedProfile?.store_id)}
+                  {valueOrPrompt(selectedProfile?.store_id, "选择 ASIN 后显示")}
                 </div>
               </div>
             </div>
           </Card>
 
           <div className="space-y-4">
+            {!profiles.length ? (
+              <FirstUseEmptyState
+                uploadConfig={uploadConfig}
+                historyImporting={historyImporting}
+                historyImportChecked={historyImportChecked}
+              />
+            ) : null}
             {uploadConfig ? (
               <UploadPanel config={uploadConfig} selectedProfile={selectedProfile} onParsed={loadData} />
             ) : null}
@@ -632,25 +709,25 @@ export function AsinModuleViewPage({ title, viewType, metrics, columns, uploadCo
                 <div>
                   <div className="text-xs font-medium text-gray-500">判断结论</div>
                   <div className="mt-2 text-[16px] font-semibold leading-7 text-brand-800">
-                    {valueOrEmpty(summary.conclusion)}
+                    {valueOrPrompt(summary.conclusion, "上传报表后生成判断结论")}
                   </div>
                 </div>
                 <div>
                   <div className="text-xs font-medium text-gray-500">当前最大问题</div>
                   <div className="mt-2 text-sm font-semibold leading-6 text-gray-950">
-                    {valueOrEmpty(summary.current_primary_problem)}
+                    {valueOrPrompt(summary.current_primary_problem, "上传报表后生成问题定位")}
                   </div>
                 </div>
                 <div>
                   <div className="text-xs font-medium text-gray-500">优先动作</div>
                   <div className="mt-2 text-sm font-semibold leading-6 text-gray-950">
-                    {valueOrEmpty(summary.priority_actions || summary.recommended_action)}
+                    {valueOrPrompt(summary.priority_actions || summary.recommended_action, "上传报表后生成优先动作")}
                   </div>
                 </div>
                 <div>
                   <div className="text-xs font-medium text-gray-500">生成时间</div>
                   <div className="mt-2 text-sm font-semibold text-gray-950">
-                    {formatDate(summary.created_at)}
+                    {formatDateOrPrompt(summary.created_at, "生成后显示")}
                   </div>
                 </div>
               </div>

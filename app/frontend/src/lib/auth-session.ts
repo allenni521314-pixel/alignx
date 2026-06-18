@@ -36,6 +36,7 @@ function isExcludedAuthEndpoint(url: string): boolean {
 }
 
 function shouldHandleUnauthorized(url: string): boolean {
+  if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") return false;
   return url.includes("/api/v1/") && !isExcludedAuthEndpoint(url);
 }
 

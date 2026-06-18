@@ -591,6 +591,18 @@ export async function importDemoFromListingDiagnosis(params: {
   return res.data;
 }
 
+export async function importFromListingDiagnosisHistory(params: {
+  store_id?: string;
+  marketplace?: string;
+  limit?: number;
+} = {}): Promise<{ imported_profiles: number; skipped_without_asin: number; source: string }> {
+  const res = await axios.post(`${API_BASE}/import-from-listing-diagnosis`, null, {
+    params,
+    headers: getAuthHeaders(),
+  });
+  return res.data;
+}
+
 export async function clearDemoAsinProfileData(): Promise<{ deleted: Record<string, number> }> {
   const res = await axios.delete(`${API_BASE}/demo`, { headers: getAuthHeaders() });
   return res.data;

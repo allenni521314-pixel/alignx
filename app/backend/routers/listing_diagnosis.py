@@ -61,11 +61,24 @@ from services.canonical_10d_scoring import product_evidence_similarity
 from services.human_nature_model import build_human_nature_graph, human_nature_prompt_block
 from services.cosmo_operator_agent import CosmoOperatorAgent
 from services.scrapeless_amazon_capture import scrape_amazon_product_via_scrapeless
+from services.asin_business_profile import AsinBusinessProfileService
 
 logger = logging.getLogger(__name__)
 AI_DIAGNOSIS_TIMEOUT_SECONDS = int(os.getenv("AI_DIAGNOSIS_TIMEOUT_SECONDS", "300"))
 
 router = APIRouter(prefix="/api/v1/listing-diagnosis", tags=["listing-diagnosis"])
+
+
+async def _sync_asin_profile_from_listing_record(db: AsyncSession, user_id: str, record: Any) -> None:
+    if not record:
+        return
+    try:
+        await AsinBusinessProfileService(db).upsert_profile_from_listing_diagnosis_record(
+            seller_id=user_id,
+            row=record,
+        )
+    except Exception as exc:
+        logger.error(f"Sync ASIN profile from listing diagnosis failed: {exc}", exc_info=True)
 
 
 def _stable_score_offset(*parts: str) -> int:
@@ -2989,6 +3002,7 @@ async def _diagnose_single(
         )
         if record:
             record_id = record.id
+            await _sync_asin_profile_from_listing_record(db, user_id, record)
             try:
                 validation_items = ad_validation_plan.get("validation_items", []) if isinstance(ad_validation_plan, dict) else []
                 first_validation = validation_items[0] if validation_items else {}
@@ -3882,6 +3896,7 @@ async def save_fetched_listing(
         }, asin=request.asin or listing.asin, marketplace=listing.marketplace or "US", user_id=str(current_user.id))
 
         record_id = record.id if record else None
+        await _sync_asin_profile_from_listing_record(db, str(current_user.id), record)
         logger.info(f"Saved fetched listing '{listing.title[:60]}' with id={record_id}")
         return {"success": True, "id": record_id}
     except Exception as e:

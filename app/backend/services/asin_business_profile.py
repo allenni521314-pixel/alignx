@@ -1329,6 +1329,54 @@ class AsinBusinessProfileService:
             "source": DEMO_SOURCE,
         }
 
+    async def import_from_listing_history(
+        self,
+        *,
+        seller_id: str,
+        source_seller_ids: Optional[list[str]] = None,
+        store_id: str = DEFAULT_STORE_ID,
+        marketplace: Optional[str] = None,
+        limit: int = 100,
+    ) -> dict:
+        source_ids = source_seller_ids or [seller_id]
+        query = select(Listing_diagnoses).where(Listing_diagnoses.user_id.in_(source_ids))
+        if marketplace:
+            query = query.where(Listing_diagnoses.marketplace == normalize_marketplace(marketplace))
+        result = await self.db.execute(query.order_by(Listing_diagnoses.id.desc()).limit(limit * 5))
+        rows = result.scalars().all()
+
+        imported_profiles = 0
+        skipped_without_asin = 0
+        seen: set[tuple[str, str]] = set()
+
+        for row in rows:
+            asin = Listing_diagnosesService._record_asin(row)
+            if not asin:
+                skipped_without_asin += 1
+                continue
+
+            row_marketplace = normalize_marketplace(row.marketplace)
+            key = (row_marketplace, asin)
+            if key in seen:
+                continue
+            seen.add(key)
+
+            profile = await self.upsert_profile_from_listing_diagnosis_record(
+                seller_id=seller_id,
+                store_id=store_id,
+                row=row,
+            )
+            imported_profiles += 1 if profile else 0
+
+            if imported_profiles >= limit:
+                break
+
+        return {
+            "imported_profiles": imported_profiles,
+            "skipped_without_asin": skipped_without_asin,
+            "source": "listing_diagnosis",
+        }
+
     async def clear_demo_data(self, *, seller_id: str) -> dict:
         tables = [
             AiDecisionTrace,
@@ -1372,6 +1420,56 @@ class AsinBusinessProfileService:
             "differentiation": row.score_differentiation or scores.get("differentiation"),
             "market_trend": row.score_market_trend or scores.get("market_trend"),
         }
+
+    async def upsert_profile_from_listing_diagnosis_record(
+        self,
+        *,
+        seller_id: str,
+        row: Listing_diagnoses,
+        store_id: str = DEFAULT_STORE_ID,
+    ) -> Optional[AsinBusinessProfile]:
+        asin = Listing_diagnosesService._record_asin(row)
+        if not asin:
+            return None
+
+        marketplace = normalize_marketplace(row.marketplace)
+        input_data = safe_json_loads(row.input_data)
+        report = safe_json_loads(row.diagnosis_report)
+        scores = self._extract_scores(row, report)
+        profile = await self._upsert_demo_profile_from_history(
+            seller_id=seller_id,
+            store_id=store_id,
+            marketplace=marketplace,
+            asin=asin,
+            row=row,
+            input_data=input_data,
+            report=report,
+            scores=scores,
+        )
+        if not profile:
+            return None
+
+        profile.data_source = "listing_diagnosis"
+        profile.is_demo = False
+
+        result = await self.db.execute(
+            select(ListingVersion).where(
+                ListingVersion.seller_id == seller_id,
+                ListingVersion.store_id == store_id,
+                ListingVersion.marketplace == marketplace,
+                ListingVersion.asin == asin,
+                ListingVersion.version == "V1",
+            )
+        )
+        version = result.scalar_one_or_none()
+        if version:
+            version.change_reason = "诊断保存"
+            version.data_source = "listing_diagnosis"
+            version.is_demo = False
+
+        await self.db.commit()
+        await self.db.refresh(profile)
+        return profile
 
     async def _upsert_demo_profile_from_history(
         self,

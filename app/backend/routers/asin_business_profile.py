@@ -229,6 +229,25 @@ async def import_demo_from_listing_history(
     )
 
 
+@router.post("/import-from-listing-diagnosis")
+async def import_from_listing_history(
+    store_id: str = DEFAULT_STORE_ID,
+    marketplace: str = "",
+    limit: int = Query(100, ge=1, le=500),
+    current_user: UserResponse = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    service = AsinBusinessProfileService(db)
+    scope_user_ids = await get_user_scope_ids(current_user, db)
+    return await service.import_from_listing_history(
+        seller_id=str(current_user.id),
+        source_seller_ids=scope_user_ids,
+        store_id=store_id or DEFAULT_STORE_ID,
+        marketplace=marketplace or None,
+        limit=limit,
+    )
+
+
 @router.delete("/demo")
 async def clear_demo_data(
     current_user: UserResponse = Depends(get_current_user),
