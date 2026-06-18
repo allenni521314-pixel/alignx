@@ -2108,6 +2108,51 @@ def _default_inferred_signal(basis: str = "暂无") -> dict[str, Any]:
     return {"value": "暂无", "basis": basis, "confidence": "low", "needs_validation": True}
 
 
+def _market_level_from_ratio(value: float, medium_threshold: float, high_threshold: float) -> str:
+    if value >= high_threshold:
+        return "high"
+    if value >= medium_threshold:
+        return "medium"
+    return "low"
+
+
+def _keyword_terms_from_items(keyword: str, items: list[dict[str, Any]]) -> list[str]:
+    stopwords = {
+        "with",
+        "and",
+        "for",
+        "the",
+        "you",
+        "your",
+        "from",
+        "that",
+        "this",
+        "pack",
+        "set",
+        "amazon",
+    }
+    terms: list[str] = []
+    for raw in [keyword, *[str(item.get("title") or "") for item in items]]:
+        for token in re.findall(r"[A-Za-z][A-Za-z0-9-]{2,}", raw.lower()):
+            token = token.strip("-")
+            if token and token not in stopwords and token not in terms:
+                terms.append(token)
+            if len(terms) >= 24:
+                return terms
+    return terms
+
+
+def _fill_inferred_signal(current: Any, value: str, basis: str, confidence: str = "medium") -> dict[str, Any]:
+    row = _dict_value(current)
+    if not str(row.get("value") or "").strip() or str(row.get("value")) == "暂无":
+        row["value"] = value
+    if not str(row.get("basis") or "").strip() or str(row.get("basis")) == "暂无":
+        row["basis"] = basis
+    row.setdefault("confidence", confidence)
+    row.setdefault("needs_validation", True)
+    return row
+
+
 def _complete_keyword_market_fields(market: dict[str, Any]) -> dict[str, Any]:
     lanes = _list_value(market.get("lanes"))
     items: list[dict[str, Any]] = []
@@ -2133,6 +2178,29 @@ def _complete_keyword_market_fields(market: dict[str, Any]) -> dict[str, Any]:
         if review is not None and review >= 0
     ]
     sponsored_count = len([item for item in items if item.get("isSponsored") or item.get("sponsored")])
+    top_sponsored_count = len([
+        item
+        for item in items
+        if (item.get("isSponsored") or item.get("sponsored")) and int(_num(item.get("searchRank") or item.get("rank")) or 999) <= 8
+    ])
+    low_review_count = len([review for review in reviews if 0 <= review <= 150])
+    brands = [
+        str(item.get("brand") or "").strip()
+        for item in items
+        if str(item.get("brand") or "").strip() and str(item.get("brand") or "").strip() != "暂无"
+    ]
+    brand_counts: dict[str, int] = {}
+    for brand in brands:
+        brand_counts[brand] = brand_counts.get(brand, 0) + 1
+    top_brands = [brand for brand, _count in sorted(brand_counts.items(), key=lambda row: row[1], reverse=True)[:5]]
+    top_brand_ratio = (max(brand_counts.values()) / len(brands)) if brands else 0
+    route_summary = _list_value(market.get("route_summary"))
+    route_names = [
+        str(route.get("route") or "").strip()
+        for route in route_summary
+        if isinstance(route, dict) and str(route.get("route") or "").strip() and str(route.get("route")) != "暂无"
+    ]
+    title_terms = _keyword_terms_from_items(str(market.get("keyword") or ""), items)
     top_asins = [
         str(item.get("asin") or "").strip()
         for item in sorted(items, key=lambda item: int(_num(item.get("searchRank") or item.get("rank")) or 999))
@@ -2143,53 +2211,135 @@ def _complete_keyword_market_fields(market: dict[str, Any]) -> dict[str, Any]:
     evidence["sample_count"] = int(_num(evidence.get("sample_count")) or item_count)
     evidence["top_sample_asins"] = _list_value(evidence.get("top_sample_asins")) or top_asins
     price_band = _dict_value(evidence.get("price_band"))
-    price_band.setdefault("min", min(prices) if prices else 0)
-    price_band.setdefault("median", _median_number(prices) if prices else 0)
-    price_band.setdefault("max", max(prices) if prices else 0)
-    price_band.setdefault("dominant_band", "暂无")
+    if not _num(price_band.get("min")):
+        price_band["min"] = min(prices) if prices else 0
+    if not _num(price_band.get("median")):
+        price_band["median"] = _median_number(prices) if prices else 0
+    if not _num(price_band.get("max")):
+        price_band["max"] = max(prices) if prices else 0
+    if not str(price_band.get("dominant_band") or "").strip() or str(price_band.get("dominant_band")) == "暂无":
+        price_band["dominant_band"] = f"{round(min(prices), 2)}-{round(max(prices), 2)}" if prices else "暂无"
     evidence["price_band"] = price_band
     review_barrier = _dict_value(evidence.get("review_barrier"))
-    review_barrier.setdefault("median_reviews", _median_number(reviews) if reviews else 0)
-    review_barrier.setdefault("top_review_threshold", max(reviews) if reviews else 0)
-    review_barrier.setdefault("new_low_review_opportunities", 0)
+    if not _num(review_barrier.get("median_reviews")):
+        review_barrier["median_reviews"] = _median_number(reviews) if reviews else 0
+    if not _num(review_barrier.get("top_review_threshold")):
+        review_barrier["top_review_threshold"] = max(reviews) if reviews else 0
+    if not _num(review_barrier.get("new_low_review_opportunities")):
+        review_barrier["new_low_review_opportunities"] = low_review_count
     evidence["review_barrier"] = review_barrier
     ad_density = _dict_value(evidence.get("ad_density"))
-    ad_density.setdefault("sponsored_count", sponsored_count)
-    ad_density.setdefault("sponsored_ratio", f"{round((sponsored_count / item_count) * 100)}%" if item_count else "暂无")
-    ad_density.setdefault("top_of_search_sponsored", "暂无")
+    if not _num(ad_density.get("sponsored_count")):
+        ad_density["sponsored_count"] = sponsored_count
+    if not str(ad_density.get("sponsored_ratio") or "").strip() or str(ad_density.get("sponsored_ratio")) == "暂无":
+        ad_density["sponsored_ratio"] = f"{round((sponsored_count / item_count) * 100)}%" if item_count else "暂无"
+    if not str(ad_density.get("top_of_search_sponsored") or "").strip() or str(ad_density.get("top_of_search_sponsored")) == "暂无":
+        ad_density["top_of_search_sponsored"] = str(top_sponsored_count) if item_count else "暂无"
     evidence["ad_density"] = ad_density
     brand_concentration = _dict_value(evidence.get("brand_concentration"))
-    brand_concentration.setdefault("top_brands", [])
-    brand_concentration.setdefault("concentration_level", "暂无")
+    if not _list_value(brand_concentration.get("top_brands")):
+        brand_concentration["top_brands"] = top_brands
+    if not str(brand_concentration.get("concentration_level") or "").strip() or str(brand_concentration.get("concentration_level")) == "暂无":
+        brand_concentration["concentration_level"] = _market_level_from_ratio(top_brand_ratio, 0.25, 0.45) if brands else "暂无"
     evidence["brand_concentration"] = brand_concentration
     intent_purity = _dict_value(evidence.get("intent_purity"))
-    intent_purity.setdefault("level", "暂无")
-    intent_purity.setdefault("basis", "暂无")
+    if not str(intent_purity.get("level") or "").strip() or str(intent_purity.get("level")) == "暂无":
+        intent_purity["level"] = "high" if len(route_names) <= 2 and item_count >= 10 else "medium" if item_count else "暂无"
+    if not str(intent_purity.get("basis") or "").strip() or str(intent_purity.get("basis")) == "暂无":
+        intent_purity["basis"] = " / ".join(route_names[:4]) if route_names else "暂无"
     evidence["intent_purity"] = intent_purity
-    evidence.setdefault("differentiation_slots", [])
+    if not _list_value(evidence.get("differentiation_slots")) and route_names:
+        evidence["differentiation_slots"] = [{"slot": route, "evidence": "搜索结果路线"} for route in route_names[:4]]
+    else:
+        evidence.setdefault("differentiation_slots", [])
     evidence.setdefault("visible_complaint_pain_points", [])
     evidence.setdefault("compliance_sensitivity", [])
     market["frontend_evidence"] = evidence
 
     inferred = _dict_value(market.get("inferred_market_signals"))
-    inferred.setdefault("search_volume", _default_inferred_signal("前台证据推断"))
-    inferred.setdefault("trend", _default_inferred_signal("前台证据推断"))
-    inferred.setdefault("seasonality", _default_inferred_signal("前台证据推断"))
-    inferred.setdefault("cpc", _default_inferred_signal("广告密度/竞争结构推断"))
-    inferred.setdefault("click_concentration", _default_inferred_signal("头部样本结构推断"))
-    inferred.setdefault("sales_strength", _default_inferred_signal("BSR/评论量/排名结构推断"))
+    sample_basis = f"样本{item_count}个，广告样本{sponsored_count}个，低评论样本{low_review_count}个"
+    inferred["search_volume"] = _fill_inferred_signal(
+        inferred.get("search_volume"),
+        "medium" if item_count >= 10 else "暂无",
+        sample_basis if item_count else "前台证据不足",
+        "medium" if item_count >= 10 else "low",
+    )
+    inferred["trend"] = _fill_inferred_signal(
+        inferred.get("trend"),
+        "待验证",
+        "前台搜索结果快照不包含历史趋势",
+        "low",
+    )
+    inferred["seasonality"] = _fill_inferred_signal(
+        inferred.get("seasonality"),
+        "待验证",
+        "前台搜索结果快照不包含季节性",
+        "low",
+    )
+    inferred["cpc"] = _fill_inferred_signal(
+        inferred.get("cpc"),
+        _market_level_from_ratio(sponsored_count / item_count, 0.15, 0.35) if item_count else "暂无",
+        f"广告样本{sponsored_count}/{item_count}" if item_count else "广告密度证据不足",
+        "medium" if item_count else "low",
+    )
+    inferred["click_concentration"] = _fill_inferred_signal(
+        inferred.get("click_concentration"),
+        _market_level_from_ratio(top_brand_ratio, 0.25, 0.45) if brands else "暂无",
+        "头部品牌集中度" if brands else "品牌字段不足",
+        "medium" if brands else "low",
+    )
+    inferred["sales_strength"] = _fill_inferred_signal(
+        inferred.get("sales_strength"),
+        "medium" if reviews and _median_number(reviews) >= 150 else "low" if reviews else "暂无",
+        f"评论中位数{round(_median_number(reviews))}" if reviews else "评论证据不足",
+        "medium" if reviews else "low",
+    )
     market["inferred_market_signals"] = inferred
 
     expansion = _dict_value(market.get("keyword_expansion"))
-    for key in ["main_terms", "scenario_terms", "problem_terms", "long_tail_terms", "lower_competition_entries"]:
-        expansion.setdefault(key, [])
+    if not _list_value(expansion.get("main_terms")):
+        expansion["main_terms"] = title_terms[:5]
+    if not _list_value(expansion.get("scenario_terms")):
+        expansion["scenario_terms"] = title_terms[5:10]
+    if not _list_value(expansion.get("problem_terms")):
+        expansion["problem_terms"] = []
+    if not _list_value(expansion.get("long_tail_terms")):
+        expansion["long_tail_terms"] = title_terms[10:16]
+    if not _list_value(expansion.get("lower_competition_entries")):
+        expansion["lower_competition_entries"] = route_names[:5]
     market["keyword_expansion"] = expansion
 
     entry = _dict_value(market.get("profit_and_entry_assumptions"))
-    entry.setdefault("margin_pressure", {"level": "暂无", "basis": "暂无"})
-    entry.setdefault("supply_chain_difficulty", {"level": "暂无", "basis": "暂无"})
-    entry.setdefault("entry_barrier", {"level": "暂无", "basis": "暂无"})
-    entry.setdefault("ad_testability", {"level": "暂无", "basis": "暂无"})
+    def fill_entry_row(key: str, value: dict[str, Any]) -> None:
+        row = _dict_value(entry.get(key))
+        if not str(row.get("level") or "").strip() or str(row.get("level")) == "暂无":
+            row["level"] = value.get("level")
+        if not str(row.get("basis") or "").strip() or str(row.get("basis")) == "暂无":
+            row["basis"] = value.get("basis")
+        entry[key] = row
+
+    fill_entry_row(
+        "margin_pressure",
+        {
+            "level": _market_level_from_ratio(sponsored_count / item_count, 0.15, 0.35) if item_count else "暂无",
+            "basis": f"广告样本{sponsored_count}/{item_count}，价格中位数{round(_median_number(prices), 2) if prices else '暂无'}",
+        },
+    )
+    fill_entry_row("supply_chain_difficulty", {"level": "暂无", "basis": "暂无"})
+    fill_entry_row(
+        "entry_barrier",
+        {
+            "level": "high" if reviews and _median_number(reviews) >= 1000 else "medium" if reviews and _median_number(reviews) >= 150 else "low" if reviews else "暂无",
+            "basis": f"评论中位数{round(_median_number(reviews))}" if reviews else "评论证据不足",
+        },
+    )
+    fill_entry_row(
+        "ad_testability",
+        {
+            "level": "medium" if item_count and sponsored_count < item_count else "暂无",
+            "basis": f"广告样本{sponsored_count}/{item_count}" if item_count else "广告位证据不足",
+        },
+    )
     market["profit_and_entry_assumptions"] = entry
     return market
 
@@ -2621,6 +2771,7 @@ async def _execute_sampled_amazon_keyword_research(
             }
             for row in analyses
         ]
+        post_market = _complete_keyword_market_fields(post_market)
         amazon_result["market_research"] = post_market
         amazon_result["sample_status"] = "sufficient"
         if isinstance(amazon_result.get("keyword_six_dimension"), dict):
