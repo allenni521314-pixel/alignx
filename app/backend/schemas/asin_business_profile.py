@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date as date_type, datetime
 from typing import Any, Dict, List, Optional, Union
 
 from pydantic import BaseModel, Field
@@ -19,7 +19,7 @@ class AsinProfileUpsert(BaseModel):
     brand: Optional[str] = None
     product_name: Optional[str] = None
     category: Optional[str] = None
-    launch_date: Optional[date] = None
+    launch_date: Optional[date_type] = None
     current_price: Optional[float] = None
     lifecycle_stage: Optional[str] = None
     data_source: Optional[str] = None
@@ -36,7 +36,7 @@ class AsinProfileResponse(BaseModel):
     brand: Optional[str] = None
     product_name: Optional[str] = None
     category: Optional[str] = None
-    launch_date: Optional[date] = None
+    launch_date: Optional[date_type] = None
     current_price: Optional[float] = None
     lifecycle_stage: Optional[str] = None
     overall_score: Optional[float] = None
@@ -78,11 +78,14 @@ class DailySnapshotResponse(BaseModel):
     store_id: str
     marketplace: str
     asin: str
-    date: date
+    date: date_type
     sessions: Optional[int] = None
+    page_views: Optional[int] = None
+    units_ordered: Optional[int] = None
     clicks: Optional[int] = None
     orders: Optional[int] = None
     sales: Optional[float] = None
+    impressions: Optional[int] = None
     ctr: Optional[float] = None
     cvr: Optional[float] = None
     acos: Optional[float] = None
@@ -106,11 +109,14 @@ class DailySnapshotCreate(BaseModel):
     store_id: str = "default"
     marketplace: str = "US"
     asin: str
-    date: date
+    date: date_type
     sessions: Optional[int] = None
+    page_views: Optional[int] = None
+    units_ordered: Optional[int] = None
     clicks: Optional[int] = None
     orders: Optional[int] = None
     sales: Optional[float] = None
+    impressions: Optional[int] = None
     ctr: Optional[float] = None
     cvr: Optional[float] = None
     acos: Optional[float] = None
@@ -138,13 +144,74 @@ class ReportUploadCreate(BaseModel):
     marketplace: Optional[str] = "US"
     report_type: str
     original_filename: Optional[str] = None
+    file_path: Optional[str] = None
+    uploaded_by: Optional[str] = None
     parse_status: str = "Pending"
     parse_error: Optional[str] = None
-    date_range_start: Optional[date] = None
-    date_range_end: Optional[date] = None
+    date_range_start: Optional[date_type] = None
+    date_range_end: Optional[date_type] = None
+    row_count: Optional[int] = None
     source_file_url: Optional[str] = None
     data_source: Optional[str] = None
     is_demo: bool = False
+
+
+class ReportUploadResponse(BaseModel):
+    report_id: str
+    seller_id: str
+    store_id: str
+    marketplace: Optional[str] = None
+    report_type: str
+    original_filename: Optional[str] = None
+    file_path: Optional[str] = None
+    upload_time: Optional[datetime] = None
+    uploaded_by: Optional[str] = None
+    parse_status: str
+    parse_error: Optional[str] = None
+    date_range_start: Optional[date_type] = None
+    date_range_end: Optional[date_type] = None
+    row_count: Optional[int] = None
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class ReportParseSummary(BaseModel):
+    report_id: str
+    report_type: str
+    parse_status: str
+    total_rows: int
+    matched_asin_rows: int
+    unmatched_rows: int
+    ambiguous_rows: int
+    writable_rows: int
+
+
+class StagingRowResponse(BaseModel):
+    id: int
+    report_id: str
+    seller_id: str
+    store_id: str
+    marketplace: str
+    asin: Optional[str] = None
+    date: Optional[date_type] = None
+    row_number: int
+    report_type: str
+    match_status: str
+    raw_data: Optional[str] = None
+    normalized_data: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class StagingRowListResponse(BaseModel):
+    items: List[StagingRowResponse]
+    total: int
+    skip: int
+    limit: int
 
 
 class ValidationTaskCreate(BaseModel):
@@ -156,12 +223,12 @@ class ValidationTaskCreate(BaseModel):
     hypothesis: Optional[str] = None
     action_plan: Optional[str] = None
     target_metric: Optional[str] = None
-    baseline_start_date: Optional[date] = None
-    baseline_end_date: Optional[date] = None
-    test_start_date: Optional[date] = None
-    test_end_date: Optional[date] = None
-    result_start_date: Optional[date] = None
-    result_end_date: Optional[date] = None
+    baseline_start_date: Optional[date_type] = None
+    baseline_end_date: Optional[date_type] = None
+    test_start_date: Optional[date_type] = None
+    test_end_date: Optional[date_type] = None
+    result_start_date: Optional[date_type] = None
+    result_end_date: Optional[date_type] = None
     baseline_value: Optional[float] = None
     target_value: Optional[float] = None
     result_value: Optional[float] = None
@@ -194,6 +261,7 @@ class ExecutionLogCreate(BaseModel):
     executed_by: Optional[str] = None
     executed_at: Optional[datetime] = None
     note: Optional[str] = None
+    source: Optional[str] = None
     data_source: Optional[str] = None
     is_demo: bool = False
 

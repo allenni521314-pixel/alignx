@@ -838,34 +838,12 @@ process_env_with_placeholders_from_file() {
 }
 
 
-# Find available port pair with same offset
-find_available_port_pair() {
-    local backend_start=$1
-    local frontend_start=$2
-    local max_offset=10000
-    local offset=0
-    
-    while [ $offset -le $max_offset ]; do
-        local backend_port=$((backend_start + offset))
-        local frontend_port=$((frontend_start + offset))
-        
-        if is_port_available $backend_port && is_port_available $frontend_port; then
-            echo "$backend_port $frontend_port"
-            return 0
-        fi
-        
-        offset=$((offset + 1))
-    done
-    
-    log_error "No available port pair found in range $backend_start-$((backend_start + max_offset)) and $frontend_start-$((frontend_start + max_offset))"
-    return 1
-}
-
 # Start services with retry mechanism
 start_services_with_retry() {
     local max_retries=3
     local retry_count=0
-    local current_offset=0
+    local backend_default_port=8000
+    local frontend_fixed_port=3006
     
     # Determine which function to use based on S2S JWT parameters
     # Priority: API mode if S2S JWT parameters are available, otherwise file mode
@@ -886,15 +864,21 @@ start_services_with_retry() {
         retry_count=$((retry_count + 1))
         log_info "Service startup attempt $retry_count/$max_retries..."
 
-        # Find available port pair starting from current offset
-        local port_pair
-        if ! port_pair=$(find_available_port_pair $((8000 + current_offset)) $((3000 + current_offset))); then
-            log_error "Failed to find available port pair"
+        BACKEND_PORT=${BACKEND_PORT:-$backend_default_port}
+        FRONTEND_PORT=${FRONTEND_PORT:-$frontend_fixed_port}
+
+        # 3006 is the only supported frontend port for this deployment.
+        # Fail fast if frontend port is occupied.
+        if ! is_port_available $FRONTEND_PORT; then
+            log_error "Frontend fixed port $FRONTEND_PORT is occupied. Keep only one frontend instance and restart after freeing $FRONTEND_PORT."
             return 1
         fi
 
-        BACKEND_PORT=$(echo $port_pair | awk '{print $1}')
-        FRONTEND_PORT=$(echo $port_pair | awk '{print $2}')
+        if ! is_port_available $BACKEND_PORT; then
+            log_error "Backend port $BACKEND_PORT is occupied. Keep only one backend instance and restart after freeing $BACKEND_PORT."
+            return 1
+        fi
+
         log_info "Assigned backend port: $BACKEND_PORT"
         log_info "Assigned frontend port: $FRONTEND_PORT"
 

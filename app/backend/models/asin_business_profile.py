@@ -102,9 +102,12 @@ class AsinDailySnapshot(Base):
     date = Column(Date, nullable=False, index=True)
 
     sessions = Column(Integer, nullable=True)
+    page_views = Column(Integer, nullable=True)
+    units_ordered = Column(Integer, nullable=True)
     clicks = Column(Integer, nullable=True)
     orders = Column(Integer, nullable=True)
     sales = Column(Float, nullable=True)
+    impressions = Column(Integer, nullable=True)
     ctr = Column(Float, nullable=True)
     cvr = Column(Float, nullable=True)
     acos = Column(Float, nullable=True)
@@ -136,11 +139,14 @@ class ReportUpload(Base):
     marketplace = Column(String, nullable=True, index=True)
     report_type = Column(String, nullable=False, index=True)
     original_filename = Column(String, nullable=True)
+    file_path = Column(Text, nullable=True)
     upload_time = Column(DateTime(timezone=True), nullable=True)
+    uploaded_by = Column(String, nullable=True)
     parse_status = Column(String, nullable=False, default="Pending")
     parse_error = Column(Text, nullable=True)
     date_range_start = Column(Date, nullable=True)
     date_range_end = Column(Date, nullable=True)
+    row_count = Column(Integer, nullable=True)
     source_file_url = Column(Text, nullable=True)
     data_source = Column(String, nullable=True)
     is_demo = Column(Boolean, nullable=False, default=False)
@@ -206,6 +212,7 @@ class AsinExecutionLog(Base):
     executed_by = Column(String, nullable=True)
     executed_at = Column(DateTime(timezone=True), nullable=True)
     note = Column(Text, nullable=True)
+    source = Column(String, nullable=True)
     data_source = Column(String, nullable=True)
     is_demo = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -295,3 +302,166 @@ class AsinKeywordProfile(Base):
     is_demo = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class AsinSkuMap(Base):
+    __tablename__ = "asin_sku_maps"
+    __table_args__ = (
+        UniqueConstraint("seller_id", "store_id", "marketplace", "sku", name="uq_asin_sku_map_scope"),
+        Index("ix_asin_sku_map_scope", "seller_id", "store_id", "marketplace", "asin"),
+        {"extend_existing": True},
+    )
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True, nullable=False)
+    seller_id = Column(String, nullable=False, index=True)
+    store_id = Column(String, nullable=False, index=True)
+    marketplace = Column(String, nullable=False, index=True)
+    asin = Column(String, nullable=False, index=True)
+    sku = Column(String, nullable=True, index=True)
+    seller_sku = Column(String, nullable=True, index=True)
+    product_name = Column(Text, nullable=True)
+    status = Column(String, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class AdEntityAsinMap(Base):
+    __tablename__ = "ad_entity_asin_maps"
+    __table_args__ = (
+        Index("ix_ad_entity_asin_map_scope", "seller_id", "store_id", "marketplace", "asin"),
+        Index("ix_ad_entity_asin_map_entity", "campaign_id", "ad_group_id", "ad_id"),
+        {"extend_existing": True},
+    )
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True, nullable=False)
+    seller_id = Column(String, nullable=False, index=True)
+    store_id = Column(String, nullable=False, index=True)
+    marketplace = Column(String, nullable=False, index=True)
+    asin = Column(String, nullable=False, index=True)
+    sku = Column(String, nullable=True, index=True)
+    campaign_id = Column(String, nullable=True, index=True)
+    campaign_name = Column(Text, nullable=True)
+    ad_group_id = Column(String, nullable=True, index=True)
+    ad_group_name = Column(Text, nullable=True)
+    ad_id = Column(String, nullable=True, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class ReportRowStaging(Base):
+    __tablename__ = "report_row_staging"
+    __table_args__ = (
+        Index("ix_report_row_staging_scope", "seller_id", "store_id", "marketplace", "asin"),
+        Index("ix_report_row_staging_report", "report_id", "match_status"),
+        {"extend_existing": True},
+    )
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True, nullable=False)
+    report_id = Column(String, nullable=False, index=True)
+    seller_id = Column(String, nullable=False, index=True)
+    store_id = Column(String, nullable=False, index=True)
+    marketplace = Column(String, nullable=False, index=True)
+    asin = Column(String, nullable=True, index=True)
+    date = Column(Date, nullable=True, index=True)
+    row_number = Column(Integer, nullable=False)
+    report_type = Column(String, nullable=False, index=True)
+    match_status = Column(String, nullable=False, index=True)
+    raw_data = Column(Text, nullable=True)
+    normalized_data = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class AdProductDaily(Base):
+    __tablename__ = "ad_product_daily"
+    __table_args__ = (
+        Index("ix_ad_product_daily_scope", "seller_id", "store_id", "marketplace", "asin", "date"),
+        {"extend_existing": True},
+    )
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True, nullable=False)
+    seller_id = Column(String, nullable=False, index=True)
+    store_id = Column(String, nullable=False, index=True)
+    marketplace = Column(String, nullable=False, index=True)
+    asin = Column(String, nullable=False, index=True)
+    sku = Column(String, nullable=True, index=True)
+    date = Column(Date, nullable=False, index=True)
+    campaign_name = Column(Text, nullable=True)
+    campaign_id = Column(String, nullable=True, index=True)
+    ad_group_name = Column(Text, nullable=True)
+    ad_group_id = Column(String, nullable=True, index=True)
+    impressions = Column(Integer, nullable=True)
+    clicks = Column(Integer, nullable=True)
+    spend = Column(Float, nullable=True)
+    sales = Column(Float, nullable=True)
+    orders = Column(Integer, nullable=True)
+    units = Column(Integer, nullable=True)
+    ctr = Column(Float, nullable=True)
+    cpc = Column(Float, nullable=True)
+    acos = Column(Float, nullable=True)
+    roas = Column(Float, nullable=True)
+    source_report_id = Column(String, nullable=True, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class AdSearchTermDaily(Base):
+    __tablename__ = "ad_search_term_daily"
+    __table_args__ = (
+        Index("ix_ad_search_term_daily_scope", "seller_id", "store_id", "marketplace", "asin", "date"),
+        {"extend_existing": True},
+    )
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True, nullable=False)
+    seller_id = Column(String, nullable=False, index=True)
+    store_id = Column(String, nullable=False, index=True)
+    marketplace = Column(String, nullable=False, index=True)
+    asin = Column(String, nullable=False, index=True)
+    date = Column(Date, nullable=False, index=True)
+    campaign_name = Column(Text, nullable=True)
+    ad_group_name = Column(Text, nullable=True)
+    keyword = Column(Text, nullable=True)
+    match_type = Column(String, nullable=True)
+    customer_search_term = Column(Text, nullable=True)
+    impressions = Column(Integer, nullable=True)
+    clicks = Column(Integer, nullable=True)
+    spend = Column(Float, nullable=True)
+    sales = Column(Float, nullable=True)
+    orders = Column(Integer, nullable=True)
+    units = Column(Integer, nullable=True)
+    ctr = Column(Float, nullable=True)
+    cpc = Column(Float, nullable=True)
+    acos = Column(Float, nullable=True)
+    roas = Column(Float, nullable=True)
+    source_report_id = Column(String, nullable=True, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class AdTargetDaily(Base):
+    __tablename__ = "ad_target_daily"
+    __table_args__ = (
+        Index("ix_ad_target_daily_scope", "seller_id", "store_id", "marketplace", "asin", "date"),
+        {"extend_existing": True},
+    )
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True, nullable=False)
+    seller_id = Column(String, nullable=False, index=True)
+    store_id = Column(String, nullable=False, index=True)
+    marketplace = Column(String, nullable=False, index=True)
+    asin = Column(String, nullable=False, index=True)
+    date = Column(Date, nullable=False, index=True)
+    campaign_name = Column(Text, nullable=True)
+    ad_group_name = Column(Text, nullable=True)
+    targeting = Column(Text, nullable=True)
+    targeting_type = Column(String, nullable=True)
+    match_type = Column(String, nullable=True)
+    impressions = Column(Integer, nullable=True)
+    clicks = Column(Integer, nullable=True)
+    spend = Column(Float, nullable=True)
+    sales = Column(Float, nullable=True)
+    orders = Column(Integer, nullable=True)
+    units = Column(Integer, nullable=True)
+    ctr = Column(Float, nullable=True)
+    cpc = Column(Float, nullable=True)
+    acos = Column(Float, nullable=True)
+    roas = Column(Float, nullable=True)
+    source_report_id = Column(String, nullable=True, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())

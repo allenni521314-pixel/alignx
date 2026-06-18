@@ -5,6 +5,13 @@ export default function YesterdayReport() {
     <AsinModuleViewPage
       title="昨日战报"
       viewType="yesterday-report"
+      uploadConfig={{
+        buttonLabel: "上传昨日经营数据",
+        options: [
+          { value: "BUSINESS_REPORT", label: "销售流量报表" },
+          { value: "ADVERTISED_PRODUCT_REPORT", label: "广告商品报表" },
+        ],
+      }}
       metrics={[
         { key: "overall_score", label: "综合评分" },
         { key: "sessions", label: "Sessions" },

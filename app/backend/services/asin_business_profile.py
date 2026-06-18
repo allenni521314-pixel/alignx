@@ -35,6 +35,8 @@ METRIC_DEFINITIONS = [
     ("UNIT_SESSION_PERCENTAGE", "Unit Session Percentage", "Units Ordered / Sessions", "Unit session percentage"),
     ("ORGANIC_SALES_RATIO", "Organic Sales Ratio", "Organic Sales / Total Sales", "Organic sales ratio"),
     ("ADS_SALES_RATIO", "Ads Sales Ratio", "Ads Sales / Total Sales", "Ads sales ratio"),
+    ("CPC", "CPC", "Ad Spend / Clicks", "Cost per click"),
+    ("ROAS", "ROAS", "Ad Sales / Ad Spend", "Return on ad spend"),
 ]
 
 
@@ -444,11 +446,14 @@ class AsinBusinessProfileService:
             marketplace=normalize_marketplace(data.get("marketplace")),
             report_type=data.get("report_type"),
             original_filename=data.get("original_filename"),
+            file_path=data.get("file_path"),
             upload_time=datetime.now(timezone.utc),
+            uploaded_by=data.get("uploaded_by"),
             parse_status=data.get("parse_status") or "Pending",
             parse_error=data.get("parse_error"),
             date_range_start=data.get("date_range_start"),
             date_range_end=data.get("date_range_end"),
+            row_count=data.get("row_count"),
             source_file_url=data.get("source_file_url"),
             data_source=data.get("data_source"),
             is_demo=bool(data.get("is_demo")),
@@ -606,6 +611,7 @@ class AsinBusinessProfileService:
             executed_by=data.get("executed_by") or seller_id,
             executed_at=data.get("executed_at") or datetime.now(timezone.utc),
             note=data.get("note"),
+            source=data.get("source") or data.get("data_source"),
             data_source=data.get("data_source"),
             is_demo=bool(data.get("is_demo")),
         )

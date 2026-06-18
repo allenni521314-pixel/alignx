@@ -622,7 +622,9 @@ def _normalize_search_items(raw: dict[str, Any], keyword: str, marketplace: str,
         )
         if len(normalized) >= rank_start + 9:
             break
-    page_items = normalized[rank_start - 1 : rank_start + 9]
+    # Each ScraperAPI search page returns at most one batch of search results.
+    # Slice by batch position in page-independent way to avoid missing full page data.
+    page_items = normalized[:10]
     for index, item in enumerate(page_items, start=rank_start):
         item["searchRank"] = index
     return page_items

@@ -5,6 +5,13 @@ export default function AdvertisingStrategy() {
     <AsinModuleViewPage
       title="流量策略"
       viewType="traffic-strategy"
+      uploadConfig={{
+        buttonLabel: "上传周度流量数据",
+        options: [
+          { value: "SEARCH_TERM_REPORT", label: "搜索词报表" },
+          { value: "TARGETING_REPORT", label: "Target报表" },
+        ],
+      }}
       metrics={[
         { key: "sessions", label: "Sessions" },
         { key: "ctr", label: "CTR" },

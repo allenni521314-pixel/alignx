@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, Upload } from "lucide-react";
 
 import { AppSidebar } from "@/components/AppSidebar";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,9 @@ import {
   type AsinModuleViewType,
   getAsinModuleView,
   listAsinProfiles,
+  parseReport,
+  type ReportParseSummary,
+  uploadReport,
 } from "@/lib/asin-business-profile-api";
 
 const EMPTY = "暂无";
@@ -26,11 +29,22 @@ export interface AsinModuleMetric {
   label: string;
 }
 
+export interface AsinModuleUploadOption {
+  value: string;
+  label: string;
+}
+
+export interface AsinModuleUploadConfig {
+  buttonLabel: string;
+  options: AsinModuleUploadOption[];
+}
+
 interface AsinModuleViewPageProps {
   title: string;
   viewType: AsinModuleViewType;
   metrics: AsinModuleMetric[];
   columns: AsinModuleColumn[];
+  uploadConfig?: AsinModuleUploadConfig;
 }
 
 function valueOrEmpty(value: unknown) {
@@ -122,7 +136,110 @@ function RecordsTable({ columns, records }: { columns: AsinModuleColumn[]; recor
   );
 }
 
-export function AsinModuleViewPage({ title, viewType, metrics, columns }: AsinModuleViewPageProps) {
+function UploadPanel({
+  config,
+  selectedProfile,
+  onParsed,
+}: {
+  config: AsinModuleUploadConfig;
+  selectedProfile: AsinBusinessProfile | null;
+  onParsed: () => Promise<void>;
+}) {
+  const [reportType, setReportType] = useState(config.options[0]?.value || "");
+  const [dateStart, setDateStart] = useState("");
+  const [dateEnd, setDateEnd] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [summary, setSummary] = useState<ReportParseSummary | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const submit = useCallback(async () => {
+    if (!file || !reportType) return;
+    setBusy(true);
+    try {
+      const upload = await uploadReport({
+        file,
+        report_type: reportType,
+        store_id: selectedProfile?.store_id || "default",
+        marketplace: selectedProfile?.marketplace || "US",
+        date_range_start: dateStart || undefined,
+        date_range_end: dateEnd || undefined,
+      });
+      const parsed = await parseReport(upload.report_id);
+      setSummary(parsed);
+      await onParsed();
+    } finally {
+      setBusy(false);
+    }
+  }, [dateEnd, dateStart, file, onParsed, reportType, selectedProfile?.marketplace, selectedProfile?.store_id]);
+
+  return (
+    <Card className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-[180px_160px_160px_1fr_160px]">
+        <label className="block">
+          <span className="mb-1 block text-xs font-medium text-gray-500">报表类型</span>
+          <select
+            value={reportType}
+            onChange={(event) => setReportType(event.target.value)}
+            className="h-10 w-full rounded-lg border border-gray-200 bg-white px-3 text-sm font-semibold text-gray-900 outline-none focus:border-brand-600 focus:ring-2 focus:ring-brand-100"
+          >
+            {config.options.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-xs font-medium text-gray-500">开始日期</span>
+          <input
+            type="date"
+            value={dateStart}
+            onChange={(event) => setDateStart(event.target.value)}
+            className="h-10 w-full rounded-lg border border-gray-200 bg-white px-3 text-sm font-semibold text-gray-900 outline-none focus:border-brand-600 focus:ring-2 focus:ring-brand-100"
+          />
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-xs font-medium text-gray-500">结束日期</span>
+          <input
+            type="date"
+            value={dateEnd}
+            onChange={(event) => setDateEnd(event.target.value)}
+            className="h-10 w-full rounded-lg border border-gray-200 bg-white px-3 text-sm font-semibold text-gray-900 outline-none focus:border-brand-600 focus:ring-2 focus:ring-brand-100"
+          />
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-xs font-medium text-gray-500">文件</span>
+          <input
+            type="file"
+            accept=".csv,.xlsx,.xlsm"
+            onChange={(event) => setFile(event.target.files?.[0] || null)}
+            className="h-10 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-gray-900 outline-none file:mr-3 file:rounded-md file:border-0 file:bg-gray-100 file:px-2 file:py-1 file:text-xs file:font-semibold file:text-gray-700 focus:border-brand-600 focus:ring-2 focus:ring-brand-100"
+          />
+        </label>
+        <div className="flex items-end">
+          <Button onClick={submit} disabled={busy || !file} className="h-10 w-full gap-2 bg-brand-800 text-white hover:bg-brand-900">
+            <Upload className="h-4 w-4" />
+            {config.buttonLabel}
+          </Button>
+        </div>
+      </div>
+      {summary ? (
+        <div className="mt-3 grid grid-cols-2 gap-2 text-xs font-semibold text-gray-700 md:grid-cols-5">
+          <div>总行数：{summary.total_rows}</div>
+          <div>已匹配 ASIN 行数：{summary.matched_asin_rows}</div>
+          <div>未匹配行数：{summary.unmatched_rows}</div>
+          <div>多重匹配行数：{summary.ambiguous_rows}</div>
+          <div>可写入 ASIN档案的行数：{summary.writable_rows}</div>
+          {summary.unmatched_rows || summary.ambiguous_rows ? (
+            <div className="col-span-2 text-amber-700 md:col-span-5">部分数据无法对应到 ASIN，需确认后才能进入经营档案。</div>
+          ) : null}
+        </div>
+      ) : null}
+    </Card>
+  );
+}
+
+export function AsinModuleViewPage({ title, viewType, metrics, columns, uploadConfig }: AsinModuleViewPageProps) {
   const { loading: authLoading } = useRequireAuth();
   const [profiles, setProfiles] = useState<AsinBusinessProfile[]>([]);
   const [selectedKey, setSelectedKey] = useState("");
@@ -225,6 +342,9 @@ export function AsinModuleViewPage({ title, viewType, metrics, columns }: AsinMo
           </Card>
 
           <div className="space-y-4">
+            {uploadConfig ? (
+              <UploadPanel config={uploadConfig} selectedProfile={selectedProfile} onParsed={loadData} />
+            ) : null}
             <Card className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
               <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.4fr_1fr_1fr_160px]">
                 <div>

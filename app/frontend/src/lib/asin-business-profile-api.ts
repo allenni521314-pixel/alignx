@@ -102,9 +102,12 @@ export interface DailySnapshot {
   asin: string;
   date: string;
   sessions?: number | null;
+  page_views?: number | null;
+  units_ordered?: number | null;
   clicks?: number | null;
   orders?: number | null;
   sales?: number | null;
+  impressions?: number | null;
   ctr?: number | null;
   cvr?: number | null;
   acos?: number | null;
@@ -184,6 +187,35 @@ export interface DemoImportResponse {
   imported_ai_traces: number;
   skipped_without_complete_aplus: number;
   source: string;
+}
+
+export interface ReportUploadResponse {
+  report_id: string;
+  seller_id: string;
+  store_id: string;
+  marketplace?: string | null;
+  report_type: string;
+  original_filename?: string | null;
+  file_path?: string | null;
+  upload_time?: string | null;
+  uploaded_by?: string | null;
+  parse_status: string;
+  parse_error?: string | null;
+  date_range_start?: string | null;
+  date_range_end?: string | null;
+  row_count?: number | null;
+  created_at?: string | null;
+}
+
+export interface ReportParseSummary {
+  report_id: string;
+  report_type: string;
+  parse_status: string;
+  total_rows: number;
+  matched_asin_rows: number;
+  unmatched_rows: number;
+  ambiguous_rows: number;
+  writable_rows: number;
 }
 
 export async function listAsinProfiles(params: {
@@ -292,5 +324,29 @@ export async function importDemoFromListingDiagnosis(params: {
 
 export async function clearDemoAsinProfileData(): Promise<{ deleted: Record<string, number> }> {
   const res = await axios.delete(`${API_BASE}/demo`, { headers: getAuthHeaders() });
+  return res.data;
+}
+
+export async function uploadReport(params: {
+  file: File;
+  report_type: string;
+  store_id?: string;
+  marketplace?: string;
+  date_range_start?: string;
+  date_range_end?: string;
+}): Promise<ReportUploadResponse> {
+  const form = new FormData();
+  form.append("file", params.file);
+  form.append("report_type", params.report_type);
+  form.append("store_id", params.store_id || "default");
+  form.append("marketplace", params.marketplace || "US");
+  if (params.date_range_start) form.append("date_range_start", params.date_range_start);
+  if (params.date_range_end) form.append("date_range_end", params.date_range_end);
+  const res = await axios.post("/api/reports/upload", form, { headers: getAuthHeaders() });
+  return res.data;
+}
+
+export async function parseReport(reportId: string): Promise<ReportParseSummary> {
+  const res = await axios.post(`/api/reports/${reportId}/parse`, null, { headers: getAuthHeaders() });
   return res.data;
 }
