@@ -6,7 +6,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import get_db
 from dependencies.auth import get_current_user
-from schemas.asin_business_profile import ReportParseSummary, ReportUploadResponse, StagingRowListResponse
+from schemas.asin_business_profile import (
+    ReportParseSummary,
+    ReportUploadResponse,
+    StagingRowListResponse,
+    StagingRowResolveRequest,
+    StagingRowResolveResponse,
+)
 from schemas.auth import UserResponse
 from services.asin_business_profile import DEFAULT_STORE_ID, normalize_marketplace
 from services.report_import import ReportImportService
@@ -78,6 +84,25 @@ async def _list_staging_rows(
     )
 
 
+async def _resolve_staging_rows(
+    *,
+    data: StagingRowResolveRequest,
+    current_user: UserResponse,
+    db: AsyncSession,
+) -> StagingRowResolveResponse:
+    service = ReportImportService(db)
+    try:
+        return await service.resolve_staging_rows(
+            seller_id=str(current_user.id),
+            report_id=data.report_id,
+            action=data.action,
+            asin=data.asin,
+            staging_row_ids=data.staging_row_ids,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
 for item_router in (reports_router, reports_v1_router):
 
     @item_router.post("/upload", response_model=ReportUploadResponse)
@@ -127,6 +152,14 @@ for item_router in (reports_router, reports_v1_router):
             current_user=current_user,
             db=db,
         )
+
+    @item_router.post("/staging/resolve", response_model=StagingRowResolveResponse)
+    async def resolve_staging_rows(
+        data: StagingRowResolveRequest,
+        current_user: UserResponse = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db),
+    ):
+        return await _resolve_staging_rows(data=data, current_user=current_user, db=db)
 
 
 router = [reports_router, reports_v1_router]
