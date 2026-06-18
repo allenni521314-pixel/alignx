@@ -9,15 +9,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.asin_business_profile import (
     AiDecisionTrace,
+    AsinAiMemory,
     AsinBusinessProfile,
     AsinDailySnapshot,
     AsinExecutionLog,
+    AsinIntentDecision,
+    AsinIntentEvidence,
     AsinKeywordProfile,
+    AsinListingSnapshot,
+    AsinSafeExpression,
     ListingVersion,
     MetricDictionary,
     ReportUpload,
     ValidationTask,
 )
+from services.ai_service import AIService
 from models.listing_diagnoses import Listing_diagnoses
 from services.listing_diagnoses import Listing_diagnosesService
 
@@ -93,6 +99,7 @@ def score_average(values: Iterable[Any]) -> Optional[float]:
 class AsinBusinessProfileService:
     def __init__(self, db: AsyncSession):
         self.db = db
+        self.ai_service = AIService()
 
     async def ensure_metric_dictionary(self) -> None:
         for metric_key, metric_name, formula, description in METRIC_DEFINITIONS:
@@ -117,6 +124,466 @@ class AsinBusinessProfileService:
         await self.ensure_metric_dictionary()
         result = await self.db.execute(select(MetricDictionary).order_by(MetricDictionary.id.asc()))
         return list(result.scalars().all())
+
+    async def run_intent_decision(self, *, seller_id: str, asin: str, data: Dict[str, Any]) -> AsinIntentDecision:
+        normalized_asin = normalize_asin(asin)
+        if not normalized_asin:
+            raise ValueError("asin is required")
+        intent_name = str(data.get("intent_name") or "").strip()
+        if not intent_name:
+            raise ValueError("intent_name is required")
+        store_id = str(data.get("store_id") or DEFAULT_STORE_ID)
+        marketplace = normalize_marketplace(data.get("marketplace"))
+        await self._ensure_profile(seller_id=seller_id, store_id=store_id, marketplace=marketplace, asin=normalized_asin)
+
+        listing_snapshot = data.get("listing_snapshot") if isinstance(data.get("listing_snapshot"), dict) else None
+        has_listing = bool(listing_snapshot and any(listing_snapshot.get(key) for key in ("title", "bullet_points", "main_image", "secondary_images", "aplus")))
+        if listing_snapshot:
+            await self.create_listing_snapshot(
+                seller_id=seller_id,
+                data={**listing_snapshot, "store_id": store_id, "marketplace": marketplace, "asin": normalized_asin},
+            )
+
+        evidences = data.get("evidences") if isinstance(data.get("evidences"), list) else []
+        safe_expression = self._first_safe_expression(data, listing_snapshot)
+        blocked_expression = self._blocked_expression(data)
+        engine_result = await self.ai_service.run_intent_reception_engine(
+            {
+                **data,
+                "has_listing": has_listing,
+                "evidence_count": len(evidences),
+                "safe_expression": safe_expression,
+                "blocked_expression": blocked_expression,
+            }
+        )
+
+        decision = AsinIntentDecision(
+            intent_decision_id=f"intent_{uuid.uuid4().hex}",
+            seller_id=seller_id,
+            store_id=store_id,
+            marketplace=marketplace,
+            asin=normalized_asin,
+            intent_name=intent_name,
+            intent_description=data.get("intent_description"),
+            position_reception_result=engine_result.get("position_reception_result"),
+            semantic_audit_result=engine_result.get("semantic_audit_result"),
+            buyer_language_result=engine_result.get("buyer_language_result"),
+            intent_evidence_status=engine_result.get("intent_evidence_status"),
+            product_platform_safety_status=engine_result.get("product_platform_safety_status"),
+            investment_value_status=engine_result.get("investment_value_status"),
+            reception_gap=engine_result.get("reception_gap"),
+            safe_expression=engine_result.get("safe_expression"),
+            blocked_expression=engine_result.get("blocked_expression"),
+            recommended_action=engine_result.get("recommended_action") or "Do Not Invest",
+            priority_score=parse_float(engine_result.get("priority_score")),
+            confidence_score=parse_float(engine_result.get("confidence_score")) or self._evidence_confidence(evidences),
+            status=engine_result.get("status") or "Candidate",
+            data_source=data.get("data_source"),
+            is_demo=bool(data.get("is_demo")),
+        )
+        self.db.add(decision)
+        await self.db.flush()
+
+        for evidence in evidences:
+            if not isinstance(evidence, dict):
+                continue
+            self.db.add(
+                AsinIntentEvidence(
+                    evidence_id=f"evidence_{uuid.uuid4().hex}",
+                    intent_decision_id=decision.intent_decision_id,
+                    seller_id=seller_id,
+                    store_id=store_id,
+                    marketplace=marketplace,
+                    asin=normalized_asin,
+                    intent_name=intent_name,
+                    source_type=evidence.get("source_type") or "Manual",
+                    evidence_text=evidence.get("evidence_text"),
+                    metric_snapshot=json_dumps(evidence.get("metric_snapshot")),
+                    strength_score=parse_float(evidence.get("strength_score")),
+                    data_source=evidence.get("data_source") or data.get("data_source"),
+                    is_demo=bool(evidence.get("is_demo") or data.get("is_demo")),
+                )
+            )
+
+        self.db.add(
+            AsinSafeExpression(
+                safe_expression_id=f"safe_{uuid.uuid4().hex}",
+                intent_decision_id=decision.intent_decision_id,
+                seller_id=seller_id,
+                store_id=store_id,
+                marketplace=marketplace,
+                asin=normalized_asin,
+                buyer_language=data.get("intent_description") or intent_name,
+                seller_language=data.get("seller_language"),
+                safe_expression=decision.safe_expression,
+                blocked_expression=decision.blocked_expression,
+                risk_reason="待录入" if decision.product_platform_safety_status != "Blocked" else decision.blocked_expression,
+                evidence_required="待录入" if decision.product_platform_safety_status == "Needs Evidence" else None,
+                status=self._safe_expression_status(decision),
+                data_source=data.get("data_source"),
+                is_demo=bool(data.get("is_demo")),
+            )
+        )
+
+        trace = AiDecisionTrace(
+            decision_id=f"decision_{uuid.uuid4().hex}",
+            seller_id=seller_id,
+            store_id=store_id,
+            marketplace=marketplace,
+            asin=normalized_asin,
+            related_validation_id=None,
+            decision_type="Intent Decision",
+            conclusion=decision.recommended_action,
+            input_data_refs=json_dumps(data.get("input_data_refs")),
+            evidence_metrics=json_dumps({"evidence_count": len(evidences)}),
+            metric_snapshot=json_dumps(data.get("metric_snapshot")),
+            semantic_evidence=json_dumps(
+                {
+                    "position_reception_result": decision.position_reception_result,
+                    "semantic_audit_result": decision.semantic_audit_result,
+                    "buyer_language_result": decision.buyer_language_result,
+                }
+            ),
+            reasoning_summary=decision.reception_gap,
+            confidence_score=decision.confidence_score,
+            recommended_action=decision.recommended_action,
+            prompt_version=self.ai_service.prompt_version,
+            model_name=self.ai_service.model_name,
+            data_source=data.get("data_source"),
+            is_demo=bool(data.get("is_demo")),
+        )
+        self.db.add(trace)
+        await self._update_ai_memory_from_decision(decision)
+        await self.db.commit()
+        await self.db.refresh(decision)
+        return decision
+
+    async def create_listing_snapshot(self, *, seller_id: str, data: Dict[str, Any]) -> AsinListingSnapshot:
+        asin = normalize_asin(data.get("asin"))
+        if not asin:
+            raise ValueError("asin is required")
+        snapshot = AsinListingSnapshot(
+            seller_id=seller_id,
+            store_id=str(data.get("store_id") or DEFAULT_STORE_ID),
+            marketplace=normalize_marketplace(data.get("marketplace")),
+            asin=asin,
+            title=data.get("title"),
+            bullet_points=json_dumps(data.get("bullet_points")) if isinstance(data.get("bullet_points"), list) else data.get("bullet_points"),
+            description=data.get("description"),
+            aplus=json_dumps(data.get("aplus")),
+            main_image=data.get("main_image"),
+            secondary_images=json_dumps(data.get("secondary_images")) if isinstance(data.get("secondary_images"), list) else data.get("secondary_images"),
+            backend_terms=data.get("backend_terms"),
+            price=parse_float(data.get("price")),
+            coupon=data.get("coupon"),
+            snapshot_at=data.get("snapshot_at") or datetime.now(timezone.utc),
+            data_source=data.get("data_source"),
+            is_demo=bool(data.get("is_demo")),
+        )
+        self.db.add(snapshot)
+        await self.db.flush()
+        return snapshot
+
+    async def list_intent_decisions(
+        self,
+        *,
+        seller_id: str,
+        asin: Optional[str] = None,
+        store_id: Optional[str] = None,
+        marketplace: Optional[str] = None,
+        skip: int = 0,
+        limit: int = 50,
+    ) -> dict:
+        query = select(AsinIntentDecision).where(AsinIntentDecision.seller_id == seller_id)
+        count_query = select(func.count(AsinIntentDecision.id)).where(AsinIntentDecision.seller_id == seller_id)
+        if asin:
+            normalized_asin = normalize_asin(asin)
+            query = query.where(AsinIntentDecision.asin == normalized_asin)
+            count_query = count_query.where(AsinIntentDecision.asin == normalized_asin)
+        if store_id:
+            query = query.where(AsinIntentDecision.store_id == store_id)
+            count_query = count_query.where(AsinIntentDecision.store_id == store_id)
+        if marketplace:
+            normalized_marketplace = normalize_marketplace(marketplace)
+            query = query.where(AsinIntentDecision.marketplace == normalized_marketplace)
+            count_query = count_query.where(AsinIntentDecision.marketplace == normalized_marketplace)
+        total_result = await self.db.execute(count_query)
+        total = total_result.scalar() or 0
+        result = await self.db.execute(query.order_by(AsinIntentDecision.updated_at.desc()).offset(skip).limit(limit))
+        return {"items": list(result.scalars().all()), "total": total, "skip": skip, "limit": limit}
+
+    async def get_asin_profile_detail(
+        self,
+        *,
+        seller_id: str,
+        asin: str,
+        store_id: str = DEFAULT_STORE_ID,
+        marketplace: str = "US",
+    ) -> dict:
+        normalized_asin = normalize_asin(asin)
+        normalized_marketplace = normalize_marketplace(marketplace)
+        profile = await self.get_profile(
+            seller_id=seller_id,
+            store_id=store_id or DEFAULT_STORE_ID,
+            marketplace=normalized_marketplace,
+            asin=normalized_asin,
+        )
+        memory_result = await self.db.execute(
+            select(AsinAiMemory).where(
+                AsinAiMemory.seller_id == seller_id,
+                AsinAiMemory.store_id == (store_id or DEFAULT_STORE_ID),
+                AsinAiMemory.marketplace == normalized_marketplace,
+                AsinAiMemory.asin == normalized_asin,
+            )
+        )
+        decisions = await self.list_intent_decisions(
+            seller_id=seller_id,
+            asin=normalized_asin,
+            store_id=store_id or DEFAULT_STORE_ID,
+            marketplace=normalized_marketplace,
+            limit=20,
+        )
+        latest_snapshots = await self._latest_snapshots(profile) if profile else []
+        return {
+            "profile": profile,
+            "memory": memory_result.scalar_one_or_none(),
+            "intent_decisions": decisions["items"],
+            "latest_snapshots": latest_snapshots,
+        }
+
+    async def run_effect_validation(
+        self,
+        *,
+        seller_id: str,
+        validation_id: str,
+        result_start_date: Optional[date] = None,
+        result_end_date: Optional[date] = None,
+        minimum_sample_ready: bool = True,
+    ) -> dict:
+        result = await self.db.execute(
+            select(ValidationTask).where(
+                ValidationTask.validation_id == validation_id,
+                ValidationTask.seller_id == seller_id,
+            )
+        )
+        task = result.scalar_one_or_none()
+        if not task:
+            raise ValueError("validation_id not found")
+
+        if result_start_date:
+            task.result_start_date = result_start_date
+        if result_end_date:
+            task.result_end_date = result_end_date
+
+        metric_column = self._snapshot_metric_column(task.target_metric)
+        baseline_value = await self._period_average(task, metric_column, task.baseline_start_date, task.baseline_end_date) if metric_column is not None else None
+        result_value = await self._period_average(
+            task,
+            metric_column,
+            task.result_start_date or task.test_start_date,
+            task.result_end_date or task.test_end_date,
+        ) if metric_column is not None else None
+        task.baseline_value = baseline_value
+        task.result_value = result_value
+        task.status = self.evaluate_validation_status(
+            baseline_value=baseline_value,
+            target_value=task.target_value,
+            result_value=result_value,
+            minimum_sample_ready=minimum_sample_ready,
+        )
+        if baseline_value not in (None, 0) and result_value is not None:
+            task.improvement_rate = round((result_value - baseline_value) / baseline_value, 6)
+        task.updated_at = datetime.now(timezone.utc)
+
+        decision = None
+        if task.intent_decision_id:
+            decision = await self._get_intent_decision(
+                seller_id=seller_id,
+                store_id=task.store_id,
+                marketplace=task.marketplace,
+                asin=task.asin,
+                intent_decision_id=task.intent_decision_id,
+            )
+            if decision:
+                decision.validation_task_id = task.validation_id
+                decision.validation_result = task.status
+                decision.status = {"Success": "Validated", "Failed": "Failed", "Inconclusive": "Inconclusive"}.get(task.status, decision.status)
+                await self._update_ai_memory_from_decision(decision)
+
+        ai_result = await self.ai_service.run_effect_validation(
+            {
+                "status": task.status,
+                "recommended_action": task.action_plan,
+                "reasoning_summary": task.target_metric,
+            }
+        )
+        trace = AiDecisionTrace(
+            decision_id=f"effect_{uuid.uuid4().hex}",
+            seller_id=task.seller_id,
+            store_id=task.store_id,
+            marketplace=task.marketplace,
+            asin=task.asin,
+            related_validation_id=task.validation_id,
+            decision_type="Effect Validation",
+            conclusion=ai_result.get("conclusion") or task.status,
+            input_data_refs=json_dumps({"validation_id": task.validation_id, "intent_decision_id": task.intent_decision_id}),
+            evidence_metrics=json_dumps(
+                {
+                    "baseline_value": task.baseline_value,
+                    "target_value": task.target_value,
+                    "result_value": task.result_value,
+                    "improvement_rate": task.improvement_rate,
+                }
+            ),
+            metric_snapshot=json_dumps({task.target_metric or "metric": task.result_value}),
+            semantic_evidence=json_dumps({"validation_result": task.status}),
+            reasoning_summary=ai_result.get("reasoning_summary") or task.target_metric,
+            confidence_score=task.confidence_score,
+            recommended_action=ai_result.get("recommended_action") or task.action_plan,
+            prompt_version=self.ai_service.prompt_version,
+            model_name=self.ai_service.model_name,
+        )
+        self.db.add(trace)
+        await self.db.commit()
+        return {
+            "validation_id": task.validation_id,
+            "intent_decision_id": task.intent_decision_id,
+            "asin": task.asin,
+            "status": task.status,
+            "baseline_value": task.baseline_value,
+            "target_value": task.target_value,
+            "result_value": task.result_value,
+            "improvement_rate": task.improvement_rate,
+            "decision_id": trace.decision_id,
+        }
+
+    async def _ensure_profile(self, *, seller_id: str, store_id: str, marketplace: str, asin: str) -> AsinBusinessProfile:
+        profile = await self.get_profile(seller_id=seller_id, store_id=store_id, marketplace=marketplace, asin=asin)
+        if profile:
+            return profile
+        profile = AsinBusinessProfile(seller_id=seller_id, store_id=store_id, marketplace=marketplace, asin=asin)
+        self.db.add(profile)
+        await self.db.flush()
+        return profile
+
+    async def _get_intent_decision(
+        self,
+        *,
+        seller_id: str,
+        store_id: str,
+        marketplace: str,
+        asin: str,
+        intent_decision_id: str,
+    ) -> Optional[AsinIntentDecision]:
+        result = await self.db.execute(
+            select(AsinIntentDecision).where(
+                AsinIntentDecision.intent_decision_id == intent_decision_id,
+                AsinIntentDecision.seller_id == seller_id,
+                AsinIntentDecision.store_id == store_id,
+                AsinIntentDecision.marketplace == marketplace,
+                AsinIntentDecision.asin == asin,
+            )
+        )
+        return result.scalar_one_or_none()
+
+    def _first_safe_expression(self, data: dict, listing_snapshot: Optional[dict]) -> str:
+        explicit = data.get("safe_expression")
+        if explicit:
+            return str(explicit)
+        if listing_snapshot and listing_snapshot.get("title"):
+            return str(listing_snapshot.get("title"))
+        return ""
+
+    def _blocked_expression(self, data: dict) -> str:
+        value = data.get("blocked_expression")
+        if value:
+            return str(value)
+        safety = str(data.get("product_platform_safety_status") or "").lower()
+        return "平台安全风险" if safety in {"blocked", "high risk"} else ""
+
+    def _evidence_confidence(self, evidences: list) -> Optional[float]:
+        scores = [parse_float(item.get("strength_score")) for item in evidences if isinstance(item, dict)]
+        return score_average([score for score in scores if score is not None])
+
+    def _safe_expression_status(self, decision: AsinIntentDecision) -> str:
+        if decision.recommended_action == "Blocked" or decision.product_platform_safety_status == "Blocked":
+            return "Blocked"
+        if decision.product_platform_safety_status == "Needs Evidence":
+            return "Needs Evidence"
+        if not decision.safe_expression or decision.safe_expression == "待录入":
+            return "Needs Rewrite"
+        return "Safe"
+
+    async def _update_ai_memory_from_decision(self, decision: AsinIntentDecision) -> AsinAiMemory:
+        result = await self.db.execute(
+            select(AsinAiMemory).where(
+                AsinAiMemory.seller_id == decision.seller_id,
+                AsinAiMemory.store_id == decision.store_id,
+                AsinAiMemory.marketplace == decision.marketplace,
+                AsinAiMemory.asin == decision.asin,
+            )
+        )
+        memory = result.scalar_one_or_none()
+        if not memory:
+            memory = AsinAiMemory(
+                seller_id=decision.seller_id,
+                store_id=decision.store_id,
+                marketplace=decision.marketplace,
+                asin=decision.asin,
+            )
+            self.db.add(memory)
+        validated = safe_json_loads(memory.validated_intents).get("items", [])
+        failed = safe_json_loads(memory.failed_intents).get("items", [])
+        if decision.validation_result == "Success" or decision.status == "Validated":
+            if decision.intent_name not in validated:
+                validated.append(decision.intent_name)
+        if decision.validation_result == "Failed" or decision.status == "Failed":
+            if decision.intent_name not in failed:
+                failed.append(decision.intent_name)
+        memory.validated_intents = json_dumps({"items": validated})
+        memory.failed_intents = json_dumps({"items": failed})
+        memory.current_main_bottleneck = decision.reception_gap
+        memory.current_listing_gap = decision.reception_gap if decision.recommended_action == "Listing First" else memory.current_listing_gap
+        memory.current_traffic_problem = decision.reception_gap if decision.recommended_action in {"Low-Bid Test", "Scale Test"} else memory.current_traffic_problem
+        memory.next_best_hypothesis = decision.intent_name
+        memory.latest_learning = decision.validation_result or decision.recommended_action
+        memory.data_source = decision.data_source
+        memory.is_demo = bool(decision.is_demo)
+        return memory
+
+    def _snapshot_metric_column(self, metric: Optional[str]):
+        metric_key = (metric or "").lower()
+        return {
+            "sessions": AsinDailySnapshot.sessions,
+            "clicks": AsinDailySnapshot.clicks,
+            "orders": AsinDailySnapshot.orders,
+            "sales": AsinDailySnapshot.total_sales,
+            "total_sales": AsinDailySnapshot.total_sales,
+            "ctr": AsinDailySnapshot.ctr,
+            "cvr": AsinDailySnapshot.cvr,
+            "acos": AsinDailySnapshot.acos,
+            "tacos": AsinDailySnapshot.tacos,
+            "ad_spend": AsinDailySnapshot.ad_spend,
+            "ad_sales": AsinDailySnapshot.ad_sales,
+            "cpc": AsinDailySnapshot.ad_spend,
+            "roas": AsinDailySnapshot.ad_sales,
+        }.get(metric_key)
+
+    async def _period_average(self, task: ValidationTask, metric_column, start_date, end_date) -> Optional[float]:
+        if not start_date or not end_date:
+            return None
+        result = await self.db.execute(
+            select(func.avg(metric_column)).where(
+                AsinDailySnapshot.seller_id == task.seller_id,
+                AsinDailySnapshot.store_id == task.store_id,
+                AsinDailySnapshot.marketplace == task.marketplace,
+                AsinDailySnapshot.asin == task.asin,
+                AsinDailySnapshot.date >= start_date,
+                AsinDailySnapshot.date <= end_date,
+            )
+        )
+        value = result.scalar()
+        return float(value) if value is not None else None
 
     async def get_profile(
         self,
@@ -535,12 +1002,24 @@ class AsinBusinessProfileService:
         asin = normalize_asin(data.get("asin"))
         if not asin:
             raise ValueError("asin is required")
+        intent_decision_id = data.get("intent_decision_id")
+        if intent_decision_id:
+            decision = await self._get_intent_decision(
+                seller_id=seller_id,
+                store_id=str(data.get("store_id") or DEFAULT_STORE_ID),
+                marketplace=normalize_marketplace(data.get("marketplace")),
+                asin=asin,
+                intent_decision_id=intent_decision_id,
+            )
+            if not decision:
+                raise ValueError("intent_decision_id not found")
         task = ValidationTask(
             validation_id=f"val_{uuid.uuid4().hex}",
             seller_id=seller_id,
             store_id=str(data.get("store_id") or DEFAULT_STORE_ID),
             marketplace=normalize_marketplace(data.get("marketplace")),
             asin=asin,
+            intent_decision_id=intent_decision_id,
             validation_type=data.get("validation_type"),
             problem=data.get("problem"),
             hypothesis=data.get("hypothesis"),
@@ -562,6 +1041,9 @@ class AsinBusinessProfileService:
             is_demo=bool(data.get("is_demo")),
         )
         self.db.add(task)
+        if intent_decision_id:
+            decision.validation_task_id = task.validation_id
+            decision.status = "Testing" if task.status == "Running" else decision.status
         await self.db.commit()
         await self.db.refresh(task)
         return task
@@ -598,9 +1080,21 @@ class AsinBusinessProfileService:
         asin = normalize_asin(data.get("asin"))
         if not asin:
             raise ValueError("asin is required")
+        intent_decision_id = data.get("intent_decision_id")
+        if intent_decision_id:
+            decision = await self._get_intent_decision(
+                seller_id=seller_id,
+                store_id=str(data.get("store_id") or DEFAULT_STORE_ID),
+                marketplace=normalize_marketplace(data.get("marketplace")),
+                asin=asin,
+                intent_decision_id=intent_decision_id,
+            )
+            if not decision:
+                raise ValueError("intent_decision_id not found")
         log = AsinExecutionLog(
             execution_id=f"exec_{uuid.uuid4().hex}",
             validation_id=data.get("validation_id"),
+            intent_decision_id=intent_decision_id,
             seller_id=seller_id,
             store_id=str(data.get("store_id") or DEFAULT_STORE_ID),
             marketplace=normalize_marketplace(data.get("marketplace")),
@@ -666,10 +1160,15 @@ class AsinBusinessProfileService:
             related_validation_id=data.get("related_validation_id"),
             decision_type=data.get("decision_type"),
             conclusion=data.get("conclusion"),
+            input_data_refs=json_dumps(data.get("input_data_refs")),
             evidence_metrics=json_dumps(data.get("evidence_metrics")),
+            metric_snapshot=json_dumps(data.get("metric_snapshot")),
+            semantic_evidence=json_dumps(data.get("semantic_evidence")),
             reasoning_summary=data.get("reasoning_summary"),
             confidence_score=data.get("confidence_score"),
             recommended_action=data.get("recommended_action"),
+            prompt_version=data.get("prompt_version"),
+            model_name=data.get("model_name"),
             data_source=data.get("data_source"),
             is_demo=bool(data.get("is_demo")),
         )
@@ -835,6 +1334,11 @@ class AsinBusinessProfileService:
             AiDecisionTrace,
             AsinExecutionLog,
             ValidationTask,
+            AsinIntentEvidence,
+            AsinSafeExpression,
+            AsinIntentDecision,
+            AsinListingSnapshot,
+            AsinAiMemory,
             AsinDailySnapshot,
             AsinKeywordProfile,
             ListingVersion,

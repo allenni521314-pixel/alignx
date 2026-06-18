@@ -151,6 +151,11 @@ class ReportUploadCreate(BaseModel):
     date_range_start: Optional[date_type] = None
     date_range_end: Optional[date_type] = None
     row_count: Optional[int] = None
+    matched_rows: Optional[int] = None
+    unresolved_rows: Optional[int] = None
+    ambiguous_rows: Optional[int] = None
+    writable_rows: Optional[int] = None
+    match_summary: Optional[Union[Dict[str, Any], str]] = Field(default_factory=dict)
     source_file_url: Optional[str] = None
     data_source: Optional[str] = None
     is_demo: bool = False
@@ -171,6 +176,11 @@ class ReportUploadResponse(BaseModel):
     date_range_start: Optional[date_type] = None
     date_range_end: Optional[date_type] = None
     row_count: Optional[int] = None
+    matched_rows: Optional[int] = None
+    unresolved_rows: Optional[int] = None
+    ambiguous_rows: Optional[int] = None
+    writable_rows: Optional[int] = None
+    match_summary: Optional[str] = None
     created_at: Optional[datetime] = None
 
     class Config:
@@ -199,6 +209,16 @@ class StagingRowResponse(BaseModel):
     row_number: int
     report_type: str
     match_status: str
+    match_method: Optional[str] = None
+    extracted_asin: Optional[str] = None
+    extracted_sku: Optional[str] = None
+    campaign_id: Optional[str] = None
+    ad_group_id: Optional[str] = None
+    ad_id: Optional[str] = None
+    matched_asin: Optional[str] = None
+    candidate_matches: Optional[str] = None
+    is_writable: bool = False
+    resolution_status: Optional[str] = None
     raw_data: Optional[str] = None
     normalized_data: Optional[str] = None
     created_at: Optional[datetime] = None
@@ -237,6 +257,7 @@ class ValidationTaskCreate(BaseModel):
     store_id: str = "default"
     marketplace: str = "US"
     asin: str
+    intent_decision_id: Optional[str] = None
     validation_type: str
     problem: Optional[str] = None
     hypothesis: Optional[str] = None
@@ -271,6 +292,7 @@ class ValidationTaskResponse(ValidationTaskCreate):
 
 class ExecutionLogCreate(BaseModel):
     validation_id: str
+    intent_decision_id: Optional[str] = None
     store_id: str = "default"
     marketplace: str = "US"
     asin: str
@@ -309,10 +331,15 @@ class AiDecisionTraceCreate(BaseModel):
     related_validation_id: Optional[str] = None
     decision_type: str
     conclusion: Optional[str] = None
+    input_data_refs: Union[Dict[str, Any], str] = Field(default_factory=dict)
     evidence_metrics: Union[Dict[str, Any], str] = Field(default_factory=dict)
+    metric_snapshot: Union[Dict[str, Any], str] = Field(default_factory=dict)
+    semantic_evidence: Union[Dict[str, Any], str] = Field(default_factory=dict)
     reasoning_summary: Optional[str] = None
     confidence_score: Optional[float] = None
     recommended_action: Optional[str] = None
+    prompt_version: Optional[str] = None
+    model_name: Optional[str] = None
     data_source: Optional[str] = None
     is_demo: bool = False
 
@@ -354,6 +381,190 @@ class MetricDictionaryResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class ListingSnapshotCreate(BaseModel):
+    store_id: str = "default"
+    marketplace: str = "US"
+    asin: str
+    title: Optional[str] = None
+    bullet_points: Union[List[str], str, None] = None
+    description: Optional[str] = None
+    aplus: Union[Dict[str, Any], List[Any], str, None] = None
+    main_image: Optional[str] = None
+    secondary_images: Union[List[str], str, None] = None
+    backend_terms: Optional[str] = None
+    price: Optional[float] = None
+    coupon: Optional[str] = None
+    snapshot_at: Optional[datetime] = None
+    data_source: Optional[str] = None
+    is_demo: bool = False
+
+
+class ListingSnapshotResponse(ListingSnapshotCreate):
+    id: int
+    seller_id: str
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class IntentEvidenceCreate(BaseModel):
+    source_type: str
+    evidence_text: Optional[str] = None
+    metric_snapshot: Union[Dict[str, Any], str] = Field(default_factory=dict)
+    strength_score: Optional[float] = None
+    data_source: Optional[str] = None
+    is_demo: bool = False
+
+
+class IntentDecisionRunRequest(BaseModel):
+    store_id: str = "default"
+    marketplace: str = "US"
+    intent_name: str
+    intent_description: Optional[str] = None
+    listing_snapshot: Optional[ListingSnapshotCreate] = None
+    evidences: List[IntentEvidenceCreate] = Field(default_factory=list)
+    input_data_refs: Union[Dict[str, Any], str] = Field(default_factory=dict)
+    metric_snapshot: Union[Dict[str, Any], str] = Field(default_factory=dict)
+    data_source: Optional[str] = None
+    is_demo: bool = False
+
+
+class IntentDecisionResponse(BaseModel):
+    id: int
+    intent_decision_id: str
+    seller_id: str
+    store_id: str
+    marketplace: str
+    asin: str
+    intent_name: str
+    intent_description: Optional[str] = None
+    position_reception_result: Optional[str] = None
+    semantic_audit_result: Optional[str] = None
+    buyer_language_result: Optional[str] = None
+    intent_evidence_status: Optional[str] = None
+    product_platform_safety_status: Optional[str] = None
+    investment_value_status: Optional[str] = None
+    reception_gap: Optional[str] = None
+    safe_expression: Optional[str] = None
+    blocked_expression: Optional[str] = None
+    recommended_action: str
+    priority_score: Optional[float] = None
+    confidence_score: Optional[float] = None
+    validation_task_id: Optional[str] = None
+    validation_result: Optional[str] = None
+    status: str
+    data_source: Optional[str] = None
+    is_demo: bool = False
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class IntentDecisionListResponse(BaseModel):
+    items: List[IntentDecisionResponse]
+    total: int
+    skip: int
+    limit: int
+
+
+class IntentEvidenceResponse(BaseModel):
+    id: int
+    evidence_id: str
+    intent_decision_id: str
+    seller_id: str
+    store_id: str
+    marketplace: str
+    asin: str
+    intent_name: str
+    source_type: str
+    evidence_text: Optional[str] = None
+    metric_snapshot: Optional[str] = None
+    strength_score: Optional[float] = None
+    data_source: Optional[str] = None
+    is_demo: bool = False
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class SafeExpressionResponse(BaseModel):
+    id: int
+    safe_expression_id: str
+    intent_decision_id: Optional[str] = None
+    seller_id: str
+    store_id: str
+    marketplace: str
+    asin: str
+    buyer_language: Optional[str] = None
+    seller_language: Optional[str] = None
+    safe_expression: Optional[str] = None
+    blocked_expression: Optional[str] = None
+    risk_reason: Optional[str] = None
+    evidence_required: Optional[str] = None
+    status: str
+    data_source: Optional[str] = None
+    is_demo: bool = False
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class AsinAiMemoryResponse(BaseModel):
+    id: int
+    seller_id: str
+    store_id: str
+    marketplace: str
+    asin: str
+    validated_intents: Optional[str] = None
+    failed_intents: Optional[str] = None
+    current_main_bottleneck: Optional[str] = None
+    current_listing_gap: Optional[str] = None
+    current_traffic_problem: Optional[str] = None
+    next_best_hypothesis: Optional[str] = None
+    proven_actions: Optional[str] = None
+    failed_actions: Optional[str] = None
+    latest_learning: Optional[str] = None
+    data_source: Optional[str] = None
+    is_demo: bool = False
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class AsinProfileDetailResponse(BaseModel):
+    profile: Optional[AsinProfileResponse] = None
+    memory: Optional[AsinAiMemoryResponse] = None
+    intent_decisions: List[IntentDecisionResponse] = Field(default_factory=list)
+    latest_snapshots: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+class EffectValidationRunRequest(BaseModel):
+    validation_id: str
+    result_start_date: Optional[date_type] = None
+    result_end_date: Optional[date_type] = None
+    minimum_sample_ready: bool = True
+
+
+class EffectValidationRunResponse(BaseModel):
+    validation_id: str
+    intent_decision_id: Optional[str] = None
+    asin: str
+    status: str
+    baseline_value: Optional[float] = None
+    target_value: Optional[float] = None
+    result_value: Optional[float] = None
+    improvement_rate: Optional[float] = None
+    decision_id: Optional[str] = None
 
 
 class DemoImportResponse(BaseModel):

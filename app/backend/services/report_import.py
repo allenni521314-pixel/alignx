@@ -247,12 +247,43 @@ class ReportImportService:
             report.parse_status = "Parsed"
             report.parse_error = None
             report.row_count = summary["total_rows"]
+            report.matched_rows = summary["matched_asin_rows"]
+            report.unresolved_rows = summary["unmatched_rows"]
+            report.ambiguous_rows = summary["ambiguous_rows"]
+            report.writable_rows = summary["writable_rows"]
+            report.match_summary = json.dumps(summary, ensure_ascii=False)
         except Exception as exc:
             report.parse_status = "Failed"
             report.parse_error = str(exc)
             summary["parse_status"] = "Failed"
+            report.match_summary = json.dumps(summary, ensure_ascii=False)
         await self.db.commit()
         return summary
+
+    async def get_match_summary(self, *, seller_id: str, report_id: str) -> dict[str, Any]:
+        result = await self.db.execute(
+            select(ReportUpload).where(ReportUpload.report_id == report_id, ReportUpload.seller_id == seller_id)
+        )
+        report = result.scalar_one_or_none()
+        if not report:
+            raise ValueError("report_id")
+        if report.match_summary:
+            try:
+                parsed = json.loads(report.match_summary)
+                if isinstance(parsed, dict):
+                    return parsed
+            except json.JSONDecodeError:
+                pass
+        return {
+            "report_id": report.report_id,
+            "report_type": report.report_type,
+            "parse_status": report.parse_status,
+            "total_rows": report.row_count or 0,
+            "matched_asin_rows": report.matched_rows or 0,
+            "unmatched_rows": report.unresolved_rows or 0,
+            "ambiguous_rows": report.ambiguous_rows or 0,
+            "writable_rows": report.writable_rows or 0,
+        }
 
     async def list_staging_rows(
         self,
@@ -494,6 +525,8 @@ class ReportImportService:
                 asin=normalize_asin(normalized.get("asin")),
                 sku=normalized.get("sku"),
                 date=normalized.get("date"),
+                period_start=report.date_range_start or normalized.get("date"),
+                period_end=report.date_range_end or normalized.get("date"),
                 campaign_name=normalized.get("campaign_name"),
                 campaign_id=normalized.get("campaign_id"),
                 ad_group_name=normalized.get("ad_group_name"),
@@ -529,6 +562,8 @@ class ReportImportService:
                 marketplace=normalize_marketplace(report.marketplace),
                 asin=normalize_asin(normalized.get("asin")),
                 date=normalized.get("date"),
+                period_start=report.date_range_start or normalized.get("date"),
+                period_end=report.date_range_end or normalized.get("date"),
                 campaign_name=normalized.get("campaign_name"),
                 ad_group_name=normalized.get("ad_group_name"),
                 keyword=normalized.get("keyword"),
@@ -716,6 +751,10 @@ class ReportImportService:
             normalized["asin"] = normalized_asin
             normalized["date"] = _parse_date(normalized.get("date"), report.date_range_start)
             row.asin = normalized_asin
+            row.matched_asin = normalized_asin
+            row.match_method = "Manual"
+            row.is_writable = bool(normalized.get("date"))
+            row.resolution_status = "Resolved" if normalized.get("date") else "Pending"
             row.normalized_data = json.dumps(normalized, ensure_ascii=False, default=str)
             if not normalized.get("date"):
                 row.match_status = UNRESOLVED
@@ -726,7 +765,12 @@ class ReportImportService:
             summary["matched_asin_rows"] += 1
             summary["writable_rows"] += 1
 
-        report.parse_status = "Parsed"
+            report.parse_status = "Parsed"
+            report.matched_rows = (report.matched_rows or 0) + summary["matched_asin_rows"]
+            report.unresolved_rows = max((report.unresolved_rows or 0) - summary["matched_asin_rows"], 0)
+            report.ambiguous_rows = max((report.ambiguous_rows or 0) - summary["matched_asin_rows"], 0)
+            report.writable_rows = (report.writable_rows or 0) + summary["writable_rows"]
+            report.match_summary = json.dumps(summary, ensure_ascii=False)
         await self.db.commit()
         return summary
 
@@ -785,6 +829,16 @@ class ReportImportService:
                 row_number=row_number,
                 report_type=report.report_type,
                 match_status=match_status,
+                match_method=match_status,
+                extracted_asin=normalized.get("asin"),
+                extracted_sku=normalized.get("sku"),
+                campaign_id=normalized.get("campaign_id"),
+                ad_group_id=normalized.get("ad_group_id"),
+                ad_id=normalized.get("ad_id"),
+                matched_asin=asin or None,
+                candidate_matches=None,
+                is_writable=bool(match_status in {DIRECT_MATCHED, SKU_MATCHED, CAMPAIGN_MAPPED} and asin and normalized.get("date")),
+                resolution_status="Resolved" if match_status in {DIRECT_MATCHED, SKU_MATCHED, CAMPAIGN_MAPPED} else "Pending",
                 raw_data=json.dumps(raw_row, ensure_ascii=False, default=str),
                 normalized_data=json.dumps(normalized, ensure_ascii=False, default=str),
             )

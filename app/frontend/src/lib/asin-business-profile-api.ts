@@ -71,6 +71,7 @@ export interface ValidationTask {
   store_id: string;
   marketplace: string;
   asin: string;
+  intent_decision_id?: string | null;
   validation_type: ValidationType | string;
   problem?: string | null;
   hypothesis?: string | null;
@@ -127,6 +128,7 @@ export interface ExecutionLog {
   id: number;
   execution_id: string;
   validation_id: string;
+  intent_decision_id?: string | null;
   seller_id: string;
   store_id: string;
   marketplace: string;
@@ -152,10 +154,15 @@ export interface AiDecisionTrace {
   related_validation_id?: string | null;
   decision_type: DecisionType | string;
   conclusion?: string | null;
+  input_data_refs?: Record<string, unknown> | string | null;
   evidence_metrics?: Record<string, unknown>;
+  metric_snapshot?: Record<string, unknown> | string | null;
+  semantic_evidence?: Record<string, unknown> | string | null;
   reasoning_summary?: string | null;
   confidence_score?: number | null;
   recommended_action?: string | null;
+  prompt_version?: string | null;
+  model_name?: string | null;
   data_source?: string | null;
   is_demo: boolean;
   created_at?: string | null;
@@ -204,6 +211,11 @@ export interface ReportUploadResponse {
   date_range_start?: string | null;
   date_range_end?: string | null;
   row_count?: number | null;
+  matched_rows?: number | null;
+  unresolved_rows?: number | null;
+  ambiguous_rows?: number | null;
+  writable_rows?: number | null;
+  match_summary?: string | null;
   created_at?: string | null;
 }
 
@@ -229,6 +241,16 @@ export interface ReportStagingRow {
   row_number: number;
   report_type: string;
   match_status: string;
+  match_method?: string | null;
+  extracted_asin?: string | null;
+  extracted_sku?: string | null;
+  campaign_id?: string | null;
+  ad_group_id?: string | null;
+  ad_id?: string | null;
+  matched_asin?: string | null;
+  candidate_matches?: string | null;
+  is_writable?: boolean;
+  resolution_status?: string | null;
   raw_data?: string | null;
   normalized_data?: string | null;
   created_at?: string | null;
@@ -243,6 +265,135 @@ export interface ReportStagingListResponse {
 
 export interface ReportStagingResolveResponse extends ReportParseSummary {
   action: string;
+}
+
+export type IntentRecommendedAction = "Listing First" | "Low-Bid Test" | "Scale Test" | "Do Not Invest" | "Blocked";
+export type IntentDecisionStatus = "Candidate" | "Ready To Test" | "Testing" | "Validated" | "Failed" | "Inconclusive" | "Blocked";
+
+export interface IntentEvidenceInput {
+  source_type: string;
+  evidence_text?: string;
+  metric_snapshot?: Record<string, unknown> | string;
+  strength_score?: number;
+  data_source?: string;
+  is_demo?: boolean;
+}
+
+export interface ListingSnapshotInput {
+  store_id?: string;
+  marketplace?: string;
+  asin?: string;
+  title?: string;
+  bullet_points?: string[] | string;
+  description?: string;
+  aplus?: Record<string, unknown> | unknown[] | string;
+  main_image?: string;
+  secondary_images?: string[] | string;
+  backend_terms?: string;
+  price?: number;
+  coupon?: string;
+  snapshot_at?: string;
+  data_source?: string;
+  is_demo?: boolean;
+}
+
+export interface IntentDecision {
+  id: number;
+  intent_decision_id: string;
+  seller_id: string;
+  store_id: string;
+  marketplace: string;
+  asin: string;
+  intent_name: string;
+  intent_description?: string | null;
+  position_reception_result?: string | null;
+  semantic_audit_result?: string | null;
+  buyer_language_result?: string | null;
+  intent_evidence_status?: string | null;
+  product_platform_safety_status?: string | null;
+  investment_value_status?: string | null;
+  reception_gap?: string | null;
+  safe_expression?: string | null;
+  blocked_expression?: string | null;
+  recommended_action: IntentRecommendedAction | string;
+  priority_score?: number | null;
+  confidence_score?: number | null;
+  validation_task_id?: string | null;
+  validation_result?: string | null;
+  status: IntentDecisionStatus | string;
+  data_source?: string | null;
+  is_demo: boolean;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface IntentDecisionListResponse {
+  items: IntentDecision[];
+  total: number;
+  skip: number;
+  limit: number;
+}
+
+export interface AsinAiMemory {
+  id: number;
+  seller_id: string;
+  store_id: string;
+  marketplace: string;
+  asin: string;
+  validated_intents?: string | null;
+  failed_intents?: string | null;
+  current_main_bottleneck?: string | null;
+  current_listing_gap?: string | null;
+  current_traffic_problem?: string | null;
+  next_best_hypothesis?: string | null;
+  proven_actions?: string | null;
+  failed_actions?: string | null;
+  latest_learning?: string | null;
+  data_source?: string | null;
+  is_demo: boolean;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface AsinProfileDetail {
+  profile?: AsinBusinessProfile | null;
+  memory?: AsinAiMemory | null;
+  intent_decisions: IntentDecision[];
+  latest_snapshots: Array<Record<string, unknown>>;
+}
+
+export interface RunIntentDecisionParams {
+  asin: string;
+  store_id?: string;
+  marketplace?: string;
+  intent_name: string;
+  intent_description?: string;
+  listing_snapshot?: ListingSnapshotInput;
+  evidences?: IntentEvidenceInput[];
+  input_data_refs?: Record<string, unknown> | string;
+  metric_snapshot?: Record<string, unknown> | string;
+  data_source?: string;
+  is_demo?: boolean;
+}
+
+export interface CreateValidationTaskParams {
+  asin: string;
+  store_id?: string;
+  marketplace?: string;
+  intent_decision_id?: string;
+  validation_type: string;
+  problem?: string;
+  hypothesis?: string;
+  action_plan?: string;
+  target_metric?: string;
+  baseline_start_date?: string;
+  baseline_end_date?: string;
+  test_start_date?: string;
+  test_end_date?: string;
+  result_start_date?: string;
+  result_end_date?: string;
+  target_value?: number;
+  status?: string;
 }
 
 export async function listAsinProfiles(params: {
@@ -312,6 +463,71 @@ export async function listAiDecisionTraces(params: {
   limit?: number;
 } = {}): Promise<{ items: AiDecisionTrace[]; total: number; skip: number; limit: number }> {
   const res = await axios.get(`${API_BASE}/ai-decision-traces`, { params, headers: getAuthHeaders() });
+  return res.data;
+}
+
+export async function getAsinProfileDetail(params: {
+  asin: string;
+  store_id?: string;
+  marketplace?: string;
+}): Promise<AsinProfileDetail> {
+  const res = await axios.get(`/api/asins/${params.asin}/profile`, {
+    params: {
+      store_id: params.store_id || "default",
+      marketplace: params.marketplace || "US",
+    },
+    headers: getAuthHeaders(),
+  });
+  return res.data;
+}
+
+export async function listIntentDecisions(params: {
+  asin: string;
+  store_id?: string;
+  marketplace?: string;
+  skip?: number;
+  limit?: number;
+}): Promise<IntentDecisionListResponse> {
+  const res = await axios.get(`/api/asins/${params.asin}/intent-decisions`, {
+    params: {
+      store_id: params.store_id || "default",
+      marketplace: params.marketplace || "US",
+      skip: params.skip,
+      limit: params.limit,
+    },
+    headers: getAuthHeaders(),
+  });
+  return res.data;
+}
+
+export async function runIntentDecision(params: RunIntentDecisionParams): Promise<IntentDecision> {
+  const { asin, ...payload } = params;
+  const res = await axios.post(`/api/asins/${asin}/intent-decisions/run`, payload, { headers: getAuthHeaders() });
+  return res.data;
+}
+
+export async function createValidationTask(params: CreateValidationTaskParams): Promise<ValidationTask> {
+  const res = await axios.post(`${API_BASE}/validations`, params, { headers: getAuthHeaders() });
+  return res.data;
+}
+
+export async function runEffectValidation(params: {
+  validation_id: string;
+  result_start_date?: string;
+  result_end_date?: string;
+  minimum_sample_ready?: boolean;
+}): Promise<{
+  validation_id: string;
+  intent_decision_id?: string | null;
+  asin: string;
+  status: string;
+  baseline_value?: number | null;
+  target_value?: number | null;
+  result_value?: number | null;
+  improvement_rate?: number | null;
+  decision_id?: string | null;
+}> {
+  const res = await axios.post("/api/effect-validation/run", params, { headers: getAuthHeaders() });
   return res.data;
 }
 

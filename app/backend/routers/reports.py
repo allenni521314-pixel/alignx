@@ -103,6 +103,19 @@ async def _resolve_staging_rows(
         raise HTTPException(status_code=400, detail=str(exc))
 
 
+async def _match_summary(
+    *,
+    report_id: str,
+    current_user: UserResponse,
+    db: AsyncSession,
+) -> ReportParseSummary:
+    service = ReportImportService(db)
+    try:
+        return await service.get_match_summary(seller_id=str(current_user.id), report_id=report_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
 for item_router in (reports_router, reports_v1_router):
 
     @item_router.post("/upload", response_model=ReportUploadResponse)
@@ -160,6 +173,50 @@ for item_router in (reports_router, reports_v1_router):
         db: AsyncSession = Depends(get_db),
     ):
         return await _resolve_staging_rows(data=data, current_user=current_user, db=db)
+
+    @item_router.get("/{report_id}/match-summary", response_model=ReportParseSummary)
+    async def get_report_match_summary(
+        report_id: str,
+        current_user: UserResponse = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db),
+    ):
+        return await _match_summary(report_id=report_id, current_user=current_user, db=db)
+
+    @item_router.get("/{report_id}/unmatched-rows", response_model=StagingRowListResponse)
+    async def get_unmatched_rows(
+        report_id: str,
+        skip: int = Query(0, ge=0),
+        limit: int = Query(50, ge=1, le=500),
+        current_user: UserResponse = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db),
+    ):
+        unresolved = await _list_staging_rows(
+            report_id=report_id,
+            match_status="Unresolved",
+            skip=skip,
+            limit=limit,
+            current_user=current_user,
+            db=db,
+        )
+        return unresolved
+
+    @item_router.post("/{report_id}/resolve-asin-mapping", response_model=StagingRowResolveResponse)
+    async def resolve_asin_mapping(
+        report_id: str,
+        data: StagingRowResolveRequest,
+        current_user: UserResponse = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db),
+    ):
+        payload = data.model_copy(update={"report_id": report_id})
+        return await _resolve_staging_rows(data=payload, current_user=current_user, db=db)
+
+    @item_router.post("/{report_id}/commit-resolved-rows", response_model=ReportParseSummary)
+    async def commit_resolved_rows(
+        report_id: str,
+        current_user: UserResponse = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db),
+    ):
+        return await _match_summary(report_id=report_id, current_user=current_user, db=db)
 
 
 router = [reports_router, reports_v1_router]
