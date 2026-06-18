@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { RefreshCw, Upload } from "lucide-react";
+import { ClipboardCheck, Play, RefreshCw, Upload } from "lucide-react";
 
 import { AppSidebar } from "@/components/AppSidebar";
 import { Button } from "@/components/ui/button";
@@ -9,12 +9,16 @@ import {
   type AsinBusinessProfile,
   type AsinModuleView,
   type AsinModuleViewType,
+  createExecutionLog,
+  createValidationTask,
   getAsinModuleView,
   listReportStagingRows,
   listAsinProfiles,
   parseReport,
   type ReportParseSummary,
   resolveReportStagingRows,
+  runEffectValidation,
+  runIntentDecision,
   uploadReport,
 } from "@/lib/asin-business-profile-api";
 
@@ -294,6 +298,228 @@ function UploadPanel({
   );
 }
 
+function OperationPanel({
+  viewType,
+  selectedProfile,
+  onDone,
+}: {
+  viewType: AsinModuleViewType;
+  selectedProfile: AsinBusinessProfile | null;
+  onDone: () => Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const [intentName, setIntentName] = useState("");
+  const [intentDescription, setIntentDescription] = useState("");
+  const [evidenceText, setEvidenceText] = useState("");
+  const [problem, setProblem] = useState("");
+  const [hypothesis, setHypothesis] = useState("");
+  const [actionPlan, setActionPlan] = useState("");
+  const [targetMetric, setTargetMetric] = useState("cvr");
+  const [validationId, setValidationId] = useState("");
+  const [intentDecisionId, setIntentDecisionId] = useState("");
+  const [actionType, setActionType] = useState("");
+  const [beforeValue, setBeforeValue] = useState("");
+  const [afterValue, setAfterValue] = useState("");
+  const [resultStart, setResultStart] = useState("");
+  const [resultEnd, setResultEnd] = useState("");
+
+  const profilePayload = {
+    asin: selectedProfile?.asin || "",
+    store_id: selectedProfile?.store_id || "default",
+    marketplace: selectedProfile?.marketplace || "US",
+  };
+
+  const finish = useCallback(async (nextMessage: string) => {
+    setMessage(nextMessage);
+    await onDone();
+  }, [onDone]);
+
+  const submitIntentDecision = useCallback(async () => {
+    if (!selectedProfile || !intentName.trim()) return;
+    setBusy(true);
+    setMessage("");
+    try {
+      await runIntentDecision({
+        ...profilePayload,
+        intent_name: intentName.trim(),
+        intent_description: intentDescription.trim() || undefined,
+        listing_snapshot: {
+          title: selectedProfile.product_name || undefined,
+          price: selectedProfile.current_price || undefined,
+        },
+        evidences: evidenceText.trim()
+          ? [{ source_type: "Manual", evidence_text: evidenceText.trim(), strength_score: 60 }]
+          : [],
+      });
+      setIntentName("");
+      setIntentDescription("");
+      setEvidenceText("");
+      await finish("已生成判断");
+    } catch {
+      setMessage("操作失败");
+    } finally {
+      setBusy(false);
+    }
+  }, [evidenceText, finish, intentDescription, intentName, profilePayload, selectedProfile]);
+
+  const submitValidationTask = useCallback(async () => {
+    if (!selectedProfile || !problem.trim() || !actionPlan.trim()) return;
+    setBusy(true);
+    setMessage("");
+    try {
+      await createValidationTask({
+        ...profilePayload,
+        intent_decision_id: intentDecisionId.trim() || undefined,
+        validation_type: viewType === "traffic-strategy" ? "Traffic" : "Listing",
+        problem: problem.trim(),
+        hypothesis: hypothesis.trim() || undefined,
+        action_plan: actionPlan.trim(),
+        target_metric: targetMetric.trim() || "cvr",
+        status: "Pending",
+      });
+      setProblem("");
+      setHypothesis("");
+      setActionPlan("");
+      setIntentDecisionId("");
+      await finish("已创建验证任务");
+    } catch {
+      setMessage("操作失败");
+    } finally {
+      setBusy(false);
+    }
+  }, [actionPlan, finish, hypothesis, intentDecisionId, problem, profilePayload, selectedProfile, targetMetric, viewType]);
+
+  const submitExecutionLog = useCallback(async () => {
+    if (!selectedProfile || !validationId.trim() || !actionType.trim()) return;
+    setBusy(true);
+    setMessage("");
+    try {
+      await createExecutionLog({
+        ...profilePayload,
+        validation_id: validationId.trim(),
+        intent_decision_id: intentDecisionId.trim() || undefined,
+        action_type: actionType.trim(),
+        before_value: beforeValue.trim() || undefined,
+        after_value: afterValue.trim() || undefined,
+        source: "Manual",
+      });
+      setValidationId("");
+      setIntentDecisionId("");
+      setActionType("");
+      setBeforeValue("");
+      setAfterValue("");
+      await finish("已记录执行动作");
+    } catch {
+      setMessage("操作失败");
+    } finally {
+      setBusy(false);
+    }
+  }, [actionType, afterValue, beforeValue, finish, intentDecisionId, profilePayload, selectedProfile, validationId]);
+
+  const submitEffectValidation = useCallback(async () => {
+    if (!validationId.trim()) return;
+    setBusy(true);
+    setMessage("");
+    try {
+      await runEffectValidation({
+        validation_id: validationId.trim(),
+        result_start_date: resultStart || undefined,
+        result_end_date: resultEnd || undefined,
+        minimum_sample_ready: true,
+      });
+      setValidationId("");
+      setResultStart("");
+      setResultEnd("");
+      await finish("已完成效果验证");
+    } catch {
+      setMessage("操作失败");
+    } finally {
+      setBusy(false);
+    }
+  }, [finish, resultEnd, resultStart, validationId]);
+
+  if (viewType === "yesterday-report") return null;
+
+  if (viewType === "traffic-strategy") {
+    return (
+      <Card className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+        <h2 className="text-[15px] font-semibold text-gray-950">生成流量策略</h2>
+        <div className="mt-3 grid grid-cols-1 gap-3 xl:grid-cols-[220px_1fr_1fr_150px]">
+          <input value={intentName} onChange={(event) => setIntentName(event.target.value)} placeholder="购买意图" className="h-10 rounded-lg border border-gray-200 px-3 text-sm font-semibold outline-none focus:border-brand-600 focus:ring-2 focus:ring-brand-100" />
+          <input value={intentDescription} onChange={(event) => setIntentDescription(event.target.value)} placeholder="意图描述" className="h-10 rounded-lg border border-gray-200 px-3 text-sm font-semibold outline-none focus:border-brand-600 focus:ring-2 focus:ring-brand-100" />
+          <input value={evidenceText} onChange={(event) => setEvidenceText(event.target.value)} placeholder="证据" className="h-10 rounded-lg border border-gray-200 px-3 text-sm font-semibold outline-none focus:border-brand-600 focus:ring-2 focus:ring-brand-100" />
+          <Button onClick={submitIntentDecision} disabled={busy || !selectedProfile || !intentName.trim()} className="h-10 gap-2 bg-brand-800 text-white hover:bg-brand-900">
+            <Play className="h-4 w-4" />
+            生成策略
+          </Button>
+        </div>
+        {message ? <div className="mt-3 text-xs font-semibold text-gray-600">{message}</div> : null}
+      </Card>
+    );
+  }
+
+  if (viewType === "today-decision") {
+    return (
+      <Card className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+        <h2 className="text-[15px] font-semibold text-gray-950">创建验证任务</h2>
+        <div className="mt-3 grid grid-cols-1 gap-3 xl:grid-cols-[1fr_1fr_1fr_140px_160px]">
+          <input value={problem} onChange={(event) => setProblem(event.target.value)} placeholder="问题" className="h-10 rounded-lg border border-gray-200 px-3 text-sm font-semibold outline-none focus:border-brand-600 focus:ring-2 focus:ring-brand-100" />
+          <input value={hypothesis} onChange={(event) => setHypothesis(event.target.value)} placeholder="假设" className="h-10 rounded-lg border border-gray-200 px-3 text-sm font-semibold outline-none focus:border-brand-600 focus:ring-2 focus:ring-brand-100" />
+          <input value={actionPlan} onChange={(event) => setActionPlan(event.target.value)} placeholder="动作" className="h-10 rounded-lg border border-gray-200 px-3 text-sm font-semibold outline-none focus:border-brand-600 focus:ring-2 focus:ring-brand-100" />
+          <input value={targetMetric} onChange={(event) => setTargetMetric(event.target.value)} placeholder="目标指标" className="h-10 rounded-lg border border-gray-200 px-3 text-sm font-semibold outline-none focus:border-brand-600 focus:ring-2 focus:ring-brand-100" />
+          <Button onClick={submitValidationTask} disabled={busy || !selectedProfile || !problem.trim() || !actionPlan.trim()} className="h-10 gap-2 bg-brand-800 text-white hover:bg-brand-900">
+            <ClipboardCheck className="h-4 w-4" />
+            创建任务
+          </Button>
+        </div>
+        <input value={intentDecisionId} onChange={(event) => setIntentDecisionId(event.target.value)} placeholder="意图决策ID" className="mt-3 h-10 w-full rounded-lg border border-gray-200 px-3 text-sm font-semibold outline-none focus:border-brand-600 focus:ring-2 focus:ring-brand-100" />
+        {message ? <div className="mt-3 text-xs font-semibold text-gray-600">{message}</div> : null}
+      </Card>
+    );
+  }
+
+  if (viewType === "execution-records") {
+    return (
+      <Card className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+        <h2 className="text-[15px] font-semibold text-gray-950">记录今日执行动作</h2>
+        <div className="mt-3 grid grid-cols-1 gap-3 xl:grid-cols-[180px_180px_1fr_1fr_150px]">
+          <input value={validationId} onChange={(event) => setValidationId(event.target.value)} placeholder="验证ID" className="h-10 rounded-lg border border-gray-200 px-3 text-sm font-semibold outline-none focus:border-brand-600 focus:ring-2 focus:ring-brand-100" />
+          <input value={actionType} onChange={(event) => setActionType(event.target.value)} placeholder="动作类型" className="h-10 rounded-lg border border-gray-200 px-3 text-sm font-semibold outline-none focus:border-brand-600 focus:ring-2 focus:ring-brand-100" />
+          <input value={beforeValue} onChange={(event) => setBeforeValue(event.target.value)} placeholder="修改前" className="h-10 rounded-lg border border-gray-200 px-3 text-sm font-semibold outline-none focus:border-brand-600 focus:ring-2 focus:ring-brand-100" />
+          <input value={afterValue} onChange={(event) => setAfterValue(event.target.value)} placeholder="修改后" className="h-10 rounded-lg border border-gray-200 px-3 text-sm font-semibold outline-none focus:border-brand-600 focus:ring-2 focus:ring-brand-100" />
+          <Button onClick={submitExecutionLog} disabled={busy || !selectedProfile || !validationId.trim() || !actionType.trim()} className="h-10 gap-2 bg-brand-800 text-white hover:bg-brand-900">
+            <ClipboardCheck className="h-4 w-4" />
+            记录动作
+          </Button>
+        </div>
+        <input value={intentDecisionId} onChange={(event) => setIntentDecisionId(event.target.value)} placeholder="意图决策ID" className="mt-3 h-10 w-full rounded-lg border border-gray-200 px-3 text-sm font-semibold outline-none focus:border-brand-600 focus:ring-2 focus:ring-brand-100" />
+        {message ? <div className="mt-3 text-xs font-semibold text-gray-600">{message}</div> : null}
+      </Card>
+    );
+  }
+
+  if (viewType === "effect-validation") {
+    return (
+      <Card className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+        <h2 className="text-[15px] font-semibold text-gray-950">运行效果验证</h2>
+        <div className="mt-3 grid grid-cols-1 gap-3 xl:grid-cols-[1fr_180px_180px_160px]">
+          <input value={validationId} onChange={(event) => setValidationId(event.target.value)} placeholder="验证ID" className="h-10 rounded-lg border border-gray-200 px-3 text-sm font-semibold outline-none focus:border-brand-600 focus:ring-2 focus:ring-brand-100" />
+          <input type="date" value={resultStart} onChange={(event) => setResultStart(event.target.value)} className="h-10 rounded-lg border border-gray-200 px-3 text-sm font-semibold outline-none focus:border-brand-600 focus:ring-2 focus:ring-brand-100" />
+          <input type="date" value={resultEnd} onChange={(event) => setResultEnd(event.target.value)} className="h-10 rounded-lg border border-gray-200 px-3 text-sm font-semibold outline-none focus:border-brand-600 focus:ring-2 focus:ring-brand-100" />
+          <Button onClick={submitEffectValidation} disabled={busy || !validationId.trim()} className="h-10 gap-2 bg-brand-800 text-white hover:bg-brand-900">
+            <Play className="h-4 w-4" />
+            运行验证
+          </Button>
+        </div>
+        {message ? <div className="mt-3 text-xs font-semibold text-gray-600">{message}</div> : null}
+      </Card>
+    );
+  }
+
+  return null;
+}
+
 export function AsinModuleViewPage({ title, viewType, metrics, columns, uploadConfig }: AsinModuleViewPageProps) {
   const { loading: authLoading } = useRequireAuth();
   const [profiles, setProfiles] = useState<AsinBusinessProfile[]>([]);
@@ -400,6 +626,7 @@ export function AsinModuleViewPage({ title, viewType, metrics, columns, uploadCo
             {uploadConfig ? (
               <UploadPanel config={uploadConfig} selectedProfile={selectedProfile} onParsed={loadData} />
             ) : null}
+            <OperationPanel viewType={viewType} selectedProfile={selectedProfile} onDone={loadData} />
             <Card className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
               <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.4fr_1fr_1fr_160px]">
                 <div>

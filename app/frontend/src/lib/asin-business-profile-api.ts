@@ -396,6 +396,22 @@ export interface CreateValidationTaskParams {
   status?: string;
 }
 
+export interface CreateExecutionLogParams {
+  validation_id: string;
+  intent_decision_id?: string;
+  asin: string;
+  store_id?: string;
+  marketplace?: string;
+  action_type: string;
+  before_value?: string;
+  after_value?: string;
+  executed_by?: string;
+  executed_at?: string;
+  note?: string;
+  source?: string;
+  data_source?: string;
+}
+
 export async function listAsinProfiles(params: {
   store_id?: string;
   marketplace?: string;
@@ -508,6 +524,16 @@ export async function runIntentDecision(params: RunIntentDecisionParams): Promis
 
 export async function createValidationTask(params: CreateValidationTaskParams): Promise<ValidationTask> {
   const res = await axios.post(`${API_BASE}/validations`, params, { headers: getAuthHeaders() });
+  return res.data;
+}
+
+export async function createExecutionLog(params: CreateExecutionLogParams): Promise<{
+  execution_id: string;
+  validation_id: string;
+  asin: string;
+  created_at?: string;
+}> {
+  const res = await axios.post("/api/execution-logs", params, { headers: getAuthHeaders() });
   return res.data;
 }
 
