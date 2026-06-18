@@ -204,8 +204,8 @@ function UploadPanel({
   return (
     <Card className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
       <div className="mb-3 text-xs font-medium leading-5 text-gray-500">
-        当前未接入 Amazon API，需上传报表生成经营数据；后期接入 Amazon API 授权后无需上传。
-        需上传：{config.options.map((option) => option.label).join("、")}。
+        为什么上传：让系统拿到真实销售、流量、广告数据，按 ASIN 归因后生成昨日战报和今日决策，定位异常并让优化建议更精准。
+        后期接入 Amazon API 授权后无需上传。需上传：{config.options.map((option) => option.label).join("、")}。
       </div>
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-[180px_160px_160px_1fr_160px]">
         <label className="block">
