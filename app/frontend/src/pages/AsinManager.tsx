@@ -2968,6 +2968,17 @@ export default function AsinManager() {
     }
     return String(value);
   };
+  const formatSignalText = (value: unknown) => {
+    const text = formatMarketText(value);
+    const map: Record<string, string> = {
+      high: "高",
+      medium: "中",
+      low: "低",
+      true: "是",
+      false: "否",
+    };
+    return map[text] || text;
+  };
   const formatMarketList = (value: unknown) => {
     const rows = Array.isArray(value) ? value : value ? [value] : [];
     return rows.map(formatMarketText).filter((text) => text && text !== "暂无").join(" / ") || "暂无";
@@ -3608,11 +3619,11 @@ export default function AsinManager() {
                               <table className="w-full min-w-[760px] text-left text-xs">
                                 <thead className="text-muted-foreground">
                                   <tr className="border-b border-border">
-                                    <th className="py-2 pr-3 font-medium">字段</th>
-                                    <th className="py-2 pr-3 font-medium">值</th>
-                                    <th className="py-2 pr-3 font-medium">依据</th>
-                                    <th className="py-2 pr-3 font-medium">置信</th>
-                                    <th className="py-2 font-medium">需验证</th>
+                                    <th className="py-2 pr-3 font-medium">判断项</th>
+                                    <th className="py-2 pr-3 font-medium">判断</th>
+                                    <th className="py-2 pr-3 font-medium">判断依据</th>
+                                    <th className="py-2 pr-3 font-medium">证据强度</th>
+                                    <th className="py-2 font-medium">是否需验证</th>
                                   </tr>
                                 </thead>
                                 <tbody>
@@ -3621,9 +3632,9 @@ export default function AsinManager() {
                                     return (
                                       <tr key={String(label)} className="border-b border-border/60 last:border-0">
                                         <td className="py-2 pr-3 font-medium text-foreground">{label}</td>
-                                        <td className="py-2 pr-3 text-muted-foreground">{formatMarketText(row.value)}</td>
+                                        <td className="py-2 pr-3 text-muted-foreground">{formatSignalText(row.value)}</td>
                                         <td className="py-2 pr-3 text-muted-foreground">{formatMarketText(row.basis)}</td>
-                                        <td className="py-2 pr-3 text-muted-foreground">{formatMarketText(row.confidence)}</td>
+                                        <td className="py-2 pr-3 text-muted-foreground">{formatSignalText(row.confidence)}</td>
                                         <td className="py-2 text-muted-foreground">{row.needs_validation === false ? "否" : "是"}</td>
                                       </tr>
                                     );
