@@ -1,37 +1,35 @@
-"""ASIN Operation Profiles — cumulative validation history per ASIN."""
+"""ASIN Operation Profiles API."""
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.schemas import AsinOperationProfileResponse, PaginatedResponse
+from app.services.validation import list_profiles, get_profile, sync_profile
 
 router = APIRouter(prefix="/api/v1/asin-profiles", tags=["asin-profiles"])
 
 
 @router.get("", response_model=PaginatedResponse)
-async def list_asin_profiles(
+async def list_all(
     page: int = 1,
     page_size: int = 20,
     db: AsyncSession = Depends(get_db),
 ):
-    """List all ASIN operation profiles."""
-    pass
+    return await list_profiles(page, page_size, db)
 
 
 @router.get("/{asin}", response_model=AsinOperationProfileResponse)
-async def get_asin_profile(
-    asin: str,
-    db: AsyncSession = Depends(get_db),
-):
-    """Get a single ASIN operation profile."""
-    pass
+async def get(asin: str, db: AsyncSession = Depends(get_db)):
+    profile = await get_profile(asin, db)
+    if not profile:
+        raise HTTPException(404, "Profile not found")
+    return profile
 
 
 @router.post("/sync", response_model=AsinOperationProfileResponse)
-async def sync_asin_profile(
-    asin: str,
+async def sync(
+    asin: str = Query(...),
     db: AsyncSession = Depends(get_db),
 ):
-    """Sync/recalculate ASIN operation profile from validation & execution history."""
-    pass
+    return await sync_profile(asin, db)
