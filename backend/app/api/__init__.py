@@ -10,6 +10,7 @@ from app.api.validation_tasks import router as validation_tasks_router
 from app.api.execution_records import router as execution_records_router
 from app.api.validation_results import router as validation_results_router
 from app.api.asin_profiles import router as asin_profiles_router
+from app.api.reports import router as reports_router
 
 api_router = APIRouter()
 
@@ -21,3 +22,4 @@ api_router.include_router(validation_tasks_router)
 api_router.include_router(execution_records_router)
 api_router.include_router(validation_results_router)
 api_router.include_router(asin_profiles_router)
+api_router.include_router(reports_router)

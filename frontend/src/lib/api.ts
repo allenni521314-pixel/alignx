@@ -181,3 +181,61 @@ export interface AsinProfile {
 export function listAsinProfiles() {
   return request<{ items: AsinProfile[]; total: number }>("/asin-profiles");
 }
+
+// ── Reports ──
+
+export interface YesterdayReport {
+  date: string;
+  summary: {
+    total_executions: number;
+    total_cost: number;
+    changed_positions: number;
+    active_asins: number;
+    pending_tasks: number;
+  };
+  validation_stats: {
+    effective: number;
+    ineffective: number;
+    interfered: number;
+    insufficient_data: number;
+  };
+  active_problems: Array<{
+    asin: string;
+    problem: string;
+    next_action: string | null;
+  }>;
+  profile_summaries: Array<{
+    asin: string;
+    product_title: string | null;
+    total_validations: number;
+    effective: number;
+    ineffective: number;
+    current_problem: string | null;
+    next_recommended: string | null;
+    learning: string | null;
+  }>;
+}
+
+export interface TodayDecisions {
+  date: string;
+  total_decisions: number;
+  urgent_count: number;
+  global_recommendation: string;
+  decisions: Array<{
+    asin: string;
+    product_title: string | null;
+    current_problem: string | null;
+    recommended_action: string | null;
+    priority: number;
+    reasoning: string;
+    active_tasks?: Array<{ proposition: string; status: string }>;
+  }>;
+}
+
+export function getYesterdayReport() {
+  return request<YesterdayReport>("/reports/yesterday");
+}
+
+export function getTodayDecisions() {
+  return request<TodayDecisions>("/reports/today");
+}
