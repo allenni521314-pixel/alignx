@@ -7,16 +7,29 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import api_router
 from app.config import get_settings
+from app.database import engine, async_session_factory
+from app.core.proposition_engine import seed_propositions
 
 settings = get_settings()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Startup / shutdown hooks."""
-    # Startup: init DB pool, Redis, etc.
+    """Startup: seed proposition library. Shutdown: close connections."""
+    # Seed the 49 propositions
+    async with async_session_factory() as db:
+        try:
+            result = await seed_propositions(db)
+            await db.commit()
+            if result["propositions_created"] > 0:
+                print(f"[startup] Seeded {result['propositions_created']} propositions")
+        except Exception as e:
+            print(f"[startup] Proposition seed skipped: {e}")
+
     yield
-    # Shutdown: close connections
+
+    # Shutdown
+    await engine.dispose()
 
 
 app = FastAPI(
@@ -25,7 +38,6 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS — allow frontend dev server and production domain
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -38,7 +50,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Mount all API routes
 app.include_router(api_router)
 
 
