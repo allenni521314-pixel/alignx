@@ -3,7 +3,55 @@
 @tailwind utilities;
 
 @layer base {
+  :root {
+    --apple-bg: #f5f5f7;
+    --apple-card: #ffffff;
+    --apple-text: #1d1d1f;
+    --apple-secondary: #86868b;
+    --apple-accent: #0071e3;
+    --apple-border: #d2d2d7;
+    --apple-hover: #e8e8ed;
+    --apple-success: #34c759;
+    --apple-warning: #ff9500;
+    --apple-danger: #ff3b30;
+  }
+
+  * {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
   body {
-    @apply min-h-screen;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", sans-serif;
+    background: var(--apple-bg);
+    color: var(--apple-text);
+    letter-spacing: -0.022em;
+    line-height: 1.47059;
+  }
+}
+
+@layer components {
+  .apple-input {
+    @apply w-full px-4 py-3 bg-white border border-[#d2d2d7] rounded-xl text-[15px] placeholder:text-[#86868b]
+           focus:outline-none focus:border-[#0071e3] focus:ring-2 focus:ring-[#0071e3]/10
+           transition-all duration-200;
+  }
+
+  .apple-btn {
+    @apply px-5 py-2.5 rounded-full text-[15px] font-medium
+           transition-all duration-200 active:scale-[0.97]
+           disabled:opacity-40 disabled:pointer-events-none;
+  }
+
+  .apple-btn-primary {
+    @apply apple-btn bg-[#0071e3] text-white hover:bg-[#0077ed] shadow-sm shadow-[#0071e3]/20;
+  }
+
+  .apple-btn-secondary {
+    @apply apple-btn bg-[#e8e8ed] text-[#1d1d1f] hover:bg-[#dcdce3];
+  }
+
+  .apple-card {
+    @apply bg-white rounded-2xl border border-[#d2d2d7]/60 shadow-sm;
   }
 }
