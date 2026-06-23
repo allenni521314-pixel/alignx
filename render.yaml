@@ -1,58 +1,27 @@
+# AlignX V1 — Render deployment config
 services:
   - type: web
-    name: alignxagent-api
-    env: docker
-    rootDir: app/backend
+    name: alignx-v1-api
+    env: python
     plan: starter
-    healthCheckPath: /health
-    disk:
-      name: alignxagent-data
-      mountPath: /data
-      sizeGB: 1
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: cd backend && uvicorn app.main:app --host 0.0.0.0 --port $PORT
     envVars:
-      - key: ENVIRONMENT
-        value: prod
-      - key: HOST
-        value: 0.0.0.0
-      - key: PORT
-        value: 8000
       - key: DATABASE_URL
-        value: sqlite+aiosqlite:////data/sql_app.db
-      - key: JWT_SECRET_KEY
         sync: false
-      - key: MGX_IGNORE_INIT_DATA
-        value: "true"
-      - key: SUPER_ADMIN_EMAILS
-        value: allenni521314@gmail.com
-      - key: EMAIL_CODE_DEBUG
-        value: "true"
-      - key: AI_PROVIDER
-        value: qwen
-      - key: AI_API_MODE
-        value: chat
-      - key: OPENAI_BASE_URL
-        value: https://dashscope.aliyuncs.com/compatible-mode/v1
-      - key: OPENAI_API_KEY
+      - key: REDIS_URL
         sync: false
-      - key: AI_DEFAULT_MODEL
-        value: qwen3-32b
-      - key: AI_LIGHT_MODEL
-        value: qwen3-32b
-      - key: AI_REASONING_MODEL
-        value: qwen3-32b
-      - key: AI_DEEP_MODEL
-        value: qwen3-32b
-      - key: VISION_BASE_URL
-        value: https://dashscope.aliyuncs.com/compatible-mode/v1
-      - key: VISION_API_KEY
-        sync: false
-      - key: AI_VISION_MODEL
-        value: qwen3-vl-plus
-      - key: AMAZON_CAPTURE_PROVIDER
-        value: scraperapi
       - key: SCRAPERAPI_KEY
         sync: false
       - key: SCRAPERAPI_BASE_URL
-        value: https://api.scraperapi.com
-      - key: SCRAPERAPI_TIMEOUT_SECONDS
-        value: "300"
+        sync: false
+      - key: AI_PROVIDER
+        value: deepseek
+      - key: DEEPSEEK_API_KEY
+        sync: false
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: S3_BUCKET
+        sync: false
