@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Competitor Analysis — ASIN-based 12-dimension analysis."""
 
 from fastapi import APIRouter, Depends, HTTPException

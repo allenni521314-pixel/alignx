@@ -1,3 +1,4 @@
+from __future__ import annotations
 """AI Provider — DeepSeek / OpenAI / Anthropic unified interface."""
 
 import json

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Pre-launch check service — listing materials → AI position diagnosis."""
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -7,52 +8,27 @@ from app.models import PrelaunchCheck
 from app.schemas import PrelaunchCheckRequest, PrelaunchCheckResponse
 from app.core.ai import AI
 from app.core.prompts import build_prelaunch_prompt, PRELAUNCH_SYSTEM
+from app.constants import DEFAULT_USER_ID
 
 
 async def analyze_prelaunch(req: PrelaunchCheckRequest, db: AsyncSession) -> PrelaunchCheckResponse:
-    # Build materials dict
     materials = {
-        "product_name": req.product_name,
-        "title_draft": req.title_draft,
+        "product_name": req.product_name, "title_draft": req.title_draft,
         "key_highlights": req.key_highlights,
-        "bullet_points": [
-            req.bullet_1, req.bullet_2, req.bullet_3, req.bullet_4, req.bullet_5,
-        ],
+        "bullet_points": [req.bullet_1, req.bullet_2, req.bullet_3, req.bullet_4, req.bullet_5],
     }
 
-    # AI analysis
     ai_result = None
     try:
         ai = AI()
-        prompt = build_prelaunch_prompt(materials)
-        ai_data = await ai.complete_json(prompt=prompt, system=PRELAUNCH_SYSTEM)
+        ai_data = await ai.complete_json(prompt=build_prelaunch_prompt(materials), system=PRELAUNCH_SYSTEM)
         ai_result = ai_data
     except Exception as e:
         ai_result = {"error": str(e), "partial": True}
 
-    # Save
     if ai_result and not ai_result.get("error"):
         report = PrelaunchCheck(
-            user_id="default",
-            product_name=req.product_name,
-            marketplace=req.marketplace,
-            title_draft=req.title_draft,
-            key_highlights=req.key_highlights,
-            bullet_1=req.bullet_1, bullet_2=req.bullet_2, bullet_3=req.bullet_3,
-            bullet_4=req.bullet_4, bullet_5=req.bullet_5,
-            main_image_path=req.main_image_path,
-            image_2_path=req.image_2_path, image_3_path=req.image_3_path,
-            image_4_path=req.image_4_path, image_5_path=req.image_5_path,
-            image_6_path=req.image_6_path, image_7_path=req.image_7_path,
-            aplus_images_json=req.aplus_images_json,
-            admission_result=ai_result.get("admission_result"),
-            conclusion=ai_result.get("conclusion"),
-            position_diagnoses_json=ai_result.get("position_diagnoses"),
-            next_action=ai_result.get("next_action"),
-        )
-    else:
-        report = PrelaunchCheck(
-            user_id="default", product_name=req.product_name, marketplace=req.marketplace,
+            user_id=DEFAULT_USER_ID, product_name=req.product_name, marketplace=req.marketplace,
             title_draft=req.title_draft, key_highlights=req.key_highlights,
             bullet_1=req.bullet_1, bullet_2=req.bullet_2, bullet_3=req.bullet_3,
             bullet_4=req.bullet_4, bullet_5=req.bullet_5,
@@ -60,9 +36,22 @@ async def analyze_prelaunch(req: PrelaunchCheckRequest, db: AsyncSession) -> Pre
             image_2_path=req.image_2_path, image_3_path=req.image_3_path,
             image_4_path=req.image_4_path, image_5_path=req.image_5_path,
             image_6_path=req.image_6_path, image_7_path=req.image_7_path,
-            aplus_images_json=req.aplus_images_json,
-            admission_result="pending",
-            conclusion="素材已接收，AI 分析待完成",
+            admission_result=ai_result.get("admission_result"),
+            conclusion=ai_result.get("conclusion"),
+            position_diagnoses_json=ai_result.get("position_diagnoses"),
+            next_action=ai_result.get("next_action"),
+        )
+    else:
+        report = PrelaunchCheck(
+            user_id=DEFAULT_USER_ID, product_name=req.product_name, marketplace=req.marketplace,
+            title_draft=req.title_draft, key_highlights=req.key_highlights,
+            bullet_1=req.bullet_1, bullet_2=req.bullet_2, bullet_3=req.bullet_3,
+            bullet_4=req.bullet_4, bullet_5=req.bullet_5,
+            main_image_path=req.main_image_path,
+            image_2_path=req.image_2_path, image_3_path=req.image_3_path,
+            image_4_path=req.image_4_path, image_5_path=req.image_5_path,
+            image_6_path=req.image_6_path, image_7_path=req.image_7_path,
+            admission_result="pending", conclusion="素材已接收，AI 分析待完成",
         )
 
     db.add(report)

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Validation Tasks — proposition-driven hypothesis validation."""
 
 from fastapi import APIRouter, Depends, HTTPException, Query

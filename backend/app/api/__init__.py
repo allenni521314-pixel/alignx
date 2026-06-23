@@ -1,3 +1,4 @@
+from __future__ import annotations
 """AlignX V1 — API router aggregation."""
 
 from fastapi import APIRouter

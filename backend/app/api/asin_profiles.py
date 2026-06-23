@@ -1,3 +1,4 @@
+from __future__ import annotations
 """ASIN Operation Profiles API."""
 
 from fastapi import APIRouter, Depends, HTTPException, Query

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """AlignX V1 — FastAPI application entry point."""
 
 from contextlib import asynccontextmanager
@@ -7,17 +8,35 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import api_router
 from app.config import get_settings
-from app.database import engine, async_session_factory
+from app.database import engine, async_session_factory, init_db
 from app.core.proposition_engine import seed_propositions
+from app.models import User
+from app.constants import DEFAULT_USER_ID
 
 settings = get_settings()
 
 
+async def ensure_default_user(db):
+    """Get or create the default user for unauthenticated local dev."""
+    from sqlalchemy import select
+    result = await db.execute(select(User).where(User.id == DEFAULT_USER_ID))
+    user = result.scalar_one_or_none()
+    if not user:
+        user = User(id=DEFAULT_USER_ID, email="local@alignx.dev", name="Local Dev")
+        db.add(user)
+        await db.flush()
+        print("[startup] Created default user")
+    return user
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Startup: seed proposition library. Shutdown: close connections."""
-    # Seed the 49 propositions
+    """Startup: create tables, default user, seed proposition library."""
+    await init_db()
+    print("[startup] Database tables created")
+
     async with async_session_factory() as db:
+        await ensure_default_user(db)
         try:
             result = await seed_propositions(db)
             await db.commit()

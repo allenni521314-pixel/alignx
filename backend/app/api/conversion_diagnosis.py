@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Conversion Diagnosis — in-sale ASIN listing conversion bottleneck analysis."""
 
 from fastapi import APIRouter, Depends, HTTPException

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """AI prompt builders for all four core modules."""
 
 import json
@@ -6,17 +7,24 @@ import json
 # Market Opportunity — 7-layer analysis
 # ═════════════════════════════════════════════════════
 
-MARKET_OPPORTUNITY_SYSTEM = """你是一位 Amazon 跨境电商市场分析专家。用户输入产品关键词和市场站点，你需要基于 Top 20 竞品数据，输出 7 层市场机会判断。
+MARKET_OPPORTUNITY_SYSTEM = """你是一位 Amazon 跨境电商市场分析专家。用户输入产品关键词，你需要基于 Top 20 竞品数据，先做产品分类统计，再做 7 层市场机会判断。
+
+核心分析流程：
+1. 先按产品形态/技术路线将 Top 20 归类（如除味器分为：香薰类、喷雾类、活性炭吸附类、负离子电子类、臭氧电子类、光触媒电子类等）
+2. 统计每个类目的 ASIN 数量、均价区间、平均评分、平均评论数
+3. 判断哪个类目竞争最弱/机会最大
+4. 再做 7 层市场分析
 
 规则：
 1. 不要编造数据。缺失的字段跳过该维度的判断，并在结论中说明。
 2. 用中文回答。数值字段不可见时填 null。
-3. 输出必须是合法 JSON，不要带 markdown 代码块标记。"""
+3. 产品分类必须基于实际 Top 20 数据，不能凭空编造类目。
+4. 输出必须是合法 JSON，不要带 markdown 代码块标记。"""
 
 
 def build_market_prompt(keyword: str, marketplace: str, top20_data: dict) -> str:
-    """Build prompt for market opportunity analysis."""
-    return f"""请分析以下关键词在 {marketplace} 的市场机会。
+    """Build prompt for market opportunity analysis with product classification."""
+    return f"""请分析以下关键词在 {marketplace} 的市场机会。先做产品分类统计，再做 7 层分析。
 
 关键词：{keyword}
 
@@ -25,18 +33,33 @@ Top 20 竞品数据：
 
 请输出以下 JSON 结构：
 {{
-  "market_entry_conclusion": "一句话市场准入结论",
+  "product_categories": [
+    {{
+      "category_name": "类目名称（如：光触媒电子除味器）",
+      "asin_count": 该类的 ASIN 数量,
+      "avg_price": "均价",
+      "price_range": "价格区间",
+      "avg_rating": 平均评分,
+      "avg_reviews": 平均评论数,
+      "competition_level": "低 | 中 | 高",
+      "key_players": ["主要品牌/ASIN"],
+      "typical_features": ["共性特征"],
+      "common_weaknesses": ["共性弱点（从差评提取）"]
+    }}
+  ],
+  "best_opportunity_category": "最有切入机会的类目名称及原因",
+  "market_entry_conclusion": "一句话市场准入结论（结合分类结果）",
   "opportunity_score": 0-100 的机会评分,
   "entry_level": "强建议进入 | 谨慎进入 | 不建议进入",
   "top20_competition_strength": "低 | 中 | 高 | 极高",
   "seven_layer": {{
     "1_市场准入结论": "综合判断",
-    "2_Top20竞争结构": "品牌集中度、评论壁垒、新品存活率分析",
-    "3_价格带与利润空间": "主流价格带、利润空间估算、价格天花板",
-    "4_需求强度与需求缺口": "搜索量趋势、购买频率、未满足需求",
-    "5_竞品卖点共性": "Top20 共性卖点、差异化方向",
-    "6_流量与广告风险": "CPC 估算、广告竞争程度、自然流量机会",
-    "7_建议切入策略": "具体切入角度和第一步动作"
+    "2_类目竞争结构": "各类目的品牌集中度、评论壁垒、新品存活率",
+    "3_价格带与利润空间": "各类目主流价格带、利润空间估算",
+    "4_需求强度与需求缺口": "搜索量趋势、买家真实需求、未满足痛点",
+    "5_竞品卖点共性": "Top20 共性卖点、各类目差异化方向",
+    "6_流量与广告风险": "CPC 估算、各类目广告竞争程度",
+    "7_建议切入策略": "具体切入类目、产品形态建议和第一步动作"
   }},
   "price_band_judgment": "价格带综合判断",
   "main_risk": "最大风险点",
@@ -51,6 +74,14 @@ Top 20 竞品数据：
 COMPETITOR_SYSTEM = """你是一位 Amazon 竞品拆解专家。基于竞品 ASIN 的 Listing 数据，输出 12 维优劣势分析。
 
 核心目标：找到可攻击点。
+
+买家语言转译规则（内置）：
+1. 分析竞品 Listing 时，必须判断其使用的语言是"卖家技术语言"还是"买家购买语言"
+2. 技术词过重 = 转化弱 → 标记为可攻击点
+3. 缺乏场景描述 = 买家代入感差 → 标记为可攻击点
+4. 卖点没有回答买家问题 = 点击后流失 → 标记为转化断点
+5. 合规风险表达 = 高风险 → 明确标注
+
 规则：
 1. 每一条判断必须有数据依据。
 2. 可攻击点必须是竞品确实存在的弱点，不是猜测。
@@ -58,12 +89,17 @@ COMPETITOR_SYSTEM = """你是一位 Amazon 竞品拆解专家。基于竞品 ASI
 
 
 def build_competitor_prompt(asin: str, listing_data: dict) -> str:
+    ocr = listing_data.get("ocr_image_texts", {})
+    ocr_text = "\n".join([f"  图上文字: {t[:200]}" for t in ocr.values()]) if ocr else "（无图片文字提取）"
     return f"""请对以下竞品进行 12 维分析。
 
 ASIN：{asin}
 
 Listing 数据：
 {json.dumps(listing_data, ensure_ascii=False, indent=2)}
+
+图片文字提取（OCR）：
+{ocr_text}
 
 输出 JSON：
 {{
@@ -95,7 +131,13 @@ Listing 数据：
 
 PRELAUNCH_SYSTEM = """你是一位 Amazon 上架准入审核专家。检查 Listing 素材是否达到上架标准。
 
-逐位置诊断：标题、亮点、五点（1-5）、主图、副图（1-6）、A+（1-7）。
+买家语言转译规则（内置）：
+1. 每个位置必须判断：语言是卖家视角还是买家视角
+2. 卖家视角语言 = 修改项 → 必须标注原因和改法
+3. 技术词→结果词、功能词→场景词、堆砌词→单一利益词
+4. 检查合规风险：绝对化词汇、夸大效果、无依据医疗承诺
+
+逐位置诊断规则：
 每个位置判定：通过 | 需修改 | 缺失。
 最终结论：可以上架 | 谨慎上架 | 暂不建议上架。
 
@@ -141,6 +183,14 @@ def build_prelaunch_prompt(materials: dict) -> str:
 
 CONVERSION_SYSTEM = """你是一位 Amazon 转化率诊断专家。诊断在售 ASIN 的 Listing，找出转化瓶颈。
 
+买家语言转译规则（内置）：
+1. 每个位置必须判断：语言是卖家视角还是买家视角
+2. 卖家视角语言 = 转化断点 → 必须标注
+3. 指出具体改法：技术词→结果词、功能词→场景词、堆砌词→单一利益词
+4. 判断是否存在合规风险表达
+
+逐位置诊断规则：
+
 逐位置诊断：标题、亮点、五点（1-5）、主图、副图（1-6）、A+（1-7）、价格、评论/评分。
 每个位置判定：通过 | 需修改 | 严重影响转化 | 缺失。
 每个位置映射受影响的广告指标。
@@ -155,12 +205,17 @@ CONVERSION_SYSTEM = """你是一位 Amazon 转化率诊断专家。诊断在售 
 
 
 def build_conversion_prompt(asin: str, listing_data: dict) -> str:
+    ocr = listing_data.get("ocr_image_texts", {})
+    ocr_text = "\n".join([f"  图上文字: {t[:200]}" for t in ocr.values()]) if ocr else "（无图片文字提取）"
     return f"""请诊断以下在售 ASIN 的转化问题。
 
 ASIN：{asin}
 
 Listing 数据：
 {json.dumps(listing_data, ensure_ascii=False, indent=2)}
+
+图片文字提取（OCR）：
+{ocr_text}
 
 输出 JSON：
 {{

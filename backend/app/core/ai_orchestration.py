@@ -1,3 +1,4 @@
+from __future__ import annotations
 """AI orchestration — PromptBuilder, ProviderRouter, AIParser.
 
 The pipeline:

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Execution Records API."""
 
 from fastapi import APIRouter, Depends, Query

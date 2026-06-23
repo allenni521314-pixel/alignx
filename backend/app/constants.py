@@ -1,0 +1,2 @@
+"""AlignX constants."""
+DEFAULT_USER_ID = "00000000default0000000000000000"

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Execution records + validation results + ASIN profiles — service stubs."""
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -72,7 +73,9 @@ async def get_profile(asin: str, db: AsyncSession) -> AsinOperationProfileRespon
 
 
 async def sync_profile(asin: str, db: AsyncSession) -> AsinOperationProfileResponse:
-    """Rebuild ASIN profile from validation history."""
+    """Rebuild ASIN profile from validation history + latest diagnosis."""
+    from app.models import ConversionDiagnosis
+
     # Count validation results
     vq = select(ValidationResult).where(ValidationResult.asin == asin)
     results = (await db.execute(vq)).scalars().all()
@@ -82,19 +85,32 @@ async def sync_profile(asin: str, db: AsyncSession) -> AsinOperationProfileRespo
     interfered = sum(1 for r in results if r.final_result_status == "interfered")
     insufficient = sum(1 for r in results if r.final_result_status == "insufficient_data")
 
+    # Latest diagnosis
+    dq = select(ConversionDiagnosis).where(
+        ConversionDiagnosis.asin == asin
+    ).order_by(desc(ConversionDiagnosis.created_at)).limit(1)
+    latest_diag = (await db.execute(dq)).scalar_one_or_none()
+
+    # Build learning summary
+    learning_parts = []
+    if effective > 0:
+        learning_parts.append(f"{effective}次有效验证")
+    if ineffective > 0:
+        learning_parts.append(f"{ineffective}次无效验证")
+
     # Upsert
     existing = await db.execute(select(AsinOperationProfile).where(AsinOperationProfile.asin == asin))
     profile = existing.scalar_one_or_none()
 
     if not profile:
         profile = AsinOperationProfile(
-            user_id="default",
             asin=asin,
             total_validation_count=len(results),
-            effective_count=effective,
-            ineffective_count=ineffective,
-            interfered_count=interfered,
-            insufficient_data_count=insufficient,
+            effective_count=effective, ineffective_count=ineffective,
+            interfered_count=interfered, insufficient_data_count=insufficient,
+            current_main_problem=latest_diag.biggest_breakpoint if latest_diag else None,
+            next_recommended_proposition=latest_diag.priority_action if latest_diag else None,
+            asin_learning_summary="；".join(learning_parts) if learning_parts else None,
         )
         db.add(profile)
     else:
@@ -103,6 +119,10 @@ async def sync_profile(asin: str, db: AsyncSession) -> AsinOperationProfileRespo
         profile.ineffective_count = ineffective
         profile.interfered_count = interfered
         profile.insufficient_data_count = insufficient
+        if latest_diag:
+            profile.current_main_problem = latest_diag.biggest_breakpoint
+            profile.next_recommended_proposition = latest_diag.priority_action
+        profile.asin_learning_summary = "；".join(learning_parts) if learning_parts else None
 
     await db.flush()
     return AsinOperationProfileResponse.model_validate(profile, from_attributes=True)

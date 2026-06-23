@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Validation task service."""
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -5,11 +6,12 @@ from sqlalchemy import select, desc
 
 from app.models import ValidationTask
 from app.schemas import ValidationTaskCreate, ValidationTaskUpdate, ValidationTaskResponse
+from app.constants import DEFAULT_USER_ID
 
 
 async def create_task(req: ValidationTaskCreate, db: AsyncSession) -> ValidationTaskResponse:
     task = ValidationTask(
-        user_id="default",
+        user_id=DEFAULT_USER_ID,
         asin=req.asin,
         proposition_code=req.proposition_code,
         proposition_name=req.proposition_name,

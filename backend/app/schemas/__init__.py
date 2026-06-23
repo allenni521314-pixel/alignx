@@ -1,3 +1,4 @@
+from __future__ import annotations
 """AlignX V1 — Pydantic request/response schemas."""
 
 from datetime import datetime
@@ -49,6 +50,8 @@ class MarketOpportunityResponse(BaseModel):
     price_band_judgment: Optional[str] = None
     main_risk: Optional[str] = None
     next_action: Optional[str] = None
+    best_opportunity_category: Optional[str] = None
+    product_categories: Optional[list] = None
     seven_layer_result_json: Optional[dict] = None
     created_at: datetime
 

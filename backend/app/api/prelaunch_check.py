@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Pre-launch Check — listing material admission assessment."""
 
 from fastapi import APIRouter, Depends, HTTPException

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Market Opportunity — keyword-based market analysis."""
 
 from fastapi import APIRouter, Depends, HTTPException

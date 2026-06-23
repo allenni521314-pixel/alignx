@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Conversion diagnosis service — in-sale ASIN → capture → AI position-by-position diagnosis."""
 
 import json
@@ -9,6 +10,7 @@ from app.schemas import ConversionDiagnosisRequest, ConversionDiagnosisResponse
 from app.core.scraperapi import ScraperAPIProvider
 from app.core.ai import AI
 from app.core.prompts import build_conversion_prompt, CONVERSION_SYSTEM
+from app.constants import DEFAULT_USER_ID
 
 
 async def diagnose(req: ConversionDiagnosisRequest, db: AsyncSession) -> ConversionDiagnosisResponse:
@@ -26,15 +28,17 @@ async def diagnose(req: ConversionDiagnosisRequest, db: AsyncSession) -> Convers
 
     listing_data = None
     if not existing:
-        capture = CaptureJob(input_type="asin", input_value=asin, marketplace=req.marketplace, provider="scraperapi", status="running")
+        capture = CaptureJob(
+            user_id=DEFAULT_USER_ID,
+            input_type="asin", input_value=asin, marketplace=req.marketplace,
+            provider="scraperapi", status="running",
+        )
         db.add(capture)
         await db.flush()
 
         provider = ScraperAPIProvider()
         result = await provider.capture_product_by_asin(asin, req.marketplace)
-
         capture.status = result.capture_status
-        capture.raw_response_path = json.dumps(result.raw_response) if result.raw_response else None
         capture.error_message = result.error_message
         await db.flush()
 
@@ -44,16 +48,11 @@ async def diagnose(req: ConversionDiagnosisRequest, db: AsyncSession) -> Convers
                 title=result.extracted_fields.get("title"),
                 price=result.extracted_fields.get("price"),
                 price_value=result.extracted_fields.get("price_value"),
-                currency=result.extracted_fields.get("currency"),
                 rating=result.extracted_fields.get("rating"),
                 review_count=result.extracted_fields.get("review_count"),
-                bought_in_past_month_raw=result.extracted_fields.get("bought_in_past_month_raw"),
-                bought_in_past_month_value=result.extracted_fields.get("bought_in_past_month_value"),
                 main_image=result.extracted_fields.get("main_image"),
                 image_urls=result.extracted_fields.get("image_urls"),
                 bullet_points=result.extracted_fields.get("bullet_points"),
-                aplus_content=result.extracted_fields.get("aplus_content"),
-                product_details=result.extracted_fields.get("product_details"),
                 parse_status=result.capture_status,
                 missing_fields=result.missing_fields,
                 field_completeness_score=result.data_completeness_score,
@@ -63,13 +62,10 @@ async def diagnose(req: ConversionDiagnosisRequest, db: AsyncSession) -> Convers
             listing_data = result.extracted_fields
     else:
         listing_data = {
-            "title": existing.title,
-            "price": existing.price,
-            "rating": existing.rating,
-            "review_count": existing.review_count,
+            "title": existing.title, "price": existing.price,
+            "rating": existing.rating, "review_count": existing.review_count,
             "bullet_points": existing.bullet_points,
-            "main_image": existing.main_image,
-            "image_urls": existing.image_urls,
+            "main_image": existing.main_image, "image_urls": existing.image_urls,
             "aplus_content": existing.aplus_content,
             "product_details": existing.product_details,
         }
@@ -79,17 +75,20 @@ async def diagnose(req: ConversionDiagnosisRequest, db: AsyncSession) -> Convers
     if listing_data:
         try:
             ai = AI()
-            prompt = build_conversion_prompt(asin, listing_data)
-            ai_data = await ai.complete_json(prompt=prompt, system=CONVERSION_SYSTEM)
+            ai_data = await ai.complete_json(
+                prompt=build_conversion_prompt(asin, listing_data),
+                system=CONVERSION_SYSTEM,
+            )
             ai_result = ai_data
         except Exception as e:
             ai_result = {"error": str(e)}
 
     # 3. Save
+    title = listing_data.get("title") if listing_data else None
     if ai_result and not ai_result.get("error"):
         diagnosis = ConversionDiagnosis(
-            user_id="default", asin=asin, product_url=req.product_url, marketplace=req.marketplace,
-            product_title=listing_data.get("title") if listing_data else None,
+            user_id=DEFAULT_USER_ID, asin=asin, product_url=req.product_url,
+            marketplace=req.marketplace, product_title=title,
             overall_conclusion=ai_result.get("overall_conclusion"),
             biggest_breakpoint=ai_result.get("biggest_breakpoint"),
             priority_position=ai_result.get("priority_position"),
@@ -100,8 +99,8 @@ async def diagnose(req: ConversionDiagnosisRequest, db: AsyncSession) -> Convers
         )
     else:
         diagnosis = ConversionDiagnosis(
-            user_id="default", asin=asin, product_url=req.product_url, marketplace=req.marketplace,
-            product_title=listing_data.get("title") if listing_data else None,
+            user_id=DEFAULT_USER_ID, asin=asin, product_url=req.product_url,
+            marketplace=req.marketplace, product_title=title,
             overall_conclusion="数据已抓取，AI 诊断待完成" if listing_data else "抓取失败",
             current_status="pending",
         )

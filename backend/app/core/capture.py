@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Capture provider abstraction — ScraperAPI / Rainforest / manual.
 
 Protocol: every provider implements these three methods and returns a unified CaptureResult.

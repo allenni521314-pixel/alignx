@@ -184,15 +184,28 @@ export default function ConversionDiagnosis() {
           </h3>
           <div className="space-y-2">
             {history.items.map((item) => (
-              <div key={item.id} className="apple-card p-4 flex items-center justify-between hover:bg-[#f5f5f7] cursor-pointer transition-colors">
+              <div key={item.id} className="apple-card p-4 flex items-center justify-between hover:bg-[#f5f5f7] transition-colors">
                 <div className="flex items-center gap-3">
                   <ArrowDownToLine size={18} className="text-[#86868b]" />
                   <div>
                     <p className="text-[15px] font-medium">{item.asin}</p>
-                    <p className="text-[13px] text-[#86868b] truncate max-w-[350px]">{item.product_title}</p>
+                    <p className="text-[13px] text-[#86868b] truncate max-w-[250px]">{item.product_title}</p>
                   </div>
                 </div>
-                <span className="text-[12px] text-[#86868b]">{item.created_at?.slice(0, 10)}</span>
+                <div className="flex items-center gap-3">
+                  <span className="text-[12px] text-[#86868b]">{item.created_at?.slice(0, 10)}</span>
+                  <button
+                    onClick={async () => {
+                      const res = await fetch(`/api/v1/conversion-diagnosis/${item.id}`);
+                      const data = await res.json();
+                      setResult(data);
+                      window.scrollTo({ top: 0, behavior: "smooth" });
+                    }}
+                    className="apple-btn-secondary text-[12px] px-3 py-1"
+                  >
+                    回看
+                  </button>
+                </div>
               </div>
             ))}
           </div>

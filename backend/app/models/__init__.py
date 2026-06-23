@@ -1,3 +1,4 @@
+from __future__ import annotations
 """AlignX V1 — SQLAlchemy ORM models (13 tables per V1 Clean Architecture)."""
 
 import uuid
@@ -46,7 +47,7 @@ class Account(Base):
     __tablename__ = "accounts"
 
     id          = Column(String(32), primary_key=True, default=new_uuid)
-    user_id     = Column(String(32), ForeignKey("users.id"), nullable=False, unique=True)
+    user_id         = Column(String(32), ForeignKey("users.id"), nullable=False, default="00000000default0000000000000000", unique=True)
     plan        = Column(String(32), nullable=False, default="free")  # free | pro | enterprise
     balance     = Column(Float, nullable=False, default=0.0)
     total_calls = Column(Integer, nullable=False, default=0)
@@ -64,7 +65,7 @@ class Store(Base):
     __tablename__ = "stores"
 
     id          = Column(String(32), primary_key=True, default=new_uuid)
-    user_id     = Column(String(32), ForeignKey("users.id"), nullable=False, index=True)
+    user_id         = Column(String(32), ForeignKey("users.id"), nullable=False, default="00000000default0000000000000000", index=True)
     marketplace = Column(String(16), nullable=False, default="amazon.com")  # amazon.com | amazon.co.jp | ...
     store_name  = Column(String(255), nullable=False)
     seller_id   = Column(String(64), nullable=True)
@@ -82,7 +83,7 @@ class Asin(Base):
     __tablename__ = "asins"
 
     id              = Column(String(32), primary_key=True, default=new_uuid)
-    user_id         = Column(String(32), ForeignKey("users.id"), nullable=False, index=True)
+    user_id         = Column(String(32), ForeignKey("users.id"), nullable=False, default="00000000default0000000000000000", index=True)
     store_id        = Column(String(32), ForeignKey("stores.id"), nullable=True)
 
     asin            = Column(String(16), nullable=False, index=True)
@@ -107,7 +108,7 @@ class CaptureJob(Base):
     __tablename__ = "capture_jobs"
 
     id                = Column(String(32), primary_key=True, default=new_uuid)
-    user_id           = Column(String(32), ForeignKey("users.id"), nullable=False, index=True)
+    user_id         = Column(String(32), ForeignKey("users.id"), nullable=False, default="00000000default0000000000000000", index=True)
     input_type        = Column(String(16), nullable=False)  # keyword | asin | product_url
     input_value       = Column(Text, nullable=False)
     marketplace       = Column(String(16), nullable=False, default="amazon.com")
@@ -167,7 +168,7 @@ class MarketOpportunityReport(Base):
     __tablename__ = "market_opportunity_reports"
 
     id                          = Column(String(32), primary_key=True, default=new_uuid)
-    user_id                     = Column(String(32), ForeignKey("users.id"), nullable=False, index=True)
+    user_id         = Column(String(32), ForeignKey("users.id"), nullable=False, default="00000000default0000000000000000", index=True)
     keyword                     = Column(String(255), nullable=False)
     marketplace                 = Column(String(16), nullable=False, default="amazon.com")
     category                    = Column(String(255), nullable=True)
@@ -194,7 +195,7 @@ class CompetitorAnalysisReport(Base):
     __tablename__ = "competitor_analysis_reports"
 
     id                       = Column(String(32), primary_key=True, default=new_uuid)
-    user_id                  = Column(String(32), ForeignKey("users.id"), nullable=False, index=True)
+    user_id         = Column(String(32), ForeignKey("users.id"), nullable=False, default="00000000default0000000000000000", index=True)
     asin                     = Column(String(16), nullable=False)
     product_url              = Column(Text, nullable=True)
     marketplace              = Column(String(16), nullable=False, default="amazon.com")
@@ -231,7 +232,7 @@ class PrelaunchCheck(Base):
     __tablename__ = "prelaunch_checks"
 
     id              = Column(String(32), primary_key=True, default=new_uuid)
-    user_id         = Column(String(32), ForeignKey("users.id"), nullable=False, index=True)
+    user_id         = Column(String(32), ForeignKey("users.id"), nullable=False, default="00000000default0000000000000000", index=True)
     product_name    = Column(String(255), nullable=False)
     marketplace     = Column(String(16), nullable=False, default="amazon.com")
 
@@ -267,7 +268,7 @@ class ConversionDiagnosis(Base):
     __tablename__ = "conversion_diagnoses"
 
     id                              = Column(String(32), primary_key=True, default=new_uuid)
-    user_id                         = Column(String(32), ForeignKey("users.id"), nullable=False, index=True)
+    user_id         = Column(String(32), ForeignKey("users.id"), nullable=False, default="00000000default0000000000000000", index=True)
     asin                            = Column(String(16), nullable=False)
     product_url                     = Column(Text, nullable=True)
     marketplace                     = Column(String(16), nullable=False, default="amazon.com")
@@ -333,7 +334,7 @@ class ValidationTask(Base):
     __tablename__ = "validation_tasks"
 
     id                           = Column(String(32), primary_key=True, default=new_uuid)
-    user_id                      = Column(String(32), ForeignKey("users.id"), nullable=False, index=True)
+    user_id         = Column(String(32), ForeignKey("users.id"), nullable=False, default="00000000default0000000000000000", index=True)
     asin                         = Column(String(16), nullable=False)
     proposition_code             = Column(String(16), nullable=False)
     proposition_name             = Column(String(255), nullable=True)
@@ -411,7 +412,7 @@ class AsinOperationProfile(Base):
     __tablename__ = "asin_operation_profiles"
 
     id                           = Column(String(32), primary_key=True, default=new_uuid)
-    user_id                      = Column(String(32), ForeignKey("users.id"), nullable=False, index=True)
+    user_id         = Column(String(32), ForeignKey("users.id"), nullable=False, default="00000000default0000000000000000", index=True)
     asin                         = Column(String(16), nullable=False, unique=True)
     product_title                = Column(Text, nullable=True)
     category                     = Column(String(255), nullable=True)

@@ -1,10 +1,26 @@
+from __future__ import annotations
 """Proposition seeder — populate the 49 propositions (7 categories × 7 each)."""
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.models import PropositionCategory, Proposition
-from app.core.proposition_engine import PROPOSITION_CATEGORIES, PROPOSITIONS_PER_CATEGORY, build_proposition_code
+
+# Constants
+PROPOSITION_CATEGORIES = {
+    "P01": {"name": "流量命题库", "description": "Traffic-related propositions"},
+    "P02": {"name": "主图命题库", "description": "Main image propositions"},
+    "P03": {"name": "副图承接命题库", "description": "Secondary image propositions"},
+    "P04": {"name": "价格带命题库", "description": "Price band propositions"},
+    "P05": {"name": "信任命题库", "description": "Trust propositions"},
+    "P06": {"name": "买家语言命题库", "description": "Buyer language propositions"},
+    "P07": {"name": "需求不成立命题库", "description": "Demand invalidation propositions"},
+}
+PROPOSITIONS_PER_CATEGORY = 7
+
+
+def build_proposition_code(category: str, index: int) -> str:
+    return f"{category}-{index:03d}"
 
 # 49 propositions indexed by P01-001 through P07-007
 PROPOSITIONS = {

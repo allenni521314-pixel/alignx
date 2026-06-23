@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Validation Results API."""
 
 from fastapi import APIRouter, Depends, Query

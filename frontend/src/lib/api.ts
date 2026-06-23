@@ -27,6 +27,19 @@ export interface MarketOpportunity {
   price_band_judgment: string | null;
   main_risk: string | null;
   next_action: string | null;
+  best_opportunity_category: string | null;
+  product_categories: Array<{
+    category_name: string;
+    asin_count: number;
+    avg_price: string;
+    price_range: string;
+    avg_rating: number;
+    avg_reviews: number;
+    competition_level: string;
+    key_players: string[];
+    typical_features: string[];
+    common_weaknesses: string[];
+  }> | null;
   seven_layer_result_json: Record<string, unknown> | null;
   created_at: string;
 }
@@ -189,10 +202,17 @@ export interface YesterdayReport {
   summary: {
     total_executions: number;
     total_cost: number;
+    ad_spend: number;
     changed_positions: number;
     active_asins: number;
     pending_tasks: number;
   };
+  recent_ads: Array<{
+    asin: string;
+    cost: number;
+    summary: string;
+    date: string;
+  }>;
   validation_stats: {
     effective: number;
     ineffective: number;
@@ -210,6 +230,13 @@ export interface YesterdayReport {
     total_validations: number;
     effective: number;
     ineffective: number;
+    ad_spend: number;
+    ad_executions: number;
+    total_cost: number;
+    impressions: number;
+    clicks: number;
+    orders: number;
+    sales: number;
     current_problem: string | null;
     next_recommended: string | null;
     learning: string | null;

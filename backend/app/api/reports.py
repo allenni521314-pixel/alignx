@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Reports API — yesterday report + today decisions."""
 
 from fastapi import APIRouter, Depends
