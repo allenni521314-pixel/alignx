@@ -20,6 +20,20 @@ if not QWEN_KEY:
 
 QWEN_BASE = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 
+LISTING_IMAGE_OCR_PROMPT = """识别这张 Amazon Listing 图片。
+优先任务：逐字提取图片上的所有可见文案。
+要求：
+1. 保留原文语言、大小写、数字、单位、符号、百分比和换行层级。
+2. 不要翻译、不要改写、不要总结图片文案。
+3. 文案按从上到下、从左到右的顺序列出；看不清的部分标为[看不清]。
+4. 如果图片没有可见文案，写“可见文案：暂无”。
+5. 文案之后再补“图片内容：”，简要说明产品、场景、配件、尺寸、认证或安装信息。
+输出格式：
+可见文案：
+- ...
+图片内容：
+..."""
+
 
 async def _call_qwen_vision(image_b64: str, prompt: str, max_tokens: int = 200) -> str:
     """Call Qwen Vision API."""
@@ -60,8 +74,8 @@ async def extract_text_from_images(image_urls: list[str]) -> dict[str, str]:
                 img_b64 = base64.b64encode(img_resp.content).decode()
                 text = await _call_qwen_vision(
                     img_b64,
-                    "识别这张 Amazon Listing 图片。请返回：1. 可见文字；2. 图片展示的产品、场景、配件、尺寸、认证或安装信息。若没有可见文字，也必须描述图片内容。用中文，保持简洁。",
-                    max_tokens=300,
+                    LISTING_IMAGE_OCR_PROMPT,
+                    max_tokens=800,
                 )
                 if text:
                     results[url] = text
@@ -85,22 +99,12 @@ async def extract_text_from_base64_list(items: list[dict]) -> list[dict]:
         return []
 
     results = []
-    for item in items[:5]:
+    for item in items[:7]:
         try:
             b64 = item.get("url", "").split(",", 1)[-1]
             slot = item.get("slot", "")
-            # Position-specific prompts
-            prompts = {
-                "main": "Describe this Amazon main image: is it pure white background? Is there text/logo/watermark? What is shown?",
-                "img2": "Describe this image: what key features are highlighted? Are there icons and short text labels?",
-                "img3": "Is this a real usage scenario photo or a product-only shot? Describe the environment and how the product is used.",
-                "img4": "Does this image show size comparison with a reference object? Are dimensions clearly labeled?",
-                "img5": "Describe the close-up details or usage steps shown. Are features clearly visible?",
-                "img6": "What certifications, warranty info, or package contents are shown? Is this a trust-building image?",
-                "img7": "Is this a lifestyle/atmosphere image? Describe the mood and setting.",
-            }
-            prompt = prompts.get(slot, "Describe this image: what is shown, any visible text, and what type of content it contains.")
-            text = await _call_qwen_vision(b64, prompt, max_tokens=200)
+            prompt = f"{LISTING_IMAGE_OCR_PROMPT}\n图片位置：{slot or '未设置'}"
+            text = await _call_qwen_vision(b64, prompt, max_tokens=800)
             if text:
                 results.append({"slot": slot, "text": text})
         except Exception:

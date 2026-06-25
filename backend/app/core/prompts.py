@@ -98,7 +98,7 @@ def _format_image_texts(listing_data: dict) -> str:
         if not value:
             continue
         slot_name = slot if isinstance(slot, str) and not slot.startswith("http") else "图片"
-        lines.append(f"  {slot_name}: {str(value)[:300]}")
+        lines.append(f"  {slot_name}: {str(value)[:800]}")
     return "\n".join(lines) if lines else "（无图片识别结果）"
 
 

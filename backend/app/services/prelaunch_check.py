@@ -49,7 +49,7 @@ async def analyze_prelaunch(req: PrelaunchCheckRequest, db: AsyncSession, user_i
             b64_list = [
                 {"url": f"data:image/jpeg;base64,{s.get('base64', '')}", "slot": s.get("slot", "")}
                 for s in image_slots if s.get("base64")
-            ][:5]
+            ][:7]
             if b64_list:
                 ocr_results = await extract_text_from_base64_list(b64_list)
                 if ocr_results:
