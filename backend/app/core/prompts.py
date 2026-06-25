@@ -85,7 +85,8 @@ COMPETITOR_SYSTEM = """你是一位 Amazon 竞品拆解专家。基于竞品 ASI
 规则：
 1. 每一条判断必须有数据依据。
 2. 可攻击点必须是竞品确实存在的弱点，不是猜测。
-3. 用中文回答。输出合法 JSON。"""
+3. 图片位置必须基于“图片识别（OCR + 场景吻合）”判断：图上文案是否有效、图片内容是否与产品吻合、场景是否错配。
+4. 用中文回答。输出合法 JSON。"""
 
 
 def _format_image_texts(listing_data: dict) -> str:
@@ -111,7 +112,7 @@ ASIN：{asin}
 Listing 数据：
 {json.dumps(listing_data, ensure_ascii=False, indent=2)}
 
-图片识别：
+图片识别（OCR + 场景吻合）：
 {image_text}
 
 输出 JSON：
@@ -177,7 +178,7 @@ Amazon 图片规则（必须遵守）：
 1. 没有 ASIN，只基于上传素材判断。
 2. 不出现广告、库存、物流字段。
 3. 每个需修改的位置给出具体的英文修改建议——即卖家可以直接粘贴到 Amazon Listing 的英文买家表达。
-4. 图片位置：uploaded_images 列出了已上传的位置和文件名，missing_images 列出了未上传的位置。如果 materials 中包含 ocr_texts，必须对照该位置的预期功能判断图片是否错配（如副图3应展示使用场景却放了白底产品图=错配）。错配标注并扣分。已上传的位置 → 各维度至少给 3 分。未上传的位置 → 各维度给 1 分，标注缺失。
+4. 图片位置：uploaded_images 列出了已上传的位置和文件名，missing_images 列出了未上传的位置。如果 materials 中包含 ocr_texts，必须对照“可见文案、图片内容、产品场景吻合度”判断图片是否错配。错配标注并扣分。已上传的位置 → 各维度至少给 3 分。未上传的位置 → 各维度给 1 分，标注缺失。
 
 每个位置 issue 必须具体（不少于20字），说明「该位置现在是什么」「应该是什么」「差距在哪」。不允许笼统描述如"图片质量一般"。
 
@@ -303,7 +304,8 @@ CONVERSION_SYSTEM = """你是一位 Amazon 转化率诊断专家。诊断在售 
 1. 必须基于数据，不要猜测。
 2. 找到"最大断点"——最影响转化的单一位置。
 3. 给出优先改动的具体建议。
-4. 输出合法 JSON。"""
+4. 图片位置必须基于“图片识别（OCR + 场景吻合）”判断：图上文案是否有效、图片内容是否与产品吻合、场景是否错配。
+5. 输出合法 JSON。"""
 
 
 def build_conversion_prompt(asin: str, listing_data: dict) -> str:
@@ -315,7 +317,7 @@ ASIN：{asin}
 Listing 数据：
 {json.dumps(listing_data, ensure_ascii=False, indent=2)}
 
-图片识别：
+图片识别（OCR + 场景吻合）：
 {image_text}
 
 输出 JSON：

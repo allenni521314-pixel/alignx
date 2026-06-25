@@ -51,7 +51,17 @@ async def analyze_prelaunch(req: PrelaunchCheckRequest, db: AsyncSession, user_i
                 for s in image_slots if s.get("base64")
             ][:7]
             if b64_list:
-                ocr_results = await extract_text_from_base64_list(b64_list)
+                product_context = "\n".join([
+                    f"产品名称：{req.product_name or '暂无'}",
+                    f"标题草稿：{req.title_draft or '暂无'}",
+                    f"核心卖点：{req.key_highlights or '暂无'}",
+                    f"五点1：{req.bullet_1 or '暂无'}",
+                    f"五点2：{req.bullet_2 or '暂无'}",
+                    f"五点3：{req.bullet_3 or '暂无'}",
+                    f"五点4：{req.bullet_4 or '暂无'}",
+                    f"五点5：{req.bullet_5 or '暂无'}",
+                ])
+                ocr_results = await extract_text_from_base64_list(b64_list, product_context=product_context)
                 if ocr_results:
                     materials["ocr_texts"] = {r["slot"]: r["text"] for r in ocr_results if r.get("text")}
         except Exception:
