@@ -39,6 +39,7 @@ export default function ConversionDiagnosis() {
   const [asin, setAsin] = useState("");
   const [analyzing, setAnalyzing] = useState(false);
   const [result, setResult] = useState<CD | null>(null);
+  const [error, setError] = useState("");
 
   const { data: history } = useQuery({
     queryKey: ["conversion-diagnosis-history"],
@@ -48,9 +49,12 @@ export default function ConversionDiagnosis() {
   const handleDiagnose = async () => {
     if (!asin.trim()) return;
     setAnalyzing(true);
+    setError("");
     try {
       const res = await diagnoseConversion(asin.trim());
       setResult(res);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "请求失败");
     } finally {
       setAnalyzing(false);
     }
@@ -90,6 +94,9 @@ export default function ConversionDiagnosis() {
             )}
           </button>
         </div>
+        {error && (
+          <p className="mt-3 text-[13px] text-[#ff3b30]">{error}</p>
+        )}
       </div>
 
       {result && (

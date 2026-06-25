@@ -20,6 +20,7 @@ export default function CompetitorAnalysis() {
   const [asin, setAsin] = useState("");
   const [analyzing, setAnalyzing] = useState(false);
   const [result, setResult] = useState<CA | null>(null);
+  const [error, setError] = useState("");
   const [creatingHypothesis, setCreatingHypothesis] = useState(false);
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -32,9 +33,12 @@ export default function CompetitorAnalysis() {
   const handleAnalyze = async () => {
     if (!asin.trim()) return;
     setAnalyzing(true);
+    setError("");
     try {
       const res = await analyzeCompetitor(asin.trim());
       setResult(res);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "请求失败");
     } finally {
       setAnalyzing(false);
     }
@@ -103,6 +107,9 @@ export default function CompetitorAnalysis() {
             )}
           </button>
         </div>
+        {error && (
+          <p className="mt-3 text-[13px] text-[#ff3b30]">{error}</p>
+        )}
       </div>
 
       {/* Result */}

@@ -15,7 +15,14 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${url}`, { ...options, headers });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(err.detail || `Request failed: ${res.status}`);
+    const detail = Array.isArray(err.detail)
+      ? err.detail.map((item: { msg?: string }) => item.msg || JSON.stringify(item)).join("；")
+      : typeof err.detail === "string"
+      ? err.detail
+      : err.detail
+      ? JSON.stringify(err.detail)
+      : "";
+    throw new Error(detail || `Request failed: ${res.status}`);
   }
   return res.json();
 }
@@ -82,10 +89,18 @@ export interface CompetitorAnalysis {
   created_at: string;
 }
 
+function amazonInputPayload(input: string, marketplace = "amazon.com") {
+  const value = input.trim();
+  const isUrl = /^https?:\/\//i.test(value);
+  return isUrl
+    ? { product_url: value, marketplace }
+    : { asin: value.toUpperCase(), marketplace };
+}
+
 export function analyzeCompetitor(asin: string, marketplace = "amazon.com") {
   return request<CompetitorAnalysis>("/competitor-analysis/analyze", {
     method: "POST",
-    body: JSON.stringify({ asin, marketplace }),
+    body: JSON.stringify(amazonInputPayload(asin, marketplace)),
   });
 }
 
@@ -154,7 +169,7 @@ export interface ConversionPositionDiagnosis {
 export function diagnoseConversion(asin: string, marketplace = "amazon.com") {
   return request<ConversionDiagnosis>("/conversion-diagnosis/analyze", {
     method: "POST",
-    body: JSON.stringify({ asin, marketplace }),
+    body: JSON.stringify(amazonInputPayload(asin, marketplace)),
   });
 }
 

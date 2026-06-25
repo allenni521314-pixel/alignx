@@ -2,6 +2,7 @@ from __future__ import annotations
 """Conversion diagnosis service — in-sale ASIN → capture → AI position-by-position diagnosis."""
 
 import json
+import re
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
 
@@ -13,13 +14,22 @@ from app.core.prompts import build_conversion_prompt, CONVERSION_SYSTEM
 from app.constants import DEFAULT_USER_ID
 
 
+def _extract_asin(value: str | None) -> str | None:
+    text = (value or "").strip()
+    if not text:
+        return None
+    direct = re.fullmatch(r"[A-Z0-9]{10}", text.upper())
+    if direct:
+        return direct.group(0)
+    match = re.search(r"/(?:dp|gp/product|product-reviews)/([A-Z0-9]{10})(?:[/?#]|$)", text, re.I)
+    return match.group(1).upper() if match else None
+
+
 async def diagnose(req: ConversionDiagnosisRequest, db: AsyncSession, user_id: str | None = None) -> ConversionDiagnosisResponse:
     uid = user_id or DEFAULT_USER_ID
-    asin = req.asin
+    asin = _extract_asin(req.asin)
     if not asin and req.product_url:
-        import re
-        match = re.search(r"/dp/([A-Z0-9]{10})", req.product_url)
-        asin = match.group(1) if match else None
+        asin = _extract_asin(req.product_url)
     if not asin:
         raise ValueError("Could not determine ASIN from input")
 
