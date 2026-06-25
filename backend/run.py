@@ -1,4 +1,4 @@
-import os
-os.environ["SCRAPERAPI_KEY"] = "398470..."] = "398470...with open("/Users/tittycute/Desktop/alignx/backend/run.py", "w") as f:
-    f.write(script)
-print("OK")
+import uvicorn
+
+if __name__ == "__main__":
+    uvicorn.run("app.main:app", host="0.0.0.0", port=8001, reload=True)

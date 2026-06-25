@@ -28,9 +28,9 @@ export default function App() {
       <Route path="/login" element={<Login />} />
       <Route path="*" element={
         <RequireAuth>
-          <div className="flex h-screen overflow-hidden">
+          <div className="min-h-screen">
             <Sidebar />
-            <main className="flex-1 overflow-y-auto p-6">
+            <main className="min-h-screen overflow-y-auto p-6 pl-[244px]">
               <Routes>
                 <Route path="/" element={<Navigate to="/today-decisions" replace />} />
           <Route path="/market-opportunity" element={<MarketOpportunity />} />

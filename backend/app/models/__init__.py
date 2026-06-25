@@ -375,6 +375,7 @@ class ExecutionRecord(Base):
     __tablename__ = "execution_records"
 
     id                  = Column(String(32), primary_key=True, default=new_uuid)
+    user_id             = Column(String(32), nullable=False, default="00000000default0000000000000000")
     validation_task_id  = Column(String(32), ForeignKey("validation_tasks.id"), nullable=False, index=True)
     asin                = Column(String(16), nullable=False)
 
@@ -398,6 +399,7 @@ class ValidationResult(Base):
     __tablename__ = "validation_results"
 
     id                      = Column(String(32), primary_key=True, default=new_uuid)
+    user_id                 = Column(String(32), nullable=False, default="00000000default0000000000000000")
     validation_task_id      = Column(String(32), ForeignKey("validation_tasks.id"), nullable=False, index=True)
     asin                    = Column(String(16), nullable=False)
 

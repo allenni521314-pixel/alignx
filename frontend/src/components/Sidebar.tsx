@@ -61,7 +61,7 @@ export default function Sidebar() {
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({ "找机会": true, "做上架": true, "跑验证": true });
 
   return (
-    <aside className="w-[220px] h-screen flex flex-col shrink-0 bg-white/80 backdrop-blur-xl border-r border-[#d2d2d7]/40">
+    <aside className="fixed left-0 top-0 w-[220px] h-screen flex flex-col bg-white/80 backdrop-blur-xl border-r border-[#d2d2d7]/40 z-20">
       <div className="h-[52px] flex items-center gap-2.5 px-5 border-b border-[#d2d2d7]/20">
         <div className="w-7 h-7 rounded-lg bg-[#0071e3] flex items-center justify-center">
           <span className="text-white text-xs font-bold">A</span>
