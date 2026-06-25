@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { BarChart3, ArrowRight, Star, MessageSquare, DollarSign, Swords, Target, Shield } from "lucide-react";
-import { analyzeCompetitor, listCompetitorAnalyses, CompetitorAnalysis as CA } from "@/lib/api";
+import { analyzeCompetitor, listCompetitorAnalyses, CompetitorAnalysis as CA, API_BASE } from "@/lib/api";
 
 const DIM_LABELS: Record<string, { icon: React.ComponentType<{ size?: number }>; label: string }> = {
   price_band_position: { icon: DollarSign, label: "价格带位置" },
@@ -174,7 +174,7 @@ export default function CompetitorAnalysis() {
                   <span className="text-[12px] text-[#86868b]">{item.created_at?.slice(0, 10)}</span>
                   <button
                     onClick={async () => {
-                      const res = await fetch(`/api/v1/competitor-analysis/${item.id}`);
+                      const res = await fetch(`${API_BASE}/competitor-analysis/${item.id}`);
                       const data = await res.json();
                       setResult(data);
                       window.scrollTo({ top: 0, behavior: "smooth" });

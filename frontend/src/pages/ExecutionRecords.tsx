@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ListChecks, DollarSign, Edit3, Clock, Upload, FileText, CheckCircle2 } from "lucide-react";
-import { listValidationTasks } from "@/lib/api";
+import { listValidationTasks, API_BASE } from "@/lib/api";
 
 export default function ExecutionRecords() {
   const queryClient = useQueryClient();
@@ -49,7 +49,7 @@ export default function ExecutionRecords() {
       if (ctrIdx >= 0) metrics.ctr = cols[ctrIdx]?.trim() || "0";
       if (cpcIdx >= 0) metrics.cpc = cols[cpcIdx]?.trim() || "0";
 
-      await fetch("/api/v1/execution-records", {
+      await fetch(`${API_BASE}/execution-records`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

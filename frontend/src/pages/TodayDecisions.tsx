@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { Zap, Lightbulb, AlertTriangle, TrendingUp, CheckCircle2, Play, ChevronRight } from "lucide-react";
-import { getTodayDecisions, getYesterdayReport } from "@/lib/api";
+import { getTodayDecisions, getYesterdayReport, API_BASE } from "@/lib/api";
 
 export default function TodayDecisions() {
   const { data: report, isLoading } = useQuery({ queryKey: ["today-decisions"], queryFn: getTodayDecisions });
@@ -216,7 +216,7 @@ function DecisionCard({
               <button
                 key={opt.v}
                 onClick={async () => {
-                  await fetch("/api/v1/validation-results", {
+                  await fetch(`${API_BASE}/validation-results`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({

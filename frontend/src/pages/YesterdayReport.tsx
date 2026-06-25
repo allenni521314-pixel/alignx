@@ -4,6 +4,7 @@ import {
   TrendingUp, DollarSign, Target, CheckCircle2, XCircle, AlertTriangle,
   Upload, FileText, Calendar, BarChart3,
 } from "lucide-react";
+import { API_BASE } from "@/lib/api";
 
 type ReportType = "daily" | "weekly" | "monthly";
 
@@ -18,7 +19,7 @@ export default function YesterdayReport() {
   const { data: report, isLoading } = useQuery({
     queryKey: ["yesterday-report", reportType],
     queryFn: async () => {
-      const r = await fetch(`/api/v1/reports/yesterday?type=${reportType}`);
+      const r = await fetch(`${API_BASE}/reports/yesterday?type=${reportType}`);
       return r.json();
     },
   });
@@ -53,7 +54,7 @@ export default function YesterdayReport() {
       if (ordersIdx >= 0) metrics.orders = parseInt(cols[ordersIdx]) || 0;
       if (salesIdx >= 0) metrics.sales = parseFloat(cols[salesIdx]) || 0;
 
-      await fetch("/api/v1/execution-records", {
+      await fetch(`${API_BASE}/execution-records`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

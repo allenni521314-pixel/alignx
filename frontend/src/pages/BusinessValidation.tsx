@@ -4,7 +4,7 @@ import {
   ShieldCheck, Plus, Play, CheckCircle2, XCircle,
   Clock, AlertTriangle, DollarSign, Target, ChevronDown, ChevronUp,
 } from "lucide-react";
-import { listValidationTasks, listAsinProfiles } from "@/lib/api";
+import { listValidationTasks, listAsinProfiles, API_BASE } from "@/lib/api";
 
 export default function BusinessValidation() {
   const queryClient = useQueryClient();
@@ -148,7 +148,7 @@ export default function BusinessValidation() {
                                 label="执行记录"
                                 onClick={async () => {
                                   setLoadingExecs(true);
-                                  const res = await fetch(`/api/v1/execution-records?validation_task_id=${task.id}`);
+                                  const res = await fetch(`${API_BASE}/execution-records?validation_task_id=${task.id}`);
                                   const data = await res.json();
                                   setExecRecords(data.items || []);
                                   setLoadingExecs(false);
@@ -262,7 +262,7 @@ function ResultForm({
 
   const handleSubmit = async () => {
     setSubmitting(true);
-    await fetch("/api/v1/validation-results", {
+    await fetch(`${API_BASE}/validation-results`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

@@ -1,8 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Database, BookOpen, GitBranch, Activity, Languages, ArrowRight, Copy, Shield } from "lucide-react";
+import { API_BASE } from "@/lib/api";
 
-const API = "/api/v1/admin";
+const API = API_BASE + "/admin";
 
 export default function AdminDashboard() {
   const user = JSON.parse(localStorage.getItem("alignx_user") || "{}");

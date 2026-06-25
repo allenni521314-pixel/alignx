@@ -1,6 +1,8 @@
 /** AlignX V1 — typed API client over backend REST endpoints. */
 
-const BASE = "/api/v1";
+const BASE = (import.meta.env.VITE_API_BASE || "") + "/api/v1";
+
+export const API_BASE = BASE;
 
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
   const token = localStorage.getItem("alignx_token");

@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { Shield, Mail, Building, Key, ArrowRight } from "lucide-react";
+import { API_BASE } from "@/lib/api";
 
-const API = "/api/v1/auth";
+const API = API_BASE + "/auth";
 
 export default function Login() {
   const [email, setEmail] = useState("");

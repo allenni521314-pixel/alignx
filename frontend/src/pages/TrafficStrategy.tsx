@@ -5,7 +5,7 @@ import {
   Target, Search, Shield, DollarSign, AlertTriangle,
   Plus, ChevronRight, CheckCircle2, Play, Lightbulb,
 } from "lucide-react";
-import { listAsinProfiles, listValidationTasks, listConversionDiagnoses } from "@/lib/api";
+import { listAsinProfiles, listValidationTasks, listConversionDiagnoses, API_BASE } from "@/lib/api";
 
 /* ── Lifecycle stage config ── */
 
@@ -86,7 +86,7 @@ export default function TrafficStrategy() {
   };
 
   const createTask = async (asin: string, strategy: Strategy) => {
-    await fetch("/api/v1/validation-tasks", {
+    await fetch(`${API_BASE}/validation-tasks`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

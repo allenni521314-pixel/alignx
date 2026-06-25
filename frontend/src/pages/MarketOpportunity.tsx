@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Globe, ArrowRight, TrendingUp, Shield, AlertTriangle, Target, CheckSquare, Square, BarChart3 } from "lucide-react";
-import { analyzeMarketOpportunity, listMarketOpportunities, MarketOpportunity as MO } from "@/lib/api";
+import { analyzeMarketOpportunity, listMarketOpportunities, MarketOpportunity as MO, API_BASE } from "@/lib/api";
 
 export default function MarketOpportunity() {
   const [keyword, setKeyword] = useState("");
@@ -28,7 +28,7 @@ export default function MarketOpportunity() {
     setComparing(true);
     const results = await Promise.all(
       selectedAsins.map(async (asin) => {
-        const r = await fetch(`/api/v1/competitor-analysis/analyze`, {
+        const r = await fetch(`${API_BASE}/competitor-analysis/analyze`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ asin }),
@@ -363,7 +363,7 @@ export default function MarketOpportunity() {
                   </span>
                   <button
                     onClick={async () => {
-                      const res = await fetch(`/api/v1/market-opportunity/${item.id}`);
+                      const res = await fetch(`${API_BASE}/market-opportunity/${item.id}`);
                       const data = await res.json();
                       setResult(data);
                       window.scrollTo({ top: 0, behavior: "smooth" });

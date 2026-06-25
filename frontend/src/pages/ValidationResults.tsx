@@ -4,8 +4,9 @@ import {
   TrendingUp, TrendingDown, AlertTriangle, HelpCircle,
   CheckCircle2, XCircle, ChevronDown, ChevronUp, Plus, ArrowRight,
 } from "lucide-react";
+import { API_BASE } from "@/lib/api";
 
-const API = "/api/v1";
+const API = API_BASE;
 
 interface VR {
   id: string;
