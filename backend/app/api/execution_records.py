@@ -1,7 +1,7 @@
 from __future__ import annotations
 """Execution Records API."""
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -14,7 +14,10 @@ router = APIRouter(prefix="/api/v1/execution-records", tags=["execution-records"
 
 @router.post("", response_model=ExecutionRecordResponse, status_code=201)
 async def create(req: ExecutionRecordCreate, db: AsyncSession = Depends(get_db), user_id: str | None = Depends(get_current_user_id)):
-    return await create_execution(req, db, user_id=user_id)
+    try:
+        return await create_execution(req, db, user_id=user_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.get("", response_model=PaginatedResponse)

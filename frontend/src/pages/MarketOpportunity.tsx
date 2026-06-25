@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Globe, ArrowRight, TrendingUp, Shield, AlertTriangle, Target, CheckSquare, Square, BarChart3 } from "lucide-react";
+import { Globe, ArrowRight, TrendingUp, AlertTriangle, Target, CheckSquare, Square, BarChart3 } from "lucide-react";
 import { analyzeMarketOpportunity, listMarketOpportunities, MarketOpportunity as MO, API_BASE } from "@/lib/api";
 
 export default function MarketOpportunity() {
@@ -133,7 +133,7 @@ export default function MarketOpportunity() {
           </div>
 
           {/* Product Category Breakdown */}
-          {(result.product_categories?.length > 0 ||
+          {((result.product_categories?.length ?? 0) > 0 ||
             (result.seven_layer_result_json && (result.seven_layer_result_json as any).product_categories?.length > 0)) && (
             (() => {
               const cats = result.product_categories || (result.seven_layer_result_json as any)?.product_categories || [];

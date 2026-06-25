@@ -95,7 +95,7 @@ export default function PrelaunchCheck() {
             <Field label="产品名称" value={productName} onChange={setProductName} placeholder="如：光触媒 USB-C 宠物除臭器" />
             <Field label="标题草案" value={titleDraft} onChange={setTitleDraft} placeholder="Amazon 产品标题" />
             <div><label className="block text-[13px] font-medium text-[#86868b] mb-2">亮点</label><input value={highlights} onChange={e=>setHighlights(e.target.value)} placeholder="一句话核心卖点" className="apple-input" /></div>
-            <div><label className="block text-[13px] font-medium text-[#86868b] mb-2">五点描述</label><div className="space-y-2">{bullets.map((b,i)=><input key={i} value={b} onChange={e=>{const n=[...bullets];n[i]=e.target.value;setBullets(n)}} placeholder={`第${i+1}点`} className="apple-input" />)}</div></div>
+            <div><label className="block text-[13px] font-medium text-[#86868b] mb-2">五点描述</label><div className="space-y-2">{bullets.map((b:string,i:number)=><input key={i} value={b} onChange={e=>{const n=[...bullets];n[i]=e.target.value;setBullets(n)}} placeholder={`第${i+1}点`} className="apple-input" />)}</div></div>
           </div>
           <ImageSlots images={images} setImages={setImages} />
           <button onClick={handleAnalyze} disabled={!productName.trim()} className="apple-btn-primary flex items-center gap-2 px-8 py-3 text-[16px]"><ClipboardCheck size={18} />开始准入检查<ArrowRight size={16} /></button>
@@ -126,8 +126,8 @@ export default function PrelaunchCheck() {
         <div className="space-y-4">
           <div className="flex gap-3 mb-2"><button onClick={()=>{setStep(1);setResult(null)}} className="apple-btn-secondary text-[14px] px-4 py-2">← 重新修改</button></div>
           <div className="apple-card p-6"><div className="flex items-center gap-3 mb-3"><div className={`w-10 h-10 rounded-full flex items-center justify-center ${result.admission_result==="可以上架"?"bg-[#34c759]/10":result.admission_result==="谨慎上架"?"bg-[#ff9500]/10":"bg-[#ff3b30]/10"}`}>{result.admission_result==="可以上架"?<Check size={20} className="text-[#34c759]"/>:result.admission_result==="谨慎上架"?<AlertCircle size={20} className="text-[#ff9500]"/>:<ShieldAlert size={20} className="text-[#ff3b30]"/>}</div><div><p className="text-[20px] font-semibold">{result.admission_result}</p>{result.conclusion&&<p className="text-[14px] text-[#86868b] mt-0.5">{result.conclusion}</p>}</div></div></div>
-          {result.position_diagnoses_json?.length > 0 && (
-            <div className="apple-card p-6"><h3 className="text-[13px] font-semibold text-[#86868b] uppercase tracking-wide mb-4">逐位置诊断</h3><div className="space-y-3">{result.position_diagnoses_json.map((d,i)=><DiagnosisItem key={i} diagnosis={d} statusIcon={statusIcon} />)}</div></div>
+          {(result.position_diagnoses_json?.length ?? 0) > 0 && (
+            <div className="apple-card p-6"><h3 className="text-[13px] font-semibold text-[#86868b] uppercase tracking-wide mb-4">逐位置诊断</h3><div className="space-y-3">{(result.position_diagnoses_json ?? []).map((d,i)=><DiagnosisItem key={i} diagnosis={d} statusIcon={statusIcon} />)}</div></div>
           )}
         </div>
       )}
@@ -156,7 +156,7 @@ function ImageSlots({images,setImages}:{images:{name:string;url:string;slot:stri
   const slots=[{s:"main",l:"主图",f:"搜索结果第一视觉",r:"纯白底·仅产品·无文字logo"},{s:"img2",l:"副图2",f:"核心卖点可视化",r:"图标+短句"},{s:"img3",l:"副图3",f:"使用场景展示",r:"真实环境"},{s:"img4",l:"副图4",f:"尺寸规格对比",r:"参照物+标注"},{s:"img5",l:"副图5",f:"功能细节演示",r:"特写/步骤"},{s:"img6",l:"副图6",f:"信任背书",r:"认证/质保/包装"},{s:"img7",l:"副图7",f:"场景氛围",r:"生活方式"}];
   const aplus=[{s:"aplus1",l:"A+1",f:"品牌主视觉"},{s:"aplus2",l:"A+2",f:"差异化对比"},{s:"aplus3",l:"A+3",f:"卖点1·左图右文"},{s:"aplus4",l:"A+4",f:"卖点2"},{s:"aplus5",l:"A+5",f:"卖点3"},{s:"aplus6",l:"A+6",f:"技术规格参数"},{s:"aplus7",l:"A+7",f:"场景详解"},{s:"aplus8",l:"A+8",f:"认证质保"},{s:"aplus9",l:"A+9",f:"FAQ+售后"}];
   return <div className="space-y-3">
-    <div className="apple-card p-5"><h3 className="text-[13px] font-semibold text-[#86868b] uppercase tracking-wide mb-3">主图 & 副图</h3><div className="grid grid-cols-4 gap-3">{slots.map(s=><Slot key={s.s} {...s} img={get(s.s)} up={up(s.s)} rm={()=>rm(s.s)}/>)}</div></div>
+    <div className="apple-card p-5"><h3 className="text-[13px] font-semibold text-[#86868b] uppercase tracking-wide mb-3">主图 & 副图</h3><div className="grid grid-cols-4 gap-3">{slots.map(s=><Slot key={s.s} slot={s.s} label={s.l} func={s.f} rule={s.r} img={get(s.s)} up={up(s.s)} rm={()=>rm(s.s)}/>)}</div></div>
     <div className="apple-card p-5"><h3 className="text-[13px] font-semibold text-[#86868b] uppercase tracking-wide mb-3">A+ 内容（最多9张）</h3><div className="grid grid-cols-5 gap-3">{aplus.map(s=><Slot key={s.s} slot={s.s} label={s.l} func={s.f} img={get(s.s)} up={up(s.s)} rm={()=>rm(s.s)}/>)}</div></div>
   </div>;
 }

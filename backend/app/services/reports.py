@@ -8,9 +8,11 @@ from sqlalchemy import select
 from app.models import (
     AsinOperationProfile,
     ExecutionRecord,
+    Proposition,
     ValidationResult,
     ValidationTask,
 )
+from app.config import get_settings
 
 
 async def generate_yesterday_report(db: AsyncSession, user_id: str | None = None) -> dict:
@@ -152,6 +154,11 @@ async def generate_today_decisions(db: AsyncSession, user_id: str | None = None)
     profiles = (await db.execute(profiles_q)).scalars().all()
     profile_map = {p.asin: p for p in profiles}
 
+    propositions_q = select(Proposition)
+    propositions = (await db.execute(propositions_q)).scalars().all()
+    proposition_map = {p.proposition_code: p for p in propositions}
+    budget_limit = get_settings().validation_budget_limit
+
     def _profile(asin: str):
         return profile_map.get(asin)
 
@@ -159,8 +166,60 @@ async def generate_today_decisions(db: AsyncSession, user_id: str | None = None)
         costs = [e.cost_amount for e in executions if e.validation_task_id == task_id and e.cost_amount]
         return round(sum(costs), 2) if costs else None
 
+    task_map = {t.id: t for t in tasks}
+    history: dict[str, dict[str, int]] = {}
+    failed_next: dict[str, str] = {}
+    for r in results:
+        task = task_map.get(r.validation_task_id)
+        if not task:
+            continue
+        stats = history.setdefault(task.proposition_code, {
+            "effective": 0,
+            "ineffective": 0,
+            "interfered": 0,
+            "insufficient_data": 0,
+        })
+        status = r.final_result_status or "insufficient_data"
+        if status in stats:
+            stats[status] += 1
+        prop = proposition_map.get(task.proposition_code)
+        if status == "ineffective" and prop and prop.next_proposition_if_failed:
+            failed_next[task.proposition_code] = prop.next_proposition_if_failed
+
+    next_codes = set(failed_next.values())
+
+    def _history_score(task: ValidationTask) -> int:
+        stats = history.get(task.proposition_code, {})
+        score = 100
+        score += int(stats.get("effective", 0)) * 20
+        score -= int(stats.get("ineffective", 0)) * 15
+        score -= int(stats.get("interfered", 0)) * 8
+        if task.proposition_code in next_codes:
+            score += 25
+        return score
+
+    def _history_signal(task: ValidationTask) -> str:
+        stats = history.get(task.proposition_code, {})
+        if task.proposition_code in next_codes:
+            return "历史无效后续"
+        if stats.get("effective", 0):
+            return "历史有效"
+        if stats.get("ineffective", 0):
+            return "历史无效"
+        if stats.get("interfered", 0):
+            return "存在干扰"
+        return "暂无"
+
+    def _budget_gate(cost: float | None) -> dict:
+        if budget_limit <= 0:
+            return {"status": "未设置", "limit": None, "blocked": False}
+        if cost is not None and cost > budget_limit:
+            return {"status": "超过上限", "limit": budget_limit, "blocked": True}
+        return {"status": "通过", "limit": budget_limit, "blocked": False}
+
     def _build_item(task: ValidationTask, extra: dict | None = None) -> dict:
         p = _profile(task.asin)
+        cost = _task_cost(task.id)
         item = {
             "id": task.id,
             "asin": task.asin,
@@ -168,8 +227,11 @@ async def generate_today_decisions(db: AsyncSession, user_id: str | None = None)
             "hypothesis": task.hypothesis_text or task.proposition_name or task.proposition_code,
             "source": _source_label(task.source_module),
             "validation_period": task.validation_period,
-            "estimated_cost": _task_cost(task.id),
+            "estimated_cost": cost,
             "created_at": task.created_at.strftime("%m-%d") if task.created_at else "",
+            "priority_score": _history_score(task),
+            "history_signal": _history_signal(task),
+            "budget_gate": _budget_gate(cost),
         }
         if extra:
             item.update(extra)
@@ -181,6 +243,13 @@ async def generate_today_decisions(db: AsyncSession, user_id: str | None = None)
         for t in tasks
         if t.execution_status == "pending"
     ]
+    pending.sort(
+        key=lambda item: (
+            item["budget_gate"]["blocked"],
+            -item["priority_score"],
+            item["estimated_cost"] if item["estimated_cost"] is not None else 999999,
+        )
+    )
 
     # ── 🟡 测试中 ──
     running = [
@@ -190,7 +259,6 @@ async def generate_today_decisions(db: AsyncSession, user_id: str | None = None)
     ]
 
     # ── 🟢 已验证有效 ──
-    task_map = {t.id: t for t in tasks}
     effective = []
     for r in results:
         if r.final_result_status == "effective":
@@ -205,7 +273,8 @@ async def generate_today_decisions(db: AsyncSession, user_id: str | None = None)
 
     # Global recommendation
     if pending:
-        rec = f"有 {len(pending)} 个假设待验证，建议从成本最低的开始"
+        top = pending[0]
+        rec = f"有 {len(pending)} 个假设待验证，优先：{top['history_signal']}"
     elif running:
         rec = f"{len(running)} 个测试进行中，等待数据收敛"
     else:
@@ -222,6 +291,10 @@ async def generate_today_decisions(db: AsyncSession, user_id: str | None = None)
         "running": running,
         "effective": effective,
         "global_recommendation": rec,
+        "budget_gate": {
+            "limit": budget_limit if budget_limit > 0 else None,
+            "status": "已设置" if budget_limit > 0 else "未设置",
+        },
     }
 
 

@@ -39,7 +39,7 @@ export default function BusinessValidation() {
   const profileMap = new Map((profiles?.items ?? []).map((p) => [p.asin, p]));
 
   return (
-    <div className="max-w-[800px] mx-auto py-8">
+    <div className="max-w-[720px] mx-auto py-8">
       <div className="mb-10">
         <h1 className="text-[32px] font-bold tracking-[-0.025em] mb-2">经营验证</h1>
         <p className="text-[17px] text-[#86868b] leading-relaxed">

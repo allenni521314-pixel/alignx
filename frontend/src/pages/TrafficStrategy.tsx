@@ -9,7 +9,7 @@ import { listAsinProfiles, listValidationTasks, listConversionDiagnoses, API_BAS
 
 /* ── Lifecycle stage config ── */
 
-const STAGES: Record<string, { label: string; icon: React.ComponentType<{ size?: number }>; color: string; bg: string; strategies: Strategy[] }> = {
+const STAGES: Record<string, { label: string; icon: React.ComponentType<{ size?: number; className?: string }>; color: string; bg: string; strategies: Strategy[] }> = {
   prelaunch: {
     label: "新品", icon: Zap, color: "text-[#0071e3]", bg: "bg-[#0071e3]/[0.04]",
     strategies: [
@@ -106,7 +106,7 @@ export default function TrafficStrategy() {
   const currentAsins = activeStage ? (byStage[activeStage] || []) : [];
 
   return (
-    <div className="max-w-[840px] mx-auto py-8">
+    <div className="max-w-[720px] mx-auto py-8">
       <div className="mb-8">
         <h1 className="text-[32px] font-bold tracking-[-0.025em] mb-2">执行测试</h1>
         <p className="text-[17px] text-[#86868b] leading-relaxed">

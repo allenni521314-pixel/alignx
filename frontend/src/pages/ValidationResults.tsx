@@ -20,7 +20,7 @@ interface VR {
   created_at: string;
 }
 
-const STATUS_CFG: Record<string, { icon: React.ComponentType<{ size?: number }>; color: string; label: string; bg: string }> = {
+const STATUS_CFG: Record<string, { icon: React.ComponentType<{ size?: number; className?: string }>; color: string; label: string; bg: string }> = {
   effective:     { icon: TrendingUp,    color: "text-[#34c759]", label: "有效", bg: "bg-[#34c759]/[0.06]" },
   ineffective:   { icon: TrendingDown,  color: "text-[#ff3b30]", label: "无效", bg: "bg-[#ff3b30]/[0.06]" },
   interfered:    { icon: AlertTriangle, color: "text-[#ff9500]", label: "受干扰", bg: "bg-[#ff9500]/[0.06]" },

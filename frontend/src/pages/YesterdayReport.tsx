@@ -79,7 +79,7 @@ export default function YesterdayReport() {
 
   if (isLoading) {
     return (
-      <div className="max-w-[840px] mx-auto py-8">
+      <div className="max-w-[720px] mx-auto py-8">
         <div className="apple-card p-16 text-center">
           <div className="w-8 h-8 border-2 border-[#0071e3]/20 border-t-[#0071e3] rounded-full animate-spin mx-auto" />
         </div>
@@ -88,7 +88,7 @@ export default function YesterdayReport() {
   }
 
   return (
-    <div className="max-w-[840px] mx-auto py-8">
+    <div className="max-w-[720px] mx-auto py-8">
       <div className="mb-8">
         <h1 className="text-[32px] font-bold tracking-[-0.025em] mb-2">{REPORT_LABELS[reportType]}</h1>
         <p className="text-[17px] text-[#86868b]">上传广告报表 · 自动汇总 · 指标趋势</p>
@@ -227,7 +227,7 @@ export default function YesterdayReport() {
   );
 }
 
-function KpiCard({ icon: Icon, label, value, color }: { icon: React.ComponentType<{ size?: number }>; label: string; value: string | number; color: string }) {
+function KpiCard({ icon: Icon, label, value, color }: { icon: React.ComponentType<{ size?: number; className?: string }>; label: string; value: string | number; color: string }) {
   return (
     <div className="apple-card p-4 text-center">
       <Icon size={18} className={`mx-auto mb-1.5 ${color}`} />

@@ -217,6 +217,8 @@ export interface AsinProfile {
   total_validation_count: number;
   effective_count: number;
   ineffective_count: number;
+  interfered_count: number;
+  insufficient_data_count: number;
   current_main_problem: string | null;
   next_recommended_proposition: string | null;
   asin_learning_summary: string | null;
@@ -288,6 +290,13 @@ export interface DecisionItem {
   result_id?: string;
   conclusion?: string | null;
   verified_at?: string;
+  priority_score?: number;
+  history_signal?: string;
+  budget_gate?: {
+    status: string;
+    limit: number | null;
+    blocked: boolean;
+  };
 }
 
 export interface TodayDecisions {
@@ -301,6 +310,10 @@ export interface TodayDecisions {
   running: DecisionItem[];
   effective: DecisionItem[];
   global_recommendation: string;
+  budget_gate: {
+    status: string;
+    limit: number | null;
+  };
 }
 
 export function getYesterdayReport() {

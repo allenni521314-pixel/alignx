@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     aws_access_key_id: str = ""
     aws_secret_access_key: str = ""
     s3_bucket: str = "alignx-data"
+    validation_budget_limit: float = 0.0
 
 
 @lru_cache

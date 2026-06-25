@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
 
 from app.models import ExecutionRecord, ValidationResult, AsinOperationProfile, ValidationTask
+from app.config import get_settings
 from app.schemas import (
     ExecutionRecordCreate, ExecutionRecordResponse,
     ValidationResultCreate, ValidationResultResponse,
@@ -19,6 +20,9 @@ from app.constants import DEFAULT_USER_ID
 
 async def create_execution(req: ExecutionRecordCreate, db: AsyncSession, user_id: str | None = None) -> ExecutionRecordResponse:
     uid = user_id or DEFAULT_USER_ID
+    limit = get_settings().validation_budget_limit
+    if limit > 0 and req.cost_amount is not None and req.cost_amount > limit:
+        raise ValueError(f"预算超过上限：{req.cost_amount} > {limit}")
     rec = ExecutionRecord(**req.model_dump(), user_id=uid)
     db.add(rec)
     await db.flush()

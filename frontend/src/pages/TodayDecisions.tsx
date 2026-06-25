@@ -59,13 +59,13 @@ export default function TodayDecisions() {
           )}
 
           {/* Running section */}
-          {report.running.length > 0 && (
+          {(report?.running ?? []).length > 0 && (
             <div className="mt-10">
               <p className="text-[13px] font-medium text-[#86868b] mb-2">
-                测试中 · {report.running.length} 个
+                测试中 · {(report?.running ?? []).length} 个
               </p>
               <div className="space-y-2">
-                {report.running.map((item) => (
+                {(report?.running ?? []).map((item) => (
                   <QueueItem key={item.id} item={item} index={0} running />
                 ))}
               </div>
@@ -84,8 +84,10 @@ function FocusCard({ item }: { item: DecisionItem }) {
   const [starting, setStarting] = useState(false);
   const [done, setDone] = useState(false);
   const cost = item.estimated_cost != null ? `$${item.estimated_cost}` : "—";
+  const blocked = item.budget_gate?.blocked;
 
   const handleStart = async () => {
+    if (blocked) return;
     setStarting(true);
     try {
       await fetch(`${API_BASE}/validation-tasks/${item.id}`, {
@@ -134,6 +136,15 @@ function FocusCard({ item }: { item: DecisionItem }) {
             <strong className="text-[#1d1d1f]">为什么：</strong>
             基于{item.source}分析结果，系统判断这是当前成本最低、预期收益最明确的验证方向。
           </p>
+          <p className="text-[14px] leading-relaxed text-[#86868b]">
+            <strong className="text-[#1d1d1f]">历史信号：</strong>
+            {item.history_signal || "暂无"}
+          </p>
+          <p className="text-[14px] leading-relaxed text-[#86868b]">
+            <strong className="text-[#1d1d1f]">预算闸门：</strong>
+            {item.budget_gate?.status || "未设置"}
+            {item.budget_gate?.limit != null ? ` · 上限 $${item.budget_gate.limit}` : ""}
+          </p>
           {item.product_title && (
             <p className="text-[14px] leading-relaxed text-[#86868b]">
               <strong className="text-[#1d1d1f]">来自：</strong>
@@ -173,7 +184,7 @@ function FocusCard({ item }: { item: DecisionItem }) {
               </button>
               <button
                 onClick={handleStart}
-                disabled={starting}
+                disabled={starting || blocked}
                 className="flex-1 py-3.5 rounded-full text-[15px] font-medium bg-[#0071e3] text-white hover:bg-[#0077ed] shadow-sm shadow-[#0071e3]/25 transition-colors active:scale-[0.97] flex items-center justify-center gap-2 disabled:opacity-60"
               >
                 {starting ? (
@@ -181,7 +192,7 @@ function FocusCard({ item }: { item: DecisionItem }) {
                 ) : (
                   <ArrowRight size={16} />
                 )}
-                {starting ? "启动中..." : "开始验证"}
+                {blocked ? "超过预算" : starting ? "启动中..." : "开始验证"}
               </button>
             </>
           )}
@@ -211,6 +222,7 @@ function QueueItem({ item, index, running }: { item: DecisionItem; index: number
           <p className="text-[12px] text-[#86868b] truncate mt-0.5">{item.asin} · {item.product_title}</p>
         )}
       </div>
+      {item.history_signal && <span className="text-[12px] text-[#86868b] shrink-0">{item.history_signal}</span>}
       <span className="text-[13px] font-semibold text-[#ff3b30] shrink-0">{cost}</span>
       <ChevronRight size={14} className="text-[#d2d2d7] shrink-0" />
     </div>

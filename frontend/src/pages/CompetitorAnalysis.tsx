@@ -7,7 +7,7 @@ import {
 } from "lucide-react";
 import { analyzeCompetitor, listCompetitorAnalyses, CompetitorAnalysis as CA, API_BASE } from "@/lib/api";
 
-const DIM_LABELS: Record<string, { icon: React.ComponentType<{ size?: number }>; label: string }> = {
+const DIM_LABELS: Record<string, { icon: React.ComponentType<{ size?: number; className?: string }>; label: string }> = {
   price_band_position: { icon: DollarSign, label: "价格带位置" },
   review_count_barrier: { icon: MessageSquare, label: "评论壁垒" },
   rating_trust: { icon: Star, label: "评分信任度" },
@@ -281,7 +281,7 @@ function MiniList({
 }: {
   title: string;
   color: string;
-  icon: React.ComponentType<{ size?: number }>;
+  icon: React.ComponentType<{ size?: number; className?: string }>;
   items: string[];
 }) {
   return (
