@@ -12,8 +12,13 @@ from app.api.execution_records import router as execution_records_router
 from app.api.validation_results import router as validation_results_router
 from app.api.asin_profiles import router as asin_profiles_router
 from app.api.reports import router as reports_router
+from app.api.auth import router as auth_router
+from app.api.admin import router as admin_router
 
 api_router = APIRouter()
+
+api_router.include_router(auth_router)
+api_router.include_router(admin_router)
 
 api_router.include_router(market_opportunity_router)
 api_router.include_router(competitor_analysis_router)

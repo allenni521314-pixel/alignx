@@ -13,7 +13,7 @@ from app.models import (
 )
 
 
-async def generate_yesterday_report(db: AsyncSession) -> dict:
+async def generate_yesterday_report(db: AsyncSession, user_id: str | None = None) -> dict:
     """Aggregate yesterday's data across all ASINs."""
 
     yesterday = datetime.utcnow() - timedelta(days=1)
@@ -132,7 +132,7 @@ async def generate_yesterday_report(db: AsyncSession) -> dict:
     }
 
 
-async def generate_today_decisions(db: AsyncSession) -> dict:
+async def generate_today_decisions(db: AsyncSession, user_id: str | None = None) -> dict:
     """Generate today's recommended actions based on current state."""
 
     profiles_q = select(AsinOperationProfile).order_by(AsinOperationProfile.updated_at.desc())

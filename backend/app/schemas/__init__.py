@@ -112,6 +112,8 @@ class CompetitorAnalysisResponse(BaseModel):
 # ═══════════════════════════════════════════
 
 class PrelaunchCheckRequest(BaseModel):
+    class Config:
+        extra = "allow"
     product_name: str = Field(..., min_length=1, max_length=255)
     marketplace: str = Field(default="amazon.com")
     title_draft: Optional[str] = None
@@ -121,6 +123,8 @@ class PrelaunchCheckRequest(BaseModel):
     bullet_3: Optional[str] = None
     bullet_4: Optional[str] = None
     bullet_5: Optional[str] = None
+    image_count: int = 0
+    image_slots: list = []
     main_image_path: Optional[str] = None
     image_2_path: Optional[str] = None
     image_3_path: Optional[str] = None

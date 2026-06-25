@@ -88,6 +88,7 @@ class AI:
         prompt: str,
         system: str | None = None,
         model: str | None = None,
+        max_tokens: int = 8192,
     ) -> dict:
         """Call and parse JSON response."""
         response = await self.complete(
@@ -95,6 +96,7 @@ class AI:
             system=system,
             model=model,
             temperature=0.1,
+            max_tokens=max_tokens,
             response_format={"type": "json_object"},
         )
         return json.loads(response.raw)

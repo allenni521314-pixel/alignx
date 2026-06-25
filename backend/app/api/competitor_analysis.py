@@ -7,17 +7,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.schemas import CompetitorAnalysisRequest, CompetitorAnalysisResponse, PaginatedResponse
 from app.services.competitor_analysis import analyze_competitor, list_reports, get_report
+from app.api.deps import get_current_user_id
 
 router = APIRouter(prefix="/api/v1/competitor-analysis", tags=["competitor-analysis"])
 
 
 @router.post("/analyze", response_model=CompetitorAnalysisResponse)
-async def analyze_competitor_endpoint(
+async def analyze_endpoint(
     req: CompetitorAnalysisRequest,
     db: AsyncSession = Depends(get_db),
+    user_id: str | None = Depends(get_current_user_id),
 ):
     try:
-        return await analyze_competitor(req, db)
+        return await analyze_competitor(req, db, user_id=user_id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:

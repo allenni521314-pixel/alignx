@@ -1,8 +1,15 @@
 import { Routes, Route, Navigate } from "react-router-dom";
 import Sidebar from "./components/Sidebar";
 
+function RequireAuth({ children }: { children: React.ReactNode }) {
+  const token = localStorage.getItem("alignx_token");
+  if (!token) return <Navigate to="/login" replace />;
+  return <>{children}</>;
+}
+
 // Lazy-loaded pages (Phase 3 implementation)
 import MarketOpportunity from "./pages/MarketOpportunity";
+import Login from "./pages/Login";
 import ProductResearch from "./pages/ProductResearch";
 import CompetitorAnalysis from "./pages/CompetitorAnalysis";
 import BusinessValidation from "./pages/BusinessValidation";
@@ -11,17 +18,20 @@ import TodayDecisions from "./pages/TodayDecisions";
 import PrelaunchCheck from "./pages/PrelaunchCheck";
 import ConversionDiagnosis from "./pages/ConversionDiagnosis";
 import TrafficStrategy from "./pages/TrafficStrategy";
-import ExecutionRecords from "./pages/ExecutionRecords";
-import ValidationResults from "./pages/ValidationResults";
 import AccountCenter from "./pages/AccountCenter";
+import AdminDashboard from "./pages/AdminDashboard";
 
 export default function App() {
   return (
-    <div className="flex h-screen overflow-hidden">
-      <Sidebar />
-      <main className="flex-1 overflow-y-auto p-6">
-        <Routes>
-          <Route path="/" element={<Navigate to="/market-opportunity" replace />} />
+    <Routes>
+      <Route path="/login" element={<Login />} />
+      <Route path="*" element={
+        <RequireAuth>
+          <div className="flex h-screen overflow-hidden">
+            <Sidebar />
+            <main className="flex-1 overflow-y-auto p-6">
+              <Routes>
+                <Route path="/" element={<Navigate to="/yesterday-report" replace />} />
           <Route path="/market-opportunity" element={<MarketOpportunity />} />
           <Route path="/product-research" element={<ProductResearch />} />
           <Route path="/competitor-analysis" element={<CompetitorAnalysis />} />
@@ -31,11 +41,13 @@ export default function App() {
           <Route path="/prelaunch-check" element={<PrelaunchCheck />} />
           <Route path="/conversion-diagnosis" element={<ConversionDiagnosis />} />
           <Route path="/traffic-strategy" element={<TrafficStrategy />} />
-          <Route path="/execution-records" element={<ExecutionRecords />} />
-          <Route path="/validation-results" element={<ValidationResults />} />
           <Route path="/account" element={<AccountCenter />} />
+          <Route path="/admin" element={<AdminDashboard />} />
         </Routes>
       </main>
     </div>
+        </RequireAuth>
+      } />
+    </Routes>
   );
 }

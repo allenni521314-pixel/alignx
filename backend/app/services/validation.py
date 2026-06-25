@@ -14,8 +14,12 @@ from app.schemas import (
 
 # ── Execution Records ──────────────────────────────
 
-async def create_execution(req: ExecutionRecordCreate, db: AsyncSession) -> ExecutionRecordResponse:
-    rec = ExecutionRecord(**req.model_dump())
+from app.constants import DEFAULT_USER_ID
+
+
+async def create_execution(req: ExecutionRecordCreate, db: AsyncSession, user_id: str | None = None) -> ExecutionRecordResponse:
+    uid = user_id or DEFAULT_USER_ID
+    rec = ExecutionRecord(**req.model_dump(), user_id=uid)
     db.add(rec)
     await db.flush()
     return ExecutionRecordResponse.model_validate(rec, from_attributes=True)
@@ -36,11 +40,12 @@ async def list_executions(asin: str | None, task_id: str | None, page: int, page
 
 # ── Validation Results ─────────────────────────────
 
-async def create_result(req: ValidationResultCreate, db: AsyncSession) -> ValidationResultResponse:
-    res = ValidationResult(**req.model_dump())
-    db.add(res)
+async def create_result(req: ValidationResultCreate, db: AsyncSession, user_id: str | None = None) -> ValidationResultResponse:
+    uid = user_id or DEFAULT_USER_ID
+    rec = ValidationResult(**req.model_dump(), user_id=uid)
+    db.add(rec)
     await db.flush()
-    return ValidationResultResponse.model_validate(res, from_attributes=True)
+    return ValidationResultResponse.model_validate(rec, from_attributes=True)
 
 
 async def list_results(asin: str | None, page: int, page_size: int, db: AsyncSession) -> dict:
@@ -56,7 +61,7 @@ async def list_results(asin: str | None, page: int, page_size: int, db: AsyncSes
 
 # ── ASIN Profiles ──────────────────────────────────
 
-async def list_profiles(page: int, page_size: int, db: AsyncSession) -> dict:
+async def list_profiles(page: int, page_size: int, db: AsyncSession, user_id: str | None = None) -> dict:
     offset = (page - 1) * page_size
     q = select(AsinOperationProfile).order_by(desc(AsinOperationProfile.updated_at)).offset(offset).limit(page_size)
     result = await db.execute(q)

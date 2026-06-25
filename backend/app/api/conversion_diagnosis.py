@@ -7,17 +7,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.schemas import ConversionDiagnosisRequest, ConversionDiagnosisResponse, PaginatedResponse
 from app.services.conversion_diagnosis import diagnose, list_diagnoses, get_diagnosis
+from app.api.deps import get_current_user_id
 
 router = APIRouter(prefix="/api/v1/conversion-diagnosis", tags=["conversion-diagnosis"])
 
 
 @router.post("/analyze", response_model=ConversionDiagnosisResponse)
-async def diagnose_conversion(
+async def diagnose_endpoint(
     req: ConversionDiagnosisRequest,
     db: AsyncSession = Depends(get_db),
+    user_id: str | None = Depends(get_current_user_id),
 ):
     try:
-        return await diagnose(req, db)
+        return await diagnose(req, db, user_id=user_id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:

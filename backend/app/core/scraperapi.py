@@ -157,17 +157,50 @@ class ScraperAPIProvider:
                 continue
 
             title_el = item.select_one("h2 a span")
+            # Improved price extraction - handle multiple formats
+            price_text = ""
             price_whole = item.select_one(".a-price-whole")
+            price_fraction = item.select_one(".a-price-fraction")
+            if price_whole:
+                price_text = price_whole.text.strip()
+                if price_fraction:
+                    price_text += "." + price_fraction.text.strip()
+            if not price_text:
+                price_offscreen = item.select_one(".a-price .a-offscreen")
+                if price_offscreen:
+                    price_text = price_offscreen.text.strip()
+            if not price_text:
+                price_range = item.select_one(".a-price-range")
+                if price_range:
+                    price_text = price_range.text.strip()
+
             rating_el = item.select_one(".a-icon-alt")
-            review_el = item.select_one(".a-size-base.s-underline-text")
+            # Review count - multiple selectors
+            review_el = (
+                item.select_one(".a-size-base.s-underline-text") or
+                item.select_one(".a-size-small .a-link-normal") or
+                item.select_one("[data-cy='reviews-block'] .a-size-base") or
+                item.select_one(".a-row.a-size-small span[aria-label]")
+            )
+            review_text = review_el.get("aria-label") or review_el.text if review_el else ""
+            review_count = None
+            if review_text:
+                import re
+                match = re.search(r"([\d,]+)", review_text.replace(",", ""))
+                if match:
+                    try:
+                        review_count = int(match.group(1))
+                    except:
+                        pass
+
             img_el = item.select_one("img.s-image")
 
             items.append({
                 "asin": asin,
                 "title": title_el.text.strip() if title_el else "",
-                "price": price_whole.text.strip() if price_whole else "",
+                "price": price_text,
                 "rating": float(rating_el.text.split()[0]) if rating_el else None,
-                "review_count": int(review_el.text.replace(",", "")) if review_el else None,
+                "review_count": review_count,
                 "image": img_el.get("src", "") if img_el else "",
             })
 

@@ -13,7 +13,8 @@ from app.core.prompts import build_competitor_prompt, COMPETITOR_SYSTEM
 from app.constants import DEFAULT_USER_ID
 
 
-async def analyze_competitor(req: CompetitorAnalysisRequest, db: AsyncSession) -> CompetitorAnalysisResponse:
+async def analyze_competitor(req: CompetitorAnalysisRequest, db: AsyncSession, user_id: str | None = None) -> CompetitorAnalysisResponse:
+    uid = user_id or DEFAULT_USER_ID
     asin = req.asin
     if not asin and req.product_url:
         import re
@@ -22,9 +23,8 @@ async def analyze_competitor(req: CompetitorAnalysisRequest, db: AsyncSession) -
     if not asin:
         raise ValueError("Could not determine ASIN from input")
 
-    # 1. Capture
     capture = CaptureJob(
-        user_id=DEFAULT_USER_ID,
+        user_id=uid,
         input_type="asin", input_value=asin, marketplace=req.marketplace,
         provider="scraperapi", status="running",
     )
@@ -75,7 +75,7 @@ async def analyze_competitor(req: CompetitorAnalysisRequest, db: AsyncSession) -
 
     if ai_result and not ai_result.get("error"):
         report = CompetitorAnalysisReport(
-            user_id=DEFAULT_USER_ID, asin=asin, product_url=req.product_url,
+            user_id=uid, asin=asin, product_url=req.product_url,
             marketplace=req.marketplace, product_title=title, brand=brand,
             price=result.extracted_fields.get("price"),
             rating=result.extracted_fields.get("rating"),
@@ -89,7 +89,7 @@ async def analyze_competitor(req: CompetitorAnalysisRequest, db: AsyncSession) -
         )
     else:
         report = CompetitorAnalysisReport(
-            user_id=DEFAULT_USER_ID, asin=asin, product_url=req.product_url,
+            user_id=uid, asin=asin, product_url=req.product_url,
             marketplace=req.marketplace, product_title=title, brand=brand,
             price=result.extracted_fields.get("price"),
             rating=result.extracted_fields.get("rating"),

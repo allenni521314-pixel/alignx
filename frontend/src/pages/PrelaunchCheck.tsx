@@ -1,41 +1,72 @@
-import { useState } from "react";
-import { ClipboardCheck, ArrowRight, AlertCircle, Check, ShieldAlert } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { ClipboardCheck, ArrowRight, AlertCircle, Check, ShieldAlert, Upload } from "lucide-react";
 import { analyzePrelaunch, PrelaunchCheck as PC } from "@/lib/api";
 
+const SAVE_KEY = "alignx_prelaunch_draft";
+
+function loadDraft() { try { const r = localStorage.getItem(SAVE_KEY); return r ? JSON.parse(r) : null; } catch { return null; } }
+function saveDraft(d: Record<string, unknown>) { try { localStorage.setItem(SAVE_KEY, JSON.stringify(d)); } catch {} }
+
 export default function PrelaunchCheck() {
+  const draft = loadDraft();
   const [step, setStep] = useState(1);
   const [analyzing, setAnalyzing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<PC | null>(null);
+  const [images, setImages] = useState<{ name: string; url: string; slot: string }[]>(draft?.images ?? []);
+  const [productName, setProductName] = useState(draft?.productName ?? "");
+  const [titleDraft, setTitleDraft] = useState(draft?.titleDraft ?? "");
+  const [highlights, setHighlights] = useState(draft?.highlights ?? "");
+  const [bullets, setBullets] = useState(draft?.bullets ?? ["", "", "", "", ""]);
+  const savedRef = useRef(false);
 
-  // Form state
-  const [productName, setProductName] = useState("");
-  const [titleDraft, setTitleDraft] = useState("");
-  const [highlights, setHighlights] = useState("");
-  const [bullets, setBullets] = useState(["", "", "", "", ""]);
+  useEffect(() => {
+    if (!savedRef.current) { savedRef.current = true; return; }
+    const t = setTimeout(() => saveDraft({ productName, titleDraft, highlights, bullets, images }), 500);
+    return () => clearTimeout(t);
+  }, [productName, titleDraft, highlights, bullets, images]);
 
-  const handleAnalyze = async () => {
-    if (!productName.trim()) return;
-    setAnalyzing(true);
+  const handleAnalyze = () => { if (!productName.trim()) return; setStep(2); };
+
+  const handleConfirm = async () => {
+    setAnalyzing(true); setStep(3);
     try {
+      const imgData: { slot: string; name: string; base64: string }[] = [];
+      for (const img of images) {
+        try {
+          const blob = await fetch(img.url).then(r => r.blob());
+          const b64 = await new Promise<string>((resolve) => {
+            const reader = new FileReader();
+            reader.onload = () => {
+              const tempImg = new Image();
+              tempImg.onload = () => {
+                const canvas = document.createElement('canvas');
+                const maxW = 512;
+                const scale = Math.min(1, maxW / tempImg.width);
+                canvas.width = tempImg.width * scale;
+                canvas.height = tempImg.height * scale;
+                canvas.getContext('2d')!.drawImage(tempImg, 0, 0, canvas.width, canvas.height);
+                resolve(canvas.toDataURL('image/jpeg', 0.6).split(',')[1]);
+              };
+              tempImg.src = reader.result as string;
+            };
+            reader.readAsDataURL(blob);
+          });
+          imgData.push({ slot: img.slot, name: img.name, base64: b64 });
+        } catch {}
+      }
       const res = await analyzePrelaunch({
-        product_name: productName,
-        title_draft: titleDraft,
-        key_highlights: highlights,
-        bullet_1: bullets[0],
-        bullet_2: bullets[1],
-        bullet_3: bullets[2],
-        bullet_4: bullets[3],
-        bullet_5: bullets[4],
+        product_name: productName, title_draft: titleDraft, key_highlights: highlights,
+        bullet_1: bullets[0], bullet_2: bullets[1], bullet_3: bullets[2], bullet_4: bullets[3], bullet_5: bullets[4],
+        image_count: images.length, image_slots: imgData,
       });
-      setResult(res);
-      setStep(3);
-    } finally {
-      setAnalyzing(false);
-    }
+      setResult(res); setStep(4);
+    } catch (e: any) { setError(e.message || "分析失败"); setStep(3); }
+    finally { setAnalyzing(false); }
   };
 
-  const statusIcon = (status: string) => {
-    switch (status) {
+  const statusIcon = (s: string) => {
+    switch (s) {
       case "通过": return <Check size={16} className="text-[#34c759]" />;
       case "需修改": return <AlertCircle size={16} className="text-[#ff9500]" />;
       default: return <ShieldAlert size={16} className="text-[#ff3b30]" />;
@@ -43,158 +74,60 @@ export default function PrelaunchCheck() {
   };
 
   return (
-    <div className="max-w-[720px] mx-auto py-8">
-      <div className="mb-10">
+    <div className="max-w-[760px] mx-auto py-8">
+      <div className="mb-8">
         <h1 className="text-[32px] font-bold tracking-[-0.025em] mb-2">上架准入</h1>
-        <p className="text-[17px] text-[#86868b] leading-relaxed">
-          上传 Listing 素材，逐位置诊断是否达到上架标准
-        </p>
+        <p className="text-[17px] text-[#86868b]">上传 Listing 素材，逐位置诊断是否达到上架标准</p>
       </div>
-
-      {/* Steps indicator */}
       <div className="flex items-center gap-3 mb-8">
-        {[1, 2, 3].map((s) => (
+        {[1,2,3,4].map(s => (
           <div key={s} className="flex items-center gap-3">
-            <div
-              className={`w-8 h-8 rounded-full flex items-center justify-center text-[14px] font-medium transition-all ${
-                step >= s ? "bg-[#0071e3] text-white" : "bg-[#e8e8ed] text-[#86868b]"
-              }`}
-            >
-              {s}
-            </div>
-            {s < 3 && (
-              <div className={`w-8 h-0.5 rounded ${step > s ? "bg-[#0071e3]" : "bg-[#e8e8ed]"}`} />
-            )}
+            <div className={`w-8 h-8 rounded-full flex items-center justify-center text-[14px] font-medium ${step>=s?"bg-[#0071e3] text-white":"bg-[#e8e8ed] text-[#86868b]"}`}>{s}</div>
+            {s<4 && <div className={`w-8 h-0.5 rounded ${step>s?"bg-[#0071e3]":"bg-[#e8e8ed]"}`} />}
           </div>
         ))}
-        <span className="text-[14px] text-[#86868b] ml-2">
-          {step === 1 ? "填写素材" : step === 2 ? "分析中" : "诊断结果"}
-        </span>
+        <span className="text-[14px] text-[#86868b] ml-2">{step===1?"填写素材":step===2?"确认提交":step===3?"AI分析中":"诊断结果"}</span>
       </div>
 
-      {/* Step 1: Input */}
       {step === 1 && (
         <div className="space-y-4">
           <div className="apple-card p-6 space-y-4">
             <Field label="产品名称" value={productName} onChange={setProductName} placeholder="如：光触媒 USB-C 宠物除臭器" />
             <Field label="标题草案" value={titleDraft} onChange={setTitleDraft} placeholder="Amazon 产品标题" />
-
-            <div>
-              <label className="block text-[13px] font-medium text-[#86868b] mb-2">亮点</label>
-              <input
-                value={highlights}
-                onChange={(e) => setHighlights(e.target.value)}
-                placeholder="一句话核心卖点"
-                className="apple-input"
-              />
-            </div>
-
-            <div>
-              <label className="block text-[13px] font-medium text-[#86868b] mb-2">五点描述</label>
-              <div className="space-y-2">
-                {bullets.map((b, i) => (
-                  <input
-                    key={i}
-                    value={b}
-                    onChange={(e) => {
-                      const next = [...bullets];
-                      next[i] = e.target.value;
-                      setBullets(next);
-                    }}
-                    placeholder={`第 ${i + 1} 点`}
-                    className="apple-input"
-                  />
-                ))}
-              </div>
-            </div>
+            <div><label className="block text-[13px] font-medium text-[#86868b] mb-2">亮点</label><input value={highlights} onChange={e=>setHighlights(e.target.value)} placeholder="一句话核心卖点" className="apple-input" /></div>
+            <div><label className="block text-[13px] font-medium text-[#86868b] mb-2">五点描述</label><div className="space-y-2">{bullets.map((b,i)=><input key={i} value={b} onChange={e=>{const n=[...bullets];n[i]=e.target.value;setBullets(n)}} placeholder={`第${i+1}点`} className="apple-input" />)}</div></div>
           </div>
-
-          <div className="apple-card p-8 text-center">
-            <p className="text-[14px] text-[#86868b] mb-2">主图 / 副图 / A+ 素材</p>
-            <p className="text-[13px] text-[#86868b]/60">拖拽上传 或 点击选择文件</p>
-          </div>
-
-          <button
-            onClick={handleAnalyze}
-            disabled={!productName.trim()}
-            className="apple-btn-primary flex items-center gap-2 px-8 py-3 text-[16px]"
-          >
-            <ClipboardCheck size={18} />
-            开始准入检查
-            <ArrowRight size={16} />
-          </button>
+          <ImageSlots images={images} setImages={setImages} />
+          <button onClick={handleAnalyze} disabled={!productName.trim()} className="apple-btn-primary flex items-center gap-2 px-8 py-3 text-[16px]"><ClipboardCheck size={18} />开始准入检查<ArrowRight size={16} /></button>
         </div>
       )}
 
-      {/* Step 2: Loading */}
-      {step === 2 && !result && (
+      {step === 2 && (
+        <div className="space-y-4">
+          <div className="apple-card p-6"><h3 className="text-[15px] font-semibold mb-4">确认提交内容</h3>
+            <div className="space-y-3 text-[14px]">
+              <div><span className="text-[#86868b]">产品名称：</span>{productName}</div>
+              <div><span className="text-[#86868b]">标题：</span>{titleDraft||"未填"}</div>
+              <div><span className="text-[#86868b]">亮点：</span>{highlights||"未填"}</div>
+              <div><span className="text-[#86868b]">图片：</span>{images.length>0?`${images.length}张`:"未上传"}</div>
+            </div>
+          </div>
+          <div className="flex gap-3"><button onClick={()=>setStep(1)} className="apple-btn-secondary px-6 py-3">返回修改</button><button onClick={handleConfirm} className="apple-btn-primary flex items-center gap-2 px-6 py-3"><ClipboardCheck size={18} />确认提交</button></div>
+        </div>
+      )}
+
+      {step === 3 && !result && (
         <div className="apple-card p-16 text-center">
-          <div className="w-10 h-10 border-2 border-[#0071e3]/20 border-t-[#0071e3] rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-[17px] text-[#86868b]">
-            {analyzing ? "AI 正在逐位置诊断..." : "准备中"}
-          </p>
+          {error ? <><ShieldAlert size={32} className="text-[#ff3b30] mx-auto mb-3" /><p className="text-[17px] text-[#ff3b30]">分析失败</p><p className="text-[14px] text-[#86868b] mt-2">{error}</p><button onClick={()=>{setError(null);setStep(1)}} className="apple-btn-primary mt-4 px-6 py-2">← 返回重试</button></> : <><div className="w-10 h-10 border-2 border-[#0071e3]/20 border-t-[#0071e3] rounded-full animate-spin mx-auto mb-4" /><p className="text-[17px] text-[#86868b]">AI 正在逐位置诊断...</p></>}
         </div>
       )}
 
-      {/* Step 3: Result */}
       {result && (
         <div className="space-y-4">
-          {/* Overall verdict */}
-          <div className="apple-card p-6">
-            <div className="flex items-center gap-3 mb-3">
-              <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                result.admission_result === "可以上架" ? "bg-[#34c759]/10" :
-                result.admission_result === "谨慎上架" ? "bg-[#ff9500]/10" :
-                "bg-[#ff3b30]/10"
-              }`}>
-                {result.admission_result === "可以上架" ? (
-                  <Check size={20} className="text-[#34c759]" />
-                ) : result.admission_result === "谨慎上架" ? (
-                  <AlertCircle size={20} className="text-[#ff9500]" />
-                ) : (
-                  <ShieldAlert size={20} className="text-[#ff3b30]" />
-                )}
-              </div>
-              <div>
-                <p className="text-[20px] font-semibold">{result.admission_result}</p>
-                {result.conclusion && (
-                  <p className="text-[14px] text-[#86868b] mt-0.5">{result.conclusion}</p>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Position diagnoses */}
-          {result.position_diagnoses_json && result.position_diagnoses_json.length > 0 && (
-            <div className="apple-card p-6">
-              <h3 className="text-[13px] font-semibold text-[#86868b] uppercase tracking-wide mb-4">
-                逐位置诊断
-              </h3>
-              <div className="space-y-3">
-                {result.position_diagnoses_json.map((d, i) => (
-                  <div
-                    key={i}
-                    className={`rounded-xl p-4 border transition-colors ${
-                      d.status === "通过" ? "bg-[#34c759]/[0.04] border-[#34c759]/20" :
-                      d.status === "需修改" ? "bg-[#ff9500]/[0.04] border-[#ff9500]/20" :
-                      "bg-[#ff3b30]/[0.04] border-[#ff3b30]/20"
-                    }`}
-                  >
-                    <div className="flex items-center gap-2 mb-2">
-                      {statusIcon(d.status)}
-                      <span className="text-[14px] font-semibold">{d.position_name}</span>
-                      <span className="text-[12px] text-[#86868b]">{d.position_type}</span>
-                    </div>
-                    {d.issue && <p className="text-[14px] mb-1">{d.issue}</p>}
-                    {d.recommendation && (
-                      <p className="text-[13px] text-[#0071e3] bg-[#0071e3]/[0.06] rounded-lg p-2 mt-2">
-                        {d.recommendation}
-                      </p>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
+          <div className="flex gap-3 mb-2"><button onClick={()=>{setStep(1);setResult(null)}} className="apple-btn-secondary text-[14px] px-4 py-2">← 重新修改</button></div>
+          <div className="apple-card p-6"><div className="flex items-center gap-3 mb-3"><div className={`w-10 h-10 rounded-full flex items-center justify-center ${result.admission_result==="可以上架"?"bg-[#34c759]/10":result.admission_result==="谨慎上架"?"bg-[#ff9500]/10":"bg-[#ff3b30]/10"}`}>{result.admission_result==="可以上架"?<Check size={20} className="text-[#34c759]"/>:result.admission_result==="谨慎上架"?<AlertCircle size={20} className="text-[#ff9500]"/>:<ShieldAlert size={20} className="text-[#ff3b30]"/>}</div><div><p className="text-[20px] font-semibold">{result.admission_result}</p>{result.conclusion&&<p className="text-[14px] text-[#86868b] mt-0.5">{result.conclusion}</p>}</div></div></div>
+          {result.position_diagnoses_json?.length > 0 && (
+            <div className="apple-card p-6"><h3 className="text-[13px] font-semibold text-[#86868b] uppercase tracking-wide mb-4">逐位置诊断</h3><div className="space-y-3">{result.position_diagnoses_json.map((d,i)=><DiagnosisItem key={i} diagnosis={d} statusIcon={statusIcon} />)}</div></div>
           )}
         </div>
       )}
@@ -202,26 +135,34 @@ export default function PrelaunchCheck() {
   );
 }
 
-function Field({
-  label,
-  value,
-  onChange,
-  placeholder,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  placeholder: string;
-}) {
-  return (
-    <div>
-      <label className="block text-[13px] font-medium text-[#86868b] mb-2">{label}</label>
-      <input
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        className="apple-input"
-      />
-    </div>
-  );
+function Field({label,value,onChange,placeholder}:{label:string;value:string;onChange:(v:string)=>void;placeholder:string}){return <div><label className="block text-[13px] font-medium text-[#86868b] mb-2">{label}</label><input value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} className="apple-input" /></div>}
+
+function DiagnosisItem({diagnosis:d,statusIcon}:{diagnosis:{status:string;position_name:string;position_type:string;issue?:string|null;recommendation?:string|null;final_score?:number|null;usable_status?:string|null};statusIcon:(s:string)=>React.ReactNode}){
+  const [copied,setCopied]=useState(false);
+  const hasSuggestion=d.recommendation&&d.status!=="通过";
+  const sc=d.final_score!=null?(d.final_score>=4.5?"text-[#34c759]":d.final_score>=3.5?"text-[#ff9500]":d.final_score>=2.5?"text-[#ff3b30]":"text-[#ff3b30]"):"text-[#86868b]";
+  return <div className={`rounded-xl p-4 border ${d.status==="通过"?"bg-[#34c759]/[0.04] border-[#34c759]/20":d.status==="需修改"?"bg-[#ff9500]/[0.04] border-[#ff9500]/20":"bg-[#ff3b30]/[0.04] border-[#ff3b30]/20"}`}>
+    <div className="flex items-center gap-2 mb-2">{statusIcon(d.status)}<span className="text-[14px] font-semibold">{d.position_name}</span><span className="text-[12px] text-[#86868b]">{d.position_type}</span>{d.final_score!=null&&<span className={`ml-auto text-[13px] font-bold ${sc}`}>{d.final_score.toFixed(1)}</span>}{d.usable_status&&d.status!=="通过"&&<span className={`text-[11px] px-1.5 py-0.5 rounded-full ${d.final_score!=null&&d.final_score>=4?"bg-[#34c759]/10 text-[#34c759]":d.final_score!=null&&d.final_score>=3?"bg-[#ff9500]/10 text-[#ff9500]":"bg-[#ff3b30]/10 text-[#ff3b30]"}`}>{d.usable_status}</span>}</div>
+    {d.issue&&<p className="text-[14px] mb-1">{d.issue}</p>}
+    {(d as any).impact_metrics?.length>0&&<div className="flex items-center gap-2 mb-2"><span className="text-[11px] text-[#86868b]">影响指标</span>{(d as any).impact_metrics.map((m:string,i:number)=><span key={i} className="text-[11px] px-1.5 py-0.5 rounded-full bg-[#0071e3]/[0.06] text-[#0071e3]">{m}</span>)}</div>}
+    {hasSuggestion&&<div className="mt-2"><div className="bg-[#f5f5f7] rounded-lg p-3 flex items-start justify-between gap-3"><div className="flex-1 min-w-0"><p className="text-[11px] text-[#86868b] mb-1">修改建议</p><p className="text-[13px] text-[#0071e3]">{d.recommendation}</p></div><button onClick={()=>{navigator.clipboard.writeText(d.recommendation||"");setCopied(true);setTimeout(()=>setCopied(false),2000)}} className="shrink-0 px-3 py-1.5 rounded-lg bg-[#0071e3] text-white text-[12px] hover:bg-[#0077ed] transition-colors">{copied?"已复制":"复制"}</button></div></div>}
+  </div>;
+}
+
+function ImageSlots({images,setImages}:{images:{name:string;url:string;slot:string}[];setImages:(imgs:{name:string;url:string;slot:string}[])=>void}){
+  const up=(slot:string)=>(e:React.ChangeEvent<HTMLInputElement>)=>{const f=e.target.files?.[0];if(!f)return;const r=new FileReader();r.onload=()=>setImages(images.filter(i=>i.slot!==slot).concat({name:f.name,url:r.result as string,slot}));r.readAsDataURL(f);};
+  const rm=(slot:string)=>setImages(images.filter(i=>i.slot!==slot));
+  const get=(slot:string)=>images.find(i=>i.slot===slot);
+  const slots=[{s:"main",l:"主图",f:"搜索结果第一视觉",r:"纯白底·仅产品·无文字logo"},{s:"img2",l:"副图2",f:"核心卖点可视化",r:"图标+短句"},{s:"img3",l:"副图3",f:"使用场景展示",r:"真实环境"},{s:"img4",l:"副图4",f:"尺寸规格对比",r:"参照物+标注"},{s:"img5",l:"副图5",f:"功能细节演示",r:"特写/步骤"},{s:"img6",l:"副图6",f:"信任背书",r:"认证/质保/包装"},{s:"img7",l:"副图7",f:"场景氛围",r:"生活方式"}];
+  const aplus=[{s:"aplus1",l:"A+1",f:"品牌主视觉"},{s:"aplus2",l:"A+2",f:"差异化对比"},{s:"aplus3",l:"A+3",f:"卖点1·左图右文"},{s:"aplus4",l:"A+4",f:"卖点2"},{s:"aplus5",l:"A+5",f:"卖点3"},{s:"aplus6",l:"A+6",f:"技术规格参数"},{s:"aplus7",l:"A+7",f:"场景详解"},{s:"aplus8",l:"A+8",f:"认证质保"},{s:"aplus9",l:"A+9",f:"FAQ+售后"}];
+  return <div className="space-y-3">
+    <div className="apple-card p-5"><h3 className="text-[13px] font-semibold text-[#86868b] uppercase tracking-wide mb-3">主图 & 副图</h3><div className="grid grid-cols-4 gap-3">{slots.map(s=><Slot key={s.s} {...s} img={get(s.s)} up={up(s.s)} rm={()=>rm(s.s)}/>)}</div></div>
+    <div className="apple-card p-5"><h3 className="text-[13px] font-semibold text-[#86868b] uppercase tracking-wide mb-3">A+ 内容（最多9张）</h3><div className="grid grid-cols-5 gap-3">{aplus.map(s=><Slot key={s.s} slot={s.s} label={s.l} func={s.f} img={get(s.s)} up={up(s.s)} rm={()=>rm(s.s)}/>)}</div></div>
+  </div>;
+}
+
+function Slot({slot,label,func,rule,img,up,rm}:{slot:string;label:string;func:string;rule?:string;img?:{name:string;url:string};up:(e:React.ChangeEvent<HTMLInputElement>)=>void;rm:()=>void}){
+  const [dr,setDr]=useState(false);
+  const id=`slot-${slot}`;
+  return <div><input id={id} type="file" accept="image/*" className="hidden" onChange={up}/><label htmlFor={id} onDragOver={e=>{e.preventDefault();setDr(true)}} onDragLeave={()=>setDr(false)} onDrop={e=>{e.preventDefault();setDr(false);const f=e.dataTransfer.files?.[0];if(f&&f.type.startsWith("image/"))up({target:{files:e.dataTransfer.files}}as any)}} className={`flex flex-col items-center justify-center rounded-xl border-2 border-dashed cursor-pointer transition-colors h-[88px] ${img?"border-[#34c759]/40 bg-[#34c759]/[0.03]":dr?"border-[#0071e3] bg-[#0071e3]/[0.05]":"border-[#d2d2d7] hover:border-[#0071e3]/40 hover:bg-[#0071e3]/[0.02]"}`}>{img?<div className="relative w-full h-full"><img src={img.url} alt={img.name} className="w-full h-full object-cover rounded-lg"/><button onClick={e=>{e.preventDefault();rm()}} className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-[#ff3b30] text-white rounded-full text-[8px] flex items-center justify-center">×</button></div>:<span className="text-[11px] font-medium text-[#86868b]">{label}</span>}</label><p className="text-[10px] text-[#86868b] mt-1 text-center">{func}</p>{rule&&!img&&<p className="text-[9px] text-[#86868b]/60 text-center">{rule}</p>}</div>;
 }

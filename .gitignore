@@ -18,4 +18,6 @@ build/
 *.tar.gz
 *.zip
 uploads/
-.deepseek_key\n.scraperapi_key\n*.db
+.deepseek_key
+.scraperapi_key
+.qwen_key

@@ -7,14 +7,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.schemas import ValidationTaskCreate, ValidationTaskUpdate, ValidationTaskResponse, PaginatedResponse
 from app.services.validation_tasks import create_task, list_tasks, get_task, update_task
+from app.api.deps import get_current_user_id
 
 router = APIRouter(prefix="/api/v1/validation-tasks", tags=["validation-tasks"])
 
 
-@router.post("", response_model=ValidationTaskResponse, status_code=201)
-async def create(task: ValidationTaskCreate, db: AsyncSession = Depends(get_db)):
-    return await create_task(task, db)
-
+@router.post("/", response_model=ValidationTaskResponse)
+async def create(
+    req: ValidationTaskCreate,
+    db: AsyncSession = Depends(get_db),
+    user_id: str | None = Depends(get_current_user_id),
+):
+    return await create_task(req, db, user_id=user_id)
 
 @router.get("", response_model=PaginatedResponse)
 async def list_all(

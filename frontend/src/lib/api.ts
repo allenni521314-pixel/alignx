@@ -3,10 +3,14 @@
 const BASE = "/api/v1";
 
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${url}`, {
-    headers: { "Content-Type": "application/json", ...options?.headers },
-    ...options,
-  });
+  const token = localStorage.getItem("alignx_token");
+  const headers: Record<string, string> = { ...(options?.headers as Record<string, string> || {}) };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  if (!headers["Content-Type"] && options?.method !== "GET") {
+    headers["Content-Type"] = "application/json";
+  }
+
+  const res = await fetch(`${BASE}${url}`, { ...options, headers });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(err.detail || `Request failed: ${res.status}`);

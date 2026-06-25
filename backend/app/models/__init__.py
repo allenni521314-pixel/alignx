@@ -2,6 +2,7 @@ from __future__ import annotations
 """AlignX V1 — SQLAlchemy ORM models (13 tables per V1 Clean Architecture)."""
 
 import uuid
+import time
 from datetime import datetime
 from typing import Optional
 
@@ -37,6 +38,15 @@ class User(Base):
 
     stores      = relationship("Store", back_populates="user")
     account     = relationship("Account", back_populates="user", uselist=False)
+
+
+class VerificationCode(Base):
+    __tablename__ = "verification_codes"
+    id          = Column(String(32), primary_key=True, default=new_uuid)
+    email       = Column(String(255), nullable=False, index=True)
+    code        = Column(String(6), nullable=False)
+    expires_at  = Column(Float, nullable=False)
+    created_at  = Column(Float, default=time.time)
 
 
 # ═══════════════════════════════════════════

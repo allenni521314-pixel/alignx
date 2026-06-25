@@ -9,9 +9,10 @@ from app.schemas import ValidationTaskCreate, ValidationTaskUpdate, ValidationTa
 from app.constants import DEFAULT_USER_ID
 
 
-async def create_task(req: ValidationTaskCreate, db: AsyncSession) -> ValidationTaskResponse:
+async def create_task(req: ValidationTaskCreate, db: AsyncSession, user_id: str | None = None) -> ValidationTaskResponse:
+    uid = user_id or DEFAULT_USER_ID
     task = ValidationTask(
-        user_id=DEFAULT_USER_ID,
+        user_id=uid,
         asin=req.asin,
         proposition_code=req.proposition_code,
         proposition_name=req.proposition_name,

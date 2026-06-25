@@ -13,7 +13,8 @@ from app.core.prompts import build_conversion_prompt, CONVERSION_SYSTEM
 from app.constants import DEFAULT_USER_ID
 
 
-async def diagnose(req: ConversionDiagnosisRequest, db: AsyncSession) -> ConversionDiagnosisResponse:
+async def diagnose(req: ConversionDiagnosisRequest, db: AsyncSession, user_id: str | None = None) -> ConversionDiagnosisResponse:
+    uid = user_id or DEFAULT_USER_ID
     asin = req.asin
     if not asin and req.product_url:
         import re
@@ -29,7 +30,7 @@ async def diagnose(req: ConversionDiagnosisRequest, db: AsyncSession) -> Convers
     listing_data = None
     if not existing:
         capture = CaptureJob(
-            user_id=DEFAULT_USER_ID,
+            user_id=uid,
             input_type="asin", input_value=asin, marketplace=req.marketplace,
             provider="scraperapi", status="running",
         )
@@ -87,7 +88,7 @@ async def diagnose(req: ConversionDiagnosisRequest, db: AsyncSession) -> Convers
     title = listing_data.get("title") if listing_data else None
     if ai_result and not ai_result.get("error"):
         diagnosis = ConversionDiagnosis(
-            user_id=DEFAULT_USER_ID, asin=asin, product_url=req.product_url,
+            user_id=uid, asin=asin, product_url=req.product_url,
             marketplace=req.marketplace, product_title=title,
             overall_conclusion=ai_result.get("overall_conclusion"),
             biggest_breakpoint=ai_result.get("biggest_breakpoint"),
@@ -99,7 +100,7 @@ async def diagnose(req: ConversionDiagnosisRequest, db: AsyncSession) -> Convers
         )
     else:
         diagnosis = ConversionDiagnosis(
-            user_id=DEFAULT_USER_ID, asin=asin, product_url=req.product_url,
+            user_id=uid, asin=asin, product_url=req.product_url,
             marketplace=req.marketplace, product_title=title,
             overall_conclusion="数据已抓取，AI 诊断待完成" if listing_data else "抓取失败",
             current_status="pending",

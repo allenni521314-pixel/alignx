@@ -1,12 +1,13 @@
 from __future__ import annotations
 """Pre-launch Check — listing material admission assessment."""
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.schemas import PrelaunchCheckRequest, PrelaunchCheckResponse, PaginatedResponse
 from app.services.prelaunch_check import analyze_prelaunch, list_checks, get_check
+from app.api.deps import get_current_user_id
 
 router = APIRouter(prefix="/api/v1/prelaunch-check", tags=["prelaunch-check"])
 
@@ -15,9 +16,10 @@ router = APIRouter(prefix="/api/v1/prelaunch-check", tags=["prelaunch-check"])
 async def analyze_prelaunch_endpoint(
     req: PrelaunchCheckRequest,
     db: AsyncSession = Depends(get_db),
+    user_id: str | None = Depends(get_current_user_id),
 ):
     try:
-        return await analyze_prelaunch(req, db)
+        return await analyze_prelaunch(req, db, user_id=user_id)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

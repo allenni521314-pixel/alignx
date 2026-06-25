@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.schemas import MarketOpportunityRequest, MarketOpportunityResponse, PaginatedResponse
 from app.services.market_opportunity import analyze_market, list_reports, get_report
+from app.api.deps import get_current_user_id
 
 router = APIRouter(prefix="/api/v1/market-opportunity", tags=["market-opportunity"])
 
@@ -15,10 +16,11 @@ router = APIRouter(prefix="/api/v1/market-opportunity", tags=["market-opportunit
 async def analyze_market_opportunity(
     req: MarketOpportunityRequest,
     db: AsyncSession = Depends(get_db),
+    user_id: str | None = Depends(get_current_user_id),
 ):
     """Input keyword → crawl Top20 ASINs → AI generates 7-layer market opportunity report."""
     try:
-        return await analyze_market(req, db)
+        return await analyze_market(req, db, user_id=user_id)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

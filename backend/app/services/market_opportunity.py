@@ -13,9 +13,10 @@ from app.core.prompts import build_market_prompt, MARKET_OPPORTUNITY_SYSTEM
 from app.constants import DEFAULT_USER_ID
 
 
-async def analyze_market(req: MarketOpportunityRequest, db: AsyncSession) -> MarketOpportunityResponse:
+async def analyze_market(req: MarketOpportunityRequest, db: AsyncSession, user_id: str | None = None) -> MarketOpportunityResponse:
+    uid = user_id or DEFAULT_USER_ID
     capture = CaptureJob(
-        user_id=DEFAULT_USER_ID,
+        user_id=uid,
         input_type="keyword", input_value=req.keyword, marketplace=req.marketplace,
         provider="scraperapi", status="running",
     )
@@ -43,7 +44,7 @@ async def analyze_market(req: MarketOpportunityRequest, db: AsyncSession) -> Mar
     if ai_result and not ai_result.get("error"):
         seven_layer = ai_result.get("seven_layer", result.extracted_fields)
         report = MarketOpportunityReport(
-            user_id=DEFAULT_USER_ID, keyword=req.keyword, marketplace=req.marketplace,
+            user_id=uid, keyword=req.keyword, marketplace=req.marketplace,
             opportunity_score=ai_result.get("opportunity_score"),
             entry_level=ai_result.get("entry_level"),
             market_entry_conclusion=ai_result.get("market_entry_conclusion"),
@@ -55,11 +56,12 @@ async def analyze_market(req: MarketOpportunityRequest, db: AsyncSession) -> Mar
                 **seven_layer,
                 "product_categories": ai_result.get("product_categories", []),
                 "best_opportunity_category": ai_result.get("best_opportunity_category", ""),
+                "top20_asins": result.extracted_fields.get("results", []),
             },
         )
     else:
         report = MarketOpportunityReport(
-            user_id=DEFAULT_USER_ID, keyword=req.keyword, marketplace=req.marketplace,
+            user_id=uid, keyword=req.keyword, marketplace=req.marketplace,
             entry_level="pending",
             market_entry_conclusion=(
                 f"已抓取 {result.extracted_fields.get('total', 0)} 个 ASIN"
