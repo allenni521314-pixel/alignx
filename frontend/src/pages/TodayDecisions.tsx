@@ -80,8 +80,37 @@ export default function TodayDecisions() {
 /* ── Focus card ── */
 
 function FocusCard({ item }: { item: DecisionItem }) {
-  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [starting, setStarting] = useState(false);
+  const [done, setDone] = useState(false);
   const cost = item.estimated_cost != null ? `$${item.estimated_cost}` : "—";
+
+  const handleStart = async () => {
+    setStarting(true);
+    try {
+      await fetch(`${API_BASE}/validation-tasks/${item.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ execution_status: "running" }),
+      });
+      await fetch(`${API_BASE}/execution-records`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          validation_task_id: item.id,
+          asin: item.asin,
+          action_summary: item.hypothesis,
+          cost_amount: item.estimated_cost || 0,
+          cost_type: "ad_spend",
+          changed_position: "listing",
+        }),
+      });
+      setDone(true);
+      queryClient.invalidateQueries({ queryKey: ["today-decisions"] });
+    } finally {
+      setStarting(false);
+    }
+  };
 
   return (
     <div className="bg-white rounded-[20px] border border-[#d2d2d7] overflow-hidden">
@@ -133,15 +162,29 @@ function FocusCard({ item }: { item: DecisionItem }) {
 
         {/* Actions */}
         <div className="flex gap-3">
-          <button className="flex-1 py-3.5 rounded-full text-[15px] font-medium bg-[#f5f5f7] text-[#1d1d1f] hover:bg-[#e8e8ed] transition-colors active:scale-[0.97]">
-            不做了
-          </button>
-          <button
-            onClick={() => navigate("/traffic-strategy")}
-            className="flex-1 py-3.5 rounded-full text-[15px] font-medium bg-[#0071e3] text-white hover:bg-[#0077ed] shadow-sm shadow-[#0071e3]/25 transition-colors active:scale-[0.97] flex items-center justify-center gap-2"
-          >
-            开始验证 <ArrowRight size={16} />
-          </button>
+          {done ? (
+            <div className="flex-1 py-3.5 rounded-full text-[15px] font-medium bg-[#34c759]/[0.08] text-[#34c759] text-center">
+              ✅ 已启动验证 · 3天后回来看结果
+            </div>
+          ) : (
+            <>
+              <button className="flex-1 py-3.5 rounded-full text-[15px] font-medium bg-[#f5f5f7] text-[#1d1d1f] hover:bg-[#e8e8ed] transition-colors active:scale-[0.97]">
+                不做了
+              </button>
+              <button
+                onClick={handleStart}
+                disabled={starting}
+                className="flex-1 py-3.5 rounded-full text-[15px] font-medium bg-[#0071e3] text-white hover:bg-[#0077ed] shadow-sm shadow-[#0071e3]/25 transition-colors active:scale-[0.97] flex items-center justify-center gap-2 disabled:opacity-60"
+              >
+                {starting ? (
+                  <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                ) : (
+                  <ArrowRight size={16} />
+                )}
+                {starting ? "启动中..." : "开始验证"}
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>

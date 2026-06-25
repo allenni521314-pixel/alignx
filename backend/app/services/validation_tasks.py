@@ -20,14 +20,16 @@ async def create_task(req: ValidationTaskCreate, db: AsyncSession, user_id: str 
         source_record_id=req.source_record_id,
         hypothesis_text=req.hypothesis_text,
         evidence_snapshot=req.evidence_snapshot,
-        controlled_variable=req.controlled_variable,
+        controlled_variable=req.controlled_variable or _default_controlled(req.source_module),
         forbidden_simultaneous_changes=req.forbidden_simultaneous_changes,
-        validation_period=req.validation_period,
-        success_criteria=req.success_criteria,
-        failure_criteria=req.failure_criteria,
+        validation_period=req.validation_period or "7天",
+        success_criteria=req.success_criteria or _default_success_criteria(req.source_module),
+        failure_criteria=req.failure_criteria or "指标无显著变化或反向",
     )
     db.add(task)
     await db.flush()
+    # Auto-create or update ASIN profile
+    await _ensure_profile(db, req.asin, uid)
     return ValidationTaskResponse.model_validate(task, from_attributes=True)
 
 
@@ -65,3 +67,34 @@ async def update_task(task_id: str, req: ValidationTaskUpdate, db: AsyncSession)
         task.next_action = req.next_action
     await db.flush()
     return ValidationTaskResponse.model_validate(task, from_attributes=True)
+
+
+def _default_controlled(source: str | None) -> str | None:
+    mapping = {
+        "competitor_analysis": "主图/标题/A+内容等Listing元素",
+        "conversion_diagnosis": "标题/五点/图片/A+等Listing元素",
+        "prelaunch_check": "上架素材（图片/文案）",
+        "ad_strategy": "广告竞价/预算/关键词",
+    }
+    return mapping.get(source or "")
+
+
+def _default_success_criteria(source: str | None) -> str | None:
+    mapping = {
+        "competitor_analysis": "CTR相对提升≥0.3%或CVR相对提升≥0.5%",
+        "conversion_diagnosis": "CVR相对提升≥0.5%",
+        "prelaunch_check": "Listing完整度达标且无合规风险",
+        "ad_strategy": "ACoS降低≥5%或Impression提升≥15%",
+    }
+    return mapping.get(source or "")
+
+
+async def _ensure_profile(db: AsyncSession, asin: str, user_id: str):
+    """Get or create ASIN operation profile."""
+    from sqlalchemy import select as sa_select
+    from app.models import AsinOperationProfile
+    result = await db.execute(sa_select(AsinOperationProfile).where(AsinOperationProfile.asin == asin))
+    if not result.scalar_one_or_none():
+        profile = AsinOperationProfile(asin=asin, user_id=user_id)
+        db.add(profile)
+        await db.flush()

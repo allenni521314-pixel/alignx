@@ -45,6 +45,18 @@ async def create_result(req: ValidationResultCreate, db: AsyncSession, user_id: 
     rec = ValidationResult(**req.model_dump(), user_id=uid)
     db.add(rec)
     await db.flush()
+
+    # Update linked validation task
+    task_result = await db.execute(select(ValidationTask).where(ValidationTask.id == req.validation_task_id))
+    task = task_result.scalar_one_or_none()
+    if task:
+        task.execution_status = "completed"
+        task.result_status = req.final_result_status
+        await db.flush()
+
+    # Rebuild ASIN profile
+    await sync_profile(req.asin, db)
+
     return ValidationResultResponse.model_validate(rec, from_attributes=True)
 
 
