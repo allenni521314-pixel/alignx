@@ -8,6 +8,7 @@ import {
   ClipboardCheck,
   ArrowDownToLine,
   Route,
+  ListChecks,
   User,
   LogOut,
   Shield,
@@ -22,7 +23,7 @@ type NavGroup = { label: string; icon: React.ComponentType<{ size?: number }>; c
 
 const NAV_GROUPS: (NavGroup | NavItem)[] = [
   {
-    label: "机会选品",
+    label: "找机会",
     icon: Search,
     children: [
       { to: "/market-opportunity", label: "产品调研", icon: PackageSearch },
@@ -30,20 +31,22 @@ const NAV_GROUPS: (NavGroup | NavItem)[] = [
     ],
   },
   {
-    label: "运营验证",
-    icon: TrendingUp,
-    children: [
-      { to: "/yesterday-report", label: "昨日战报", icon: FileText },
-      { to: "/today-decisions", label: "今日决策", icon: Zap },
-      { to: "/conversion-diagnosis", label: "承接转化", icon: ArrowDownToLine },
-      { to: "/traffic-strategy", label: "广告策略", icon: Route },
-    ],
-  },
-  {
-    label: "新品上架",
+    label: "做上架",
     icon: ClipboardCheck,
     children: [
       { to: "/prelaunch-check", label: "上架准入", icon: ClipboardCheck },
+      { to: "/conversion-diagnosis", label: "承接转化", icon: ArrowDownToLine },
+    ],
+  },
+  {
+    label: "跑验证",
+    icon: TrendingUp,
+    children: [
+      { to: "/today-decisions", label: "今日决策", icon: Zap },
+      { to: "/traffic-strategy", label: "执行测试", icon: Route },
+      { to: "/execution-records", label: "执行记录", icon: ListChecks },
+      { to: "/business-validation", label: "经营验证", icon: Shield },
+      { to: "/yesterday-report", label: "昨日战报", icon: FileText },
     ],
   },
 ];
@@ -55,7 +58,7 @@ const BOTTOM_NAV = [
 export default function Sidebar() {
   const user = JSON.parse(localStorage.getItem("alignx_user") || "{}");
   const isAdmin = user.email === "allenni521314@gmail.com";
-  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({ "机会选品": true, "运营验证": true, "新品上架": true });
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({ "找机会": true, "做上架": true, "跑验证": true });
 
   return (
     <aside className="w-[220px] h-screen flex flex-col shrink-0 bg-white/80 backdrop-blur-xl border-r border-[#d2d2d7]/40">

@@ -249,20 +249,32 @@ export interface YesterdayReport {
   }>;
 }
 
+export interface DecisionItem {
+  id: string;
+  asin: string;
+  product_title: string | null;
+  hypothesis: string;
+  source: string;
+  validation_period: string | null;
+  estimated_cost: number | null;
+  created_at: string;
+  running_days?: number;
+  result_id?: string;
+  conclusion?: string | null;
+  verified_at?: string;
+}
+
 export interface TodayDecisions {
   date: string;
-  total_decisions: number;
-  urgent_count: number;
+  summary: {
+    pending: number;
+    running: number;
+    effective: number;
+  };
+  pending: DecisionItem[];
+  running: DecisionItem[];
+  effective: DecisionItem[];
   global_recommendation: string;
-  decisions: Array<{
-    asin: string;
-    product_title: string | null;
-    current_problem: string | null;
-    recommended_action: string | null;
-    priority: number;
-    reasoning: string;
-    active_tasks?: Array<{ proposition: string; status: string }>;
-  }>;
 }
 
 export function getYesterdayReport() {

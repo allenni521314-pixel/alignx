@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>今日决策 — AlignX</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Helvetica Neue",sans-serif;-webkit-font-smoothing:antialiased;background:#f5f5f7;color:#1d1d1f;letter-spacing:-0.022em;line-height:1.47059}
+.page{max-width:720px;margin:0 auto;padding:48px 24px}
+.header{margin-bottom:40px}
+.header h1{font-size:32px;font-weight:700;letter-spacing:-0.025em;margin-bottom:6px}
+.header p{font-size:17px;color:#86868b}
+.zone{margin-bottom:32px}
+.zone-title{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:#86868b;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:12px}
+.zone-title .dot{width:8px;height:8px;border-radius:50%}
+.zone-title .dot.red{background:#ff3b30}
+.zone-title .dot.amber{background:#ff9500}
+.zone-title .dot.green{background:#34c759}
+.card{background:#fff;border-radius:16px;border:1px solid #d2d2d7;margin-bottom:10px;overflow:hidden;transition:box-shadow .15s}
+.card:hover{box-shadow:0 2px 12px rgba(0,0,0,.06)}
+.card-inner{padding:20px 24px}
+.card-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px}
+.card-asin{font-size:12px;color:#86868b;font-weight:500;background:#f5f5f7;padding:3px 10px;border-radius:20px}
+.card-hypothesis{font-size:17px;font-weight:600;margin-bottom:6px;line-height:1.35}
+.card-detail{font-size:14px;color:#86868b;line-height:1.5;margin-bottom:16px}
+.card-meta{display:flex;gap:24px;margin-bottom:16px}
+.meta-item{display:flex;flex-direction:column;gap:2px}
+.meta-label{font-size:11px;color:#86868b;text-transform:uppercase;letter-spacing:0.04em}
+.meta-value{font-size:14px;font-weight:600}
+.meta-value.cost{color:#ff3b30}
+.card-action{display:flex;justify-content:flex-end;gap:10px}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:8px 20px;border-radius:100px;font-size:14px;font-weight:500;cursor:pointer;border:none;transition:all .15s}
+.btn:active{transform:scale(.97)}
+.btn-primary{background:#0071e3;color:#fff;box-shadow:0 1px 3px rgba(0,113,227,.2)}
+.btn-primary:hover{background:#0077ed}
+.btn-ghost{background:transparent;color:#86868b}
+.btn-ghost:hover{background:#f5f5f7;color:#1d1d1f}
+.btn-green{background:#34c759;color:#fff}
+.empty-state{background:#fff;border-radius:16px;border:1px solid #d2d2d7;padding:64px 24px;text-align:center}
+.empty-state svg{color:#d2d2d7;margin-bottom:12px}
+.empty-state h3{font-size:17px;font-weight:600;margin-bottom:4px}
+.empty-state p{font-size:14px;color:#86868b;max-width:360px;margin:0 auto;line-height:1.5}
+.nav-hint{display:flex;align-items:center;gap:6px;color:#0071e3;font-size:14px;font-weight:500;margin-top:16px;cursor:pointer}
+.divider{height:1px;background:#d2d2d7;margin:40px 0}
+.summary{display:flex;gap:16px}
+.summary-card{flex:1;background:#fff;border-radius:16px;border:1px solid #d2d2d7;padding:16px 20px;text-align:center}
+.summary-card .num{font-size:28px;font-weight:700;letter-spacing:-0.03em}
+.summary-card .lbl{font-size:12px;color:#86868b;margin-top:2px}
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="header">
+    <h1>今日决策</h1>
+    <p>2026年6月25日 · 先验证，再投入</p>
+  </div>
+
+  <!-- Summary -->
+  <div class="summary">
+    <div class="summary-card"><div class="num" style="color:#ff3b30">2</div><div class="lbl">待验证</div></div>
+    <div class="summary-card"><div class="num" style="color:#ff9500">1</div><div class="lbl">测试中</div></div>
+    <div class="summary-card"><div class="num" style="color:#34c759">3</div><div class="lbl">已验证有效</div></div>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- 待验证 -->
+  <div class="zone">
+    <div class="zone-title"><span class="dot red"></span>待验证 · 2 个假设</div>
+
+    <div class="card">
+      <div class="card-inner">
+        <div class="card-top">
+          <span class="card-asin">B0XYZ123 · 光触媒除臭器</span>
+        </div>
+        <div class="card-hypothesis">把主图从白底产品图换成宠物家庭使用场景图</div>
+        <div class="card-detail">竞品分析发现 Top5 均使用场景图，当前纯白底图点击率低于平均 0.3%。改为主人在猫砂盆旁的实际使用场景，预计 CTR 提升 0.3-0.5%。</div>
+        <div class="card-meta">
+          <div class="meta-item"><span class="meta-label">最小验证成本</span><span class="meta-value cost">$15 · 3天</span></div>
+          <div class="meta-item"><span class="meta-label">预期收益</span><span class="meta-value" style="color:#34c759">CTR +0.3%</span></div>
+          <div class="meta-item"><span class="meta-label">来源</span><span class="meta-value">竞品分析</span></div>
+        </div>
+        <div class="card-action">
+          <button class="btn btn-ghost">跳过</button>
+          <button class="btn btn-primary">执行 →</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-inner">
+        <div class="card-top"><span class="card-asin">B0XYZ123 · 光触媒除臭器</span></div>
+        <div class="card-hypothesis">标题加 "USB-C Rechargeable" 前置到前 80 字符</div>
+        <div class="card-detail">承接转化诊断显示标题关键卖点埋在第 120 字符后，移动端截断看不到。USB-C 充电是全品类唯一差异化卖点，前置可提升搜索匹配和点击意愿。</div>
+        <div class="card-meta">
+          <div class="meta-item"><span class="meta-label">最小验证成本</span><span class="meta-value cost">$10 · 2天</span></div>
+          <div class="meta-item"><span class="meta-label">预期收益</span><span class="meta-value" style="color:#34c759">CVR +0.8%</span></div>
+          <div class="meta-item"><span class="meta-label">来源</span><span class="meta-value">承接转化</span></div>
+        </div>
+        <div class="card-action">
+          <button class="btn btn-ghost">跳过</button>
+          <button class="btn btn-primary">执行 →</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 测试中 -->
+  <div class="zone">
+    <div class="zone-title"><span class="dot amber"></span>测试中 · 1 个假设</div>
+    <div class="card">
+      <div class="card-inner">
+        <div class="card-top"><span class="card-asin">B0XYZ123 · 光触媒除臭器</span></div>
+        <div class="card-hypothesis">广告竞价从 $0.45 提到 $0.65 测试排名提升效果</div>
+        <div class="card-detail">已跑 2 天，还需 1 天数据收敛。当前 Impression +28%，CTR 持平，CVR 样本不足。</div>
+        <div class="card-meta">
+          <div class="meta-item"><span class="meta-label">已花费</span><span class="meta-value cost">$9.20 / $15</span></div>
+          <div class="meta-item"><span class="meta-label">剩余天数</span><span class="meta-value">1天</span></div>
+          <div class="meta-item"><span class="meta-label">状态</span><span class="meta-value" style="color:#ff9500">数据收集中</span></div>
+        </div>
+        <div class="card-action">
+          <button class="btn btn-ghost">提前终止</button>
+          <button class="btn btn-ghost">查看数据 →</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 已验证有效 -->
+  <div class="zone">
+    <div class="zone-title"><span class="dot green"></span>已验证有效 · 3 个假设</div>
+    <div class="card">
+      <div class="card-inner">
+        <div class="card-top"><span class="card-asin">B0XYZ123 · 光触媒除臭器</span></div>
+        <div class="card-hypothesis">A+ 内容增加对比图（光触媒 vs 活性炭 vs UV灯）<span style="color:#34c759;font-size:13px;margin-left:8px">✓ 有效</span></div>
+        <div class="card-detail">验证结果：CVR 从 4.2% 提升到 7.1%，$12 测试成本。建议保持并应用到其他 ASIN。</div>
+        <div class="card-meta">
+          <div class="meta-item"><span class="meta-label">测试成本</span><span class="meta-value" style="color:#34c759">$12</span></div>
+          <div class="meta-item"><span class="meta-label">CVR 提升</span><span class="meta-value" style="color:#34c759">+2.9%</span></div>
+          <div class="meta-item"><span class="meta-label">验证时间</span><span class="meta-value">6月18日</span></div>
+        </div>
+        <div class="card-action">
+          <button class="btn btn-green">放大 →</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Empty state for new users -->
+  <div class="empty-state" style="margin-top:24px">
+    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+    <h3>还没有假设？</h3>
+    <p>去「找机会」做一次产品调研或竞品分析，系统会自动生成待验证的假设。</p>
+    <div class="nav-hint">去产品调研 →</div>
+  </div>
+</div>
+</body>
+</html>

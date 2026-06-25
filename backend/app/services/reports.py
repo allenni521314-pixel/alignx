@@ -133,86 +133,112 @@ async def generate_yesterday_report(db: AsyncSession, user_id: str | None = None
 
 
 async def generate_today_decisions(db: AsyncSession, user_id: str | None = None) -> dict:
-    """Generate today's recommended actions based on current state."""
+    """返回三区面板数据：待验证 / 测试中 / 已验证有效。"""
 
-    profiles_q = select(AsinOperationProfile).order_by(AsinOperationProfile.updated_at.desc())
-    profiles = (await db.execute(profiles_q)).scalars().all()
-
-    tasks_q = select(ValidationTask).where(
-        ValidationTask.execution_status.in_(["pending", "running"])
-    )
+    # All validation tasks
+    tasks_q = select(ValidationTask).order_by(ValidationTask.created_at.desc())
     tasks = (await db.execute(tasks_q)).scalars().all()
 
-    decisions = []
+    # All validation results
+    results_q = select(ValidationResult).order_by(ValidationResult.created_at.desc())
+    results = (await db.execute(results_q)).scalars().all()
 
-    for p in profiles:
-        decision = {
-            "asin": p.asin,
-            "product_title": p.product_title,
-            "lifecycle_stage": p.lifecycle_stage,
-            "current_problem": p.current_main_problem,
-            "recommended_action": p.next_recommended_proposition,
-            "priority": _calculate_priority(p),
-            "reasoning": _build_reasoning(p),
+    # Execution records (for cost calculation)
+    execs_q = select(ExecutionRecord)
+    executions = (await db.execute(execs_q)).scalars().all()
+
+    # ASIN profiles (for product titles)
+    profiles_q = select(AsinOperationProfile)
+    profiles = (await db.execute(profiles_q)).scalars().all()
+    profile_map = {p.asin: p for p in profiles}
+
+    def _profile(asin: str):
+        return profile_map.get(asin)
+
+    def _task_cost(task_id: str) -> float | None:
+        costs = [e.cost_amount for e in executions if e.validation_task_id == task_id and e.cost_amount]
+        return round(sum(costs), 2) if costs else None
+
+    def _build_item(task: ValidationTask, extra: dict | None = None) -> dict:
+        p = _profile(task.asin)
+        item = {
+            "id": task.id,
+            "asin": task.asin,
+            "product_title": p.product_title if p else None,
+            "hypothesis": task.hypothesis_text or task.proposition_name or task.proposition_code,
+            "source": _source_label(task.source_module),
+            "validation_period": task.validation_period,
+            "estimated_cost": _task_cost(task.id),
+            "created_at": task.created_at.strftime("%m-%d") if task.created_at else "",
         }
+        if extra:
+            item.update(extra)
+        return item
 
-        # Attach related tasks
-        related_tasks = [t for t in tasks if t.asin == p.asin]
-        if related_tasks:
-            decision["active_tasks"] = [
-                {
-                    "proposition": t.proposition_name or t.proposition_code,
-                    "status": t.execution_status,
-                }
-                for t in related_tasks
-            ]
+    # ── 🔴 待验证 ──
+    pending = [
+        _build_item(t)
+        for t in tasks
+        if t.execution_status == "pending"
+    ]
 
-        decisions.append(decision)
+    # ── 🟡 测试中 ──
+    running = [
+        _build_item(t, {"running_days": _running_days(t)})
+        for t in tasks
+        if t.execution_status == "running"
+    ]
 
-    # Sort by priority
-    decisions.sort(key=lambda d: d["priority"], reverse=True)
+    # ── 🟢 已验证有效 ──
+    task_map = {t.id: t for t in tasks}
+    effective = []
+    for r in results:
+        if r.final_result_status == "effective":
+            t = task_map.get(r.validation_task_id)
+            if t:
+                item = _build_item(t, {
+                    "result_id": r.id,
+                    "conclusion": r.attribution_conclusion or r.notes,
+                    "verified_at": r.created_at.strftime("%m-%d") if r.created_at else "",
+                })
+                effective.append(item)
+
+    # Global recommendation
+    if pending:
+        rec = f"有 {len(pending)} 个假设待验证，建议从成本最低的开始"
+    elif running:
+        rec = f"{len(running)} 个测试进行中，等待数据收敛"
+    else:
+        rec = "暂无待验证假设，去做一次产品调研或竞品分析"
 
     return {
         "date": datetime.utcnow().strftime("%Y-%m-%d"),
-        "total_decisions": len(decisions),
-        "urgent_count": sum(1 for d in decisions if d["priority"] >= 4),
-        "decisions": decisions,
-        "global_recommendation": (
-            "重点关注高优先级 ASIN 的验证任务执行"
-            if any(d["priority"] >= 4 for d in decisions)
-            else "当前无紧急事项，按计划推进验证任务"
-        ),
+        "summary": {
+            "pending": len(pending),
+            "running": len(running),
+            "effective": len(effective),
+        },
+        "pending": pending,
+        "running": running,
+        "effective": effective,
+        "global_recommendation": rec,
     }
 
 
-def _calculate_priority(profile: AsinOperationProfile) -> int:
-    """1-5 priority score based on profile state."""
-    score = 1
-
-    # Repeated failures = high priority
-    if profile.repeated_failure_patterns_json:
-        score += 2
-
-    # Current main problem = high priority
-    if profile.current_main_problem:
-        score += 1
-
-    # Low effectiveness rate
-    total = profile.total_validation_count
-    if total > 0:
-        rate = profile.effective_count / total
-        if rate < 0.3:
-            score += 1
-
-    return min(score, 5)
+def _source_label(module: str | None) -> str:
+    mapping = {
+        "conversion_diagnosis": "承接转化",
+        "competitor_analysis": "竞品分析",
+        "prelaunch_check": "上架准入",
+        "market_opportunity": "产品调研",
+        "ad_strategy": "流量策略",
+        "manual": "手动创建",
+    }
+    return mapping.get(module or "", "手动创建")
 
 
-def _build_reasoning(profile: AsinOperationProfile) -> str:
-    """Build concise reasoning — avoid duplicating current_problem/recommended_action."""
-    parts = []
-    total = profile.total_validation_count
-    if total > 0:
-        parts.append(f"验证{total}次，有效{profile.effective_count}，无效{profile.ineffective_count}")
-    if profile.asin_learning_summary:
-        parts.append(profile.asin_learning_summary)
-    return "；".join(parts) if parts else "暂无足够数据"
+def _running_days(task: ValidationTask) -> int:
+    if not task.created_at:
+        return 0
+    delta = datetime.utcnow() - task.created_at
+    return max(1, delta.days)

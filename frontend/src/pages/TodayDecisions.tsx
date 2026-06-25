@@ -1,114 +1,76 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { Zap, Lightbulb, AlertTriangle, TrendingUp, CheckCircle2, Play, ChevronRight } from "lucide-react";
-import { getTodayDecisions, getYesterdayReport, API_BASE } from "@/lib/api";
+import {
+  Zap, Search, CheckCircle2, ChevronRight,
+} from "lucide-react";
+import { getTodayDecisions, API_BASE, type DecisionItem } from "@/lib/api";
 
 export default function TodayDecisions() {
-  const { data: report, isLoading } = useQuery({ queryKey: ["today-decisions"], queryFn: getTodayDecisions });
-  const { data: yesterday } = useQuery({ queryKey: ["yesterday-report"], queryFn: getYesterdayReport });
+  const { data: report, isLoading } = useQuery({
+    queryKey: ["today-decisions"],
+    queryFn: getTodayDecisions,
+  });
 
   if (isLoading) {
     return (
-      <div className="max-w-[800px] mx-auto py-8">
+      <div className="max-w-[720px] mx-auto py-8">
         <div className="apple-card p-16 text-center">
-          <div className="w-8 h-8 border-2 border-[#0071e3]/20 border-t-[#0071e3] rounded-full animate-spin mx-auto mb-3" />
-          <p className="text-[15px] text-[#86868b]">分析昨日数据中...</p>
+          <div className="w-8 h-8 border-2 border-[#0071e3]/20 border-t-[#0071e3] rounded-full animate-spin mx-auto" />
         </div>
       </div>
     );
   }
 
-  const decisions = report?.decisions ?? [];
-  const urgent = decisions.filter((d) => d.priority >= 4);
-  const inProgress = decisions.filter((d) => d.priority < 4 && d.priority >= 2);
-  const suggested = decisions.filter((d) => d.priority < 2);
-  const ys = yesterday?.summary;
-
-  if (isLoading) {
-    return (
-      <div className="max-w-[800px] mx-auto py-8">
-        <div className="apple-card p-16 text-center">
-          <div className="w-8 h-8 border-2 border-[#0071e3]/20 border-t-[#0071e3] rounded-full animate-spin mx-auto mb-3" />
-          <p className="text-[15px] text-[#86868b]">分析昨日数据中...</p>
-        </div>
-      </div>
-    );
-  }
+  const summary = report?.summary ?? { pending: 0, running: 0, effective: 0 };
+  const hasData = summary.pending > 0 || summary.running > 0 || summary.effective > 0;
 
   return (
-    <div className="max-w-[800px] mx-auto py-8">
-      <div className="mb-8">
+    <div className="max-w-[720px] mx-auto py-8">
+      {/* Header */}
+      <div className="mb-10">
         <h1 className="text-[32px] font-bold tracking-[-0.025em] mb-2">今日决策</h1>
         <p className="text-[17px] text-[#86868b] leading-relaxed">
-          基于昨日验证结果，今天该做什么
+          {report?.global_recommendation || "先验证，再投入"}
         </p>
       </div>
 
-      {!report ? (
-        <div className="apple-card p-16 text-center">
-          <Zap size={32} className="text-[#d2d2d7] mx-auto mb-3" />
-          <p className="text-[15px] text-[#86868b]">暂无决策数据</p>
-        </div>
+      {!hasData ? (
+        <EmptyState />
       ) : (
-        <div className="space-y-6">
-          {/* Global Recommendation */}
-          <div className="apple-card p-5 bg-gradient-to-br from-[#0071e3]/[0.03] to-white">
-            <div className="flex items-center gap-2 mb-2">
-              <Lightbulb size={18} className="text-[#ff9500]" />
-              <h2 className="text-[15px] font-semibold">全局建议</h2>
-            </div>
-            <p className="text-[16px] font-medium leading-relaxed">{report.global_recommendation}</p>
-            <div className="flex items-center gap-4 mt-3 text-[12px] text-[#86868b]">
-              <span>{report.total_decisions} 项决策</span>
-              {report.urgent_count > 0 && <span className="text-[#ff3b30] font-medium">{report.urgent_count} 项紧急</span>}
-            </div>
+        <div className="space-y-4">
+          {/* Summary bar */}
+          <div className="grid grid-cols-3 gap-3 mb-2">
+            <SummaryCard num={summary.pending} label="待验证" color="text-[#ff3b30]" bg="bg-[#ff3b30]/[0.06]" />
+            <SummaryCard num={summary.running} label="测试中" color="text-[#ff9500]" bg="bg-[#ff9500]/[0.06]" />
+            <SummaryCard num={summary.effective} label="已验证有效" color="text-[#34c759]" bg="bg-[#34c759]/[0.06]" />
           </div>
 
-          {/* Yesterday Summary */}
-          {ys && (
-            <div className="grid grid-cols-4 gap-3">
-              <MiniStat label="昨日动作" value={ys.total_executions} />
-              <MiniStat label="改动位置" value={ys.changed_positions} />
-              <MiniStat label="有效" value={yesterday?.validation_stats?.effective ?? 0} color="text-[#34c759]" />
-              <MiniStat label="无效" value={yesterday?.validation_stats?.ineffective ?? 0} color="text-[#ff3b30]" />
-            </div>
-          )}
-
-          {/* 🔴 Urgent */}
-          {urgent.length > 0 && (
-            <Section title="紧急" icon={AlertTriangle} color="text-[#ff3b30]" bg="bg-[#ff3b30]/[0.04]" border="border-[#ff3b30]/20">
-              {urgent.map((d, i) => (
-                <DecisionCard key={i} decision={d} urgent />
+          {/* 🔴 待验证 */}
+          {report.pending.length > 0 && (
+            <Zone title="待验证" count={report.pending.length} dotColor="bg-[#ff3b30]">
+              {report.pending.map((item) => (
+                <DecisionCard key={item.id} item={item} zone="pending" />
               ))}
-            </Section>
+            </Zone>
           )}
 
-          {/* 🟡 In Progress */}
-          {inProgress.length > 0 && (
-            <Section title="进行中" icon={Play} color="text-[#ff9500]" bg="bg-[#ff9500]/[0.04]" border="border-[#ff9500]/20">
-              {inProgress.map((d, i) => (
-                <DecisionCard key={i} decision={d} />
+          {/* 🟡 测试中 */}
+          {report.running.length > 0 && (
+            <Zone title="测试中" count={report.running.length} dotColor="bg-[#ff9500]">
+              {report.running.map((item) => (
+                <DecisionCard key={item.id} item={item} zone="running" />
               ))}
-            </Section>
+            </Zone>
           )}
 
-          {/* 🔵 Suggested */}
-          {suggested.length > 0 && (
-            <Section title="建议" icon={TrendingUp} color="text-[#0071e3]" bg="bg-[#0071e3]/[0.04]" border="border-[#0071e3]/20">
-              {suggested.map((d, i) => (
-                <DecisionCard key={i} decision={d} />
+          {/* 🟢 已验证有效 */}
+          {report.effective.length > 0 && (
+            <Zone title="已验证有效" count={report.effective.length} dotColor="bg-[#34c759]">
+              {report.effective.map((item) => (
+                <DecisionCard key={item.id} item={item} zone="effective" />
               ))}
-            </Section>
-          )}
-
-          {/* Empty state */}
-          {decisions.length === 0 && (
-            <div className="apple-card p-12 text-center">
-              <CheckCircle2 size={28} className="text-[#d2d2d7] mx-auto mb-2" />
-              <p className="text-[15px] text-[#86868b]">今日无待办决策</p>
-              <p className="text-[13px] text-[#86868b]/60 mt-1">所有验证任务已处理完毕</p>
-            </div>
+            </Zone>
           )}
         </div>
       )}
@@ -116,102 +78,150 @@ export default function TodayDecisions() {
   );
 }
 
-/* ── Sub-components ── */
+/* ── Empty state ── */
 
-function Section({
-  title, icon: Icon, color, bg, border, children,
+function EmptyState() {
+  const navigate = useNavigate();
+  return (
+    <div className="apple-card p-16 text-center">
+      <Search size={32} className="text-[#d2d2d7] mx-auto mb-3" />
+      <h3 className="text-[17px] font-semibold mb-1">还没有假设</h3>
+      <p className="text-[14px] text-[#86868b] max-w-[360px] mx-auto leading-relaxed mb-4">
+        去「找机会」做一次产品调研或竞品分析，系统会自动生成待验证的假设
+      </p>
+      <button
+        onClick={() => navigate("/market-opportunity")}
+        className="inline-flex items-center gap-2 text-[14px] font-medium text-[#0071e3] hover:underline"
+      >
+        去产品调研 <ChevronRight size={14} />
+      </button>
+    </div>
+  );
+}
+
+/* ── Summary card ── */
+
+function SummaryCard({ num, label, color, bg }: { num: number; label: string; color: string; bg: string }) {
+  return (
+    <div className={`apple-card p-4 text-center ${bg}`}>
+      <div className={`text-[28px] font-bold tracking-[-0.03em] ${color}`}>{num}</div>
+      <div className="text-[12px] text-[#86868b] mt-1">{label}</div>
+    </div>
+  );
+}
+
+/* ── Zone ── */
+
+function Zone({
+  title, count, dotColor, children,
 }: {
-  title: string; icon: React.ComponentType<{ size?: number }>; color: string; bg: string; border: string;
-  children: React.ReactNode;
+  title: string; count: number; dotColor: string; children: React.ReactNode;
 }) {
   return (
     <div>
       <div className="flex items-center gap-2 mb-3">
-        <div className={`w-7 h-7 rounded-lg ${bg} flex items-center justify-center`}>
-          <Icon size={14} className={color} />
-        </div>
-        <h2 className="text-[15px] font-semibold">{title}</h2>
+        <span className={`w-2 h-2 rounded-full ${dotColor}`} />
+        <span className="text-[13px] font-semibold text-[#86868b] uppercase tracking-[0.05em]">
+          {title} · {count} 个
+        </span>
       </div>
-      <div className="space-y-3">{children}</div>
+      <div className="space-y-2.5">{children}</div>
     </div>
   );
 }
 
-function DecisionCard({
-  decision: d, urgent,
-}: {
-  decision: { asin: string; product_title?: string | null; current_problem?: string | null; recommended_action?: string | null; priority: number; reasoning: string; active_tasks?: Array<{ proposition: string; status: string }> };
-  urgent?: boolean;
-}) {
+/* ── Decision card ── */
+
+function DecisionCard({ item, zone }: { item: DecisionItem; zone: "pending" | "running" | "effective" }) {
   const [showResult, setShowResult] = useState(false);
-  const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
+
+  const costLabel = item.estimated_cost != null ? `$${item.estimated_cost}` : "—";
+  const costColor = item.estimated_cost != null && item.estimated_cost > 0 ? "text-[#ff3b30]" : "text-[#86868b]";
 
   return (
-    <div className={`apple-card p-4 ${urgent ? "border-[#ff3b30]/30 bg-[#ff3b30]/[0.01]" : ""}`}>
-      <div className="flex items-start justify-between mb-2">
-        <div>
+    <div className="apple-card overflow-hidden">
+      <div className="p-5">
+        {/* Top row: ASIN + source */}
+        <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
-            <span className="text-[15px] font-semibold">{d.asin}</span>
-            <Pill level={d.priority} />
+            <span className="text-[13px] font-medium text-[#86868b]">{item.asin}</span>
+            {item.product_title && (
+              <span className="text-[12px] text-[#86868b]/60 truncate max-w-[240px]">
+                · {item.product_title}
+              </span>
+            )}
           </div>
-          {d.product_title && (
-            <p className="text-[12px] text-[#86868b] mt-0.5 truncate max-w-[400px]">{d.product_title}</p>
+          <span className="text-[11px] px-2 py-0.5 rounded-full bg-[#f5f5f7] text-[#86868b] font-medium">
+            {item.source}
+          </span>
+        </div>
+
+        {/* Hypothesis */}
+        <h3 className="text-[16px] font-semibold leading-snug mb-2">{item.hypothesis}</h3>
+
+        {/* Meta row */}
+        <div className="flex items-center gap-6 mb-4">
+          <MetaItem label="验证成本" value={costLabel} valueColor={costColor} />
+          {zone === "running" && item.running_days != null && (
+            <MetaItem label="已跑天数" value={`${item.running_days}天`} valueColor="text-[#ff9500]" />
+          )}
+          {zone === "running" && item.validation_period && (
+            <MetaItem label="建议周期" value={item.validation_period} />
+          )}
+          {zone === "effective" && item.verified_at && (
+            <MetaItem label="验证时间" value={item.verified_at} />
+          )}
+          {zone === "effective" && item.conclusion && (
+            <MetaItem label="结论" value={item.conclusion} valueColor="text-[#34c759]" />
           )}
         </div>
-        {urgent && <AlertTriangle size={16} className="text-[#ff3b30] shrink-0" />}
+
+        {/* Actions */}
+        <div className="flex items-center justify-end gap-2">
+          {zone === "pending" && (
+            <>
+              <button className="apple-btn-secondary text-[13px] px-4 py-1.5">跳过</button>
+              <button className="apple-btn-primary text-[13px] px-4 py-1.5 flex items-center gap-1">
+                执行 <ChevronRight size={14} />
+              </button>
+            </>
+          )}
+          {zone === "running" && (
+            <>
+              <button className="apple-btn-secondary text-[13px] px-4 py-1.5">提前终止</button>
+              <button
+                onClick={() => setShowResult(!showResult)}
+                className="apple-btn-primary text-[13px] px-4 py-1.5 flex items-center gap-1"
+              >
+                <CheckCircle2 size={14} />
+                录入结果
+              </button>
+            </>
+          )}
+          {zone === "effective" && (
+            <button
+              onClick={() => navigate("/traffic-strategy")}
+              className="px-4 py-1.5 rounded-full text-[13px] font-medium bg-[#34c759] text-white hover:bg-[#2db84e] transition-colors active:scale-[0.97] flex items-center gap-1"
+            >
+              <Zap size={14} />
+              放大
+            </button>
+          )}
+        </div>
       </div>
 
-      {d.current_problem && (
-        <p className="text-[13px] text-[#86868b] mb-2">{d.current_problem}</p>
-      )}
-
-      {d.recommended_action && (
-        <div className="bg-[#0071e3]/[0.03] rounded-lg p-3 mb-2">
-          <p className="text-[12px] font-medium text-[#0071e3] mb-0.5">建议动作</p>
-          <p className="text-[13px]">{d.recommended_action}</p>
-        </div>
-      )}
-
-      <p className="text-[12px] text-[#86868b] mb-2">{d.reasoning}</p>
-
-      {d.active_tasks && d.active_tasks.length > 0 && (
-        <div className="flex gap-1.5 flex-wrap mb-2">
-          {d.active_tasks.map((t, j) => (
-            <span key={j} className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${
-              t.status === "running" ? "bg-[#0071e3]/8 text-[#0071e3]" : "bg-[#f5f5f7] text-[#86868b]"
-            }`}>
-              {t.proposition}
-            </span>
-          ))}
-        </div>
-      )}
-
-      <div className="flex gap-2 mt-2">
-        <button
-          onClick={() => setShowResult(!showResult)}
-          className="apple-btn-primary text-[12px] px-3 py-1 flex items-center gap-1"
-        >
-          <CheckCircle2 size={12} />
-          录入验证结果
-        </button>
-        <button
-          onClick={() => navigate("/business-validation")}
-          className="apple-btn-secondary text-[12px] px-3 py-1 flex items-center gap-1"
-        >
-          查看验证管道 <ChevronRight size={12} />
-        </button>
-      </div>
-
+      {/* Inline result form */}
       {showResult && (
-        <div className="mt-3 p-4 bg-[#f5f5f7] rounded-xl space-y-3">
-          <p className="text-[13px] font-medium">录入验证结果</p>
+        <div className="border-t border-[#d2d2d7]/20 p-5 bg-[#f5f5f7]">
+          <p className="text-[13px] font-medium mb-3">录入验证结果</p>
           <div className="flex gap-2 flex-wrap">
             {[
-              { v: "effective", l: "✅ 有效", c: "border-[#34c759] bg-[#34c759]/[0.04]" },
-              { v: "ineffective", l: "❌ 无效", c: "border-[#ff3b30] bg-[#ff3b30]/[0.04]" },
-              { v: "interfered", l: "⚠️ 受干扰", c: "border-[#ff9500] bg-[#ff9500]/[0.04]" },
-              { v: "insufficient_data", l: "📊 数据不足", c: "border-[#86868b] bg-[#f5f5f7]" },
+              { v: "effective", l: "✅ 有效", cls: "border-[#34c759] text-[#34c759] hover:bg-[#34c759]/[0.06]" },
+              { v: "ineffective", l: "❌ 无效", cls: "border-[#ff3b30] text-[#ff3b30] hover:bg-[#ff3b30]/[0.06]" },
+              { v: "interfered", l: "⚠️ 受干扰", cls: "border-[#ff9500] text-[#ff9500] hover:bg-[#ff9500]/[0.06]" },
+              { v: "insufficient_data", l: "📊 数据不足", cls: "border-[#86868b] text-[#86868b] hover:bg-[#f5f5f7]" },
             ].map((opt) => (
               <button
                 key={opt.v}
@@ -220,45 +230,35 @@ function DecisionCard({
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
-                      validation_task_id: d.active_tasks?.[0]?.proposition || "",
-                      asin: d.asin,
+                      validation_task_id: item.id,
+                      asin: item.asin,
                       final_result_status: opt.v,
                     }),
                   });
                   setShowResult(false);
                   queryClient.invalidateQueries({ queryKey: ["today-decisions"] });
-                  queryClient.invalidateQueries({ queryKey: ["yesterday-report"] });
                 }}
-                className={`px-3 py-1.5 rounded-full text-[13px] border transition-colors ${opt.c}`}
+                className={`px-3 py-1.5 rounded-full text-[13px] border transition-colors ${opt.cls}`}
               >
                 {opt.l}
               </button>
             ))}
           </div>
-          <button onClick={() => setShowResult(false)} className="text-[12px] text-[#86868b]">取消</button>
         </div>
       )}
     </div>
   );
 }
 
-function Pill({ level }: { level: number }) {
-  const map: Record<number, { label: string; cls: string }> = {
-    1: { label: "低", cls: "bg-[#f5f5f7] text-[#86868b]" },
-    2: { label: "中低", cls: "bg-[#34c759]/8 text-[#34c759]" },
-    3: { label: "中", cls: "bg-[#0071e3]/8 text-[#0071e3]" },
-    4: { label: "高", cls: "bg-[#ff9500]/8 text-[#ff9500]" },
-    5: { label: "紧急", cls: "bg-[#ff3b30]/8 text-[#ff3b30]" },
-  };
-  const m = map[level] ?? map[1];
-  return <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-medium ${m.cls}`}>{m.label}</span>;
-}
+/* ── Meta item ── */
 
-function MiniStat({ label, value, color = "text-[#86868b]" }: { label: string; value: number | string; color?: string }) {
+function MetaItem({ label, value, valueColor = "text-[#1d1d1f]" }: {
+  label: string; value: string; valueColor?: string;
+}) {
   return (
-    <div className="apple-card p-3 text-center">
-      <p className={`text-[22px] font-bold ${color}`}>{value}</p>
-      <p className="text-[10px] text-[#86868b] mt-0.5">{label}</p>
+    <div className="flex flex-col gap-0.5">
+      <span className="text-[11px] text-[#86868b] uppercase tracking-[0.04em]">{label}</span>
+      <span className={`text-[13px] font-semibold ${valueColor}`}>{value}</span>
     </div>
   );
 }

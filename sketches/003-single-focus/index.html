@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>今日决策 — AlignX</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Helvetica Neue",sans-serif;-webkit-font-smoothing:antialiased;background:#f5f5f7;color:#1d1d1f;letter-spacing:-0.022em;line-height:1.47059}
+.page{max-width:680px;margin:0 auto;padding:60px 24px}
+.motto{text-align:center;margin-bottom:48px}
+.motto .brand{display:inline-flex;align-items:center;gap:8px;font-size:15px;font-weight:600;margin-bottom:32px}
+.motto .brand .icon{width:26px;height:26px;border-radius:7px;background:#0071e3;display:inline-flex;align-items:center;justify-content:center;color:#fff;font-size:12px;font-weight:700}
+.motto h1{font-size:40px;font-weight:700;letter-spacing:-0.03em;margin-bottom:8px}
+.motto p{font-size:17px;color:#86868b}
+.focus-card{background:#fff;border-radius:20px;border:1px solid #d2d2d7;overflow:hidden;margin-bottom:24px}
+.focus-ribbon{background:linear-gradient(135deg,#ff3b30,#ff6b5e);padding:8px 24px;display:flex;align-items:center;gap:8px}
+.focus-ribbon .badge{font-size:11px;font-weight:700;color:#fff;text-transform:uppercase;letter-spacing:0.06em;background:rgba(255,255,255,.2);padding:3px 10px;border-radius:20px}
+.focus-ribbon .hint{font-size:12px;color:rgba(255,255,255,.8);margin-left:auto}
+.focus-body{padding:32px}
+.focus-body h2{font-size:22px;font-weight:700;line-height:1.3;margin-bottom:12px;letter-spacing:-0.015em}
+.focus-body .why{font-size:15px;color:#86868b;line-height:1.6;margin-bottom:24px}
+.focus-body .why strong{color:#1d1d1f}
+.focus-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:28px;padding:16px;background:#f5f5f7;border-radius:12px}
+.stat{text-align:center}
+.stat .num{font-size:20px;font-weight:700;letter-spacing:-0.02em}
+.stat .lbl{font-size:11px;color:#86868b;margin-top:2px;text-transform:uppercase;letter-spacing:0.03em}
+.stat .num.danger{color:#ff3b30}
+.stat .num.good{color:#34c759}
+.actions{display:flex;gap:12px}
+.actions .btn{flex:1;display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:14px 24px;border-radius:100px;font-size:15px;font-weight:500;cursor:pointer;border:none;transition:all .15s}
+.actions .btn:active{transform:scale(.97)}
+.actions .btn-primary{background:#0071e3;color:#fff;box-shadow:0 2px 8px rgba(0,113,227,.25)}
+.actions .btn-primary:hover{background:#0077ed}
+.actions .btn-ghost{background:#f5f5f7;color:#1d1d1f}
+.actions .btn-ghost:hover{background:#e8e8ed}
+.queue{display:flex;flex-direction:column;gap:8px}
+.queue-header{font-size:13px;font-weight:600;color:#86868b;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px}
+.queue-item{background:#fff;border-radius:12px;border:1px solid #d2d2d7;padding:14px 18px;display:flex;align-items:center;gap:14px;transition:all .15s;cursor:pointer}
+.queue-item:hover{background:#f5f5f7}
+.queue-item .seq{width:24px;height:24px;border-radius:50%;background:#f5f5f7;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:#86868b;flex-shrink:0}
+.queue-item .info{flex:1;min-width:0}
+.queue-item .info h4{font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.queue-item .info p{font-size:12px;color:#86868b;margin-top:1px}
+.queue-item .cost{font-size:13px;font-weight:600;color:#ff3b30;flex-shrink:0}
+.pulse{display:inline-block;width:8px;height:8px;border-radius:50%;background:#ff9500;margin-right:4px;animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="motto">
+    <div class="brand"><div class="icon">A</div>AlignX</div>
+    <h1>今天先做这件事</h1>
+    <p>最低成本验证一个假设，明天再看结果</p>
+  </div>
+
+  <!-- PRIMARY FOCUS CARD -->
+  <div class="focus-card">
+    <div class="focus-ribbon">
+      <div class="badge">建议优先</div>
+      <span class="hint">2026.06.25</span>
+    </div>
+    <div class="focus-body">
+      <h2>把主图换成宠物家庭使用场景图</h2>
+      <div class="why">
+        <strong>为什么：</strong>竞品 Top5 全部使用场景图。当前纯白底图点击率低于平均 0.3%。换为猫砂盆旁的实际使用场景，买家一眼就知道这是给猫用的。<br><br>
+        <strong>来自：</strong>竞品分析 · B0XYZ123 光触媒除臭器
+      </div>
+      <div class="focus-stats">
+        <div class="stat"><div class="num danger">$15</div><div class="lbl">验证成本</div></div>
+        <div class="stat"><div class="num">3天</div><div class="lbl">测试周期</div></div>
+        <div class="stat"><div class="num good">+0.3%</div><div class="lbl">预期 CTR</div></div>
+      </div>
+      <div class="actions">
+        <button class="btn btn-ghost">不做了</button>
+        <button class="btn btn-primary">开始验证 →</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- QUEUE -->
+  <div class="queue">
+    <div class="queue-header">后面还有 1 个假设排队</div>
+    <div class="queue-item">
+      <div class="seq">2</div>
+      <div class="info">
+        <h4>标题 "USB-C Rechargeable" 前置到前 80 字符</h4>
+        <p>移动端截断导致核心卖点不可见</p>
+      </div>
+      <span class="cost">$10</span>
+    </div>
+    <div class="queue-item">
+      <div class="seq"><span class="pulse"></span></div>
+      <div class="info">
+        <h4>广告竞价 $0.45→$0.65 测试中</h4>
+        <p>还剩 1 天，已花费 $9.20</p>
+      </div>
+      <span class="cost" style="color:#ff9500">进行中</span>
+    </div>
+  </div>
+</div>
+</body>
+</html>

@@ -20,6 +20,7 @@ import ConversionDiagnosis from "./pages/ConversionDiagnosis";
 import TrafficStrategy from "./pages/TrafficStrategy";
 import AccountCenter from "./pages/AccountCenter";
 import AdminDashboard from "./pages/AdminDashboard";
+import ExecutionRecords from "./pages/ExecutionRecords";
 
 export default function App() {
   return (
@@ -31,7 +32,7 @@ export default function App() {
             <Sidebar />
             <main className="flex-1 overflow-y-auto p-6">
               <Routes>
-                <Route path="/" element={<Navigate to="/yesterday-report" replace />} />
+                <Route path="/" element={<Navigate to="/today-decisions" replace />} />
           <Route path="/market-opportunity" element={<MarketOpportunity />} />
           <Route path="/product-research" element={<ProductResearch />} />
           <Route path="/competitor-analysis" element={<CompetitorAnalysis />} />
@@ -41,6 +42,7 @@ export default function App() {
           <Route path="/prelaunch-check" element={<PrelaunchCheck />} />
           <Route path="/conversion-diagnosis" element={<ConversionDiagnosis />} />
           <Route path="/traffic-strategy" element={<TrafficStrategy />} />
+          <Route path="/execution-records" element={<ExecutionRecords />} />
           <Route path="/account" element={<AccountCenter />} />
           <Route path="/admin" element={<AdminDashboard />} />
         </Routes>
