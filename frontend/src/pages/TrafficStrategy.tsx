@@ -108,7 +108,7 @@ export default function TrafficStrategy() {
   return (
     <div className="max-w-[840px] mx-auto py-8">
       <div className="mb-8">
-        <h1 className="text-[32px] font-bold tracking-[-0.025em] mb-2">广告策略</h1>
+        <h1 className="text-[32px] font-bold tracking-[-0.025em] mb-2">执行测试</h1>
         <p className="text-[17px] text-[#86868b] leading-relaxed">
           基于 ASIN 诊断推荐广告动作，一键创建验证任务
         </p>
