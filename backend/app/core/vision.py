@@ -8,14 +8,15 @@ from app.config import get_settings
 
 settings = get_settings()
 
-QWEN_KEY = None
-_qwen_key_file = os.path.join(os.path.dirname(__file__), "..", ".qwen_key")
-if os.path.exists(_qwen_key_file):
-    try:
-        with open(_qwen_key_file) as f:
-            QWEN_KEY = f.read().strip()
-    except Exception:
-        pass
+QWEN_KEY = settings.qwen_api_key
+if not QWEN_KEY:
+    _qwen_key_file = os.path.join(os.path.dirname(__file__), "..", ".qwen_key")
+    if os.path.exists(_qwen_key_file):
+        try:
+            with open(_qwen_key_file) as f:
+                QWEN_KEY = f.read().strip()
+        except Exception:
+            pass
 
 QWEN_BASE = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 

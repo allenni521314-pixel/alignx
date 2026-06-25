@@ -1,7 +1,8 @@
-# AlignX V1 — Render deployment config
+# AlignX V2 — Render deployment config
 services:
+  # Backend API
   - type: web
-    name: alignx-v1-api
+    name: alignx-api
     env: python
     plan: starter
     buildCommand: pip install -r backend/requirements.txt
@@ -9,19 +10,25 @@ services:
     envVars:
       - key: DATABASE_URL
         sync: false
-      - key: REDIS_URL
+      - key: DEEPSEEK_API_KEY
         sync: false
+      - key: DEEPSEEK_BASE_URL
+        value: https://api.deepseek.com/v1
       - key: SCRAPERAPI_KEY
         sync: false
       - key: SCRAPERAPI_BASE_URL
+        value: https://api.scraperapi.com
+      - key: QWEN_API_KEY
         sync: false
       - key: AI_PROVIDER
         value: deepseek
-      - key: DEEPSEEK_API_KEY
-        sync: false
-      - key: AWS_ACCESS_KEY_ID
-        sync: false
-      - key: AWS_SECRET_ACCESS_KEY
-        sync: false
-      - key: S3_BUCKET
-        sync: false
+
+  # Frontend static site
+  - type: web
+    name: alignx-frontend
+    env: static
+    buildCommand: cd frontend && npm install && npx vite build
+    staticPublishPath: frontend/dist
+    envVars:
+      - key: VITE_API_BASE
+        value: https://alignx-api.onrender.com

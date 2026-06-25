@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     ai_provider: str = "deepseek"
     deepseek_api_key: str = ""
     deepseek_base_url: str = "https://api.deepseek.com/v1"
+    qwen_api_key: str = ""
     openai_api_key: str = ""
     anthropic_api_key: str = ""
     aws_access_key_id: str = ""
