@@ -4,7 +4,7 @@ from __future__ import annotations
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
 
-from app.models import ExecutionRecord, ValidationResult, AsinOperationProfile
+from app.models import ExecutionRecord, ValidationResult, AsinOperationProfile, ValidationTask
 from app.schemas import (
     ExecutionRecordCreate, ExecutionRecordResponse,
     ValidationResultCreate, ValidationResultResponse,

@@ -186,9 +186,18 @@ export interface ValidationTask {
   asin: string;
   proposition_code: string;
   proposition_name: string | null;
+  source_module: string | null;
+  source_record_id: string | null;
   hypothesis_text: string | null;
+  evidence_snapshot: Record<string, unknown> | null;
+  controlled_variable: string | null;
+  forbidden_simultaneous_changes: string[] | null;
+  validation_period: string | null;
+  success_criteria: string | null;
+  failure_criteria: string | null;
   execution_status: string;
   result_status: string | null;
+  next_action: string | null;
   created_at: string;
 }
 
@@ -203,6 +212,8 @@ export interface AsinProfile {
   id: string;
   asin: string;
   product_title: string | null;
+  category: string | null;
+  lifecycle_stage: string | null;
   total_validation_count: number;
   effective_count: number;
   ineffective_count: number;

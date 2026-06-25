@@ -11,6 +11,7 @@ from app.constants import DEFAULT_USER_ID
 
 async def create_task(req: ValidationTaskCreate, db: AsyncSession, user_id: str | None = None) -> ValidationTaskResponse:
     uid = user_id or DEFAULT_USER_ID
+    evidence_snapshot = req.evidence_snapshot or await _default_evidence_snapshot(req, db)
     task = ValidationTask(
         user_id=uid,
         asin=req.asin,
@@ -19,7 +20,7 @@ async def create_task(req: ValidationTaskCreate, db: AsyncSession, user_id: str 
         source_module=req.source_module,
         source_record_id=req.source_record_id,
         hypothesis_text=req.hypothesis_text,
-        evidence_snapshot=req.evidence_snapshot,
+        evidence_snapshot=evidence_snapshot,
         controlled_variable=req.controlled_variable or _default_controlled(req.source_module),
         forbidden_simultaneous_changes=req.forbidden_simultaneous_changes,
         validation_period=req.validation_period or "7天",
@@ -87,6 +88,59 @@ def _default_success_criteria(source: str | None) -> str | None:
         "ad_strategy": "ACoS降低≥5%或Impression提升≥15%",
     }
     return mapping.get(source or "")
+
+
+async def _default_evidence_snapshot(req: ValidationTaskCreate, db: AsyncSession) -> dict:
+    base = {
+        "source_module": req.source_module,
+        "source_record_id": req.source_record_id,
+        "proposition_code": req.proposition_code,
+        "proposition_name": req.proposition_name,
+        "hypothesis_text": req.hypothesis_text,
+    }
+
+    if req.source_record_id and req.source_module == "competitor_analysis":
+        from app.models import CompetitorAnalysisReport
+        result = await db.execute(
+            select(CompetitorAnalysisReport).where(CompetitorAnalysisReport.id == req.source_record_id)
+        )
+        report = result.scalar_one_or_none()
+        if report:
+            base.update({
+                "overall_judgment": report.overall_judgment,
+                "main_weaknesses": report.main_weaknesses,
+                "attack_points": report.attack_points,
+            })
+
+    if req.source_record_id and req.source_module == "conversion_diagnosis":
+        from app.models import ConversionDiagnosis
+        result = await db.execute(
+            select(ConversionDiagnosis).where(ConversionDiagnosis.id == req.source_record_id)
+        )
+        report = result.scalar_one_or_none()
+        if report:
+            base.update({
+                "overall_conclusion": report.overall_conclusion,
+                "biggest_breakpoint": report.biggest_breakpoint,
+                "priority_position": report.priority_position,
+                "priority_action": report.priority_action,
+                "impacted_ad_metrics": report.impacted_ad_metrics,
+            })
+
+    if req.source_record_id and req.source_module == "prelaunch_check":
+        from app.models import PrelaunchCheck
+        result = await db.execute(
+            select(PrelaunchCheck).where(PrelaunchCheck.id == req.source_record_id)
+        )
+        report = result.scalar_one_or_none()
+        if report:
+            base.update({
+                "admission_result": report.admission_result,
+                "conclusion": report.conclusion,
+                "next_action": report.next_action,
+            })
+
+    return {key: value for key, value in base.items() if value is not None}
 
 
 async def _ensure_profile(db: AsyncSession, asin: str, user_id: str):
