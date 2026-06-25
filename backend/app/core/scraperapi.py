@@ -2,9 +2,11 @@ from __future__ import annotations
 """ScraperAPI provider — Amazon product and search capture."""
 
 import json
+import re
 import httpx
 from app.config import get_settings
 from app.core.capture import CaptureResult
+from app.core.listing_images import extract_slot_image_texts
 
 settings = get_settings()
 
@@ -110,12 +112,21 @@ class ScraperAPIProvider:
         # Main image
         img_el = soup.select_one("#landingImage") or soup.select_one(".a-dynamic-image")
         if img_el:
-            fields["main_image"] = img_el.get("src") or img_el.get("data-old-hires")
+            main_candidates = self._image_candidates_from_tag(img_el)
+            if main_candidates:
+                fields["main_image"] = main_candidates[0]
 
         # Image URLs
-        alt_images = soup.select("#altImages .item img")
+        alt_images = soup.select("#altImages .item img, #imageBlockThumbs img")
         if alt_images:
-            fields["image_urls"] = [img.get("src", "") for img in alt_images if img.get("src")]
+            image_urls = []
+            for img in alt_images:
+                image_urls.extend(self._image_candidates_from_tag(img))
+            main_image = fields.get("main_image")
+            fields["image_urls"] = [
+                url for url in dict.fromkeys(image_urls)
+                if url and url != main_image
+            ]
 
         # Bullet points
         bullets = soup.select("#feature-bullets li span.a-list-item")
@@ -216,39 +227,47 @@ class ScraperAPIProvider:
 
     async def _ocr_images(self, result: CaptureResult) -> None:
         """Extract text from product images using vision AI."""
-        from app.core.vision import extract_text_from_images
-
-        # Collect image URLs: main + A+ images
-        urls = []
-        main = result.extracted_fields.get("main_image")
-        if main:
-            urls.append(main)
-
-        # A+ images — extract from aplus_content
-        aplus = result.extracted_fields.get("aplus_content", [])
-        if isinstance(aplus, list):
-            for block in aplus:
-                if isinstance(block, str) and block.startswith("http"):
-                    urls.append(block)
-
-        # Also check image_urls
-        extra = result.extracted_fields.get("image_urls", [])
-        if isinstance(extra, list):
-            urls.extend([u for u in extra if isinstance(u, str) and u.startswith("http")])
-
-        if not urls:
-            return
-
         try:
-            ocr_results = await extract_text_from_images(urls[:4])  # max 4 to stay fast
-            if ocr_results:
-                result.extracted_fields["ocr_image_texts"] = {
-                    url: text for url, text in ocr_results.items() if text
-                }
+            image_texts = await extract_slot_image_texts(result.extracted_fields)
+            if image_texts:
+                result.extracted_fields["ocr_image_texts"] = image_texts
         except Exception:
             pass
 
+    def _image_candidates_from_tag(self, tag) -> list[str]:
+        urls: list[str] = []
+        dynamic = tag.get("data-a-dynamic-image")
+        if dynamic:
+            try:
+                parsed = json.loads(dynamic)
+                if isinstance(parsed, dict):
+                    items = sorted(
+                        parsed.items(),
+                        key=lambda item: item[1][0] * item[1][1] if isinstance(item[1], list) and len(item[1]) >= 2 else 0,
+                        reverse=True,
+                    )
+                    urls.extend([url for url, _ in items])
+            except Exception:
+                pass
+
+        for attr in ("data-old-hires", "data-a-src", "src"):
+            url = tag.get(attr)
+            if url:
+                urls.append(url)
+
+        cleaned = []
+        for url in urls:
+            normalized = self._normalize_image_url(url)
+            if self._is_product_image_url(normalized):
+                cleaned.append(normalized)
+        return list(dict.fromkeys(cleaned))
+
+    def _normalize_image_url(self, url: str) -> str:
+        return re.sub(r"\._[^.]+_\.", ".", url)
+
+    def _is_product_image_url(self, url: str) -> bool:
+        return url.startswith("http") and "media-amazon.com/images/I/" in url
+
     def _extract_asin(self, url: str) -> str | None:
-        import re
         match = re.search(r"/dp/([A-Z0-9]{10})", url)
         return match.group(1) if match else None

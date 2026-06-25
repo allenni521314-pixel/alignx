@@ -9,6 +9,7 @@ from sqlalchemy import select, desc
 from app.models import ConversionDiagnosis, CaptureJob, ListingSnapshot
 from app.schemas import ConversionDiagnosisRequest, ConversionDiagnosisResponse
 from app.core.scraperapi import ScraperAPIProvider
+from app.core.listing_images import ensure_snapshot_image_texts
 from app.core.ai import AI
 from app.core.prompts import build_conversion_prompt, CONVERSION_SYSTEM
 from app.constants import DEFAULT_USER_ID
@@ -64,6 +65,9 @@ async def diagnose(req: ConversionDiagnosisRequest, db: AsyncSession, user_id: s
                 main_image=result.extracted_fields.get("main_image"),
                 image_urls=result.extracted_fields.get("image_urls"),
                 bullet_points=result.extracted_fields.get("bullet_points"),
+                aplus_content=result.extracted_fields.get("aplus_content"),
+                product_details=result.extracted_fields.get("product_details"),
+                ocr_image_texts=result.extracted_fields.get("ocr_image_texts"),
                 parse_status=result.capture_status,
                 missing_fields=result.missing_fields,
                 field_completeness_score=result.data_completeness_score,
@@ -72,6 +76,7 @@ async def diagnose(req: ConversionDiagnosisRequest, db: AsyncSession, user_id: s
             await db.flush()
             listing_data = result.extracted_fields
     else:
+        await ensure_snapshot_image_texts(existing, db)
         listing_data = {
             "title": existing.title, "price": existing.price,
             "rating": existing.rating, "review_count": existing.review_count,
@@ -79,6 +84,7 @@ async def diagnose(req: ConversionDiagnosisRequest, db: AsyncSession, user_id: s
             "main_image": existing.main_image, "image_urls": existing.image_urls,
             "aplus_content": existing.aplus_content,
             "product_details": existing.product_details,
+            "ocr_image_texts": existing.ocr_image_texts,
         }
 
     # 2. AI analysis

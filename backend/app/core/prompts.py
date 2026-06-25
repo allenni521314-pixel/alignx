@@ -88,9 +88,22 @@ COMPETITOR_SYSTEM = """你是一位 Amazon 竞品拆解专家。基于竞品 ASI
 3. 用中文回答。输出合法 JSON。"""
 
 
+def _format_image_texts(listing_data: dict) -> str:
+    image_texts = listing_data.get("ocr_image_texts", {})
+    if not isinstance(image_texts, dict) or not image_texts:
+        return "（无图片识别结果）"
+
+    lines = []
+    for slot, value in image_texts.items():
+        if not value:
+            continue
+        slot_name = slot if isinstance(slot, str) and not slot.startswith("http") else "图片"
+        lines.append(f"  {slot_name}: {str(value)[:300]}")
+    return "\n".join(lines) if lines else "（无图片识别结果）"
+
+
 def build_competitor_prompt(asin: str, listing_data: dict) -> str:
-    ocr = listing_data.get("ocr_image_texts", {})
-    ocr_text = "\n".join([f"  图上文字: {t[:200]}" for t in ocr.values()]) if ocr else "（无图片文字提取）"
+    image_text = _format_image_texts(listing_data)
     return f"""请对以下竞品进行 12 维分析。
 
 ASIN：{asin}
@@ -98,8 +111,8 @@ ASIN：{asin}
 Listing 数据：
 {json.dumps(listing_data, ensure_ascii=False, indent=2)}
 
-图片文字提取（OCR）：
-{ocr_text}
+图片识别：
+{image_text}
 
 输出 JSON：
 {{
@@ -294,8 +307,7 @@ CONVERSION_SYSTEM = """你是一位 Amazon 转化率诊断专家。诊断在售 
 
 
 def build_conversion_prompt(asin: str, listing_data: dict) -> str:
-    ocr = listing_data.get("ocr_image_texts", {})
-    ocr_text = "\n".join([f"  图上文字: {t[:200]}" for t in ocr.values()]) if ocr else "（无图片文字提取）"
+    image_text = _format_image_texts(listing_data)
     return f"""请诊断以下在售 ASIN 的转化问题。
 
 ASIN：{asin}
@@ -303,8 +315,8 @@ ASIN：{asin}
 Listing 数据：
 {json.dumps(listing_data, ensure_ascii=False, indent=2)}
 
-图片文字提取（OCR）：
-{ocr_text}
+图片识别：
+{image_text}
 
 输出 JSON：
 {{

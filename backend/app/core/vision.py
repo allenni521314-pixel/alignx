@@ -47,20 +47,20 @@ async def _call_qwen_vision(image_b64: str, prompt: str, max_tokens: int = 200) 
 
 
 async def extract_text_from_images(image_urls: list[str]) -> dict[str, str]:
-    """Download images and use Qwen Vision to extract text from each."""
+    """Download images and use Qwen Vision to extract text and image content from each."""
     if not image_urls or not QWEN_KEY:
         return {}
 
     results = {}
     async with httpx.AsyncClient(timeout=30.0) as client:
-        for url in image_urls[:4]:
+        for url in image_urls[:7]:
             try:
                 img_resp = await client.get(url)
                 img_resp.raise_for_status()
                 img_b64 = base64.b64encode(img_resp.content).decode()
                 text = await _call_qwen_vision(
                     img_b64,
-                    "Extract ALL visible text from this Amazon product image. List every word, label, specification, and callout. Be thorough.",
+                    "识别这张 Amazon Listing 图片。请返回：1. 可见文字；2. 图片展示的产品、场景、配件、尺寸、认证或安装信息。若没有可见文字，也必须描述图片内容。用中文，保持简洁。",
                     max_tokens=300,
                 )
                 if text:

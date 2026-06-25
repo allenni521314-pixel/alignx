@@ -161,6 +161,7 @@ class ListingSnapshot(Base):
     bullet_points            = Column(JSON, nullable=True)
     aplus_content            = Column(JSON, nullable=True)
     product_details          = Column(JSON, nullable=True)
+    ocr_image_texts          = Column(JSON, nullable=True)
     review_summary           = Column(Text, nullable=True)
     negative_review_summary  = Column(Text, nullable=True)
 

@@ -6,6 +6,7 @@ Supports both PostgreSQL (asyncpg) and SQLite (aiosqlite) for local dev.
 
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy import text
 
 from app.config import get_settings
 
@@ -37,6 +38,11 @@ async def init_db():
     """Create all tables (for SQLite / dev). In production use Alembic."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        if is_sqlite:
+            result = await conn.execute(text("PRAGMA table_info(listing_snapshots)"))
+            columns = {row[1] for row in result.fetchall()}
+            if "ocr_image_texts" not in columns:
+                await conn.execute(text("ALTER TABLE listing_snapshots ADD COLUMN ocr_image_texts JSON"))
 
 
 async def get_db() -> AsyncSession:
