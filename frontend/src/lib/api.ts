@@ -321,9 +321,12 @@ export function createExecutionRecord(data: {
   validation_task_id: string;
   asin: string;
   action_summary?: string | null;
+  changed_variable?: string | null;
   cost_amount?: number | null;
   cost_type?: string | null;
   changed_position?: string | null;
+  change_detail?: string | null;
+  evidence_note?: string | null;
 }) {
   return request<{ id: string }>("/execution-records", {
     method: "POST",
