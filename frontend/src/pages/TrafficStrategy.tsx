@@ -297,6 +297,7 @@ function KeywordSetupModal({
   onClose: () => void;
   onDone: (taskId: string) => void;
 }) {
+  const [step, setStep] = useState<"keywords" | "execution">("keywords");
   const [extraKeywords, setExtraKeywords] = useState("");
   const [selectedKeywords, setSelectedKeywords] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
@@ -306,8 +307,14 @@ function KeywordSetupModal({
     queryFn: () => getLifecycle(setup.asin),
   });
 
+  const keywordGroups = (data?.keyword_groups ?? [])
+    .map((group) => ({
+      ...group,
+      keywords: uniqueKeywords(group.keywords ?? []),
+    }))
+    .filter((group) => group.keywords.length > 0);
   const sourceKeywords = uniqueKeywords(
-    (data?.keyword_groups ?? []).flatMap((group) => group.keywords ?? []),
+    keywordGroups.flatMap((group) => group.keywords),
   );
   const manualKeywords = uniqueKeywords(extraKeywords.split(/[\n,，]/).map((item) => item.trim()));
   const keywords = uniqueKeywords([...selectedKeywords, ...manualKeywords]);
@@ -316,6 +323,13 @@ function KeywordSetupModal({
     setSelectedKeywords((current) =>
       current.includes(keyword) ? current.filter((item) => item !== keyword) : [...current, keyword],
     );
+  };
+
+  const setGroupSelected = (groupKeywords: string[], selected: boolean) => {
+    setSelectedKeywords((current) => {
+      if (selected) return uniqueKeywords([...current, ...groupKeywords]);
+      return current.filter((keyword) => !groupKeywords.includes(keyword));
+    });
   };
 
   const enterAdExecution = async () => {
@@ -354,79 +368,184 @@ function KeywordSetupModal({
 
   return (
     <div className="fixed inset-0 bg-black/30 z-40 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl max-w-[680px] w-full" onClick={(event) => event.stopPropagation()}>
+      <div className="bg-white rounded-2xl shadow-2xl max-w-[760px] w-full max-h-[88vh] flex flex-col" onClick={(event) => event.stopPropagation()}>
         <div className="p-5 border-b border-[#d2d2d7]/20">
-          <div className="flex items-center gap-3 mb-1">
-            <Target size={18} className="text-[#0071e3]" />
-            <h2 className="text-[17px] font-semibold">{setup.strategy.name}</h2>
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-3 mb-1">
+                <Target size={18} className="text-[#0071e3]" />
+                <h2 className="text-[17px] font-semibold">{step === "keywords" ? "关键词选择" : "广告执行"}</h2>
+              </div>
+              <p className="text-[13px] text-[#86868b]">{setup.asin}</p>
+            </div>
+            <div className="flex items-center gap-2 text-[12px] text-[#86868b]">
+              <span className={step === "keywords" ? "text-[#0071e3] font-semibold" : ""}>关键词</span>
+              <ChevronRight size={12} />
+              <span className={step === "execution" ? "text-[#0071e3] font-semibold" : ""}>执行</span>
+            </div>
           </div>
-          <p className="text-[13px] text-[#86868b]">{setup.asin}</p>
         </div>
 
-        <div className="p-5 space-y-5">
-          <div>
-            <p className="text-[13px] font-semibold text-[#86868b] mb-3">ASIN 关键词列表</p>
-            {isLoading ? (
-              <p className="text-[13px] text-[#86868b]">加载中</p>
-            ) : sourceKeywords.length > 0 ? (
-              <div className="flex flex-wrap gap-2">
-                {sourceKeywords.map((keyword) => {
-                  const active = selectedKeywords.includes(keyword);
-                  return (
-                    <button
-                      key={keyword}
-                      onClick={() => toggleKeyword(keyword)}
-                      className={`px-3 py-1.5 rounded-full border text-[12px] transition-colors ${
-                        active
-                          ? "bg-[#0071e3] border-[#0071e3] text-white"
-                          : "bg-white border-[#d2d2d7] text-[#1d1d1f]"
-                      }`}
-                    >
-                      {keyword}
-                    </button>
-                  );
-                })}
+        <div className="p-5 space-y-5 overflow-y-auto">
+          {step === "keywords" ? (
+            <>
+              <div>
+                <div className="flex items-center justify-between gap-3 mb-3">
+                  <p className="text-[13px] font-semibold text-[#86868b]">ASIN 关键词列表</p>
+                  <p className="text-[12px] text-[#86868b]">{keywords.length} 已选</p>
+                </div>
+                {isLoading ? (
+                  <p className="text-[13px] text-[#86868b]">加载中</p>
+                ) : keywordGroups.length > 0 ? (
+                  <div className="space-y-3">
+                    {keywordGroups.map((group) => {
+                      const selectedCount = group.keywords.filter((keyword) => selectedKeywords.includes(keyword)).length;
+                      return (
+                        <div key={`${group.source_type}-${group.group_name}-${group.source_record_id || "none"}`} className="rounded-xl border border-[#d2d2d7]/70 p-4">
+                          <div className="flex items-start justify-between gap-3 mb-3">
+                            <div>
+                              <p className="text-[14px] font-semibold text-[#1d1d1f]">{group.group_name || "未设置"}</p>
+                              <p className="text-[12px] text-[#86868b]">
+                                {group.source_type || "未设置"} · {selectedCount}/{group.keywords.length}
+                              </p>
+                            </div>
+                            <div className="flex gap-2 shrink-0">
+                              <button
+                                onClick={() => setGroupSelected(group.keywords, true)}
+                                className="apple-btn-secondary text-[12px] px-3 py-1.5"
+                              >
+                                选择全部
+                              </button>
+                              <button
+                                onClick={() => setGroupSelected(group.keywords, false)}
+                                className="apple-btn-secondary text-[12px] px-3 py-1.5"
+                              >
+                                取消选择
+                              </button>
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            {group.keywords.map((keyword) => {
+                              const active = selectedKeywords.includes(keyword);
+                              return (
+                                <button
+                                  key={keyword}
+                                  onClick={() => toggleKeyword(keyword)}
+                                  className={`min-h-9 rounded-lg border px-3 py-2 text-left text-[12px] leading-snug transition-colors ${
+                                    active
+                                      ? "bg-[#0071e3]/[0.08] border-[#0071e3] text-[#0071e3]"
+                                      : "bg-white border-[#d2d2d7] text-[#1d1d1f]"
+                                  }`}
+                                >
+                                  {keyword}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : sourceKeywords.length > 0 ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {sourceKeywords.map((keyword) => {
+                      const active = selectedKeywords.includes(keyword);
+                      return (
+                        <button
+                          key={keyword}
+                          onClick={() => toggleKeyword(keyword)}
+                          className={`min-h-9 rounded-lg border px-3 py-2 text-left text-[12px] leading-snug transition-colors ${
+                            active
+                              ? "bg-[#0071e3]/[0.08] border-[#0071e3] text-[#0071e3]"
+                              : "bg-white border-[#d2d2d7] text-[#1d1d1f]"
+                          }`}
+                        >
+                          {keyword}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="text-[13px] text-[#86868b]">暂无</p>
+                )}
               </div>
-            ) : (
-              <p className="text-[13px] text-[#86868b]">暂无</p>
-            )}
-          </div>
 
-          <div>
-            <label className="block text-[13px] font-semibold text-[#86868b] mb-2">补齐关键词</label>
-            <textarea
-              value={extraKeywords}
-              onChange={(event) => setExtraKeywords(event.target.value)}
-              className="apple-input min-h-[88px] resize-none"
-              placeholder="待录入"
-            />
-          </div>
-
-          <div className="bg-[#f5f5f7] rounded-xl p-4">
-            <p className="text-[12px] text-[#86868b] mb-2">已选择关键词</p>
-            {keywords.length > 0 ? (
-              <div className="flex flex-wrap gap-2">
-                {keywords.map((keyword) => (
-                  <span key={keyword} className="px-2.5 py-1 rounded-full bg-white text-[12px] text-[#1d1d1f]">
-                    {keyword}
-                  </span>
-                ))}
+              <div>
+                <label className="block text-[13px] font-semibold text-[#86868b] mb-2">补齐关键词</label>
+                <textarea
+                  value={extraKeywords}
+                  onChange={(event) => setExtraKeywords(event.target.value)}
+                  className="apple-input min-h-[88px] resize-none"
+                  placeholder="待录入"
+                />
               </div>
-            ) : (
-              <p className="text-[13px] text-[#86868b]">暂无</p>
-            )}
-          </div>
+            </>
+          ) : (
+            <>
+              <div className="rounded-xl border border-[#d2d2d7]/70 p-4">
+                <p className="text-[13px] font-semibold text-[#86868b] mb-3">广告执行</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-[13px]">
+                  <div>
+                    <p className="text-[#86868b] mb-1">ASIN</p>
+                    <p className="font-semibold text-[#1d1d1f]">{setup.asin}</p>
+                  </div>
+                  <div>
+                    <p className="text-[#86868b] mb-1">广告策略</p>
+                    <p className="font-semibold text-[#1d1d1f]">{setup.strategy.name}</p>
+                  </div>
+                  <div>
+                    <p className="text-[#86868b] mb-1">验证周期</p>
+                    <p className="font-semibold text-[#1d1d1f]">14d</p>
+                  </div>
+                  <div>
+                    <p className="text-[#86868b] mb-1">控制变量</p>
+                    <p className="font-semibold text-[#1d1d1f]">{setup.strategy.changedVariable}</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-[#f5f5f7] rounded-xl p-4">
+                <p className="text-[12px] text-[#86868b] mb-2">已选择关键词</p>
+                {keywords.length > 0 ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {keywords.map((keyword) => (
+                      <span key={keyword} className="px-3 py-2 rounded-lg bg-white text-[12px] text-[#1d1d1f] leading-snug">
+                        {keyword}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-[13px] text-[#86868b]">暂无</p>
+                )}
+              </div>
+            </>
+          )}
         </div>
 
         <div className="p-5 border-t border-[#d2d2d7]/20 flex gap-2 justify-end">
-          <button onClick={onClose} className="apple-btn-secondary text-[14px] px-5 py-2">关闭</button>
-          <button
-            onClick={enterAdExecution}
-            disabled={submitting || keywords.length === 0}
-            className="apple-btn-primary text-[14px] px-5 py-2 disabled:opacity-50"
-          >
-            {submitting ? "处理中" : "进入广告执行"}
-          </button>
+          {step === "keywords" ? (
+            <>
+              <button onClick={onClose} className="apple-btn-secondary text-[14px] px-5 py-2">关闭</button>
+              <button
+                onClick={() => setStep("execution")}
+                disabled={keywords.length === 0}
+                className="apple-btn-primary text-[14px] px-5 py-2 disabled:opacity-50"
+              >
+                下一步
+              </button>
+            </>
+          ) : (
+            <>
+              <button onClick={() => setStep("keywords")} className="apple-btn-secondary text-[14px] px-5 py-2">返回选择</button>
+              <button
+                onClick={enterAdExecution}
+                disabled={submitting || keywords.length === 0}
+                className="apple-btn-primary text-[14px] px-5 py-2 disabled:opacity-50"
+              >
+                {submitting ? "处理中" : "创建广告测试"}
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>
