@@ -64,6 +64,7 @@ app.add_middleware(
         "http://localhost:3000",
         "https://alignxagent.netlify.app",
         "https://alignx-frontend.onrender.com",
+        "https://alignx-vi.onrender.com",
     ],
     allow_credentials=True,
     allow_methods=["*"],
