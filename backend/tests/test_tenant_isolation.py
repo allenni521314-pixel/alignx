@@ -224,7 +224,7 @@ class TenantIsolationTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(staged.validation_task_id, task.id)
         self.assertEqual(staged.execution_record_id, execution_id)
 
-    async def test_unregistered_asin_report_upload_cannot_be_confirmed(self):
+    async def test_validation_task_registers_asin_for_report_confirmation(self):
         task = await create_task(
             ValidationTaskCreate(
                 asin="B0TENANT5U",
@@ -245,14 +245,14 @@ class TenantIsolationTest(unittest.IsolatedAsyncioTestCase):
 
         executions_before = (await self.db.execute(select(ExecutionRecord))).scalars().all()
 
-        self.assertEqual(result.items[0].attribution_status, "resolved")
-        self.assertEqual(result.items[0].asin_attribution_status, "unregistered")
-        with self.assertRaises(ValueError):
-            await confirm_staging_record(result.items[0].id, task.id, self.db, user_id=self.user_a.id)
+        execution_id = await confirm_staging_record(result.items[0].id, task.id, self.db, user_id=self.user_a.id)
 
         executions_after = (await self.db.execute(select(ExecutionRecord))).scalars().all()
+        self.assertEqual(result.items[0].attribution_status, "resolved")
+        self.assertEqual(result.items[0].asin_attribution_status, "matched")
         self.assertEqual(len(executions_before), 0)
-        self.assertEqual(len(executions_after), 0)
+        self.assertEqual(len(executions_after), 1)
+        self.assertEqual(executions_after[0].id, execution_id)
 
     async def test_today_decision_start_and_execution_create_are_audited(self):
         task = await create_task(

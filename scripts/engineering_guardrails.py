@@ -7,15 +7,15 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 EXPECTED_NAV = [
-    ("找机会", None),
+    ("市场机会", None),
     ("产品调研", "/market-opportunity"),
     ("竞品分析", "/competitor-analysis"),
-    ("做上架", None),
+    ("新品上架", None),
     ("上架准入", "/prelaunch-check"),
     ("承接转化", "/conversion-diagnosis"),
-    ("跑验证", None),
+    ("运营验证", None),
     ("今日决策", "/today-decisions"),
-    ("执行测试", "/traffic-strategy"),
+    ("广告测试", "/traffic-strategy"),
     ("执行记录", "/execution-records"),
     ("经营验证", "/business-validation"),
     ("昨日战报", "/yesterday-report"),

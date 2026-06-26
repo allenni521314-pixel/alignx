@@ -184,6 +184,8 @@ async def _ensure_profile(db: AsyncSession, asin: str, user_id: str):
     """Get or create ASIN operation profile."""
     from sqlalchemy import select as sa_select
     from app.models import AsinOperationProfile
+    from app.services.access import ensure_asin_record
+    await ensure_asin_record(db, user_id=user_id, asin=asin, marketplace="amazon.com")
     result = await db.execute(
         sa_select(AsinOperationProfile).where(
             AsinOperationProfile.user_id == user_id,

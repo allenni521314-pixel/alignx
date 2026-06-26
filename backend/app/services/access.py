@@ -33,6 +33,41 @@ def user_scoped(query: Select, model, user_id: str) -> Select:
     return query.where(model.user_id == user_id)
 
 
+async def ensure_asin_record(
+    db: AsyncSession,
+    *,
+    user_id: str,
+    asin: str,
+    marketplace: str = "amazon.com",
+    store_id: str | None = None,
+    product_title: str | None = None,
+):
+    from app.models import Asin
+
+    q = select(Asin).where(
+        Asin.user_id == user_id,
+        Asin.asin == asin,
+        Asin.marketplace == marketplace,
+    )
+    if store_id:
+        q = q.where(Asin.store_id == store_id)
+    record = (await db.execute(q)).scalar_one_or_none()
+    if not record:
+        record = Asin(
+            user_id=user_id,
+            store_id=store_id,
+            asin=asin,
+            marketplace=marketplace,
+            product_title=product_title,
+        )
+        db.add(record)
+        await db.flush()
+    elif product_title and not record.product_title:
+        record.product_title = product_title
+        await db.flush()
+    return record
+
+
 @dataclass
 class TenantScope:
     db: AsyncSession

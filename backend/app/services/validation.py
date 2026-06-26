@@ -12,7 +12,7 @@ from app.schemas import (
     AsinOperationProfileResponse,
 )
 from app.services.audit_logs import record_audit_log
-from app.services.access import TenantScope, require_user_id, user_scoped
+from app.services.access import TenantScope, ensure_asin_record, require_user_id, user_scoped
 
 
 async def create_execution(req: ExecutionRecordCreate, db: AsyncSession, user_id: str | None = None) -> ExecutionRecordResponse:
@@ -181,6 +181,7 @@ async def sync_profile(asin: str, db: AsyncSession, user_id: str | None = None, 
     from app.models import ConversionDiagnosis
 
     uid = require_user_id(user_id)
+    await ensure_asin_record(db, user_id=uid, asin=asin, marketplace=marketplace)
 
     # Count validation results
     vq = user_scoped(select(ValidationResult), ValidationResult, uid)
