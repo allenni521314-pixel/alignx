@@ -1,9 +1,14 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Database, BookOpen, GitBranch, Activity, Languages, ArrowRight, Copy, Shield } from "lucide-react";
-import { API_BASE } from "@/lib/api";
-
-const API = API_BASE + "/admin";
+import {
+  getAdminAudit,
+  listAdminProfiles,
+  listAdminPropositions,
+  listAdminRules,
+  translateBuyerLanguage,
+  updateAdminRule,
+} from "@/lib/api";
 
 export default function AdminDashboard() {
   const user = JSON.parse(localStorage.getItem("alignx_user") || "{}");
@@ -11,9 +16,9 @@ export default function AdminDashboard() {
     window.location.href = "/login";
     return null;
   }
-  const { data: props, isLoading: lp } = useQuery({ queryKey: ["admin-props"], queryFn: () => fetch(`${API}/propositions`).then(r => r.json()), enabled: true });
-  const { data: profiles, isLoading: la } = useQuery({ queryKey: ["admin-profiles"], queryFn: () => fetch(`${API}/asin-profiles`).then(r => r.json()), enabled: true });
-  const { data: audit } = useQuery({ queryKey: ["admin-audit"], queryFn: () => fetch(`${API}/audit`).then(r => r.json()), enabled: true });
+  const { data: props, isLoading: lp } = useQuery({ queryKey: ["admin-props"], queryFn: listAdminPropositions, enabled: true });
+  const { data: profiles, isLoading: la } = useQuery({ queryKey: ["admin-profiles"], queryFn: listAdminProfiles, enabled: true });
+  const { data: audit } = useQuery({ queryKey: ["admin-audit"], queryFn: getAdminAudit, enabled: true });
 
   if (lp || la) return <div className="max-w-[900px] mx-auto py-8"><div className="apple-card p-16 text-center"><div className="w-8 h-8 border-2 border-[#0071e3]/20 border-t-[#0071e3] rounded-full animate-spin mx-auto" /></div></div>;
 
@@ -77,10 +82,10 @@ export default function AdminDashboard() {
             <tbody>
               {(props ?? []).map((p: any) => (
                 <tr key={p.id} className="border-b border-[#d2d2d7]/10">
-                  <td className="py-2 pr-3 font-mono text-[12px]">{p.code}</td>
-                  <td className="py-2 pr-3">{p.category}</td>
-                  <td className="py-2 pr-3">{p.title}</td>
-                  <td className="py-2 pr-3 max-w-[300px] truncate text-[#86868b]">{p.hypothesis_template || "—"}</td>
+                  <td className="py-2 pr-3 font-mono text-[12px]">{p.proposition_code}</td>
+                  <td className="py-2 pr-3">{p.category_code}</td>
+                  <td className="py-2 pr-3">{p.name}</td>
+                  <td className="py-2 pr-3 max-w-[300px] truncate text-[#86868b]">{p.definition || "—"}</td>
                 </tr>
               ))}
             </tbody>
@@ -102,7 +107,8 @@ function AuditCard({ label, ok }: { label: string; ok?: boolean }) {
 }
 
 function RulesLibrary() {
-  const { data: rules } = useQuery({ queryKey: ["admin-rules"], queryFn: () => fetch(`${API}/rules`).then(r => r.json()), enabled: true });
+  const queryClient = useQueryClient();
+  const { data: rules } = useQuery({ queryKey: ["admin-rules"], queryFn: listAdminRules, enabled: true });
   const [editing, setEditing] = useState<string | null>(null);
   const [editItems, setEditItems] = useState("");
 
@@ -113,12 +119,9 @@ function RulesLibrary() {
 
   const handleSave = async (ruleId: string) => {
     const items = editItems.split("\n").filter(i => i.trim());
-    await fetch(`${API}/rules/${ruleId}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(items),
-    });
+    await updateAdminRule(ruleId, items);
     setEditing(null);
+    queryClient.invalidateQueries({ queryKey: ["admin-rules"] });
   };
 
   if (!rules) return null;
@@ -169,15 +172,11 @@ function BuyerLangTool() {
     if (!claims.trim()) return;
     setLoading(true);
     try {
-      const r = await fetch(`${API}/buyer-lang-translate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          product_info: { title: title || "未提供" },
-          seller_claims: claims.split("\n").filter(c => c.trim()),
-        }),
+      const data = await translateBuyerLanguage({
+        product_info: { title: title || "未提供" },
+        seller_claims: claims.split("\n").filter(c => c.trim()),
       });
-      setResult(await r.json());
+      setResult(data);
     } catch {} finally { setLoading(false); }
   };
 

@@ -12,6 +12,8 @@ from app.api.execution_records import router as execution_records_router
 from app.api.validation_results import router as validation_results_router
 from app.api.asin_profiles import router as asin_profiles_router
 from app.api.reports import router as reports_router
+from app.api.lifecycle import router as lifecycle_router
+from app.api.report_uploads import router as report_uploads_router
 from app.api.auth import router as auth_router
 from app.api.admin import router as admin_router
 
@@ -29,3 +31,5 @@ api_router.include_router(execution_records_router)
 api_router.include_router(validation_results_router)
 api_router.include_router(asin_profiles_router)
 api_router.include_router(reports_router)
+api_router.include_router(lifecycle_router)
+api_router.include_router(report_uploads_router)

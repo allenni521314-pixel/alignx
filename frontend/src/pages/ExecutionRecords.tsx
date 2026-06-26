@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ListChecks, DollarSign, Edit3, Clock, Upload, FileText, CheckCircle2 } from "lucide-react";
-import { listValidationTasks, API_BASE } from "@/lib/api";
+import { listValidationTasks, stageReportUpload } from "@/lib/api";
 
 export default function ExecutionRecords() {
   const queryClient = useQueryClient();
@@ -16,57 +16,24 @@ export default function ExecutionRecords() {
     setUploading(true);
     const text = await file.text();
     const rows = text.split("\n").filter((r) => r.trim());
-    const headers = rows[0].toLowerCase().split(/[,\t]/);
-
-    // Try to find relevant columns
-    const asinIdx = headers.findIndex((h) => h.includes("asin") || h.includes("product"));
-    const spendIdx = headers.findIndex((h) => h.includes("spend") || h.includes("cost") || h.includes("花费"));
-    const dateIdx = headers.findIndex((h) => h.includes("date") || h.includes("日期"));
-    const campaignIdx = headers.findIndex((h) => h.includes("campaign") || h.includes("广告活动"));
-    const impressionsIdx = headers.findIndex((h) => h.includes("impression") || h.includes("曝光"));
-    const clicksIdx = headers.findIndex((h) => h.includes("click") || h.includes("点击"));
-    const ordersIdx = headers.findIndex((h) => h.includes("order") || h.includes("订单"));
-    const salesIdx = headers.findIndex((h) => h.includes("sales") || h.includes("销售额"));
-    const ctrIdx = headers.findIndex((h) => h.includes("ctr"));
-    const cpcIdx = headers.findIndex((h) => h.includes("cpc"));
-
-    let created = 0;
-    for (let i = 1; i < rows.length; i++) {
-      const cols = rows[i].split(/[,\t]/);
-      const asin = asinIdx >= 0 ? cols[asinIdx]?.trim() : "";
-      const spend = spendIdx >= 0 ? parseFloat(cols[spendIdx]) || 0 : 0;
-      if (!asin || !spend) continue;
-
-      // Build ad metrics
-      const metrics: Record<string, string> = {
-        type: "ad_metrics",
-        campaign: campaignIdx >= 0 ? cols[campaignIdx]?.trim() || "" : "",
-      };
-      if (impressionsIdx >= 0) metrics.impressions = cols[impressionsIdx]?.trim() || "0";
-      if (clicksIdx >= 0) metrics.clicks = cols[clicksIdx]?.trim() || "0";
-      if (ordersIdx >= 0) metrics.orders = cols[ordersIdx]?.trim() || "0";
-      if (salesIdx >= 0) metrics.sales = cols[salesIdx]?.trim() || "0";
-      if (ctrIdx >= 0) metrics.ctr = cols[ctrIdx]?.trim() || "0";
-      if (cpcIdx >= 0) metrics.cpc = cols[cpcIdx]?.trim() || "0";
-
-      await fetch(`${API_BASE}/execution-records`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          asin,
-          validation_task_id: "",
-          action_summary: campaignIdx >= 0 ? cols[campaignIdx]?.trim() || "广告投放" : "广告投放",
-          cost_amount: spend,
-          cost_type: "ad_spend",
-          evidence_note: JSON.stringify(metrics),
-        }),
-      });
-      created++;
-    }
+    const headers = rows[0].split(/[,\t]/).map((h) => h.trim());
+    const parsedRows = rows.slice(1).map((row) => {
+      const cols = row.split(/[,\t]/);
+      return headers.reduce<Record<string, string>>((acc, header, index) => {
+        acc[header || `column_${index + 1}`] = cols[index]?.trim() || "";
+        return acc;
+      }, {});
+    });
+    const result = await stageReportUpload({
+      report_type: "advertising",
+      marketplace: "amazon.com",
+      source_filename: file.name,
+      rows: parsedRows,
+    });
 
     setUploading(false);
     queryClient.invalidateQueries({ queryKey: ["validation-tasks"] });
-    showToast(`导入完成：${created} 条广告记录`);
+    showToast(`待确认：${result.total_rows} 条`);
   };
 
   const showToast = (msg: string) => {
@@ -75,11 +42,12 @@ export default function ExecutionRecords() {
   };
 
   return (
-    <div className="max-w-[720px] mx-auto py-8">
-      <div className="mb-10">
-        <h1 className="text-[32px] font-bold tracking-[-0.025em] mb-2">执行记录</h1>
-        <p className="text-[17px] text-[#86868b] leading-relaxed">
-          记录每一次改动：做了什么、花了多少钱、绑定哪个验证任务
+    <div className="max-w-[680px] mx-auto py-12">
+      {/* Header */}
+      <div className="text-center mb-12">
+        <h1 className="text-[36px] font-bold tracking-[-0.025em] mb-2">执行记录</h1>
+        <p className="text-[17px] text-[#86868b]">
+          记录每一次改动：做了什么、花了多少钱
         </p>
       </div>
 
@@ -91,9 +59,6 @@ export default function ExecutionRecords() {
           </div>
           <div className="flex-1">
             <h2 className="text-[15px] font-semibold mb-1">上传广告报表</h2>
-            <p className="text-[13px] text-[#86868b] mb-3">
-              从 Amazon Advertising Console 下载广告报表 CSV，自动解析花费并关联到 ASIN
-            </p>
             <label className="apple-btn-primary inline-flex items-center gap-2 cursor-pointer text-[14px]">
               <FileText size={16} />
               {uploading ? "解析中..." : "选择 CSV 文件"}
@@ -105,9 +70,7 @@ export default function ExecutionRecords() {
                 disabled={uploading}
               />
             </label>
-            <p className="text-[11px] text-[#86868b] mt-2">
-              支持 Amazon Sponsored Products / Sponsored Brands 报表格式。自动识别 ASIN、花费、日期列。
-            </p>
+            <p className="text-[11px] text-[#86868b] mt-2">CSV / TSV / TXT</p>
           </div>
         </div>
       </div>
@@ -140,7 +103,6 @@ export default function ExecutionRecords() {
       <div className="apple-card p-16 text-center">
         <ListChecks size={32} className="text-[#d2d2d7] mx-auto mb-3" />
         <p className="text-[15px] text-[#86868b]">暂无执行记录</p>
-        <p className="text-[13px] text-[#86868b]/60 mt-1">上传广告报表或创建验证任务后，记录自动生成</p>
       </div>
 
       {/* Toast */}

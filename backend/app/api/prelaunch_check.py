@@ -29,16 +29,18 @@ async def list_prelaunch_checks(
     page: int = 1,
     page_size: int = 20,
     db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
 ):
-    return await list_checks(page, page_size, db)
+    return await list_checks(page, page_size, db, user_id=user_id)
 
 
 @router.get("/{check_id}", response_model=PrelaunchCheckResponse)
 async def get_prelaunch_check(
     check_id: str,
     db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
 ):
-    check = await get_check(check_id, db)
+    check = await get_check(check_id, db, user_id=user_id)
     if not check:
         raise HTTPException(status_code=404, detail="Check not found")
     return check

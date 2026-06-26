@@ -1,8 +1,6 @@
 import { useState } from "react";
 import { Shield, Mail, Building, Key, ArrowRight } from "lucide-react";
-import { API_BASE } from "@/lib/api";
-
-const API = API_BASE + "/auth";
+import { sendLoginCode, verifyLoginCode } from "@/lib/api";
 
 export default function Login() {
   const [email, setEmail] = useState("");
@@ -18,15 +16,10 @@ export default function Login() {
     if (!email) return;
     setSending(true); setError("");
     try {
-      const res = await fetch(`${API}/send-code`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
-      });
-      const data = await res.json();
+      const data = await sendLoginCode(email);
       if (data.code) { setDevCode(data.code); setSent(true); }
       else { setError(data.detail || "发送失败"); }
-    } catch { setError("网络错误"); }
+    } catch (e) { setError(e instanceof Error ? e.message : "网络错误"); }
     finally { setSending(false); }
   };
 
@@ -34,12 +27,7 @@ export default function Login() {
     if (!email || !code) return;
     setLoading(true); setError("");
     try {
-      const res = await fetch(`${API}/verify-code`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, code, store_name: storeName }),
-      });
-      const data = await res.json();
+      const data = await verifyLoginCode({ email, code, store_name: storeName });
       if (data.success) {
         localStorage.setItem("alignx_token", data.token);
         localStorage.setItem("alignx_user", JSON.stringify({ id: data.user_id, email: data.email, store_name: data.store_name }));
@@ -47,7 +35,7 @@ export default function Login() {
       } else {
         setError(data.detail || "验证失败");
       }
-    } catch { setError("网络错误"); }
+    } catch (e) { setError(e instanceof Error ? e.message : "网络错误"); }
     finally { setLoading(false); }
   };
 

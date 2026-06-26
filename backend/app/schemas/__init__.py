@@ -243,6 +243,7 @@ class ValidationTaskUpdate(BaseModel):
     execution_status: Optional[str] = None
     result_status: Optional[str] = None
     next_action: Optional[str] = None
+    audit_source: Optional[str] = None
 
 
 class ValidationTaskResponse(BaseModel):
@@ -299,6 +300,54 @@ class ExecutionRecordResponse(BaseModel):
 
 
 # ═══════════════════════════════════════════
+# Report Upload Staging
+# ═══════════════════════════════════════════
+
+class ReportUploadStagingRequest(BaseModel):
+    report_type: str = "advertising"
+    marketplace: str = "amazon.com"
+    store_id: Optional[str] = None
+    source_filename: Optional[str] = None
+    rows: list[dict] = []
+
+
+class ReportUploadStagingRecordResponse(BaseModel):
+    id: str
+    batch_id: str
+    marketplace: str
+    report_type: str
+    asin_id: Optional[str] = None
+    asin: Optional[str] = None
+    sku: Optional[str] = None
+    campaign: Optional[str] = None
+    ad_group: Optional[str] = None
+    keyword: Optional[str] = None
+    target: Optional[str] = None
+    report_date: Optional[str] = None
+    attribution_status: str
+    asin_attribution_status: str
+    validation_task_id: Optional[str] = None
+    execution_record_id: Optional[str] = None
+    normalized_metrics_json: Optional[dict] = None
+    resolution_note: Optional[str] = None
+    confirmed_at: Optional[datetime] = None
+    created_at: datetime
+
+
+class ReportUploadStagingResponse(BaseModel):
+    batch_id: str
+    total_rows: int
+    resolved_count: int
+    ambiguous_count: int
+    unresolved_count: int
+    items: list[ReportUploadStagingRecordResponse]
+
+
+class ReportUploadConfirmRequest(BaseModel):
+    validation_task_id: str
+
+
+# ═══════════════════════════════════════════
 # Validation Results
 # ═══════════════════════════════════════════
 
@@ -329,6 +378,7 @@ class ValidationResultResponse(BaseModel):
     final_result_status: Optional[str] = None
     attribution_conclusion: Optional[str] = None
     notes: Optional[str] = None
+    next_step: Optional[str] = None
     created_at: datetime
 
 
@@ -339,6 +389,7 @@ class ValidationResultResponse(BaseModel):
 class AsinOperationProfileResponse(BaseModel):
     id: str
     asin: str
+    marketplace: str = "amazon.com"
     product_title: Optional[str] = None
     category: Optional[str] = None
     lifecycle_stage: Optional[str] = None

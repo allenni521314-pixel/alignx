@@ -5,7 +5,13 @@ import {
   BarChart3, ArrowRight, Star, MessageSquare, DollarSign,
   Swords, Target, Shield, Zap, ChevronRight, History,
 } from "lucide-react";
-import { analyzeCompetitor, listCompetitorAnalyses, CompetitorAnalysis as CA, API_BASE } from "@/lib/api";
+import {
+  analyzeCompetitor,
+  createValidationTask,
+  getCompetitorAnalysis,
+  listCompetitorAnalyses,
+  CompetitorAnalysis as CA,
+} from "@/lib/api";
 
 const DIM_LABELS: Record<string, { icon: React.ComponentType<{ size?: number; className?: string }>; label: string }> = {
   price_band_position: { icon: DollarSign, label: "价格带位置" },
@@ -49,17 +55,13 @@ export default function CompetitorAnalysis() {
     setCreatingHypothesis(true);
     try {
       const hypothesis = `针对竞品 ${result.asin} 的弱点：${result.attack_points.slice(0, 2).join("；")}`;
-      await fetch(`${API_BASE}/validation-tasks`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          asin: result.asin,
-          proposition_code: "P06-001",
-          proposition_name: `竞品弱点攻击：${result.attack_points[0]}`,
-          hypothesis_text: hypothesis,
-          source_module: "competitor_analysis",
-          source_record_id: result.id,
-        }),
+      await createValidationTask({
+        asin: result.asin,
+        proposition_code: "P06-001",
+        proposition_name: `竞品弱点攻击：${result.attack_points[0]}`,
+        hypothesis_text: hypothesis,
+        source_module: "competitor_analysis",
+        source_record_id: result.id,
       });
       queryClient.invalidateQueries({ queryKey: ["validation-tasks"] });
       queryClient.invalidateQueries({ queryKey: ["today-decisions"] });
@@ -241,8 +243,7 @@ export default function CompetitorAnalysis() {
                 key={item.id}
                 className="apple-card p-4 flex items-center justify-between hover:bg-[#f5f5f7] transition-colors cursor-pointer"
                 onClick={async () => {
-                  const res = await fetch(`${API_BASE}/competitor-analysis/${item.id}`);
-                  const data = await res.json();
+                  const data = await getCompetitorAnalysis(item.id);
                   setResult(data);
                   window.scrollTo({ top: 0, behavior: "smooth" });
                 }}

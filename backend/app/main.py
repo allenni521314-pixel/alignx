@@ -9,9 +9,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api import api_router
 from app.config import get_settings
 from app.database import engine, async_session_factory, init_db
-from app.core.proposition_engine import seed_propositions
 from app.models import User
 from app.constants import DEFAULT_USER_ID
+from app.services.proposition_library import ensure_proposition_library
 
 settings = get_settings()
 
@@ -38,7 +38,7 @@ async def lifespan(app: FastAPI):
     async with async_session_factory() as db:
         await ensure_default_user(db)
         try:
-            result = await seed_propositions(db)
+            result = await ensure_proposition_library(db)
             await db.commit()
             if result["propositions_created"] > 0:
                 print(f"[startup] Seeded {result['propositions_created']} propositions")

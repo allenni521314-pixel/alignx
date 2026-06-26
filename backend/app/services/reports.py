@@ -13,27 +13,32 @@ from app.models import (
     ValidationTask,
 )
 from app.config import get_settings
+from app.services.access import require_user_id, user_scoped
 
 
 async def generate_yesterday_report(db: AsyncSession, user_id: str | None = None) -> dict:
     """Aggregate yesterday's data across all ASINs."""
+    uid = require_user_id(user_id)
 
     yesterday = datetime.utcnow() - timedelta(days=1)
 
     # ASIN profiles
-    profiles_q = select(AsinOperationProfile).order_by(AsinOperationProfile.updated_at.desc())
+    profiles_q = user_scoped(select(AsinOperationProfile), AsinOperationProfile, uid)
+    profiles_q = profiles_q.order_by(AsinOperationProfile.updated_at.desc())
     profiles = (await db.execute(profiles_q)).scalars().all()
 
     # Yesterday's executions
-    execs_q = select(ExecutionRecord).where(ExecutionRecord.executed_at >= yesterday)
+    execs_q = user_scoped(select(ExecutionRecord), ExecutionRecord, uid)
+    execs_q = execs_q.where(ExecutionRecord.executed_at >= yesterday)
     executions = (await db.execute(execs_q)).scalars().all()
 
     # Validation results
-    results_q = select(ValidationResult)
+    results_q = user_scoped(select(ValidationResult), ValidationResult, uid)
     results = (await db.execute(results_q)).scalars().all()
 
     # Pending validation tasks
-    tasks_q = select(ValidationTask).where(ValidationTask.execution_status == "pending")
+    tasks_q = user_scoped(select(ValidationTask), ValidationTask, uid)
+    tasks_q = tasks_q.where(ValidationTask.execution_status == "pending")
     tasks = (await db.execute(tasks_q)).scalars().all()
 
     # Calculate totals
@@ -136,21 +141,24 @@ async def generate_yesterday_report(db: AsyncSession, user_id: str | None = None
 
 async def generate_today_decisions(db: AsyncSession, user_id: str | None = None) -> dict:
     """返回三区面板数据：待验证 / 测试中 / 已验证有效。"""
+    uid = require_user_id(user_id)
 
     # All validation tasks
-    tasks_q = select(ValidationTask).order_by(ValidationTask.created_at.desc())
+    tasks_q = user_scoped(select(ValidationTask), ValidationTask, uid)
+    tasks_q = tasks_q.order_by(ValidationTask.created_at.desc())
     tasks = (await db.execute(tasks_q)).scalars().all()
 
     # All validation results
-    results_q = select(ValidationResult).order_by(ValidationResult.created_at.desc())
+    results_q = user_scoped(select(ValidationResult), ValidationResult, uid)
+    results_q = results_q.order_by(ValidationResult.created_at.desc())
     results = (await db.execute(results_q)).scalars().all()
 
     # Execution records (for cost calculation)
-    execs_q = select(ExecutionRecord)
+    execs_q = user_scoped(select(ExecutionRecord), ExecutionRecord, uid)
     executions = (await db.execute(execs_q)).scalars().all()
 
     # ASIN profiles (for product titles)
-    profiles_q = select(AsinOperationProfile)
+    profiles_q = user_scoped(select(AsinOperationProfile), AsinOperationProfile, uid)
     profiles = (await db.execute(profiles_q)).scalars().all()
     profile_map = {p.asin: p for p in profiles}
 
@@ -169,11 +177,15 @@ async def generate_today_decisions(db: AsyncSession, user_id: str | None = None)
     task_map = {t.id: t for t in tasks}
     history: dict[str, dict[str, int]] = {}
     failed_next: dict[str, str] = {}
+    # Cross-ASIN learning: per proposition code, which ASINs were effective / ineffective
+    cross_asin_success: dict[str, list[str]] = {}
+    cross_asin_fail: dict[str, list[str]] = {}
     for r in results:
         task = task_map.get(r.validation_task_id)
         if not task:
             continue
-        stats = history.setdefault(task.proposition_code, {
+        code = task.proposition_code
+        stats = history.setdefault(code, {
             "effective": 0,
             "ineffective": 0,
             "interfered": 0,
@@ -182,33 +194,68 @@ async def generate_today_decisions(db: AsyncSession, user_id: str | None = None)
         status = r.final_result_status or "insufficient_data"
         if status in stats:
             stats[status] += 1
-        prop = proposition_map.get(task.proposition_code)
+        prop = proposition_map.get(code)
         if status == "ineffective" and prop and prop.next_proposition_if_failed:
-            failed_next[task.proposition_code] = prop.next_proposition_if_failed
+            failed_next[code] = prop.next_proposition_if_failed
+        # Cross-ASIN tracking
+        if status == "effective":
+            cs = cross_asin_success.setdefault(code, [])
+            if task.asin not in cs:
+                cs.append(task.asin)
+        elif status == "ineffective":
+            cf = cross_asin_fail.setdefault(code, [])
+            if task.asin not in cf:
+                cf.append(task.asin)
 
     next_codes = set(failed_next.values())
+    # Category affinity: group ASINs by category for same-category boost
+    asin_category: dict[str, str] = {}
+    for p in profiles:
+        if p.category:
+            asin_category[p.asin] = p.category
 
     def _history_score(task: ValidationTask) -> int:
-        stats = history.get(task.proposition_code, {})
+        code = task.proposition_code
+        stats = history.get(code, {})
         score = 100
+        # Same-proposition history
         score += int(stats.get("effective", 0)) * 20
         score -= int(stats.get("ineffective", 0)) * 15
         score -= int(stats.get("interfered", 0)) * 8
-        if task.proposition_code in next_codes:
+        if code in next_codes:
             score += 25
+        # Cross-ASIN boost: this proposition was effective on other ASINs
+        cross_eff = cross_asin_success.get(code, [])
+        if cross_eff:
+            score += 15  # base cross-ASIN bonus
+            my_cat = asin_category.get(task.asin)
+            if my_cat:
+                same_cat = [a for a in cross_eff if asin_category.get(a) == my_cat]
+                if same_cat:
+                    score += 25  # same-category success is strong signal
+        # Cross-ASIN penalty: widespread failure
+        cross_fail = cross_asin_fail.get(code, [])
+        if len(cross_fail) >= 3:
+            score -= 20
         return score
 
     def _history_signal(task: ValidationTask) -> str:
-        stats = history.get(task.proposition_code, {})
-        if task.proposition_code in next_codes:
-            return "历史无效后续"
+        code = task.proposition_code
+        stats = history.get(code, {})
+        if code in next_codes:
+            return "换方向再试"
+        cross_eff = cross_asin_success.get(code, [])
+        if cross_eff:
+            return "可靠方向" if stats.get("effective", 0) else "值得尝试"
         if stats.get("effective", 0):
-            return "历史有效"
+            return "已验证可靠"
+        if stats.get("ineffective", 0) >= 2:
+            return "不建议重试"
         if stats.get("ineffective", 0):
-            return "历史无效"
+            return "效果不理想"
         if stats.get("interfered", 0):
-            return "存在干扰"
-        return "暂无"
+            return "上次受干扰"
+        return "新方向"
 
     def _budget_gate(cost: float | None) -> dict:
         if budget_limit <= 0:
@@ -268,6 +315,7 @@ async def generate_today_decisions(db: AsyncSession, user_id: str | None = None)
                     "result_id": r.id,
                     "conclusion": r.attribution_conclusion or r.notes,
                     "verified_at": r.created_at.strftime("%m-%d") if r.created_at else "",
+                    "next_step": "加大投入",
                 })
                 effective.append(item)
 

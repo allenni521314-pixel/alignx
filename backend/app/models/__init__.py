@@ -103,6 +103,10 @@ class Asin(Base):
     brand           = Column(String(255), nullable=True)
     category        = Column(String(255), nullable=True)
     subcategory     = Column(String(255), nullable=True)
+    sp_api_product_type = Column(String(128), nullable=True)
+    sp_api_product_type_version = Column(String(64), nullable=True)
+    sp_api_product_type_schema_version = Column(String(64), nullable=True)
+    sp_api_product_type_synced_at = Column(DateTime, nullable=True)
     lifecycle_stage = Column(String(32), nullable=True)  # prelaunch | active | declining | retired
     created_at      = Column(DateTime, nullable=False, default=utcnow)
     updated_at      = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
@@ -157,11 +161,13 @@ class ListingSnapshot(Base):
     availability             = Column(String(32), nullable=True)
 
     main_image               = Column(Text, nullable=True)
-    image_urls               = Column(JSON, nullable=True)
-    bullet_points            = Column(JSON, nullable=True)
-    aplus_content            = Column(JSON, nullable=True)
-    product_details          = Column(JSON, nullable=True)
-    ocr_image_texts          = Column(JSON, nullable=True)
+    image_urls               = Column(JSON(none_as_null=True), nullable=True)
+    bullet_points            = Column(JSON(none_as_null=True), nullable=True)
+    aplus_content            = Column(JSON(none_as_null=True), nullable=True)
+    product_details          = Column(JSON(none_as_null=True), nullable=True)
+    ocr_image_texts          = Column(JSON(none_as_null=True), nullable=True)
+    ai_readability_score_json = Column(JSON(none_as_null=True), nullable=True)
+    ai_readability_score_version = Column(String(64), nullable=True)
     review_summary           = Column(Text, nullable=True)
     negative_review_summary  = Column(Text, nullable=True)
 
@@ -293,6 +299,8 @@ class ConversionDiagnosis(Base):
     current_status                  = Column(String(32), nullable=True)
 
     position_diagnoses_json         = Column(JSON, nullable=True)
+    ai_readability_score_json       = Column(JSON, nullable=True)
+    ai_readability_score_version    = Column(String(64), nullable=True)
     primary_matched_proposition_code = Column(String(16), nullable=True)
     created_at                      = Column(DateTime, nullable=False, default=utcnow)
 
@@ -426,7 +434,8 @@ class AsinOperationProfile(Base):
 
     id                           = Column(String(32), primary_key=True, default=new_uuid)
     user_id         = Column(String(32), ForeignKey("users.id"), nullable=False, default="00000000default0000000000000000", index=True)
-    asin                         = Column(String(16), nullable=False, unique=True)
+    asin                         = Column(String(16), nullable=False, index=True)
+    marketplace                  = Column(String(16), nullable=False, default="amazon.com", index=True)
     product_title                = Column(Text, nullable=True)
     category                     = Column(String(255), nullable=True)
     lifecycle_stage              = Column(String(32), nullable=True)
@@ -445,3 +454,102 @@ class AsinOperationProfile(Base):
     next_recommended_proposition = Column(String(16), nullable=True)
     asin_learning_summary        = Column(Text, nullable=True)
     updated_at                   = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+
+# ═══════════════════════════════════════════
+# 16. AI Call Logs
+# ═══════════════════════════════════════════
+
+class AiCallLog(Base):
+    __tablename__ = "ai_call_logs"
+
+    id                = Column(String(32), primary_key=True, default=new_uuid)
+    ai_call_id        = Column(String(32), nullable=False, default=new_uuid, unique=True, index=True)
+    user_id           = Column(String(32), ForeignKey("users.id"), nullable=False, index=True)
+    store_id          = Column(String(32), ForeignKey("stores.id"), nullable=True)
+    asin              = Column(String(16), nullable=True, index=True)
+    module_name       = Column(String(64), nullable=False, index=True)
+    model_name        = Column(String(64), nullable=False)
+    model_provider    = Column(String(64), nullable=False)
+    prompt_version    = Column(String(64), nullable=False)
+    input_payload     = Column(JSON, nullable=True)
+    output_raw        = Column(Text, nullable=True)
+    output_parsed     = Column(JSON, nullable=True)
+    confidence_score  = Column(Float, nullable=True)
+    risk_flags        = Column(JSON, nullable=True)
+    error_message     = Column(Text, nullable=True)
+    token_usage       = Column(Integer, nullable=True)
+    cost_estimate     = Column(Float, nullable=True)
+    created_at        = Column(DateTime, nullable=False, default=utcnow)
+
+
+# ═══════════════════════════════════════════
+# 17. Uploaded Report Staging
+# ═══════════════════════════════════════════
+
+class ReportUploadBatch(Base):
+    __tablename__ = "report_upload_batches"
+
+    id                = Column(String(32), primary_key=True, default=new_uuid)
+    user_id           = Column(String(32), ForeignKey("users.id"), nullable=False, index=True)
+    store_id          = Column(String(32), ForeignKey("stores.id"), nullable=True)
+    marketplace       = Column(String(16), nullable=False, default="amazon.com", index=True)
+    report_type       = Column(String(64), nullable=False, default="advertising")
+    source_type       = Column(String(64), nullable=False, default="uploaded_report")
+    source_filename   = Column(String(255), nullable=True)
+    total_rows        = Column(Integer, nullable=False, default=0)
+    resolved_count    = Column(Integer, nullable=False, default=0)
+    ambiguous_count   = Column(Integer, nullable=False, default=0)
+    unresolved_count  = Column(Integer, nullable=False, default=0)
+    created_at        = Column(DateTime, nullable=False, default=utcnow)
+
+
+class ReportUploadStagingRecord(Base):
+    __tablename__ = "report_upload_staging_records"
+
+    id                      = Column(String(32), primary_key=True, default=new_uuid)
+    batch_id                = Column(String(32), ForeignKey("report_upload_batches.id"), nullable=False, index=True)
+    user_id                 = Column(String(32), ForeignKey("users.id"), nullable=False, index=True)
+    store_id                = Column(String(32), ForeignKey("stores.id"), nullable=True)
+    marketplace             = Column(String(16), nullable=False, default="amazon.com", index=True)
+    report_type             = Column(String(64), nullable=False, default="advertising")
+    source_type             = Column(String(64), nullable=False, default="uploaded_report")
+    source_record_id        = Column(String(32), nullable=True, index=True)
+    asin_id                 = Column(String(32), ForeignKey("asins.id"), nullable=True, index=True)
+    asin                    = Column(String(16), nullable=True, index=True)
+    sku                     = Column(String(128), nullable=True, index=True)
+    campaign                = Column(String(255), nullable=True)
+    ad_group                = Column(String(255), nullable=True)
+    keyword                 = Column(String(255), nullable=True)
+    target                  = Column(String(255), nullable=True)
+    report_date             = Column(String(32), nullable=True, index=True)
+    attribution_status      = Column(String(32), nullable=False, default="unresolved", index=True)
+    asin_attribution_status = Column(String(32), nullable=False, default="missing", index=True)
+    validation_task_id      = Column(String(32), ForeignKey("validation_tasks.id"), nullable=True, index=True)
+    execution_record_id     = Column(String(32), ForeignKey("execution_records.id"), nullable=True, index=True)
+    raw_row_json            = Column(JSON, nullable=True)
+    normalized_metrics_json = Column(JSON, nullable=True)
+    resolution_note         = Column(Text, nullable=True)
+    confirmed_at            = Column(DateTime, nullable=True)
+    created_at              = Column(DateTime, nullable=False, default=utcnow)
+
+
+# ═══════════════════════════════════════════
+# 18. Operation Audit Logs
+# ═══════════════════════════════════════════
+
+class OperationAuditLog(Base):
+    __tablename__ = "operation_audit_logs"
+
+    id              = Column(String(32), primary_key=True, default=new_uuid)
+    user_id         = Column(String(32), ForeignKey("users.id"), nullable=False, index=True)
+    store_id        = Column(String(32), ForeignKey("stores.id"), nullable=True)
+    asin            = Column(String(16), nullable=True, index=True)
+    module_name     = Column(String(64), nullable=False, index=True)
+    action          = Column(String(64), nullable=False, index=True)
+    entity_type     = Column(String(64), nullable=False)
+    entity_id       = Column(String(32), nullable=True, index=True)
+    source_type     = Column(String(64), nullable=True)
+    before_json     = Column(JSON, nullable=True)
+    after_json      = Column(JSON, nullable=True)
+    created_at      = Column(DateTime, nullable=False, default=utcnow)

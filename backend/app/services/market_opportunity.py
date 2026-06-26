@@ -1,48 +1,28 @@
 from __future__ import annotations
 """Market opportunity service — keyword → capture → AI → save."""
 
-import json
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
 
-from app.models import MarketOpportunityReport, CaptureJob
+from app.models import MarketOpportunityReport
 from app.schemas import MarketOpportunityRequest, MarketOpportunityResponse
-from app.core.scraperapi import ScraperAPIProvider
-from app.core.ai import AI
-from app.core.prompts import build_market_prompt, MARKET_OPPORTUNITY_SYSTEM
-from app.constants import DEFAULT_USER_ID
+from app.services.access import require_user_id, user_scoped
+from app.services.market_ai_pipeline import run_market_ai_pipeline
 
 
 async def analyze_market(req: MarketOpportunityRequest, db: AsyncSession, user_id: str | None = None) -> MarketOpportunityResponse:
-    uid = user_id or DEFAULT_USER_ID
-    capture = CaptureJob(
+    uid = require_user_id(user_id)
+    pipeline_result = await run_market_ai_pipeline(
+        keyword=req.keyword,
+        marketplace=req.marketplace,
+        db=db,
         user_id=uid,
-        input_type="keyword", input_value=req.keyword, marketplace=req.marketplace,
-        provider="scraperapi", status="running",
     )
-    db.add(capture)
-    await db.flush()
+    ai_result = pipeline_result.ai_result
+    captured_fields = pipeline_result.captured_fields
 
-    provider = ScraperAPIProvider()
-    result = await provider.capture_top20_by_keyword(req.keyword, req.marketplace)
-    capture.status = result.capture_status
-    capture.error_message = result.error_message
-    await db.flush()
-
-    ai_result = None
-    if result.capture_status != "failed" and result.extracted_fields.get("results"):
-        try:
-            ai = AI()
-            ai_data = await ai.complete_json(
-                prompt=build_market_prompt(req.keyword, req.marketplace, result.extracted_fields),
-                system=MARKET_OPPORTUNITY_SYSTEM,
-            )
-            ai_result = ai_data
-        except Exception as e:
-            ai_result = {"error": str(e), "partial": True}
-
-    if ai_result and not ai_result.get("error"):
-        seven_layer = ai_result.get("seven_layer", result.extracted_fields)
+    if ai_result and not pipeline_result.ai_error:
+        seven_layer = ai_result.get("seven_layer", captured_fields)
         report = MarketOpportunityReport(
             user_id=uid, keyword=req.keyword, marketplace=req.marketplace,
             opportunity_score=ai_result.get("opportunity_score"),
@@ -56,7 +36,7 @@ async def analyze_market(req: MarketOpportunityRequest, db: AsyncSession, user_i
                 **seven_layer,
                 "product_categories": ai_result.get("product_categories", []),
                 "best_opportunity_category": ai_result.get("best_opportunity_category", ""),
-                "top20_asins": result.extracted_fields.get("results", []),
+                "top20_asins": captured_fields.get("results", []),
             },
         )
     else:
@@ -64,11 +44,11 @@ async def analyze_market(req: MarketOpportunityRequest, db: AsyncSession, user_i
             user_id=uid, keyword=req.keyword, marketplace=req.marketplace,
             entry_level="pending",
             market_entry_conclusion=(
-                f"已抓取 {result.extracted_fields.get('total', 0)} 个 ASIN"
-                if result.capture_status != "failed"
-                else f"抓取失败: {result.error_message}"
+                f"已抓取 {captured_fields.get('total', 0)} 个 ASIN"
+                if pipeline_result.capture_status != "failed"
+                else f"抓取失败: {pipeline_result.capture_error}"
             ),
-            seven_layer_result_json=result.extracted_fields if result.capture_status != "failed" else {"error": result.error_message},
+            seven_layer_result_json=captured_fields if pipeline_result.capture_status != "failed" else {"error": pipeline_result.capture_error},
         )
 
     db.add(report)
@@ -76,17 +56,22 @@ async def analyze_market(req: MarketOpportunityRequest, db: AsyncSession, user_i
     return MarketOpportunityResponse.model_validate(report, from_attributes=True)
 
 
-async def list_reports(page: int, page_size: int, db: AsyncSession) -> dict:
+async def list_reports(page: int, page_size: int, db: AsyncSession, user_id: str | None = None) -> dict:
+    uid = require_user_id(user_id)
     offset = (page - 1) * page_size
-    q = select(MarketOpportunityReport).order_by(desc(MarketOpportunityReport.created_at)).offset(offset).limit(page_size)
+    q = user_scoped(select(MarketOpportunityReport), MarketOpportunityReport, uid)
+    q = q.order_by(desc(MarketOpportunityReport.created_at)).offset(offset).limit(page_size)
     r = await db.execute(q)
     items = [_enrich_report(x) for x in r.scalars().all()]
-    total = len((await db.execute(select(MarketOpportunityReport))).scalars().all())
+    total_q = user_scoped(select(MarketOpportunityReport), MarketOpportunityReport, uid)
+    total = len((await db.execute(total_q)).scalars().all())
     return {"items": items, "total": total, "page": page, "page_size": page_size}
 
 
-async def get_report(report_id: str, db: AsyncSession) -> MarketOpportunityResponse | None:
-    r = await db.execute(select(MarketOpportunityReport).where(MarketOpportunityReport.id == report_id))
+async def get_report(report_id: str, db: AsyncSession, user_id: str | None = None) -> MarketOpportunityResponse | None:
+    uid = require_user_id(user_id)
+    q = user_scoped(select(MarketOpportunityReport), MarketOpportunityReport, uid)
+    r = await db.execute(q.where(MarketOpportunityReport.id == report_id))
     report = r.scalar_one_or_none()
     return _enrich_report(report) if report else None
 

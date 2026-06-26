@@ -10,7 +10,7 @@ settings = get_settings()
 
 QWEN_KEY = settings.qwen_api_key
 if not QWEN_KEY:
-    _qwen_key_file = os.path.join(os.path.dirname(__file__), "..", ".qwen_key")
+    _qwen_key_file = os.path.join(os.path.dirname(__file__), "..", "..", ".qwen_key")
     if os.path.exists(_qwen_key_file):
         try:
             with open(_qwen_key_file) as f:
@@ -18,7 +18,7 @@ if not QWEN_KEY:
         except Exception:
             pass
 
-QWEN_BASE = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+QWEN_BASE = settings.qwen_base_url
 
 LISTING_IMAGE_OCR_PROMPT = """识别这张 Amazon Listing 图片。
 优先任务：逐字提取图片上的所有可见文案。
@@ -52,7 +52,8 @@ async def _call_qwen_vision(image_b64: str, prompt: str, max_tokens: int = 200) 
     """Call Qwen Vision API."""
     if not QWEN_KEY:
         return ""
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    timeout = httpx.Timeout(30.0, connect=8.0)
+    async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
         resp = await client.post(
             f"{QWEN_BASE}/chat/completions",
             headers={"Authorization": f"Bearer {QWEN_KEY}"},
@@ -68,7 +69,10 @@ async def _call_qwen_vision(image_b64: str, prompt: str, max_tokens: int = 200) 
                 "max_tokens": max_tokens,
             },
         )
+        resp.raise_for_status()
         data = resp.json()
+        if "choices" not in data:
+            raise RuntimeError(str(data)[:500])
         return data["choices"][0]["message"]["content"].strip()
     return ""
 
@@ -83,7 +87,9 @@ async def extract_text_from_images(
         return {}
 
     results = {}
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    errors: list[str] = []
+    timeout = httpx.Timeout(30.0, connect=8.0)
+    async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
         for url in image_urls[:7]:
             try:
                 img_resp = await client.get(url)
@@ -97,8 +103,13 @@ async def extract_text_from_images(
                 )
                 if text:
                     results[url] = text
-            except Exception:
+            except Exception as exc:
+                errors.append(f"{url}: {exc!r}")
+                if len(errors) >= 3 and not results:
+                    break
                 continue
+    if not results and errors:
+        raise RuntimeError("; ".join(errors[:3]))
     return results
 
 

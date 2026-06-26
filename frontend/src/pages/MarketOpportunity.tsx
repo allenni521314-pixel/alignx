@@ -1,7 +1,13 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Globe, ArrowRight, TrendingUp, AlertTriangle, Target, CheckSquare, Square, BarChart3 } from "lucide-react";
-import { analyzeMarketOpportunity, listMarketOpportunities, MarketOpportunity as MO, API_BASE } from "@/lib/api";
+import {
+  analyzeCompetitor,
+  analyzeMarketOpportunity,
+  getMarketOpportunity,
+  listMarketOpportunities,
+  MarketOpportunity as MO,
+} from "@/lib/api";
 
 export default function MarketOpportunity() {
   const [keyword, setKeyword] = useState("");
@@ -27,14 +33,7 @@ export default function MarketOpportunity() {
     if (selectedAsins.length < 2) return;
     setComparing(true);
     const results = await Promise.all(
-      selectedAsins.map(async (asin) => {
-        const r = await fetch(`${API_BASE}/competitor-analysis/analyze`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ asin }),
-        });
-        return r.json();
-      })
+      selectedAsins.map((asin) => analyzeCompetitor(asin))
     );
     setComparison(results);
     setComparing(false);
@@ -70,7 +69,7 @@ export default function MarketOpportunity() {
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleAnalyze()}
-            placeholder="输入精准产品关键词，如 photocatalyst pet odor eliminator 比 pet odor eliminator 结果更准"
+            placeholder="输入产品关键词"
             className="apple-input flex-1"
           />
           <button
@@ -363,8 +362,7 @@ export default function MarketOpportunity() {
                   </span>
                   <button
                     onClick={async () => {
-                      const res = await fetch(`${API_BASE}/market-opportunity/${item.id}`);
-                      const data = await res.json();
+                      const data = await getMarketOpportunity(item.id);
                       setResult(data);
                       window.scrollTo({ top: 0, behavior: "smooth" });
                     }}

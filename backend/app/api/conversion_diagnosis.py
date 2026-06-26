@@ -31,16 +31,18 @@ async def list_conversion_diagnoses(
     page: int = 1,
     page_size: int = 20,
     db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
 ):
-    return await list_diagnoses(page, page_size, db)
+    return await list_diagnoses(page, page_size, db, user_id=user_id)
 
 
 @router.get("/{diagnosis_id}", response_model=ConversionDiagnosisResponse)
 async def get_conversion_diagnosis(
     diagnosis_id: str,
     db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
 ):
-    diagnosis = await get_diagnosis(diagnosis_id, db)
+    diagnosis = await get_diagnosis(diagnosis_id, db, user_id=user_id)
     if not diagnosis:
         raise HTTPException(status_code=404, detail="Diagnosis not found")
     return diagnosis

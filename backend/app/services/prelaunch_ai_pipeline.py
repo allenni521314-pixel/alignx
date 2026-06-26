@@ -1,0 +1,187 @@
+from __future__ import annotations
+
+"""Prelaunch pipeline: materials -> OCR/compliance/context -> AI reasoning."""
+
+import re
+from dataclasses import dataclass, field
+from typing import Any
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.compliance import check_compliance
+from app.core.prompts import PRELAUNCH_SYSTEM, build_prelaunch_prompt
+from app.core.scraperapi import ScraperAPIProvider
+from app.core.vision import extract_text_from_base64_list
+from app.schemas import PrelaunchCheckRequest
+from app.services.access import require_user_id
+from app.services.ai_calls import complete_json_with_log
+
+
+SLOT_LABEL_MAP = {
+    "main": "main_image",
+    "img2": "image_2",
+    "img3": "image_3",
+    "img4": "image_4",
+    "img5": "image_5",
+    "img6": "image_6",
+    "img7": "image_7",
+    "aplus1": "aplus_1",
+    "aplus2": "aplus_2",
+    "aplus3": "aplus_3",
+    "aplus4": "aplus_4",
+    "aplus5": "aplus_5",
+    "aplus6": "aplus_6",
+    "aplus7": "aplus_7",
+    "aplus8": "aplus_8",
+    "aplus9": "aplus_9",
+}
+
+
+@dataclass
+class PrelaunchAiPipelineResult:
+    materials: dict[str, Any] = field(default_factory=dict)
+    ai_result: dict[str, Any] | None = None
+    ocr_status: str = "pending"
+    market_context_status: str = "pending"
+    ai_error: str | None = None
+
+    def evidence_payload(self) -> dict[str, Any]:
+        return {
+            "ocr_status": self.ocr_status,
+            "market_context_status": self.market_context_status,
+            "image_count": self.materials.get("image_count", 0),
+        }
+
+
+async def run_prelaunch_ai_pipeline(
+    *,
+    req: PrelaunchCheckRequest,
+    db: AsyncSession,
+    user_id: str | None,
+) -> PrelaunchAiPipelineResult:
+    uid = require_user_id(user_id)
+    result = PrelaunchAiPipelineResult(materials=_base_materials(req))
+    await _attach_image_materials(req, result)
+    _attach_compliance(req, result)
+    await _attach_market_context(req, result)
+
+    try:
+        prompt = build_prelaunch_prompt(result.materials)
+        result.ai_result = await complete_json_with_log(
+            db=db,
+            user_id=uid,
+            module_name="prelaunch_check",
+            prompt_version="prelaunch_check:v1",
+            prompt=prompt,
+            system=PRELAUNCH_SYSTEM,
+            input_payload={
+                "product_name": req.product_name,
+                "marketplace": req.marketplace,
+                "materials": result.materials,
+                "pipeline": result.evidence_payload(),
+            },
+            max_tokens=8192,
+        )
+    except Exception as exc:
+        result.ai_error = str(exc)
+    return result
+
+
+def _base_materials(req: PrelaunchCheckRequest) -> dict[str, Any]:
+    return {
+        "product_name": req.product_name,
+        "title_draft": req.title_draft,
+        "key_highlights": req.key_highlights,
+        "bullet_points": [req.bullet_1, req.bullet_2, req.bullet_3, req.bullet_4, req.bullet_5],
+    }
+
+
+async def _attach_image_materials(req: PrelaunchCheckRequest, result: PrelaunchAiPipelineResult) -> None:
+    image_slots = req.image_slots or []
+    if not image_slots:
+        result.ocr_status = "skipped"
+        return
+
+    uploaded = []
+    for slot_item in image_slots:
+        slot = slot_item.get("slot", "")
+        uploaded.append({
+            "position": SLOT_LABEL_MAP.get(slot, slot),
+            "file": slot_item.get("name", ""),
+            "slot_id": slot,
+        })
+    result.materials["uploaded_images"] = uploaded
+    result.materials["image_count"] = len(uploaded)
+    all_positions = list(SLOT_LABEL_MAP.values())
+    result.materials["missing_images"] = [p for p in all_positions if p not in [u["position"] for u in uploaded]]
+
+    b64_list = [
+        {"url": f"data:image/jpeg;base64,{slot_item.get('base64', '')}", "slot": slot_item.get("slot", "")}
+        for slot_item in image_slots
+        if slot_item.get("base64")
+    ][:7]
+    if not b64_list:
+        result.ocr_status = "skipped"
+        return
+
+    product_context = "\n".join([
+        f"产品名称：{req.product_name or '暂无'}",
+        f"标题草稿：{req.title_draft or '暂无'}",
+        f"核心卖点：{req.key_highlights or '暂无'}",
+        f"五点1：{req.bullet_1 or '暂无'}",
+        f"五点2：{req.bullet_2 or '暂无'}",
+        f"五点3：{req.bullet_3 or '暂无'}",
+        f"五点4：{req.bullet_4 or '暂无'}",
+        f"五点5：{req.bullet_5 or '暂无'}",
+    ])
+    try:
+        ocr_results = await extract_text_from_base64_list(b64_list, product_context=product_context)
+        if ocr_results:
+            result.materials["ocr_texts"] = {r["slot"]: r["text"] for r in ocr_results if r.get("text")}
+            result.ocr_status = "success"
+        else:
+            result.ocr_status = "skipped"
+    except Exception as exc:
+        result.ocr_status = f"failed:{exc}"
+
+
+def _attach_compliance(req: PrelaunchCheckRequest, result: PrelaunchAiPipelineResult) -> None:
+    texts_to_check = {
+        "title": req.title_draft or "",
+        "highlights": req.key_highlights or "",
+        "bullet_1": req.bullet_1 or "",
+        "bullet_2": req.bullet_2 or "",
+        "bullet_3": req.bullet_3 or "",
+        "bullet_4": req.bullet_4 or "",
+        "bullet_5": req.bullet_5 or "",
+    }
+    violations = {}
+    for field, text in texts_to_check.items():
+        if text:
+            hits = check_compliance(text)
+            if hits:
+                violations[field] = hits
+    if violations:
+        result.materials["compliance_violations"] = violations
+
+
+async def _attach_market_context(req: PrelaunchCheckRequest, result: PrelaunchAiPipelineResult) -> None:
+    keyword = result.materials.get("product_name", "")[:60]
+    if re.search(r"[\u4e00-\u9fff]", keyword):
+        alt = (req.title_draft or req.key_highlights or "").strip()
+        if alt and not re.search(r"[\u4e00-\u9fff]", alt):
+            keyword = alt[:60]
+    if not keyword:
+        result.market_context_status = "skipped"
+        return
+    try:
+        provider = ScraperAPIProvider()
+        capture = await provider.capture_top20_by_keyword(keyword, req.marketplace)
+        if capture.capture_status != "failed" and capture.extracted_fields:
+            result.materials["market_context"] = capture.extracted_fields
+            result.materials["market_context_note"] = f"Top 20 results for '{keyword}' on {req.marketplace}"
+            result.market_context_status = "success"
+        else:
+            result.market_context_status = "failed"
+    except Exception as exc:
+        result.market_context_status = f"failed:{exc}"

@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     deepseek_api_key: str = ""
     deepseek_base_url: str = "https://api.deepseek.com/v1"
     qwen_api_key: str = ""
+    qwen_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     openai_api_key: str = ""
     anthropic_api_key: str = ""
     aws_access_key_id: str = ""
@@ -47,6 +48,14 @@ def get_settings() -> Settings:
         try:
             with open(key_file) as f:
                 s.deepseek_api_key = f.read().strip()
+        except FileNotFoundError:
+            pass
+    if not s.qwen_api_key:
+        import os
+        key_file = os.path.join(os.path.dirname(__file__), "..", ".qwen_key")
+        try:
+            with open(key_file) as f:
+                s.qwen_api_key = f.read().strip()
         except FileNotFoundError:
             pass
     return s

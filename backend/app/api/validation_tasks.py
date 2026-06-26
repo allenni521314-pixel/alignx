@@ -26,21 +26,22 @@ async def list_all(
     page: int = 1,
     page_size: int = 20,
     db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
 ):
-    return await list_tasks(asin, page, page_size, db)
+    return await list_tasks(asin, page, page_size, db, user_id=user_id)
 
 
 @router.get("/{task_id}", response_model=ValidationTaskResponse)
-async def get(task_id: str, db: AsyncSession = Depends(get_db)):
-    t = await get_task(task_id, db)
+async def get(task_id: str, db: AsyncSession = Depends(get_db), user_id: str = Depends(get_current_user_id)):
+    t = await get_task(task_id, db, user_id=user_id)
     if not t:
         raise HTTPException(404, "Task not found")
     return t
 
 
 @router.patch("/{task_id}", response_model=ValidationTaskResponse)
-async def update(task_id: str, req: ValidationTaskUpdate, db: AsyncSession = Depends(get_db)):
-    t = await update_task(task_id, req, db)
+async def update(task_id: str, req: ValidationTaskUpdate, db: AsyncSession = Depends(get_db), user_id: str = Depends(get_current_user_id)):
+    t = await update_task(task_id, req, db, user_id=user_id)
     if not t:
         raise HTTPException(404, "Task not found")
     return t

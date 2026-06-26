@@ -23,8 +23,8 @@ async def list_all(
 
 
 @router.get("/{asin}", response_model=AsinOperationProfileResponse)
-async def get(asin: str, db: AsyncSession = Depends(get_db)):
-    profile = await get_profile(asin, db)
+async def get(asin: str, db: AsyncSession = Depends(get_db), user_id: str = Depends(get_current_user_id)):
+    profile = await get_profile(asin, db, user_id=user_id)
     if not profile:
         raise HTTPException(404, "Profile not found")
     return profile
@@ -34,5 +34,6 @@ async def get(asin: str, db: AsyncSession = Depends(get_db)):
 async def sync(
     asin: str = Query(...),
     db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
 ):
-    return await sync_profile(asin, db)
+    return await sync_profile(asin, db, user_id=user_id)

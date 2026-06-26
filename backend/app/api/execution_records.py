@@ -27,5 +27,6 @@ async def list_all(
     page: int = 1,
     page_size: int = 20,
     db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
 ):
-    return await list_executions(asin, validation_task_id, page, page_size, db)
+    return await list_executions(asin, validation_task_id, page, page_size, db, user_id=user_id)

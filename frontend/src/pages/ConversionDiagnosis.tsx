@@ -3,9 +3,9 @@ import { useQuery } from "@tanstack/react-query";
 import { ArrowDownToLine, ArrowRight, AlertTriangle, Gauge } from "lucide-react";
 import {
   diagnoseConversion,
+  getConversionDiagnosis,
   listConversionDiagnoses,
   ConversionDiagnosis as CD,
-  API_BASE,
 } from "@/lib/api";
 
 const AD_METRIC_LABELS: Record<string, string> = {
@@ -204,8 +204,7 @@ export default function ConversionDiagnosis() {
                   <span className="text-[12px] text-[#86868b]">{item.created_at?.slice(0, 10)}</span>
                   <button
                     onClick={async () => {
-                      const res = await fetch(`${API_BASE}/conversion-diagnosis/${item.id}`);
-                      const data = await res.json();
+                      const data = await getConversionDiagnosis(item.id);
                       setResult(data);
                       window.scrollTo({ top: 0, behavior: "smooth" });
                     }}

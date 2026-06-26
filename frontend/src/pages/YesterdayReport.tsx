@@ -4,7 +4,7 @@ import {
   TrendingUp, DollarSign, Target, CheckCircle2, XCircle, AlertTriangle,
   Upload, FileText, Calendar, BarChart3,
 } from "lucide-react";
-import { API_BASE } from "@/lib/api";
+import { getYesterdayReport, stageReportUpload } from "@/lib/api";
 
 type ReportType = "daily" | "weekly" | "monthly";
 
@@ -18,10 +18,7 @@ export default function YesterdayReport() {
 
   const { data: report, isLoading } = useQuery({
     queryKey: ["yesterday-report", reportType],
-    queryFn: async () => {
-      const r = await fetch(`${API_BASE}/reports/yesterday?type=${reportType}`);
-      return r.json();
-    },
+    queryFn: () => getYesterdayReport(),
   });
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -30,46 +27,22 @@ export default function YesterdayReport() {
     setUploading(true);
     const text = await file.text();
     const rows = text.split("\n").filter((r) => r.trim());
-    const headers = rows[0].toLowerCase().split(/[,\t]/);
+    const headers = rows[0].split(/[,\t]/).map((h) => h.trim());
+    const parsedRows = rows.slice(1).map((row) => {
+      const cols = row.split(/[,\t]/);
+      return headers.reduce<Record<string, string>>((acc, header, index) => {
+        acc[header || `column_${index + 1}`] = cols[index]?.trim() || "";
+        return acc;
+      }, {});
+    });
+    const result = await stageReportUpload({
+      report_type: reportType,
+      marketplace: "amazon.com",
+      source_filename: file.name,
+      rows: parsedRows,
+    });
 
-    const asinIdx = headers.findIndex((h) => h.includes("asin") || h.includes("product"));
-    const spendIdx = headers.findIndex((h) => h.includes("spend") || h.includes("cost"));
-    const dateIdx = headers.findIndex((h) => h.includes("date"));
-    const campaignIdx = headers.findIndex((h) => h.includes("campaign"));
-    const impressionsIdx = headers.findIndex((h) => h.includes("impression"));
-    const clicksIdx = headers.findIndex((h) => h.includes("click"));
-    const ordersIdx = headers.findIndex((h) => h.includes("order"));
-    const salesIdx = headers.findIndex((h) => h.includes("sales"));
-
-    let created = 0;
-    for (let i = 1; i < rows.length; i++) {
-      const cols = rows[i].split(/[,\t]/);
-      const asin = cols[asinIdx]?.trim();
-      const spend = parseFloat(cols[spendIdx]);
-      if (!asin || isNaN(spend)) continue;
-
-      const metrics: Record<string, number> = {};
-      if (impressionsIdx >= 0) metrics.impressions = parseInt(cols[impressionsIdx]) || 0;
-      if (clicksIdx >= 0) metrics.clicks = parseInt(cols[clicksIdx]) || 0;
-      if (ordersIdx >= 0) metrics.orders = parseInt(cols[ordersIdx]) || 0;
-      if (salesIdx >= 0) metrics.sales = parseFloat(cols[salesIdx]) || 0;
-
-      await fetch(`${API_BASE}/execution-records`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          asin,
-          action_summary: `${cols[campaignIdx]?.trim() || "Ad"} | ${reportType}`,
-          cost_amount: spend,
-          cost_type: "ad_spend",
-          changed_position: "advertising",
-          evidence_note: JSON.stringify({ ...metrics, report_type: reportType, date: cols[dateIdx]?.trim() }),
-        }),
-      });
-      created++;
-    }
-
-    setToast(`已导入 ${created} 条 ${REPORT_LABELS[reportType]}数据`);
+    setToast(`待确认：${result.total_rows} 条`);
     queryClient.invalidateQueries({ queryKey: ["yesterday-report"] });
     setUploading(false);
     setTimeout(() => setToast(null), 3000);
@@ -79,7 +52,7 @@ export default function YesterdayReport() {
 
   if (isLoading) {
     return (
-      <div className="max-w-[720px] mx-auto py-8">
+      <div className="max-w-[680px] mx-auto py-12">
         <div className="apple-card p-16 text-center">
           <div className="w-8 h-8 border-2 border-[#0071e3]/20 border-t-[#0071e3] rounded-full animate-spin mx-auto" />
         </div>
@@ -88,10 +61,11 @@ export default function YesterdayReport() {
   }
 
   return (
-    <div className="max-w-[720px] mx-auto py-8">
-      <div className="mb-8">
-        <h1 className="text-[32px] font-bold tracking-[-0.025em] mb-2">{REPORT_LABELS[reportType]}</h1>
-        <p className="text-[17px] text-[#86868b]">上传广告报表 · 自动汇总 · 指标趋势</p>
+    <div className="max-w-[680px] mx-auto py-12">
+      {/* Header */}
+      <div className="text-center mb-12">
+        <h1 className="text-[36px] font-bold tracking-[-0.025em] mb-2">昨日战报</h1>
+        <p className="text-[17px] text-[#86868b]">验证结果 / 广告数据</p>
       </div>
 
       {/* Report type selector */}
@@ -118,8 +92,7 @@ export default function YesterdayReport() {
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-[15px] font-semibold">上传广告报表</p>
-            <p className="text-[13px] text-[#86868b]">从 Amazon Advertising Console 下载 CSV，自动解析并关联 ASIN</p>
-            <p className="text-[11px] text-[#86868b]/60 mt-0.5">支持 Sponsored Products / Brands 格式 · 自动识别 ASIN、花费、日期列</p>
+            <p className="text-[13px] text-[#86868b]">CSV</p>
           </div>
           <div className={`px-4 py-2 rounded-xl text-[14px] font-medium shrink-0 ${uploading ? "bg-[#f5f5f7] text-[#86868b]" : "bg-[#0071e3] text-white"}`}>
             <FileText size={14} className="inline mr-1" />
@@ -139,12 +112,12 @@ export default function YesterdayReport() {
       </div>
 
       {/* ASIN Detail */}
-      {report?.profile_summaries?.length > 0 && (
+      {(report?.profile_summaries?.length ?? 0) > 0 && (
         <div className="apple-card mb-6">
           <div className="p-5 border-b border-[#d2d2d7]/20">
             <h3 className="flex items-center gap-2 text-[15px] font-semibold"><BarChart3 size={16} className="text-[#0071e3]" />ASIN 明细</h3>
           </div>
-          {report.profile_summaries.map((a: any, i: number) => {
+          {(report?.profile_summaries ?? []).map((a: any, i: number) => {
             const ctr = a.clicks && a.impressions ? ((a.clicks / a.impressions) * 100).toFixed(2) : "—";
             const cpc = a.clicks && a.ad_spend ? `$${(a.ad_spend / a.clicks).toFixed(2)}` : "$—";
             const acos = a.sales && a.ad_spend ? `${((a.ad_spend / a.sales) * 100).toFixed(1)}%` : "—";
@@ -175,12 +148,12 @@ export default function YesterdayReport() {
       )}
 
       {/* Ad spend detail */}
-      {report?.recent_ads?.length > 0 && (
+      {(report?.recent_ads?.length ?? 0) > 0 && (
         <div className="apple-card mb-6">
           <div className="p-5 border-b border-[#d2d2d7]/20">
             <h3 className="text-[13px] font-semibold text-[#86868b] uppercase tracking-wide">广告花费明细</h3>
           </div>
-          {report.recent_ads.map((a: any, i: number) => (
+          {(report?.recent_ads ?? []).map((a: any, i: number) => (
             <div key={i} className="flex items-center justify-between px-5 py-3 border-b border-[#d2d2d7]/10 last:border-0 text-[14px]">
               <div>
                 <span className="font-medium">{a.asin}</span>
@@ -196,9 +169,9 @@ export default function YesterdayReport() {
       )}
 
       {/* Validation stats */}
-      {report?.profile_summaries?.length > 0 && (
+      {(report?.profile_summaries?.length ?? 0) > 0 && (
         <div className="grid grid-cols-2 gap-3">
-          {report.profile_summaries.map((a: any, i: number) => (
+          {(report?.profile_summaries ?? []).map((a: any, i: number) => (
             <div key={i} className="apple-card p-4">
               <p className="text-[14px] font-semibold mb-3">{a.asin}</p>
               <div className="flex items-center gap-4">

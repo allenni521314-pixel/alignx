@@ -4,7 +4,12 @@ import {
   ShieldCheck, Plus, Play, CheckCircle2, XCircle,
   Clock, AlertTriangle, DollarSign, Target, ChevronDown, ChevronUp,
 } from "lucide-react";
-import { listValidationTasks, listAsinProfiles, API_BASE } from "@/lib/api";
+import {
+  createValidationResult,
+  listAsinProfiles,
+  listExecutionRecords,
+  listValidationTasks,
+} from "@/lib/api";
 
 export default function BusinessValidation() {
   const queryClient = useQueryClient();
@@ -39,11 +44,12 @@ export default function BusinessValidation() {
   const profileMap = new Map((profiles?.items ?? []).map((p) => [p.asin, p]));
 
   return (
-    <div className="max-w-[720px] mx-auto py-8">
-      <div className="mb-10">
-        <h1 className="text-[32px] font-bold tracking-[-0.025em] mb-2">经营验证</h1>
-        <p className="text-[17px] text-[#86868b] leading-relaxed">
-          对每一项经营投入进行「命题-执行-验证」闭环
+    <div className="max-w-[680px] mx-auto py-12">
+      {/* Header */}
+      <div className="text-center mb-12">
+        <h1 className="text-[36px] font-bold tracking-[-0.025em] mb-2">经营验证</h1>
+        <p className="text-[17px] text-[#86868b]">
+          对每一项经营投入进行闭环验证
         </p>
       </div>
 
@@ -148,8 +154,7 @@ export default function BusinessValidation() {
                                 label="执行记录"
                                 onClick={async () => {
                                   setLoadingExecs(true);
-                                  const res = await fetch(`${API_BASE}/execution-records?validation_task_id=${task.id}`);
-                                  const data = await res.json();
+                                  const data = await listExecutionRecords(task.id);
                                   setExecRecords(data.items || []);
                                   setLoadingExecs(false);
                                 }}
@@ -262,15 +267,11 @@ function ResultForm({
 
   const handleSubmit = async () => {
     setSubmitting(true);
-    await fetch(`${API_BASE}/validation-results`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        validation_task_id: task.id,
-        asin: task.asin,
-        final_result_status: status,
-        notes,
-      }),
+    await createValidationResult({
+      validation_task_id: task.id,
+      asin: task.asin,
+      final_result_status: status,
+      notes,
     });
     setSubmitting(false);
     onSuccess();

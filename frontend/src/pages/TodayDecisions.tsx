@@ -2,7 +2,12 @@ import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { ChevronRight, ArrowRight } from "lucide-react";
-import { getTodayDecisions, API_BASE, type DecisionItem } from "@/lib/api";
+import {
+  createExecutionRecord,
+  getTodayDecisions,
+  updateValidationTask,
+  type DecisionItem,
+} from "@/lib/api";
 
 export default function TodayDecisions() {
   const { data: report, isLoading } = useQuery({
@@ -90,22 +95,17 @@ function FocusCard({ item }: { item: DecisionItem }) {
     if (blocked) return;
     setStarting(true);
     try {
-      await fetch(`${API_BASE}/validation-tasks/${item.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ execution_status: "running" }),
+      await updateValidationTask(item.id, {
+        execution_status: "running",
+        audit_source: "today_decisions",
       });
-      await fetch(`${API_BASE}/execution-records`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          validation_task_id: item.id,
-          asin: item.asin,
-          action_summary: item.hypothesis,
-          cost_amount: item.estimated_cost || 0,
-          cost_type: "ad_spend",
-          changed_position: "listing",
-        }),
+      await createExecutionRecord({
+        validation_task_id: item.id,
+        asin: item.asin,
+        action_summary: item.hypothesis,
+        cost_amount: item.estimated_cost || 0,
+        cost_type: "ad_spend",
+        changed_position: "listing",
       });
       setDone(true);
       queryClient.invalidateQueries({ queryKey: ["today-decisions"] });
@@ -222,7 +222,12 @@ function QueueItem({ item, index, running }: { item: DecisionItem; index: number
           <p className="text-[12px] text-[#86868b] truncate mt-0.5">{item.asin} · {item.product_title}</p>
         )}
       </div>
-      {item.history_signal && <span className="text-[12px] text-[#86868b] shrink-0">{item.history_signal}</span>}
+      {item.next_step && (
+        <span className="text-[11px] px-2 py-0.5 rounded-full bg-[#34c759]/10 text-[#34c759] shrink-0">{item.next_step}</span>
+      )}
+      {item.history_signal && !item.next_step && (
+        <span className="text-[12px] text-[#86868b] shrink-0">{item.history_signal}</span>
+      )}
       <span className="text-[13px] font-semibold text-[#ff3b30] shrink-0">{cost}</span>
       <ChevronRight size={14} className="text-[#d2d2d7] shrink-0" />
     </div>

@@ -31,16 +31,18 @@ async def list_competitor_analyses(
     page: int = 1,
     page_size: int = 20,
     db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
 ):
-    return await list_reports(page, page_size, db)
+    return await list_reports(page, page_size, db, user_id=user_id)
 
 
 @router.get("/{report_id}", response_model=CompetitorAnalysisResponse)
 async def get_competitor_analysis(
     report_id: str,
     db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
 ):
-    report = await get_report(report_id, db)
+    report = await get_report(report_id, db, user_id=user_id)
     if not report:
         raise HTTPException(status_code=404, detail="Report not found")
     return report

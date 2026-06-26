@@ -10,6 +10,19 @@ from app.core.listing_images import extract_slot_image_texts
 
 settings = get_settings()
 
+PRODUCT_REQUIRED_FIELDS = [
+    "title",
+    "price",
+    "rating",
+    "review_count",
+    "main_image",
+    "image_urls",
+    "bullet_points",
+    "product_details",
+    "aplus_content",
+    "ocr_image_texts",
+]
+
 
 class ScraperAPIProvider:
     """Captures Amazon data via ScraperAPI proxy endpoint."""
@@ -52,6 +65,7 @@ class ScraperAPIProvider:
                 # OCR: extract text from product images
                 if result.capture_status != "failed":
                     await self._ocr_images(result)
+                    self._finalize_product_result(result)
                 return result
         except Exception as e:
             return CaptureResult(capture_status="failed", capture_provider="scraperapi", error_message=str(e))
@@ -63,15 +77,12 @@ class ScraperAPIProvider:
         from bs4 import BeautifulSoup
         soup = BeautifulSoup(html, "html.parser")
         fields = {}
-        missing = []
 
         # Title
         title_el = soup.select_one("#productTitle")
         title = title_el.text.strip() if title_el else None
         if title:
             fields["title"] = title
-        else:
-            missing.append("title")
 
         # Price
         price_whole = soup.select_one(".a-price-whole")
@@ -87,7 +98,7 @@ class ScraperAPIProvider:
                 fields["price_value"] = None
             fields["currency"] = "USD"
         else:
-            missing.append("price")
+            pass
 
         # Rating
         rating_el = soup.select_one('[data-hook="rating-out-of-text"]') or soup.select_one(".a-icon-star .a-icon-alt")
@@ -97,7 +108,7 @@ class ScraperAPIProvider:
             if match:
                 fields["rating"] = float(match.group(1))
         else:
-            missing.append("rating")
+            pass
 
         # Review count
         review_el = soup.select_one("#acrCustomerReviewText")
@@ -107,7 +118,7 @@ class ScraperAPIProvider:
             if match:
                 fields["review_count"] = int(match.group(1).replace(",", ""))
         else:
-            missing.append("review_count")
+            pass
 
         # Main image
         img_el = soup.select_one("#landingImage") or soup.select_one(".a-dynamic-image")
@@ -132,8 +143,11 @@ class ScraperAPIProvider:
         bullets = soup.select("#feature-bullets li span.a-list-item")
         if bullets:
             fields["bullet_points"] = [b.text.strip() for b in bullets if b.text.strip()]
-        else:
-            missing.append("bullet_points")
+
+        # Product details
+        product_details = self._parse_product_details(soup)
+        if product_details:
+            fields["product_details"] = product_details
 
         # A+ content
         aplus = soup.select("#aplus .aplus-v2")
@@ -145,15 +159,13 @@ class ScraperAPIProvider:
         if bipm:
             fields["bought_in_past_month_raw"] = bipm.text.strip()
 
-        completeness = 1.0 - (len(missing) / max(len(fields) + len(missing), 1))
-        return CaptureResult(
+        result = CaptureResult(
             raw_html=html,
             extracted_fields=fields,
-            missing_fields=missing,
-            capture_status="partial" if missing else "success",
             capture_provider="scraperapi",
-            data_completeness_score=round(completeness, 2),
         )
+        self._finalize_product_result(result)
+        return result
 
     def _parse_search_html(self, html: str, keyword: str) -> CaptureResult:
         """Extract top results from Amazon search page HTML."""
@@ -231,8 +243,57 @@ class ScraperAPIProvider:
             image_texts = await extract_slot_image_texts(result.extracted_fields)
             if image_texts:
                 result.extracted_fields["ocr_image_texts"] = image_texts
-        except Exception:
-            pass
+        except Exception as exc:
+            result.extracted_fields["ocr_error"] = str(exc)
+
+    def _finalize_product_result(self, result: CaptureResult) -> None:
+        missing = [field for field in PRODUCT_REQUIRED_FIELDS if self._is_blank_field(result.extracted_fields.get(field))]
+        result.missing_fields = missing
+        completeness = 1.0 - (len(missing) / len(PRODUCT_REQUIRED_FIELDS))
+        result.data_completeness_score = round(max(completeness, 0.0), 2)
+        result.capture_status = "partial" if missing else "success"
+
+    def _is_blank_field(self, value) -> bool:
+        if value is None:
+            return True
+        if isinstance(value, str):
+            cleaned = value.strip()
+            return not cleaned or cleaned.lower() in {"null", "none", "[]", "{}"}
+        if isinstance(value, (list, dict)):
+            return len(value) == 0
+        return False
+
+    def _parse_product_details(self, soup) -> dict[str, str]:
+        details: dict[str, str] = {}
+
+        for row in soup.select("#productDetails_techSpec_section_1 tr, #productDetails_detailBullets_sections1 tr"):
+            label_el = row.select_one("th")
+            value_el = row.select_one("td")
+            if label_el and value_el:
+                label = self._clean_text(label_el.get_text(" ", strip=True))
+                value = self._clean_text(value_el.get_text(" ", strip=True))
+                if label and value:
+                    details[label] = value
+
+        for item in soup.select("#detailBullets_feature_div li, #detailBulletsWrapper_feature_div li"):
+            text = self._clean_text(item.get_text(" ", strip=True))
+            if ":" not in text:
+                continue
+            label, value = [part.strip() for part in text.split(":", 1)]
+            label = label.replace("\u200e", "").strip()
+            value = value.replace("\u200e", "").strip()
+            if label and value:
+                details[label] = value
+
+        for row in soup.select("#productOverview_feature_div table tr"):
+            cells = [self._clean_text(cell.get_text(" ", strip=True)) for cell in row.select("td, th")]
+            if len(cells) >= 2 and cells[0] and cells[1]:
+                details[cells[0]] = cells[1]
+
+        return details
+
+    def _clean_text(self, value: str) -> str:
+        return re.sub(r"\s+", " ", value or "").strip()
 
     def _image_candidates_from_tag(self, tag) -> list[str]:
         urls: list[str] = []

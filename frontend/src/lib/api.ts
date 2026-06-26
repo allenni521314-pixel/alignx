@@ -4,7 +4,7 @@ const BASE = (import.meta.env.VITE_API_BASE || "") + "/api/v1";
 
 export const API_BASE = BASE;
 
-async function request<T>(url: string, options?: RequestInit): Promise<T> {
+export async function request<T>(url: string, options?: RequestInit): Promise<T> {
   const token = localStorage.getItem("alignx_token");
   const headers: Record<string, string> = { ...(options?.headers as Record<string, string> || {}) };
   if (token) headers["Authorization"] = `Bearer ${token}`;
@@ -28,6 +28,27 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
 }
 
 // ── Market Opportunity ──
+
+export function sendLoginCode(email: string) {
+  return request<{ code?: string; detail?: string }>("/auth/send-code", {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+}
+
+export function verifyLoginCode(data: { email: string; code: string; store_name?: string }) {
+  return request<{
+    success: boolean;
+    token: string;
+    user_id: string;
+    email: string;
+    store_name: string;
+    detail?: string;
+  }>("/auth/verify-code", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
 
 export interface MarketOpportunity {
   id: string;
@@ -70,6 +91,10 @@ export function listMarketOpportunities(page = 1) {
   );
 }
 
+export function getMarketOpportunity(id: string) {
+  return request<MarketOpportunity>(`/market-opportunity/${id}`);
+}
+
 // ── Competitor Analysis ──
 
 export interface CompetitorAnalysis {
@@ -108,6 +133,10 @@ export function listCompetitorAnalyses(page = 1) {
   return request<{ items: CompetitorAnalysis[]; total: number }>(
     `/competitor-analysis/history?page=${page}`
   );
+}
+
+export function getCompetitorAnalysis(id: string) {
+  return request<CompetitorAnalysis>(`/competitor-analysis/${id}`);
 }
 
 // ── Pre-launch Check ──
@@ -179,6 +208,10 @@ export function listConversionDiagnoses(page = 1) {
   );
 }
 
+export function getConversionDiagnosis(id: string) {
+  return request<ConversionDiagnosis>(`/conversion-diagnosis/${id}`);
+}
+
 // ── Validation Tasks ──
 
 export interface ValidationTask {
@@ -206,6 +239,48 @@ export function listValidationTasks(asin?: string) {
   return request<{ items: ValidationTask[]; total: number }>(`/validation-tasks${qs}`);
 }
 
+export function createValidationTask(data: {
+  asin: string;
+  proposition_code: string;
+  proposition_name?: string | null;
+  source_module?: string | null;
+  source_record_id?: string | null;
+  hypothesis_text?: string | null;
+  evidence_snapshot?: Record<string, unknown> | null;
+  controlled_variable?: string | null;
+  forbidden_simultaneous_changes?: string[] | null;
+  validation_period?: string | null;
+  success_criteria?: string | null;
+  failure_criteria?: string | null;
+}) {
+  return request<ValidationTask>("/validation-tasks", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+// ── Report Upload Staging ──
+
+export interface ReportUploadStagingResponse {
+  batch_id: string;
+  total_rows: number;
+  resolved_count: number;
+  ambiguous_count: number;
+  unresolved_count: number;
+}
+
+export function stageReportUpload(data: {
+  report_type?: string;
+  marketplace?: string;
+  source_filename?: string;
+  rows: Array<Record<string, string>>;
+}) {
+  return request<ReportUploadStagingResponse>("/report-uploads/staging", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
 // ── ASIN Profiles ──
 
 export interface AsinProfile {
@@ -227,6 +302,164 @@ export interface AsinProfile {
 
 export function listAsinProfiles() {
   return request<{ items: AsinProfile[]; total: number }>("/asin-profiles");
+}
+
+// ── Execution Records ──
+
+export function createExecutionRecord(data: {
+  validation_task_id: string;
+  asin: string;
+  action_summary?: string | null;
+  cost_amount?: number | null;
+  cost_type?: string | null;
+  changed_position?: string | null;
+}) {
+  return request<{ id: string }>("/execution-records", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export interface ExecutionRecord {
+  id: string;
+  validation_task_id: string;
+  asin: string;
+  action_summary: string | null;
+  cost_amount: number | null;
+  cost_type: string | null;
+  evidence_note: string | null;
+  created_at: string;
+}
+
+export function listExecutionRecords(taskId?: string) {
+  const qs = taskId ? `?validation_task_id=${taskId}` : "";
+  return request<{ items: ExecutionRecord[]; total: number }>(`/execution-records${qs}`);
+}
+
+export function updateValidationTask(
+  id: string,
+  data: {
+    execution_status?: string;
+    result_status?: string;
+    next_action?: string;
+    audit_source?: string;
+  },
+) {
+  return request<ValidationTask>(`/validation-tasks/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
+// ── Validation Results ──
+
+export interface ValidationResult {
+  id: string;
+  asin: string;
+  validation_task_id: string;
+  final_result_status: "effective" | "ineffective" | "interfered" | "insufficient_data";
+  notes: string | null;
+  attribution_conclusion: string | null;
+  next_step: string | null;
+  baseline_metrics_json: Record<string, number> | null;
+  result_metrics_json: Record<string, number> | null;
+  created_at: string;
+}
+
+export function listValidationResults(pageSize = 50) {
+  return request<{ items: ValidationResult[]; total: number }>(`/validation-results?page_size=${pageSize}`);
+}
+
+export function createValidationResult(data: {
+  validation_task_id: string;
+  asin: string;
+  final_result_status: string;
+  notes?: string | null;
+  attribution_conclusion?: string | null;
+}) {
+  return request<ValidationResult>("/validation-results", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+// ── Lifecycle ──
+
+export interface LifecycleData {
+  asin: string;
+  current_stage: string;
+  stage_label: string;
+  days_active: number;
+  should_transition: boolean;
+  transition_alert: string | null;
+  ad_strategy: Record<string, string>;
+  keyword_groups: Array<{
+    group_name: string;
+    source_type: string;
+    source_record_id: string | null;
+    keywords: string[];
+  }>;
+  metrics: {
+    total_orders: number;
+    total_spend: number;
+    total_sales: number;
+    acos: number | null;
+    weeks_active: number;
+    recent_weekly_orders: number[];
+    weekly_order_growth_pct: number | null;
+    impression_trend_pct: number | null;
+    effective_validations: number;
+  };
+}
+
+export function getLifecycle(asin: string) {
+  return request<LifecycleData>(`/lifecycle/${asin}`);
+}
+
+export function applyLifecycle(asin: string) {
+  return request<LifecycleData>(`/lifecycle/${asin}/apply`, { method: "POST" });
+}
+
+// ── Admin ──
+
+export interface AdminProposition {
+  id: string;
+  proposition_code: string;
+  category_code: string;
+  name: string;
+  definition: string | null;
+  controlled_variable: string | null;
+  archived: boolean;
+}
+
+export function listAdminPropositions() {
+  return request<AdminProposition[]>("/admin/propositions");
+}
+
+export function listAdminProfiles() {
+  return request<Array<Record<string, unknown>>>("/admin/asin-profiles");
+}
+
+export function getAdminAudit() {
+  return request<{ loop_health?: Record<string, boolean>; stages?: Record<string, unknown> }>("/admin/audit");
+}
+
+export function listAdminRules() {
+  return request<Record<string, { category: string; name: string; description: string; risk: string; items: string[] }>>("/admin/rules");
+}
+
+export function updateAdminRule(ruleId: string, items: string[]) {
+  return request<{ success: boolean }>(`/admin/rules/${ruleId}`, {
+    method: "PUT",
+    body: JSON.stringify(items),
+  });
+}
+
+export function translateBuyerLanguage(data: Record<string, unknown>) {
+  return request<Record<string, unknown>>("/admin/buyer-lang-translate", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
 }
 
 // ── Reports ──
@@ -292,6 +525,7 @@ export interface DecisionItem {
   verified_at?: string;
   priority_score?: number;
   history_signal?: string;
+  next_step?: string;
   budget_gate?: {
     status: string;
     limit: number | null;
