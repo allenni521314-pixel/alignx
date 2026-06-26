@@ -94,8 +94,8 @@ export default function PrelaunchCheck() {
           <div className="apple-card p-6 space-y-4">
             <Field label="产品名称" value={productName} onChange={setProductName} placeholder="如：光触媒 USB-C 宠物除臭器" />
             <Field label="标题草案" value={titleDraft} onChange={setTitleDraft} placeholder="Amazon 产品标题" />
-            <div><label className="block text-[13px] font-medium text-[#86868b] mb-2">亮点</label><input value={highlights} onChange={e=>setHighlights(e.target.value)} placeholder="一句话核心卖点" className="apple-input" /></div>
-            <div><label className="block text-[13px] font-medium text-[#86868b] mb-2">五点描述</label><div className="space-y-2">{bullets.map((b:string,i:number)=><input key={i} value={b} onChange={e=>{const n=[...bullets];n[i]=e.target.value;setBullets(n)}} placeholder={`第${i+1}点`} className="apple-input" />)}</div></div>
+            <Field label="亮点" value={highlights} onChange={setHighlights} placeholder="一句话核心卖点" />
+            <div><label className="block text-[13px] font-medium text-[#86868b] mb-2">五点描述</label><div className="space-y-2">{bullets.map((b:string,i:number)=><Field key={i} value={b} onChange={v=>{const n=[...bullets];n[i]=v;setBullets(n)}} placeholder={`第${i+1}点`} />)}</div></div>
           </div>
           <ImageSlots images={images} setImages={setImages} />
           <button onClick={handleAnalyze} disabled={!productName.trim()} className="apple-btn-primary flex items-center gap-2 px-8 py-3 text-[16px]"><ClipboardCheck size={18} />开始准入检查<ArrowRight size={16} /></button>
@@ -135,7 +135,11 @@ export default function PrelaunchCheck() {
   );
 }
 
-function Field({label,value,onChange,placeholder}:{label:string;value:string;onChange:(v:string)=>void;placeholder:string}){return <div><label className="block text-[13px] font-medium text-[#86868b] mb-2">{label}</label><input value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} className="apple-input" /></div>}
+function Field({label,value,onChange,placeholder}:{label?:string;value:string;onChange:(v:string)=>void;placeholder:string}){
+  const ref=useRef<HTMLTextAreaElement|null>(null);
+  useEffect(()=>{const el=ref.current;if(!el)return;el.style.height="auto";el.style.height=`${el.scrollHeight}px`;},[value]);
+  return <div>{label&&<label className="block text-[13px] font-medium text-[#86868b] mb-2">{label}</label>}<textarea ref={ref} rows={1} value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} className="apple-input min-h-[48px] resize-none overflow-hidden leading-[1.45]" /></div>
+}
 
 function DiagnosisItem({diagnosis:d,statusIcon}:{diagnosis:{status:string;position_name:string;position_type:string;issue?:string|null;recommendation?:string|null;final_score?:number|null;usable_status?:string|null};statusIcon:(s:string)=>React.ReactNode}){
   const [copied,setCopied]=useState(false);
