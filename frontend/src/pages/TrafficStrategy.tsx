@@ -85,6 +85,7 @@ const STAGES: Record<string, StageConfig> = {
 type KeywordSetup = {
   asin: string;
   strategy: Strategy;
+  stageKey: string;
 };
 
 export default function TrafficStrategy() {
@@ -126,8 +127,8 @@ export default function TrafficStrategy() {
     setTimeout(() => setToast(null), 2500);
   };
 
-  const openKeywordSetup = (asin: string, strategy: Strategy) => {
-    setKeywordSetup({ asin, strategy });
+  const openKeywordSetup = (asin: string, stageKey: string, strategy: Strategy) => {
+    setKeywordSetup({ asin, stageKey, strategy });
   };
 
   return (
@@ -158,7 +159,7 @@ export default function TrafficStrategy() {
                   </div>
                 </div>
                 <button
-                  onClick={() => openKeywordSetup(item.asin, STAGES.growth.strategies[0])}
+                  onClick={() => openKeywordSetup(item.asin, "growth", STAGES.growth.strategies[0])}
                   className="apple-btn-primary text-[12px] px-3 py-1.5 flex items-center gap-1 shrink-0"
                 >
                   <Play size={12} />
@@ -214,7 +215,7 @@ export default function TrafficStrategy() {
                 currentAsins.slice(0, 3).map((item) => (
                   <button
                     key={`${strategy.name}-${item.asin}`}
-                    onClick={() => openKeywordSetup(item.asin, strategy)}
+                    onClick={() => openKeywordSetup(item.asin, activeStage, strategy)}
                     className="flex items-center gap-1 px-3 py-1.5 rounded-full text-[12px] bg-[#0071e3] text-white hover:bg-[#0077ed] transition-colors"
                   >
                     {item.asin}
@@ -298,6 +299,10 @@ function KeywordSetupModal({
   onDone: (taskId: string) => void;
 }) {
   const [step, setStep] = useState<"keywords" | "execution">("keywords");
+  const [selectedStage, setSelectedStage] = useState(setup.stageKey);
+  const [selectedStrategyIndex, setSelectedStrategyIndex] = useState(
+    Math.max(0, (STAGES[setup.stageKey] ?? STAGES.growth).strategies.findIndex((item) => item.name === setup.strategy.name)),
+  );
   const [extraKeywords, setExtraKeywords] = useState("");
   const [selectedKeywords, setSelectedKeywords] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
@@ -318,6 +323,8 @@ function KeywordSetupModal({
   );
   const manualKeywords = uniqueKeywords(extraKeywords.split(/[\n,，]/).map((item) => item.trim()));
   const keywords = uniqueKeywords([...selectedKeywords, ...manualKeywords]);
+  const selectedStageConfig = STAGES[selectedStage] ?? STAGES.growth;
+  const selectedStrategy = selectedStageConfig.strategies[selectedStrategyIndex] ?? selectedStageConfig.strategies[0];
 
   const toggleKeyword = (keyword: string) => {
     setSelectedKeywords((current) =>
@@ -338,15 +345,17 @@ function KeywordSetupModal({
     try {
       const task = await createValidationTask({
         asin: setup.asin,
-        proposition_code: setup.strategy.props[0],
-        proposition_name: setup.strategy.name,
+        proposition_code: selectedStrategy.props[0],
+        proposition_name: selectedStrategy.name,
         source_module: "traffic_strategy",
-        hypothesis_text: `${setup.strategy.name}：${setup.strategy.goal}`,
-        controlled_variable: setup.strategy.changedVariable,
+        hypothesis_text: `${selectedStrategy.name}：${selectedStrategy.goal}`,
+        controlled_variable: selectedStrategy.changedVariable,
         validation_period: "14d",
         evidence_snapshot: {
           asin: setup.asin,
-          strategy_name: setup.strategy.name,
+          lifecycle_stage: selectedStage,
+          lifecycle_stage_label: selectedStageConfig.label,
+          strategy_name: selectedStrategy.name,
           keywords,
           keyword_source: "lifecycle.keyword_groups",
         },
@@ -354,8 +363,8 @@ function KeywordSetupModal({
       await createExecutionRecord({
         validation_task_id: task.id,
         asin: setup.asin,
-        action_summary: setup.strategy.name,
-        changed_variable: setup.strategy.changedVariable,
+        action_summary: selectedStrategy.name,
+        changed_variable: selectedStrategy.changedVariable,
         changed_position: "广告关键词",
         change_detail: keywords.join(", "),
         evidence_note: "keywords",
@@ -374,14 +383,14 @@ function KeywordSetupModal({
             <div>
               <div className="flex items-center gap-3 mb-1">
                 <Target size={18} className="text-[#0071e3]" />
-                <h2 className="text-[17px] font-semibold">{step === "keywords" ? "关键词选择" : "广告执行"}</h2>
+                <h2 className="text-[17px] font-semibold">{step === "keywords" ? "关键词选择" : "产品周期"}</h2>
               </div>
               <p className="text-[13px] text-[#86868b]">{setup.asin}</p>
             </div>
             <div className="flex items-center gap-2 text-[12px] text-[#86868b]">
               <span className={step === "keywords" ? "text-[#0071e3] font-semibold" : ""}>关键词</span>
               <ChevronRight size={12} />
-              <span className={step === "execution" ? "text-[#0071e3] font-semibold" : ""}>执行</span>
+              <span className={step === "execution" ? "text-[#0071e3] font-semibold" : ""}>周期</span>
             </div>
           </div>
         </div>
@@ -482,6 +491,63 @@ function KeywordSetupModal({
             </>
           ) : (
             <>
+              <div>
+                <p className="text-[13px] font-semibold text-[#86868b] mb-3">产品周期</p>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  {Object.entries(STAGES).map(([key, stage]) => {
+                    const Icon = stage.icon;
+                    const active = selectedStage === key;
+                    return (
+                      <button
+                        key={key}
+                        onClick={() => {
+                          setSelectedStage(key);
+                          setSelectedStrategyIndex(0);
+                        }}
+                        className={`min-h-16 rounded-xl border px-3 py-2 text-left transition-colors ${
+                          active
+                            ? "border-[#0071e3] bg-[#0071e3]/[0.06] text-[#0071e3]"
+                            : "border-[#d2d2d7] bg-white text-[#1d1d1f]"
+                        }`}
+                      >
+                        <Icon size={16} className={active ? "text-[#0071e3]" : "text-[#86868b]"} />
+                        <p className="mt-2 text-[13px] font-semibold">{stage.label}期</p>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div>
+                <p className="text-[13px] font-semibold text-[#86868b] mb-3">广告策略</p>
+                <div className="space-y-2">
+                  {selectedStageConfig.strategies.map((strategy, index) => {
+                    const active = selectedStrategy.name === strategy.name;
+                    return (
+                      <button
+                        key={strategy.name}
+                        onClick={() => setSelectedStrategyIndex(index)}
+                        className={`w-full rounded-xl border px-4 py-3 text-left transition-colors ${
+                          active
+                            ? "border-[#0071e3] bg-[#0071e3]/[0.06]"
+                            : "border-[#d2d2d7] bg-white"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <p className={`text-[14px] font-semibold ${active ? "text-[#0071e3]" : "text-[#1d1d1f]"}`}>
+                              {strategy.name}
+                            </p>
+                            <p className="text-[12px] text-[#86868b] mt-1">{strategy.goal}</p>
+                          </div>
+                          <p className="text-[12px] text-[#ff9500] shrink-0">{strategy.budget}</p>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
               <div className="rounded-xl border border-[#d2d2d7]/70 p-4">
                 <p className="text-[13px] font-semibold text-[#86868b] mb-3">广告执行</p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-[13px]">
@@ -491,7 +557,7 @@ function KeywordSetupModal({
                   </div>
                   <div>
                     <p className="text-[#86868b] mb-1">广告策略</p>
-                    <p className="font-semibold text-[#1d1d1f]">{setup.strategy.name}</p>
+                    <p className="font-semibold text-[#1d1d1f]">{selectedStrategy.name}</p>
                   </div>
                   <div>
                     <p className="text-[#86868b] mb-1">验证周期</p>
@@ -499,7 +565,7 @@ function KeywordSetupModal({
                   </div>
                   <div>
                     <p className="text-[#86868b] mb-1">控制变量</p>
-                    <p className="font-semibold text-[#1d1d1f]">{setup.strategy.changedVariable}</p>
+                    <p className="font-semibold text-[#1d1d1f]">{selectedStrategy.changedVariable}</p>
                   </div>
                 </div>
               </div>
