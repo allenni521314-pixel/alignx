@@ -4,6 +4,11 @@ const BASE = (import.meta.env.VITE_API_BASE || "") + "/api/v1";
 
 export const API_BASE = BASE;
 
+function clearAuthState() {
+  localStorage.removeItem("alignx_token");
+  localStorage.removeItem("alignx_user");
+}
+
 export async function request<T>(url: string, options?: RequestInit): Promise<T> {
   const token = localStorage.getItem("alignx_token");
   const headers: Record<string, string> = { ...(options?.headers as Record<string, string> || {}) };
@@ -14,6 +19,12 @@ export async function request<T>(url: string, options?: RequestInit): Promise<T>
 
   const res = await fetch(`${BASE}${url}`, { ...options, headers });
   if (!res.ok) {
+    if (res.status === 401) {
+      clearAuthState();
+      if (window.location.pathname !== "/login") {
+        window.location.assign("/login");
+      }
+    }
     const err = await res.json().catch(() => ({ detail: res.statusText }));
     const detail = Array.isArray(err.detail)
       ? err.detail.map((item: { msg?: string }) => item.msg || JSON.stringify(item)).join("；")

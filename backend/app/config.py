@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     deepseek_base_url: str = "https://api.deepseek.com/v1"
     qwen_api_key: str = ""
     qwen_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    auth_secret_key: str = "alignx-local-dev-secret-change-me"
     openai_api_key: str = ""
     anthropic_api_key: str = ""
     aws_access_key_id: str = ""

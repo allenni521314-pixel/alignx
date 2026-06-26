@@ -5,9 +5,14 @@ import random
 import string
 import time
 import uuid
+import base64
+import hashlib
+import hmac
+import json
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
 
+from app.config import get_settings
 from app.models import User, VerificationCode
 
 
@@ -54,21 +59,23 @@ async def verify_code(email: str, code: str, db: AsyncSession) -> bool:
     return True
 
 
-# ── Session management (in-memory, per-process lifetime) ──
+# ── Session management ──
 
-_sessions: dict[str, dict] = {}
+SESSION_TTL_SECONDS = 86400 * 30
 
-def create_session(user_id: str, email: str) -> str:
-    token = uuid.uuid4().hex
-    _sessions[token] = {"user_id": user_id, "email": email, "expires_at": time.time() + 86400}
-    return token
 
-def validate_session(token: str) -> dict | None:
-    sess = _sessions.get(token)
-    if not sess or time.time() > sess["expires_at"]:
-        _sessions.pop(token, None)
-        return None
-    return sess
+def _b64url_encode(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
+
+
+def _b64url_decode(value: str) -> bytes:
+    padding = "=" * (-len(value) % 4)
+    return base64.urlsafe_b64decode(value + padding)
+
+
+def _session_signature(payload: str) -> str:
+    secret = get_settings().auth_secret_key.encode("utf-8")
+    return _b64url_encode(hmac.new(secret, payload.encode("ascii"), hashlib.sha256).digest())
 
 
 # ── User management ──
@@ -93,17 +100,28 @@ async def get_or_create_user(email: str, store_name: str, db: AsyncSession) -> U
 
 
 def create_session(user_id: str, email: str, role: str = "seller") -> str:
-    """Create a session token."""
-    token = uuid.uuid4().hex
-    _sessions[token] = {"user_id": user_id, "email": email, "role": role, "expires_at": time.time() + 86400}
-    return token
+    """Create a signed session token that survives process restarts."""
+    payload = {
+        "user_id": user_id,
+        "email": email,
+        "role": role,
+        "expires_at": time.time() + SESSION_TTL_SECONDS,
+    }
+    payload_raw = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    payload_b64 = _b64url_encode(payload_raw)
+    return f"{payload_b64}.{_session_signature(payload_b64)}"
 
 
 def validate_session(token: str) -> dict | None:
-    """Validate session token, return session data or None."""
-    sess = _sessions.get(token)
-    if not sess or time.time() > sess["expires_at"]:
-        _sessions.pop(token, None)
+    """Validate signed session token, return session data or None."""
+    try:
+        payload_b64, signature = token.split(".", 1)
+        expected_signature = _session_signature(payload_b64)
+        if not hmac.compare_digest(signature, expected_signature):
+            return None
+        payload = json.loads(_b64url_decode(payload_b64))
+        if time.time() > float(payload.get("expires_at", 0)):
+            return None
+        return payload
+    except Exception:
         return None
-    return sess
-
