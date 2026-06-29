@@ -14,6 +14,7 @@ async def analyze_prelaunch(req: PrelaunchCheckRequest, db: AsyncSession, user_i
     uid = require_user_id(user_id)
     pipeline_result = await run_prelaunch_ai_pipeline(req=req, db=db, user_id=uid)
     ai_result = pipeline_result.ai_result
+    saved_images = _saved_image_fields(req)
 
     if ai_result and not ai_result.get("error"):
         report = PrelaunchCheck(
@@ -21,10 +22,11 @@ async def analyze_prelaunch(req: PrelaunchCheckRequest, db: AsyncSession, user_i
             title_draft=req.title_draft, key_highlights=req.key_highlights,
             bullet_1=req.bullet_1, bullet_2=req.bullet_2, bullet_3=req.bullet_3,
             bullet_4=req.bullet_4, bullet_5=req.bullet_5,
-            main_image_path=req.main_image_path,
-            image_2_path=req.image_2_path, image_3_path=req.image_3_path,
-            image_4_path=req.image_4_path, image_5_path=req.image_5_path,
-            image_6_path=req.image_6_path, image_7_path=req.image_7_path,
+            main_image_path=saved_images["main_image_path"],
+            image_2_path=saved_images["image_2_path"], image_3_path=saved_images["image_3_path"],
+            image_4_path=saved_images["image_4_path"], image_5_path=saved_images["image_5_path"],
+            image_6_path=saved_images["image_6_path"], image_7_path=saved_images["image_7_path"],
+            aplus_images_json=saved_images["aplus_images_json"],
             admission_result=ai_result.get("admission_result"),
             conclusion=ai_result.get("conclusion"),
             position_diagnoses_json=ai_result.get("position_diagnoses"),
@@ -36,6 +38,47 @@ async def analyze_prelaunch(req: PrelaunchCheckRequest, db: AsyncSession, user_i
     db.add(report)
     await db.flush()
     return PrelaunchCheckResponse.model_validate(report, from_attributes=True)
+
+
+def _saved_image_fields(req: PrelaunchCheckRequest) -> dict:
+    fields = {
+        "main_image_path": req.main_image_path,
+        "image_2_path": req.image_2_path,
+        "image_3_path": req.image_3_path,
+        "image_4_path": req.image_4_path,
+        "image_5_path": req.image_5_path,
+        "image_6_path": req.image_6_path,
+        "image_7_path": req.image_7_path,
+        "aplus_images_json": req.aplus_images_json or [],
+    }
+    slot_to_field = {
+        "main": "main_image_path",
+        "img2": "image_2_path",
+        "img3": "image_3_path",
+        "img4": "image_4_path",
+        "img5": "image_5_path",
+        "img6": "image_6_path",
+        "img7": "image_7_path",
+    }
+    aplus_images = list(fields["aplus_images_json"] or [])
+    for item in req.image_slots or []:
+        if not isinstance(item, dict):
+            continue
+        slot = item.get("slot")
+        base64_value = item.get("base64")
+        if not slot or not base64_value:
+            continue
+        url = f"data:image/jpeg;base64,{base64_value}"
+        if slot in slot_to_field:
+            fields[slot_to_field[slot]] = url
+        elif str(slot).startswith("aplus"):
+            aplus_images.append({
+                "slot": slot,
+                "name": item.get("name") or "",
+                "url": url,
+            })
+    fields["aplus_images_json"] = aplus_images
+    return fields
 
 
 async def list_checks(page: int, page_size: int, db: AsyncSession, user_id: str | None = None) -> dict:

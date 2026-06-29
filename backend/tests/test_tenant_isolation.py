@@ -35,6 +35,7 @@ from app.services.asin_operation_tree import build_closed_loop_audit
 from app.services.conversion_diagnosis import diagnose
 from app.services.lifecycle_engine import detect_lifecycle
 from app.services.prelaunch_ai_pipeline import _fallback_prelaunch_result
+from app.services.prelaunch_check import _saved_image_fields
 from app.services.proposition_library import (
     ensure_proposition_library,
     list_propositions,
@@ -645,6 +646,25 @@ class TenantIsolationTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["listing_intent"]["core_value_point"], "Pet small-space odor control")
         self.assertEqual(result["listing_intent"]["supporting_value_points"], ["No ozone", "No filters or fragrance refills"])
         self.assertNotIn("Unterminated string", str(result))
+
+    async def test_prelaunch_image_slots_are_saved_by_position(self):
+        from app.schemas import PrelaunchCheckRequest
+
+        req = PrelaunchCheckRequest(
+            product_name="Gleeda",
+            image_slots=[
+                {"slot": "main", "name": "main.jpg", "base64": "MAIN"},
+                {"slot": "img4", "name": "size.jpg", "base64": "IMG4"},
+                {"slot": "aplus9", "name": "faq.jpg", "base64": "A9"},
+            ],
+        )
+
+        fields = _saved_image_fields(req)
+
+        self.assertEqual(fields["main_image_path"], "data:image/jpeg;base64,MAIN")
+        self.assertEqual(fields["image_4_path"], "data:image/jpeg;base64,IMG4")
+        self.assertEqual(fields["aplus_images_json"][0]["slot"], "aplus9")
+        self.assertEqual(fields["aplus_images_json"][0]["url"], "data:image/jpeg;base64,A9")
 
     async def test_conversion_diagnosis_uses_listing_mental_value_engine(self):
         capture = CaptureJob(

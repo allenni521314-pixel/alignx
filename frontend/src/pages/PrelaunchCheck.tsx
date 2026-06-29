@@ -25,6 +25,24 @@ export default function PrelaunchCheck() {
     queryFn: () => listPrelaunchChecks(1),
   });
 
+  const restoreFromHistory = (item: PC) => {
+    const restoredImages = imagesFromHistory(item);
+    setProductName(item.product_name || "");
+    setTitleDraft(item.title_draft || "");
+    setHighlights(item.key_highlights || "");
+    setBullets([item.bullet_1 || "", item.bullet_2 || "", item.bullet_3 || "", item.bullet_4 || "", item.bullet_5 || ""]);
+    setImages(restoredImages);
+    saveDraft({
+      productName: item.product_name || "",
+      titleDraft: item.title_draft || "",
+      highlights: item.key_highlights || "",
+      bullets: [item.bullet_1 || "", item.bullet_2 || "", item.bullet_3 || "", item.bullet_4 || "", item.bullet_5 || ""],
+      images: restoredImages,
+    });
+    setResult(item);
+    setStep(4);
+  };
+
   useEffect(() => {
     if (!savedRef.current) { savedRef.current = true; return; }
     const t = setTimeout(() => saveDraft({ productName, titleDraft, highlights, bullets, images }), 500);
@@ -144,7 +162,7 @@ export default function PrelaunchCheck() {
             {history.items.slice(0, 6).map((item) => (
               <button
                 key={item.id}
-                onClick={() => { setResult(item); setStep(4); }}
+                onClick={() => restoreFromHistory(item)}
                 className="w-full text-left rounded-xl border border-[#d2d2d7]/70 bg-white/70 p-4 hover:border-[#0F2A24]/30 transition-colors"
               >
                 <div className="flex items-center justify-between gap-3">
@@ -167,6 +185,26 @@ export default function PrelaunchCheck() {
       )}
     </div>
   );
+}
+
+function imagesFromHistory(item: PC): { name: string; url: string; slot: string }[] {
+  const images: { name: string; url: string; slot: string }[] = [];
+  const push = (slot: string, url?: string | null) => {
+    if (url) images.push({ slot, url, name: slot });
+  };
+  push("main", item.main_image_path);
+  push("img2", item.image_2_path);
+  push("img3", item.image_3_path);
+  push("img4", item.image_4_path);
+  push("img5", item.image_5_path);
+  push("img6", item.image_6_path);
+  push("img7", item.image_7_path);
+  for (const image of item.aplus_images_json || []) {
+    if (image?.slot && image?.url) {
+      images.push({ slot: image.slot, url: image.url, name: image.name || image.slot });
+    }
+  }
+  return images;
 }
 
 function Field({label,value,onChange,placeholder}:{label?:string;value:string;onChange:(v:string)=>void;placeholder:string}){
