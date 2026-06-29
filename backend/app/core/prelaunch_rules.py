@@ -6,6 +6,8 @@ from copy import deepcopy
 import re
 from typing import Any
 
+from app.core.listing_intent_engine import ListingIntentEngine
+
 
 TITLE_MAX = 75
 ITEM_HIGHLIGHT_MAX = 125
@@ -65,15 +67,17 @@ def apply_prelaunch_rules(ai_result: dict[str, Any], materials: dict[str, Any]) 
     result = deepcopy(ai_result or {})
     result.setdefault("position_diagnoses", [])
     result["position_diagnoses"] = _normalize_diagnoses(result.get("position_diagnoses"))
+    intent = ListingIntentEngine().analyze(materials)
+    result["listing_intent"] = intent
 
     hard_blockers: list[dict[str, Any]] = []
-    title_analysis = _title_analysis(materials.get("title_draft") or "")
+    title_analysis = _title_analysis(materials.get("title_draft") or "", intent)
     result["title_analysis"] = title_analysis
     _upsert_position(result["position_diagnoses"], _title_position(title_analysis))
     if title_analysis["is_over_limit"]:
         hard_blockers.append({"type": "title_over_75_characters", "position": "title"})
 
-    item_highlight_analysis = _item_highlight_analysis(materials.get("key_highlights") or "", title_analysis)
+    item_highlight_analysis = _item_highlight_analysis(materials.get("key_highlights") or "", title_analysis, intent)
     result["item_highlight_analysis"] = item_highlight_analysis
     _upsert_position(result["position_diagnoses"], _highlight_position(item_highlight_analysis))
 
@@ -90,10 +94,12 @@ def apply_prelaunch_rules(ai_result: dict[str, Any], materials: dict[str, Any]) 
     a_plus_analysis = _a_plus_analysis(materials)
     result["a_plus_analysis"] = a_plus_analysis
     for module in a_plus_analysis:
-        _upsert_position(result["position_diagnoses"], _a_plus_position(module))
+        if not module["uploaded"]:
+            _upsert_position(result["position_diagnoses"], _a_plus_position(module))
         if module["module"] in {"A+8 Certification & Warranty", "A+9 FAQ & After-Sales"} and not module["uploaded"]:
             hard_blockers.append({"type": module["status"], "position": module["position_id"]})
 
+    result["position_diagnoses"] = _apply_intent_to_positions(result["position_diagnoses"], intent)
     result["position_diagnoses"] = [_sanitize_diagnosis(d) for d in result["position_diagnoses"]]
     result["hard_blockers"] = hard_blockers
     result["overall_status"] = _overall_status(hard_blockers)
@@ -136,9 +142,9 @@ def _sanitize_text(text: str) -> tuple[str, list[str]]:
     return result, replaced
 
 
-def _title_analysis(title: str) -> dict[str, Any]:
+def _title_analysis(title: str, intent: dict[str, Any]) -> dict[str, Any]:
     clean_title, replaced = _sanitize_text(title)
-    suggested = _suggest_title(clean_title)
+    suggested = intent.get("title_suggestion") or _suggest_title(clean_title)
     lowered = clean_title.lower()
     kept = [term for term in PRIMARY_SEARCH_TERMS + DIFFERENTIATION_TERMS if term in lowered]
     moved_highlight = [term for term in PLACEMENT_TERMS if term in lowered and len(suggested) + len(term) + 2 > TITLE_MAX]
@@ -156,6 +162,8 @@ def _title_analysis(title: str) -> dict[str, Any]:
         "suggested_title_character_count": len(suggested),
         "title_tradeoff_reason": "Title must stay within 75 characters and remain readable.",
         "replaced_risk_phrases": replaced,
+        "product_identity": intent.get("product_identity_en") or "待录入",
+        "technical_terms_demoted": intent.get("technical_terms", []),
     }
 
 
@@ -179,9 +187,9 @@ def _suggest_title(title: str) -> str:
     return " ".join(words)[:TITLE_MAX].rstrip(" ,;-")
 
 
-def _item_highlight_analysis(text: str, title_analysis: dict[str, Any]) -> dict[str, Any]:
+def _item_highlight_analysis(text: str, title_analysis: dict[str, Any], intent: dict[str, Any]) -> dict[str, Any]:
     clean, replaced = _sanitize_text(text)
-    suggested = " ".join(clean.split())
+    suggested = intent.get("item_highlight_suggestion") or " ".join(clean.split())
     if len(suggested) > ITEM_HIGHLIGHT_MAX:
         suggested = suggested[:ITEM_HIGHLIGHT_MAX].rstrip(" ,;-")
     return {
@@ -198,6 +206,7 @@ def _item_highlight_analysis(text: str, title_analysis: dict[str, Any]) -> dict[
             "omitted_from_title_reason": title_analysis.get("title_tradeoff_reason"),
         },
         "replaced_risk_phrases": replaced,
+        "product_identity": intent.get("product_identity_en") or "待录入",
     }
 
 
@@ -353,6 +362,49 @@ def _sanitize_diagnosis(diagnosis: dict[str, Any]) -> dict[str, Any]:
         diagnosis["suggested_rewrite"] = _suggest_title(str(diagnosis["suggested_rewrite"]))
         diagnosis["recommendation"] = diagnosis["suggested_rewrite"]
     return diagnosis
+
+
+def _apply_intent_to_positions(items: list[dict[str, Any]], intent: dict[str, Any]) -> list[dict[str, Any]]:
+    if intent.get("intent_type") != "pet_small_space_odor_eliminator":
+        return items
+    bullets = intent.get("bullet_suggestions") or []
+    result: list[dict[str, Any]] = []
+    for item in items:
+        item = dict(item)
+        pid = str(item.get("position_id") or item.get("position") or "").lower()
+        position_name = str(item.get("position_name") or "")
+        bullet_index = _bullet_index(pid, position_name)
+        if bullet_index is not None and bullet_index < len(bullets):
+            current = " ".join(str(item.get(k) or "") for k in ["issue", "recommendation", "suggested_rewrite", "modification_example"])
+            if _has_technical_term(current) or _is_generic_rewrite(current):
+                item["recommendation"] = bullets[bullet_index]
+                item["suggested_rewrite"] = bullets[bullet_index]
+                item["issue_type"] = _dedupe([*(item.get("issue_type") or []), "technical_language_demoted"])
+                item["risk_level"] = item.get("risk_level") or "low"
+        if pid in {"title", "highlights", "item_highlight"}:
+            item["product_identity"] = intent.get("product_identity_en")
+        result.append(item)
+    return result
+
+
+def _bullet_index(position_id: str, position_name: str) -> int | None:
+    match = re.search(r"bullet[_ -]?([1-5])", position_id)
+    if match:
+        return int(match.group(1)) - 1
+    match = re.search(r"五点\s*([1-5])", position_name)
+    if match:
+        return int(match.group(1)) - 1
+    return None
+
+
+def _has_technical_term(text: str) -> bool:
+    lowered = (text or "").lower()
+    return any(term in lowered for term in ["photocatalyst", "uvc", "uv-c", "voc sensor", "voc sensing", "smart deodorizing"])
+
+
+def _is_generic_rewrite(text: str) -> bool:
+    lowered = (text or "").lower()
+    return any(phrase in lowered for phrase in ["rewrite to", "replace with", "focus on benefit", "emphasize convenience"])
 
 
 def _upsert_position(items: list[dict[str, Any]], replacement: dict[str, Any]) -> None:

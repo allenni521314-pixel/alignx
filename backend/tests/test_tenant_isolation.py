@@ -541,6 +541,54 @@ class TenantIsolationTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(by_id["aplus_8"]["final_score"], 1.0)
         self.assertEqual(by_id["aplus_9"]["usable_status"], "不可使用")
 
+    async def test_prelaunch_rules_use_pet_small_space_intent_not_technical_terms(self):
+        result = apply_prelaunch_rules(
+            {
+                "admission_result": "可以上架",
+                "position_diagnoses": [
+                    {
+                        "position_id": "bullet_1",
+                        "position_name": "五点1",
+                        "position_type": "text",
+                        "status": "需修改",
+                        "issue": "五点1描述VOC传感器，但使用了技术语言。",
+                        "recommendation": "Rewrite in buyer language, focus on benefit: automatic odor detection and adjustment.",
+                        "final_score": 2.6,
+                    },
+                    {
+                        "position_id": "aplus_1",
+                        "position_name": "A+1 Brand Hero",
+                        "position_type": "a_plus",
+                        "status": "需修改",
+                        "issue": "AI逐图判断",
+                        "recommendation": "AI原始建议",
+                        "final_score": 3.8,
+                    },
+                ],
+            },
+            {
+                "product_name": "Gleeda pet odor device",
+                "title_draft": (
+                    "Gleeda Advanced Photocatalyst Deodorizing Technology with UVC LED "
+                    "and VOC Sensor for Pet Litter Box Small Spaces No Ozone No Filters"
+                ),
+                "key_highlights": (
+                    "Advanced Photocatalyst Technology: Built with sixth-generation photocatalyst "
+                    "purification technology and UVC LED system to deodorize pet spaces without filters or refills"
+                ),
+                "bullet_points": ["VOC sensing function for smart deodorizing device", "", "", "", ""],
+                "uploaded_images": [{"position": "main_image"}, {"position": "aplus_1"}],
+                "missing_images": ["aplus_8", "aplus_9"],
+            },
+        )
+
+        self.assertEqual(result["listing_intent"]["product_identity_zh"], "宠物小空间除臭器")
+        self.assertLessEqual(result["title_analysis"]["suggested_title_character_count"], 75)
+        self.assertNotIn("Photocatalyst", result["title_analysis"]["suggested_title"])
+        by_id = {item.get("position_id"): item for item in result["position_diagnoses"]}
+        self.assertNotIn("VOC", by_id["bullet_1"]["recommendation"])
+        self.assertEqual(by_id["aplus_1"]["recommendation"], "AI原始建议")
+
     async def test_conversion_diagnosis_uses_listing_mental_value_engine(self):
         capture = CaptureJob(
             user_id=self.user_a.id,
