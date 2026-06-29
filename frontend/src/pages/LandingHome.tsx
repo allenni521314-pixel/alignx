@@ -52,8 +52,8 @@ export default function LandingHome() {
     <div className="min-h-screen bg-[#fbfaf7] text-[#0F2A24]">
       <header className="sticky top-0 z-20 border-b border-[#0F2A24]/10 bg-[#fbfaf7]/90 backdrop-blur">
         <div className="mx-auto flex h-16 max-w-[1120px] items-center justify-between px-5">
-          <a href="/" className="text-[22px] font-semibold tracking-[-0.03em] text-[#0F2A24]">
-            AlignX
+          <a href="/" className="flex items-center">
+            <img src="/alignx-logo.png" alt="AlignX" className="h-[38px] w-auto object-contain" />
           </a>
           <nav className="hidden items-center gap-8 text-[14px] text-[#0F2A24]/70 md:flex">
             <a href="#why" className="transition-colors hover:text-[#0F2A24]">为什么 AlignX</a>

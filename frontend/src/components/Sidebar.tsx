@@ -62,11 +62,12 @@ export default function Sidebar() {
 
   return (
     <aside className="fixed left-0 top-0 w-[220px] h-screen flex flex-col bg-white/80 backdrop-blur-xl border-r border-[#d2d2d7]/40 z-20">
-      <div className="h-[52px] flex items-center gap-2.5 px-5 border-b border-[#d2d2d7]/20">
-        <div className="w-7 h-7 rounded-lg bg-[#0071e3] flex items-center justify-center">
-          <span className="text-white text-xs font-bold">A</span>
-        </div>
-        <span className="text-[17px] font-semibold tracking-tight">AlignX</span>
+      <div className="h-[58px] flex items-center px-5 border-b border-[#d2d2d7]/20">
+        <img
+          src="/alignx-logo.png"
+          alt="AlignX"
+          className="h-[34px] w-auto max-w-[150px] object-contain"
+        />
       </div>
       <div className="px-5 py-2 border-b border-[#d2d2d7]/20">
         <p className="text-[12px] text-[#86868b] tracking-wide">先验证 · 再投入</p>
