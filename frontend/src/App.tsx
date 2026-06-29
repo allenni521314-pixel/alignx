@@ -9,6 +9,7 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
 
 // Lazy-loaded pages (Phase 3 implementation)
 import MarketOpportunity from "./pages/MarketOpportunity";
+import LandingHome from "./pages/LandingHome";
 import Login from "./pages/Login";
 import ProductResearch from "./pages/ProductResearch";
 import CompetitorAnalysis from "./pages/CompetitorAnalysis";
@@ -25,6 +26,7 @@ import ExecutionRecords from "./pages/ExecutionRecords";
 export default function App() {
   return (
     <Routes>
+      <Route path="/" element={<LandingHome />} />
       <Route path="/login" element={<Login />} />
       <Route path="*" element={
         <RequireAuth>
@@ -32,7 +34,6 @@ export default function App() {
             <Sidebar />
             <main className="min-h-screen overflow-y-auto p-6 pl-[244px]">
               <Routes>
-                <Route path="/" element={<Navigate to="/today-decisions" replace />} />
           <Route path="/market-opportunity" element={<MarketOpportunity />} />
           <Route path="/product-research" element={<ProductResearch />} />
           <Route path="/competitor-analysis" element={<CompetitorAnalysis />} />

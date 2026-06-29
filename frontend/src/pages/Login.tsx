@@ -31,7 +31,7 @@ export default function Login() {
       if (data.success) {
         localStorage.setItem("alignx_token", data.token);
         localStorage.setItem("alignx_user", JSON.stringify({ id: data.user_id, email: data.email, store_name: data.store_name }));
-        window.location.href = "/";
+        window.location.href = "/today-decisions";
       } else {
         setError(data.detail || "验证失败");
       }
