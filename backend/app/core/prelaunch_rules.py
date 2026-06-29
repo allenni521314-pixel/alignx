@@ -144,7 +144,7 @@ def _sanitize_text(text: str) -> tuple[str, list[str]]:
 
 def _title_analysis(title: str, intent: dict[str, Any]) -> dict[str, Any]:
     clean_title, replaced = _sanitize_text(title)
-    suggested = intent.get("title_suggestion") or _suggest_title(clean_title)
+    suggested = _suggest_title(intent.get("title_suggestion") or clean_title)
     lowered = clean_title.lower()
     kept = [term for term in PRIMARY_SEARCH_TERMS + DIFFERENTIATION_TERMS if term in lowered]
     moved_highlight = [term for term in PLACEMENT_TERMS if term in lowered and len(suggested) + len(term) + 2 > TITLE_MAX]
@@ -365,20 +365,21 @@ def _sanitize_diagnosis(diagnosis: dict[str, Any]) -> dict[str, Any]:
 
 
 def _apply_intent_to_positions(items: list[dict[str, Any]], intent: dict[str, Any]) -> list[dict[str, Any]]:
-    if intent.get("intent_type") != "pet_small_space_odor_eliminator":
+    rewrites = intent.get("buyer_language_rewrites") or {}
+    if not rewrites:
         return items
-    bullets = intent.get("bullet_suggestions") or []
     result: list[dict[str, Any]] = []
     for item in items:
         item = dict(item)
         pid = str(item.get("position_id") or item.get("position") or "").lower()
         position_name = str(item.get("position_name") or "")
         bullet_index = _bullet_index(pid, position_name)
-        if bullet_index is not None and bullet_index < len(bullets):
+        rewrite = rewrites.get(f"bullet_{bullet_index + 1}") if bullet_index is not None else None
+        if rewrite:
             current = " ".join(str(item.get(k) or "") for k in ["issue", "recommendation", "suggested_rewrite", "modification_example"])
             if _has_technical_term(current) or _is_generic_rewrite(current):
-                item["recommendation"] = bullets[bullet_index]
-                item["suggested_rewrite"] = bullets[bullet_index]
+                item["recommendation"] = rewrite
+                item["suggested_rewrite"] = rewrite
                 item["issue_type"] = _dedupe([*(item.get("issue_type") or []), "technical_language_demoted"])
                 item["risk_level"] = item.get("risk_level") or "low"
         if pid in {"title", "highlights", "item_highlight"}:

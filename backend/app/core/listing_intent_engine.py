@@ -1,34 +1,22 @@
 from __future__ import annotations
 
-"""Listing intent rules used by AlignX runtime.
+"""Lightweight Listing value-point engine for AlignX runtime.
 
-This module converts observable listing text into a product mind-value point.
-It is not a Codex skill dependency; it is application logic executed by AlignX.
+Early-stage AlignX should not overfit rigid category rules. This engine only
+extracts one core value point, up to two supporting value points, and buyer
+language rewrites from observable listing text. Accuracy should improve through
+data validation, not hard-coded over-specification.
 """
 
+import re
 from typing import Any
 
-
-PET_SMALL_SPACE_KEYWORDS = [
-    "pet",
-    "cat",
-    "dog",
-    "litter",
-    "odor",
-    "odour",
-    "deodor",
-    "small space",
-    "small spaces",
-    "no ozone",
-    "no filters",
-    "no refills",
-]
 
 TECHNICAL_TERMS = ["photocatalyst", "uvc", "uv-c", "voc sensor", "voc", "sensor"]
 
 
 def listing_text(materials: dict[str, Any]) -> str:
-    values: list[str] = [
+    values = [
         str(materials.get("product_name") or ""),
         str(materials.get("title_draft") or ""),
         str(materials.get("key_highlights") or ""),
@@ -41,62 +29,84 @@ def listing_text(materials: dict[str, Any]) -> str:
 
 
 class ListingIntentEngine:
-    version = "listing_intent:v1"
+    version = "listing_value_points:v1"
 
     def analyze(self, materials: dict[str, Any]) -> dict[str, Any]:
-        text = listing_text(materials).lower()
-        if self._is_pet_small_space_odor_product(text):
-            return self._pet_small_space_odor_intent(text)
+        raw_text = listing_text(materials)
+        text = raw_text.lower()
+        brand = _extract_brand(raw_text)
+        technical_terms = [term for term in TECHNICAL_TERMS if term in text]
+
+        if _has_pet_odor_evidence(text):
+            title = _with_brand(brand, "Pet Odor Eliminator for Small Spaces, No Ozone, No Filters")
+            highlight = "Freshens litter box areas and small pet spaces without ozone, filters or fragrance refills"
+            return {
+                "version": self.version,
+                "intent_type": "value_point_translation",
+                "confidence": _pet_odor_confidence(text),
+                "product_identity_zh": "宠物小空间除臭器",
+                "product_identity_en": "Pet Small-Space Odor Eliminator",
+                "core_value_point": "Pet small-space odor control",
+                "supporting_value_points": ["No ozone", "No filters or fragrance refills"],
+                "technical_terms": technical_terms,
+                "technical_terms_placement": "Technical specs / A+ supporting evidence",
+                "title_suggestion": title,
+                "title_suggestion_character_count": len(title),
+                "item_highlight_suggestion": highlight,
+                "item_highlight_suggestion_character_count": len(highlight),
+                "buyer_language_rewrites": {
+                    "bullet_1": "Made for litter box areas and small pet spaces where everyday pet odors tend to build up.",
+                    "bullet_2": "No ozone design, with no room-clearing ozone routine before daily use.",
+                    "bullet_3": "No filters or fragrance refills to replace, so upkeep stays simple.",
+                },
+                "validation_required": True,
+                "validation_note": "Listing diagnosis should be validated through search terms, ads, CTR, CVR, reviews, seasonality and market competition.",
+            }
+
         return {
             "version": self.version,
-            "intent_type": "unknown",
+            "intent_type": "value_point_translation",
+            "confidence": 0.0,
             "product_identity_zh": "待录入",
             "product_identity_en": "待录入",
-            "technical_terms": [term for term in TECHNICAL_TERMS if term in text],
+            "core_value_point": "待录入",
+            "supporting_value_points": [],
+            "technical_terms": technical_terms,
+            "technical_terms_placement": "待录入",
             "title_suggestion": "",
             "item_highlight_suggestion": "",
-            "bullet_suggestions": [],
+            "buyer_language_rewrites": {},
+            "validation_required": True,
+            "validation_note": "Listing diagnosis should be validated through search terms, ads, CTR, CVR, reviews, seasonality and market competition.",
         }
 
-    def _is_pet_small_space_odor_product(self, text: str) -> bool:
-        return (
-            ("odor" in text or "odour" in text or "deodor" in text)
-            and any(term in text for term in ["pet", "cat", "dog", "litter"])
-        )
 
-    def _pet_small_space_odor_intent(self, text: str) -> dict[str, Any]:
-        title = "Gleeda Pet Odor Eliminator for Small Spaces, No Ozone, No Filters"
-        highlight = "Freshens litter box areas and small pet spaces without ozone, filters or fragrance refills"
-        return {
-            "version": self.version,
-            "intent_type": "pet_small_space_odor_eliminator",
-            "product_identity_zh": "宠物小空间除臭器",
-            "product_identity_en": "Pet Small-Space Odor Eliminator",
-            "core_search_terms": [
-                "pet odor eliminator",
-                "litter box odor eliminator",
-                "cat litter odor eliminator",
-            ],
-            "primary_use_cases": [
-                "litter box areas",
-                "small pet spaces",
-                "bathrooms",
-                "closets",
-                "shoe cabinets",
-            ],
-            "differentiators": ["no ozone", "no filters", "no refills", "no fragrance refills"],
-            "technical_terms": [term for term in TECHNICAL_TERMS if term in text],
-            "technical_terms_placement": "A+6 Technical Specs",
-            "title_suggestion": title,
-            "title_suggestion_character_count": len(title),
-            "item_highlight_suggestion": highlight,
-            "item_highlight_suggestion_character_count": len(highlight),
-            "bullet_suggestions": [
-                "Made for litter box areas and small pet spaces where everyday pet odors tend to build up.",
-                "No ozone design, with no room-clearing ozone routine before daily use.",
-                "No filters or fragrance refills to replace, so upkeep stays simple.",
-                "USB powered wall-mount design helps keep the device placed near odor-prone spots.",
-                "Best for bathrooms, closets, shoe cabinets and pet areas that need steady small-space odor control.",
-            ],
-            "demoted_terms_reason": "Photocatalyst, UVC and VOC sensor are technical support terms, not the core buyer value point.",
-        }
+def _has_pet_odor_evidence(text: str) -> bool:
+    has_odor = any(term in text for term in ["odor", "odour", "deodor", "smell"])
+    has_pet_space = any(term in text for term in ["pet", "cat", "dog", "litter", "litter box", "pet cage"])
+    return has_odor and has_pet_space
+
+
+def _pet_odor_confidence(text: str) -> float:
+    groups = [
+        any(term in text for term in ["odor", "odour", "deodor", "smell"]),
+        any(term in text for term in ["pet", "cat", "dog", "litter", "litter box", "pet cage"]),
+        any(term in text for term in ["small space", "small spaces", "bathroom", "closet", "shoe cabinet"]),
+        any(term in text for term in ["no ozone", "no filters", "no refills", "fragrance refills"]),
+    ]
+    return round(sum(1 for item in groups if item) / len(groups), 2)
+
+
+def _extract_brand(text: str) -> str:
+    cleaned = " ".join((text or "").split())
+    match = re.match(r"([A-Z][A-Za-z0-9-]{1,24})\b", cleaned)
+    if not match:
+        return ""
+    brand = match.group(1)
+    if brand.lower() in {"advanced", "pet", "cat", "dog", "the", "new", "usb"}:
+        return ""
+    return brand
+
+
+def _with_brand(brand: str, text: str) -> str:
+    return f"{brand} {text}" if brand else text

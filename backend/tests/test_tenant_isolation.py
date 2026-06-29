@@ -583,11 +583,42 @@ class TenantIsolationTest(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(result["listing_intent"]["product_identity_zh"], "宠物小空间除臭器")
+        self.assertEqual(result["listing_intent"]["core_value_point"], "Pet small-space odor control")
+        self.assertEqual(result["listing_intent"]["supporting_value_points"][:2], ["No ozone", "No filters or fragrance refills"])
         self.assertLessEqual(result["title_analysis"]["suggested_title_character_count"], 75)
         self.assertNotIn("Photocatalyst", result["title_analysis"]["suggested_title"])
         by_id = {item.get("position_id"): item for item in result["position_diagnoses"]}
         self.assertNotIn("VOC", by_id["bullet_1"]["recommendation"])
         self.assertEqual(by_id["aplus_1"]["recommendation"], "AI原始建议")
+
+    async def test_prelaunch_rules_do_not_force_pet_intent_on_other_categories(self):
+        result = apply_prelaunch_rules(
+            {
+                "admission_result": "可以上架",
+                "position_diagnoses": [
+                    {
+                        "position_id": "bullet_1",
+                        "position_name": "五点1",
+                        "position_type": "text",
+                        "status": "需修改",
+                        "recommendation": "Rewrite in buyer language.",
+                        "final_score": 3.0,
+                    }
+                ],
+            },
+            {
+                "product_name": "USB desk lamp",
+                "title_draft": "Lumora USB Desk Lamp with Adjustable Brightness for Home Office",
+                "key_highlights": "Adjustable desk lighting for office work",
+                "bullet_points": ["Touch controls and adjustable brightness", "", "", "", ""],
+                "uploaded_images": [{"position": "main_image"}],
+                "missing_images": [],
+            },
+        )
+
+        self.assertEqual(result["listing_intent"]["core_value_point"], "待录入")
+        self.assertNotEqual(result["listing_intent"]["product_identity_zh"], "宠物小空间除臭器")
+        self.assertNotIn("Pet Odor Eliminator", result["title_analysis"]["suggested_title"])
 
     async def test_conversion_diagnosis_uses_listing_mental_value_engine(self):
         capture = CaptureJob(
