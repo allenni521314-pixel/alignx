@@ -1,6 +1,8 @@
 import { User, Store, CreditCard, Settings, LogOut, Shield } from "lucide-react";
+import { useI18n } from "@/lib/i18n";
 
 export default function AccountCenter() {
+  const { t, language, setLanguage } = useI18n();
   const userData = JSON.parse(localStorage.getItem("alignx_user") || "{}");
   const isAdmin = userData.email === "allenni521314@gmail.com";
 
@@ -13,75 +15,94 @@ export default function AccountCenter() {
   return (
     <div className="max-w-[720px] mx-auto py-8">
       <div className="mb-10">
-        <h1 className="text-[32px] font-bold tracking-[-0.025em] mb-2">账号中心</h1>
-        <p className="text-[17px] text-[#86868b] leading-relaxed">管理账户、店铺和用量</p>
+        <h1 className="text-[32px] font-bold tracking-[-0.025em] mb-2">{t("account.title")}</h1>
+        <p className="text-[17px] text-[#86868b] leading-relaxed">{t("account.subtitle")}</p>
       </div>
 
       {/* User info card */}
       <div className="apple-card p-6 mb-3">
         <div className="flex items-center gap-4 mb-4">
-          <div className="w-12 h-12 rounded-full bg-[#0071e3] flex items-center justify-center text-white text-[18px] font-bold">
+          <div className="w-12 h-12 rounded-full bg-[#0F2A24] flex items-center justify-center text-white text-[18px] font-bold">
             {(userData.email || "?")[0].toUpperCase()}
           </div>
           <div>
-            <p className="text-[17px] font-semibold">{userData.email || "未登录"}</p>
+            <p className="text-[17px] font-semibold">{userData.email || t("account.notLoggedIn")}</p>
             <p className="text-[13px] text-[#86868b]">{userData.store_name || "—"}</p>
           </div>
           {isAdmin && (
-            <span className="ml-auto px-2 py-1 rounded-full bg-[#ff9500]/10 text-[#ff9500] text-[12px] font-medium">管理员</span>
+            <span className="ml-auto px-2 py-1 rounded-full bg-[#ff9500]/10 text-[#ff9500] text-[12px] font-medium">{t("common.admin")}</span>
           )}
         </div>
         <div className="grid grid-cols-2 gap-2 text-[13px]">
-          <div className="p-3 rounded-lg bg-[#f5f5f7]">
-            <p className="text-[#86868b]">账户类型</p>
-            <p className="font-medium">{isAdmin ? "超级管理员" : "卖家"}</p>
+          <div className="p-3 rounded-lg bg-[#fbfaf7]">
+            <p className="text-[#86868b]">{t("account.accountType")}</p>
+            <p className="font-medium">{isAdmin ? t("common.superAdmin") : t("common.seller")}</p>
           </div>
-          <div className="p-3 rounded-lg bg-[#f5f5f7]">
-            <p className="text-[#86868b]">用户 ID</p>
+          <div className="p-3 rounded-lg bg-[#fbfaf7]">
+            <p className="text-[#86868b]">{t("account.userId")}</p>
             <p className="font-medium font-mono text-[12px]">{(userData.id || "—").slice(0, 12)}...</p>
           </div>
         </div>
       </div>
 
       <div className="space-y-3">
-        <div className="apple-card p-5 flex items-center gap-4 hover:bg-[#f5f5f7] cursor-pointer transition-colors">
-          <div className="w-10 h-10 rounded-full bg-[#f5f5f7] flex items-center justify-center">
+        <div className="apple-card p-5 flex items-center gap-4">
+          <div className="w-10 h-10 rounded-full bg-[#fbfaf7] flex items-center justify-center">
+            <Settings size={20} className="text-[#86868b]" />
+          </div>
+          <div className="flex-1">
+            <p className="text-[15px] font-medium">{t("language.switch")}</p>
+            <p className="text-[13px] text-[#86868b]">{language === "zh" ? "中文" : "English"}</p>
+          </div>
+          <select
+            value={language}
+            onChange={(event) => setLanguage(event.target.value === "en" ? "en" : "zh")}
+            className="rounded-full border border-[#d2d2d7] bg-white px-3 py-2 text-[13px]"
+            aria-label={t("language.label")}
+          >
+            <option value="zh">中文</option>
+            <option value="en">English</option>
+          </select>
+        </div>
+
+        <div className="apple-card p-5 flex items-center gap-4 hover:bg-[#fbfaf7] cursor-pointer transition-colors">
+          <div className="w-10 h-10 rounded-full bg-[#fbfaf7] flex items-center justify-center">
             <Store size={20} className="text-[#86868b]" />
           </div>
           <div className="flex-1">
-            <p className="text-[15px] font-medium">店铺管理</p>
-            <p className="text-[13px] text-[#86868b]">Amazon 店铺绑定</p>
+            <p className="text-[15px] font-medium">{t("account.storeManagement")}</p>
+            <p className="text-[13px] text-[#86868b]">{t("account.amazonStoreBinding")}</p>
           </div>
         </div>
 
-        <div className="apple-card p-5 flex items-center gap-4 hover:bg-[#f5f5f7] cursor-pointer transition-colors">
-          <div className="w-10 h-10 rounded-full bg-[#f5f5f7] flex items-center justify-center">
+        <div className="apple-card p-5 flex items-center gap-4 hover:bg-[#fbfaf7] cursor-pointer transition-colors">
+          <div className="w-10 h-10 rounded-full bg-[#fbfaf7] flex items-center justify-center">
             <CreditCard size={20} className="text-[#86868b]" />
           </div>
           <div className="flex-1">
-            <p className="text-[15px] font-medium">套餐与用量</p>
+            <p className="text-[15px] font-medium">{t("account.planUsage")}</p>
             <p className="text-[13px] text-[#86868b]">Free Plan</p>
           </div>
         </div>
 
-        <div className="apple-card p-5 flex items-center gap-4 hover:bg-[#f5f5f7] cursor-pointer transition-colors">
-          <div className="w-10 h-10 rounded-full bg-[#f5f5f7] flex items-center justify-center">
+        <div className="apple-card p-5 flex items-center gap-4 hover:bg-[#fbfaf7] cursor-pointer transition-colors">
+          <div className="w-10 h-10 rounded-full bg-[#fbfaf7] flex items-center justify-center">
             <Settings size={20} className="text-[#86868b]" />
           </div>
           <div className="flex-1">
-            <p className="text-[15px] font-medium">偏好设置</p>
-            <p className="text-[13px] text-[#86868b]">语言、通知、AI 配置</p>
+            <p className="text-[15px] font-medium">{t("account.preferences")}</p>
+            <p className="text-[13px] text-[#86868b]">{t("account.preferenceDesc")}</p>
           </div>
         </div>
 
         {isAdmin && (
-          <a href="/admin" className="apple-card p-5 flex items-center gap-4 hover:bg-[#f5f5f7] cursor-pointer transition-colors no-underline">
-            <div className="w-10 h-10 rounded-full bg-[#0071e3]/[0.06] flex items-center justify-center">
-              <Shield size={20} className="text-[#0071e3]" />
+          <a href="/admin" className="apple-card p-5 flex items-center gap-4 hover:bg-[#fbfaf7] cursor-pointer transition-colors no-underline">
+            <div className="w-10 h-10 rounded-full bg-[#0F2A24]/[0.06] flex items-center justify-center">
+              <Shield size={20} className="text-[#0F2A24]" />
             </div>
             <div className="flex-1">
-              <p className="text-[15px] font-medium text-[#0071e3]">管理后台</p>
-              <p className="text-[13px] text-[#86868b]">命题库 · ASIN档案 · 闭环审计</p>
+              <p className="text-[15px] font-medium text-[#0F2A24]">{t("nav.adminDashboard")}</p>
+              <p className="text-[13px] text-[#86868b]">{t("account.adminDesc")}</p>
             </div>
           </a>
         )}
@@ -91,7 +112,7 @@ export default function AccountCenter() {
             <LogOut size={20} className="text-[#ff3b30]" />
           </div>
           <div className="flex-1">
-            <p className="text-[15px] font-medium text-[#ff3b30]">退出登录</p>
+            <p className="text-[15px] font-medium text-[#ff3b30]">{t("common.logout")}</p>
           </div>
         </div>
       </div>

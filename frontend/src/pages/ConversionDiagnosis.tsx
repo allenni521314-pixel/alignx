@@ -117,10 +117,10 @@ export default function ConversionDiagnosis() {
             )}
 
             {result.priority_action && (
-              <div className="bg-[#0071e3]/[0.04] rounded-xl p-4 flex items-start gap-3">
-                <Gauge size={18} className="text-[#0071e3] shrink-0 mt-0.5" />
+              <div className="bg-[#0F2A24]/[0.04] rounded-xl p-4 flex items-start gap-3">
+                <Gauge size={18} className="text-[#0F2A24] shrink-0 mt-0.5" />
                 <div>
-                  <p className="text-[13px] font-medium text-[#0071e3]">优先动作</p>
+                  <p className="text-[13px] font-medium text-[#0F2A24]">优先动作</p>
                   <p className="text-[15px]">{result.priority_action}</p>
                 </div>
               </div>
@@ -137,7 +137,7 @@ export default function ConversionDiagnosis() {
                 {result.impacted_ad_metrics.map((m) => (
                   <span
                     key={m}
-                    className="px-3 py-1.5 bg-[#f5f5f7] rounded-full text-[13px] font-medium text-[#1d1d1f]"
+                    className="px-3 py-1.5 bg-[#fbfaf7] rounded-full text-[13px] font-medium text-[#1d1d1f]"
                   >
                     {AD_METRIC_LABELS[m] ?? m}
                   </span>
@@ -163,7 +163,7 @@ export default function ConversionDiagnosis() {
                       <span className="text-[14px] font-semibold">{d.position_name}</span>
                       <span className="text-[12px] text-[#86868b] ml-auto">{d.status}</span>
                       {d.priority != null && (
-                        <span className="text-[11px] text-[#86868b] bg-[#f5f5f7] px-1.5 py-0.5 rounded-full">
+                        <span className="text-[11px] text-[#86868b] bg-[#fbfaf7] px-1.5 py-0.5 rounded-full">
                           P{d.priority}
                         </span>
                       )}
@@ -194,7 +194,7 @@ export default function ConversionDiagnosis() {
                       </div>
                     )}
                     {d.recommendation && (
-                      <p className="text-[13px] text-[#0071e3] bg-[#0071e3]/[0.04] rounded-lg p-2 mt-2">
+                      <p className="text-[13px] text-[#0F2A24] bg-[#0F2A24]/[0.04] rounded-lg p-2 mt-2">
                         {d.recommendation}
                       </p>
                     )}
@@ -226,7 +226,7 @@ export default function ConversionDiagnosis() {
           </h3>
           <div className="space-y-2">
             {history.items.map((item) => (
-              <div key={item.id} className="apple-card p-4 flex items-center justify-between hover:bg-[#f5f5f7] transition-colors">
+              <div key={item.id} className="apple-card p-4 flex items-center justify-between hover:bg-[#fbfaf7] transition-colors">
                 <div className="flex items-center gap-3">
                   <ArrowDownToLine size={18} className="text-[#86868b]" />
                   <div>

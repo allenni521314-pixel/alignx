@@ -54,7 +54,7 @@ export default function YesterdayReport() {
     return (
       <div className="max-w-[680px] mx-auto py-12">
         <div className="apple-card p-16 text-center">
-          <div className="w-8 h-8 border-2 border-[#0071e3]/20 border-t-[#0071e3] rounded-full animate-spin mx-auto" />
+          <div className="w-8 h-8 border-2 border-[#0F2A24]/20 border-t-[#0F2A24] rounded-full animate-spin mx-auto" />
         </div>
       </div>
     );
@@ -75,7 +75,7 @@ export default function YesterdayReport() {
             key={t}
             onClick={() => setReportType(t)}
             className={`px-4 py-2 rounded-xl text-[14px] font-medium transition-colors ${
-              reportType === t ? "bg-[#0071e3] text-white" : "bg-[#f5f5f7] text-[#86868b] hover:bg-[#e8e8ed]"
+              reportType === t ? "bg-[#0F2A24] text-white" : "bg-[#fbfaf7] text-[#86868b] hover:bg-[#e8e8ed]"
             }`}
           >
             <Calendar size={14} className="inline mr-1" />
@@ -86,15 +86,15 @@ export default function YesterdayReport() {
 
       {/* Upload area */}
       <div className="apple-card mb-6">
-        <label className="flex items-center gap-4 p-5 cursor-pointer hover:bg-[#f5f5f7] transition-colors rounded-xl">
-          <div className="w-10 h-10 rounded-xl bg-[#0071e3]/[0.08] flex items-center justify-center shrink-0">
-            <Upload size={20} className="text-[#0071e3]" />
+        <label className="flex items-center gap-4 p-5 cursor-pointer hover:bg-[#fbfaf7] transition-colors rounded-xl">
+          <div className="w-10 h-10 rounded-xl bg-[#0F2A24]/[0.08] flex items-center justify-center shrink-0">
+            <Upload size={20} className="text-[#0F2A24]" />
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-[15px] font-semibold">上传广告报表</p>
             <p className="text-[13px] text-[#86868b]">CSV</p>
           </div>
-          <div className={`px-4 py-2 rounded-xl text-[14px] font-medium shrink-0 ${uploading ? "bg-[#f5f5f7] text-[#86868b]" : "bg-[#0071e3] text-white"}`}>
+          <div className={`px-4 py-2 rounded-xl text-[14px] font-medium shrink-0 ${uploading ? "bg-[#fbfaf7] text-[#86868b]" : "bg-[#0F2A24] text-white"}`}>
             <FileText size={14} className="inline mr-1" />
             {uploading ? "导入中..." : "选择 CSV 文件"}
           </div>
@@ -104,7 +104,7 @@ export default function YesterdayReport() {
 
       {/* KPI cards */}
       <div className="grid grid-cols-5 gap-3 mb-6">
-        <KpiCard icon={TrendingUp} label="总动作" value={ys?.total_executions ?? 0} color="text-[#0071e3]" />
+        <KpiCard icon={TrendingUp} label="总动作" value={ys?.total_executions ?? 0} color="text-[#0F2A24]" />
         <KpiCard icon={DollarSign} label="总花费" value={`$${ys?.total_cost ?? 0}`} color="text-[#ff9500]" />
         <KpiCard icon={DollarSign} label="广告花费" value={`$${ys?.ad_spend ?? 0}`} color="text-[#ff3b30]" />
         <KpiCard icon={Target} label="改动位置" value={ys?.changed_positions ?? 0} color="text-[#86868b]" />
@@ -115,7 +115,7 @@ export default function YesterdayReport() {
       {(report?.profile_summaries?.length ?? 0) > 0 && (
         <div className="apple-card mb-6">
           <div className="p-5 border-b border-[#d2d2d7]/20">
-            <h3 className="flex items-center gap-2 text-[15px] font-semibold"><BarChart3 size={16} className="text-[#0071e3]" />ASIN 明细</h3>
+            <h3 className="flex items-center gap-2 text-[15px] font-semibold"><BarChart3 size={16} className="text-[#0F2A24]" />ASIN 明细</h3>
           </div>
           {(report?.profile_summaries ?? []).map((a: any, i: number) => {
             const ctr = a.clicks && a.impressions ? ((a.clicks / a.impressions) * 100).toFixed(2) : "—";

@@ -135,7 +135,7 @@ export default function CompetitorAnalysis() {
             </div>
 
             {result.overall_judgment && (
-              <div className="bg-[#f5f5f7] rounded-xl p-4 mb-4">
+              <div className="bg-[#fbfaf7] rounded-xl p-4 mb-4">
                 <p className="text-[13px] font-semibold text-[#86868b] mb-1">综合判断</p>
                 <p className="text-[15px] leading-relaxed">{result.overall_judgment}</p>
               </div>
@@ -149,15 +149,15 @@ export default function CompetitorAnalysis() {
 
             {/* Attack points + CTA */}
             {result.attack_points && result.attack_points.length > 0 && (
-              <div className="bg-[#0071e3]/[0.04] rounded-xl p-5 border border-[#0071e3]/10">
-                <p className="text-[13px] font-semibold text-[#0071e3] mb-3 flex items-center gap-1.5">
+              <div className="bg-[#0F2A24]/[0.04] rounded-xl p-5 border border-[#0F2A24]/10">
+                <p className="text-[13px] font-semibold text-[#0F2A24] mb-3 flex items-center gap-1.5">
                   <Target size={14} />
                   你可以攻击的弱点
                 </p>
                 <ul className="space-y-1.5 mb-4">
                   {result.attack_points.map((p, i) => (
                     <li key={i} className="text-[14px] flex items-start gap-2">
-                      <span className="text-[#0071e3] mt-1 shrink-0">•</span>
+                      <span className="text-[#0F2A24] mt-1 shrink-0">•</span>
                       <span className="leading-relaxed">{p}</span>
                     </li>
                   ))}
@@ -197,7 +197,7 @@ export default function CompetitorAnalysis() {
                     : JSON.stringify(val);
                   return (
                     <div key={key} className="flex items-start gap-3">
-                      <div className="w-8 h-8 rounded-lg bg-[#f5f5f7] flex items-center justify-center shrink-0 mt-0.5">
+                      <div className="w-8 h-8 rounded-lg bg-[#fbfaf7] flex items-center justify-center shrink-0 mt-0.5">
                         {meta ? (
                           <meta.icon size={16} className="text-[#86868b]" />
                         ) : (
@@ -241,7 +241,7 @@ export default function CompetitorAnalysis() {
             {history.items.map((item) => (
               <div
                 key={item.id}
-                className="apple-card p-4 flex items-center justify-between hover:bg-[#f5f5f7] transition-colors cursor-pointer"
+                className="apple-card p-4 flex items-center justify-between hover:bg-[#fbfaf7] transition-colors cursor-pointer"
                 onClick={async () => {
                   const data = await getCompetitorAnalysis(item.id);
                   setResult(data);
@@ -252,7 +252,7 @@ export default function CompetitorAnalysis() {
                   <div className="flex items-center gap-2 mb-0.5">
                     <span className="text-[14px] font-semibold">{item.asin}</span>
                     {item.overall_judgment && (
-                      <span className="text-[11px] px-1.5 py-0.5 rounded-full bg-[#f5f5f7] text-[#86868b] truncate max-w-[180px]">
+                      <span className="text-[11px] px-1.5 py-0.5 rounded-full bg-[#fbfaf7] text-[#86868b] truncate max-w-[180px]">
                         {item.overall_judgment.slice(0, 30)}...
                       </span>
                     )}
@@ -286,7 +286,7 @@ function MiniList({
   items: string[];
 }) {
   return (
-    <div className="bg-[#f5f5f7] rounded-xl p-4">
+    <div className="bg-[#fbfaf7] rounded-xl p-4">
       <p className={`text-[13px] font-semibold mb-2 flex items-center gap-1.5 ${color}`}>
         <Icon size={13} />
         {title}

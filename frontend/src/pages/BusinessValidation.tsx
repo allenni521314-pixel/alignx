@@ -55,8 +55,8 @@ export default function BusinessValidation() {
 
       {/* KPI Cards */}
       <div className="grid grid-cols-4 gap-3 mb-8">
-        <KpiCard icon={Play} label="进行中" value={running} color="text-[#0071e3]" bg="bg-[#0071e3]/[0.06]" />
-        <KpiCard icon={Clock} label="待验证" value={pending} color="text-[#86868b]" bg="bg-[#f5f5f7]" />
+        <KpiCard icon={Play} label="进行中" value={running} color="text-[#0F2A24]" bg="bg-[#0F2A24]/[0.06]" />
+        <KpiCard icon={Clock} label="待验证" value={pending} color="text-[#86868b]" bg="bg-[#fbfaf7]" />
         <KpiCard icon={CheckCircle2} label="有效" value={effective} color="text-[#34c759]" bg="bg-[#34c759]/[0.06]" />
         <KpiCard icon={XCircle} label="无效" value={ineffective} color="text-[#ff3b30]" bg="bg-[#ff3b30]/[0.06]" />
       </div>
@@ -72,7 +72,7 @@ export default function BusinessValidation() {
                 {/* ASIN Header */}
                 <div className="p-5 flex items-center justify-between border-b border-[#d2d2d7]/20">
                   <div className="flex items-center gap-3">
-                    <ShieldCheck size={20} className={maxPriority >= 4 ? "text-[#ff3b30]" : "text-[#0071e3]"} />
+                    <ShieldCheck size={20} className={maxPriority >= 4 ? "text-[#ff3b30]" : "text-[#0F2A24]"} />
                     <div>
                       <div className="flex items-center gap-2">
                         <span className="text-[16px] font-semibold">{asin}</span>
@@ -103,7 +103,7 @@ export default function BusinessValidation() {
                     return (
                       <div key={task.id}>
                         <div
-                          className="p-4 flex items-center justify-between hover:bg-[#f5f5f7] cursor-pointer transition-colors"
+                          className="p-4 flex items-center justify-between hover:bg-[#fbfaf7] cursor-pointer transition-colors"
                           onClick={() => setExpandedTask(isExpanded ? null : task.id)}
                         >
                           <div className="flex-1 min-w-0">
@@ -121,14 +121,14 @@ export default function BusinessValidation() {
                           </div>
                           <div className="flex items-center gap-4 text-[13px] text-[#86868b] shrink-0">
                             {task.validation_period && <span>⏳ {task.validation_period}</span>}
-                            <span className="text-[#0071e3]">{task.execution_status === "running" ? "进行中" : task.execution_status}</span>
+                            <span className="text-[#0F2A24]">{task.execution_status === "running" ? "进行中" : task.execution_status}</span>
                             {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
                           </div>
                         </div>
 
                         {/* Expanded Detail */}
                         {isExpanded && (
-                          <div className="px-5 pb-4 pt-2 bg-[#f5f5f7] space-y-2">
+                          <div className="px-5 pb-4 pt-2 bg-[#fbfaf7] space-y-2">
                             {task.evidence_snapshot && (
                               <p className="text-[13px] text-[#86868b]">
                                 依据：{JSON.stringify(task.evidence_snapshot)}
@@ -218,7 +218,7 @@ function KpiCard({
 
 function StatusDot({ status }: { status: string }) {
   const colors: Record<string, string> = {
-    running: "bg-[#0071e3]",
+    running: "bg-[#0F2A24]",
     pending: "bg-[#d2d2d7]",
     completed: "bg-[#34c759]",
   };
@@ -227,9 +227,9 @@ function StatusDot({ status }: { status: string }) {
 
 function PriorityBadge({ level }: { level: number }) {
   const colors: Record<number, string> = {
-    1: "bg-[#f5f5f7] text-[#86868b]",
+    1: "bg-[#fbfaf7] text-[#86868b]",
     2: "bg-[#34c759]/10 text-[#34c759]",
-    3: "bg-[#0071e3]/10 text-[#0071e3]",
+    3: "bg-[#0F2A24]/10 text-[#0F2A24]",
     4: "bg-[#ff9500]/10 text-[#ff9500]",
     5: "bg-[#ff3b30]/10 text-[#ff3b30]",
   };
@@ -285,7 +285,7 @@ function ResultForm({
           { v: "effective", l: "✅ 有效", c: "border-[#34c759] bg-[#34c759]/[0.04]" },
           { v: "ineffective", l: "❌ 无效", c: "border-[#ff3b30] bg-[#ff3b30]/[0.04]" },
           { v: "interfered", l: "⚠️ 受干扰", c: "border-[#ff9500] bg-[#ff9500]/[0.04]" },
-          { v: "insufficient_data", l: "📊 数据不足", c: "border-[#86868b] bg-[#f5f5f7]" },
+          { v: "insufficient_data", l: "📊 数据不足", c: "border-[#86868b] bg-[#fbfaf7]" },
         ].map((opt) => (
           <button
             key={opt.v}

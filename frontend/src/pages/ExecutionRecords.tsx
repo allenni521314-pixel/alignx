@@ -54,8 +54,8 @@ export default function ExecutionRecords() {
       {/* Upload Ad Report */}
       <div className="apple-card p-6 mb-8">
         <div className="flex items-start gap-4">
-          <div className="w-10 h-10 rounded-xl bg-[#0071e3]/[0.06] flex items-center justify-center shrink-0">
-            <Upload size={20} className="text-[#0071e3]" />
+          <div className="w-10 h-10 rounded-xl bg-[#0F2A24]/[0.06] flex items-center justify-center shrink-0">
+            <Upload size={20} className="text-[#0F2A24]" />
           </div>
           <div className="flex-1">
             <h2 className="text-[15px] font-semibold mb-1">上传广告报表</h2>
@@ -78,7 +78,7 @@ export default function ExecutionRecords() {
       {/* KPI Cards */}
       <div className="grid grid-cols-4 gap-3 mb-8">
         <div className="apple-card p-4 text-center">
-          <ListChecks size={20} className="mx-auto mb-1.5 text-[#0071e3]" />
+          <ListChecks size={20} className="mx-auto mb-1.5 text-[#0F2A24]" />
           <p className="text-[22px] font-bold">{tasks?.total ?? 0}</p>
           <p className="text-[11px] text-[#86868b] mt-0.5">总记录</p>
         </div>

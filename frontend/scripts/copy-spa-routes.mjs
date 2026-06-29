@@ -7,6 +7,20 @@ const distDir = join(scriptDir, "..", "dist");
 const indexFile = join(distDir, "index.html");
 
 const routes = [
+  "en",
+  "en/about",
+  "en/privacy-policy",
+  "en/terms",
+  "en/data-use-policy",
+  "en/security",
+  "en/contact",
+  "zh",
+  "zh/about",
+  "zh/privacy-policy",
+  "zh/terms",
+  "zh/data-use-policy",
+  "zh/security",
+  "zh/contact",
   "login",
   "market-opportunity",
   "product-research",

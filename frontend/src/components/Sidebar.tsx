@@ -69,10 +69,6 @@ export default function Sidebar() {
           className="h-[34px] w-auto max-w-[150px] object-contain"
         />
       </div>
-      <div className="px-5 py-2 border-b border-[#d2d2d7]/20">
-        <p className="text-[12px] text-[#86868b] tracking-wide">先验证 · 再投入</p>
-      </div>
-
       <nav className="flex-1 overflow-y-auto py-3 px-3 space-y-0.5">
         {NAV_GROUPS.map((item, i) => {
           if ("children" in item) {
@@ -95,7 +91,7 @@ export default function Sidebar() {
                         to={child.to}
                         className={({ isActive }) =>
                           `flex items-center gap-3 px-3 py-2 rounded-xl text-[14px] font-medium transition-all duration-150 ${
-                            isActive ? "bg-[#0071e3]/8 text-[#0071e3]" : "text-[#1d1d1f]/70 hover:bg-[#f5f5f7] hover:text-[#1d1d1f]"
+                            isActive ? "bg-[#0F2A24]/8 text-[#0F2A24]" : "text-[#1d1d1f]/70 hover:bg-[#fbfaf7] hover:text-[#1d1d1f]"
                           }`
                         }
                       >
@@ -115,7 +111,7 @@ export default function Sidebar() {
               to={to}
               className={({ isActive }) =>
                 `flex items-center gap-3 px-3 py-2 rounded-xl text-[14px] font-medium transition-all duration-150 ${
-                  isActive ? "bg-[#0071e3]/8 text-[#0071e3]" : "text-[#1d1d1f]/70 hover:bg-[#f5f5f7] hover:text-[#1d1d1f]"
+                  isActive ? "bg-[#0F2A24]/8 text-[#0F2A24]" : "text-[#1d1d1f]/70 hover:bg-[#fbfaf7] hover:text-[#1d1d1f]"
                 }`
               }
             >
@@ -130,11 +126,11 @@ export default function Sidebar() {
         {BOTTOM_NAV.map(({ to, label, icon: Icon }) => (
           <NavLink key={to} to={to} className={({ isActive }) =>
             `flex items-center gap-3 px-3 py-2 rounded-xl text-[14px] font-medium transition-all duration-150 ${
-              isActive ? "bg-[#0071e3]/8 text-[#0071e3]" : "text-[#1d1d1f]/70 hover:bg-[#f5f5f7] hover:text-[#1d1d1f]"
+              isActive ? "bg-[#0F2A24]/8 text-[#0F2A24]" : "text-[#1d1d1f]/70 hover:bg-[#fbfaf7] hover:text-[#1d1d1f]"
             }`}><Icon size={18} strokeWidth={1.75} /><span>{label}</span></NavLink>
         ))}
         {isAdmin && (
-          <a href="/admin" className="flex items-center gap-2 text-[13px] text-[#86868b] hover:text-[#0071e3] transition-colors w-full no-underline">
+          <a href="/admin" className="flex items-center gap-2 text-[13px] text-[#86868b] hover:text-[#0F2A24] transition-colors w-full no-underline">
             <Shield size={14} />
             管理后台
           </a>

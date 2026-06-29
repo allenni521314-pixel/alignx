@@ -44,8 +44,8 @@ const STAGES: Record<string, StageConfig> = {
   new_product: {
     label: "新品",
     icon: Zap,
-    color: "text-[#0071e3]",
-    bg: "bg-[#0071e3]/[0.04]",
+    color: "text-[#0F2A24]",
+    bg: "bg-[#0F2A24]/[0.04]",
     strategies: [
       { name: "自动广告探索", goal: "曝光和搜索词数据", budget: "$15-30/天", props: ["P01-003"], changedVariable: "广告关键词" },
       { name: "广泛匹配关键词", goal: "长尾搜索词", budget: "$10-20/天", props: ["P01-001"], changedVariable: "广告关键词" },
@@ -65,7 +65,7 @@ const STAGES: Record<string, StageConfig> = {
     label: "成熟",
     icon: Shield,
     color: "text-[#86868b]",
-    bg: "bg-[#f5f5f7]",
+    bg: "bg-[#fbfaf7]",
     strategies: [
       { name: "ACoS 优化", goal: "广告成本", budget: "优化分配", props: ["P04-001"], changedVariable: "广告预算" },
       { name: "否定关键词", goal: "无效点击", budget: "$0", props: ["P01-001"], changedVariable: "否定关键词" },
@@ -181,7 +181,7 @@ export default function TrafficStrategy() {
               key={key}
               onClick={() => setActiveStage(key)}
               className={`flex items-center gap-2 px-4 py-2 rounded-xl text-[14px] font-medium transition-colors ${
-                isActive ? `${stage.bg} ${stage.color}` : "bg-[#f5f5f7] text-[#86868b] hover:bg-[#e8e8ed]"
+                isActive ? `${stage.bg} ${stage.color}` : "bg-[#fbfaf7] text-[#86868b] hover:bg-[#e8e8ed]"
               }`}
             >
               <Icon size={16} />
@@ -216,7 +216,7 @@ export default function TrafficStrategy() {
                   <button
                     key={`${strategy.name}-${item.asin}`}
                     onClick={() => openKeywordSetup(item.asin, activeStage, strategy)}
-                    className="flex items-center gap-1 px-3 py-1.5 rounded-full text-[12px] bg-[#0071e3] text-white hover:bg-[#0077ed] transition-colors"
+                    className="flex items-center gap-1 px-3 py-1.5 rounded-full text-[12px] bg-[#0F2A24] text-white hover:bg-[#173a32] transition-colors"
                   >
                     {item.asin}
                     <ChevronRight size={12} />
@@ -382,15 +382,15 @@ function KeywordSetupModal({
           <div className="flex items-start justify-between gap-4">
             <div>
               <div className="flex items-center gap-3 mb-1">
-                <Target size={18} className="text-[#0071e3]" />
+                <Target size={18} className="text-[#0F2A24]" />
                 <h2 className="text-[17px] font-semibold">{step === "keywords" ? "关键词选择" : "产品周期"}</h2>
               </div>
               <p className="text-[13px] text-[#86868b]">{setup.asin}</p>
             </div>
             <div className="flex items-center gap-2 text-[12px] text-[#86868b]">
-              <span className={step === "keywords" ? "text-[#0071e3] font-semibold" : ""}>关键词</span>
+              <span className={step === "keywords" ? "text-[#0F2A24] font-semibold" : ""}>关键词</span>
               <ChevronRight size={12} />
-              <span className={step === "execution" ? "text-[#0071e3] font-semibold" : ""}>周期</span>
+              <span className={step === "execution" ? "text-[#0F2A24] font-semibold" : ""}>周期</span>
             </div>
           </div>
         </div>
@@ -442,7 +442,7 @@ function KeywordSetupModal({
                                   onClick={() => toggleKeyword(keyword)}
                                   className={`min-h-9 rounded-lg border px-3 py-2 text-left text-[12px] leading-snug transition-colors ${
                                     active
-                                      ? "bg-[#0071e3]/[0.08] border-[#0071e3] text-[#0071e3]"
+                                      ? "bg-[#0F2A24]/[0.08] border-[#0F2A24] text-[#0F2A24]"
                                       : "bg-white border-[#d2d2d7] text-[#1d1d1f]"
                                   }`}
                                 >
@@ -465,7 +465,7 @@ function KeywordSetupModal({
                           onClick={() => toggleKeyword(keyword)}
                           className={`min-h-9 rounded-lg border px-3 py-2 text-left text-[12px] leading-snug transition-colors ${
                             active
-                              ? "bg-[#0071e3]/[0.08] border-[#0071e3] text-[#0071e3]"
+                              ? "bg-[#0F2A24]/[0.08] border-[#0F2A24] text-[#0F2A24]"
                               : "bg-white border-[#d2d2d7] text-[#1d1d1f]"
                           }`}
                         >
@@ -506,11 +506,11 @@ function KeywordSetupModal({
                         }}
                         className={`min-h-16 rounded-xl border px-3 py-2 text-left transition-colors ${
                           active
-                            ? "border-[#0071e3] bg-[#0071e3]/[0.06] text-[#0071e3]"
+                            ? "border-[#0F2A24] bg-[#0F2A24]/[0.06] text-[#0F2A24]"
                             : "border-[#d2d2d7] bg-white text-[#1d1d1f]"
                         }`}
                       >
-                        <Icon size={16} className={active ? "text-[#0071e3]" : "text-[#86868b]"} />
+                        <Icon size={16} className={active ? "text-[#0F2A24]" : "text-[#86868b]"} />
                         <p className="mt-2 text-[13px] font-semibold">{stage.label}期</p>
                       </button>
                     );
@@ -529,13 +529,13 @@ function KeywordSetupModal({
                         onClick={() => setSelectedStrategyIndex(index)}
                         className={`w-full rounded-xl border px-4 py-3 text-left transition-colors ${
                           active
-                            ? "border-[#0071e3] bg-[#0071e3]/[0.06]"
+                            ? "border-[#0F2A24] bg-[#0F2A24]/[0.06]"
                             : "border-[#d2d2d7] bg-white"
                         }`}
                       >
                         <div className="flex items-center justify-between gap-3">
                           <div>
-                            <p className={`text-[14px] font-semibold ${active ? "text-[#0071e3]" : "text-[#1d1d1f]"}`}>
+                            <p className={`text-[14px] font-semibold ${active ? "text-[#0F2A24]" : "text-[#1d1d1f]"}`}>
                               {strategy.name}
                             </p>
                             <p className="text-[12px] text-[#86868b] mt-1">{strategy.goal}</p>
@@ -570,7 +570,7 @@ function KeywordSetupModal({
                 </div>
               </div>
 
-              <div className="bg-[#f5f5f7] rounded-xl p-4">
+              <div className="bg-[#fbfaf7] rounded-xl p-4">
                 <p className="text-[12px] text-[#86868b] mb-2">已选择关键词</p>
                 {keywords.length > 0 ? (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">

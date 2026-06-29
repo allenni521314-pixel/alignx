@@ -102,7 +102,7 @@ export default function MarketOpportunity() {
                 {result.market_entry_conclusion ?? "分析完成"}
               </h2>
               {result.opportunity_score != null && (
-                <span className="text-[28px] font-bold text-[#0071e3]">
+                <span className="text-[28px] font-bold text-[#0F2A24]">
                   {result.opportunity_score}
                   <span className="text-sm font-normal text-[#86868b] ml-1">分</span>
                 </span>
@@ -110,8 +110,8 @@ export default function MarketOpportunity() {
             </div>
 
             {(result.best_opportunity_category || (result.seven_layer_result_json as any)?.best_opportunity_category) && (
-              <div className="bg-[#0071e3]/[0.04] rounded-xl p-4 mb-4">
-                <p className="text-[13px] font-medium text-[#0071e3] mb-1">最佳切入机会</p>
+              <div className="bg-[#0F2A24]/[0.04] rounded-xl p-4 mb-4">
+                <p className="text-[13px] font-medium text-[#0F2A24] mb-1">最佳切入机会</p>
                 <p className="text-[14px]">{result.best_opportunity_category || (result.seven_layer_result_json as any)?.best_opportunity_category}</p>
               </div>
             )}
@@ -124,7 +124,7 @@ export default function MarketOpportunity() {
             </div>
 
             {result.price_band_judgment && (
-              <div className="bg-[#f5f5f7] rounded-xl p-4">
+              <div className="bg-[#fbfaf7] rounded-xl p-4">
                 <p className="text-[14px] text-[#86868b] font-medium mb-1">价格带判断</p>
                 <p className="text-[15px]">{result.price_band_judgment}</p>
               </div>
@@ -151,7 +151,7 @@ export default function MarketOpportunity() {
               </div>
               <div className="space-y-3">
                 {cats.map((cat: any, i: number) => (
-                  <div key={i} className="bg-[#f5f5f7] rounded-xl p-4">
+                  <div key={i} className="bg-[#fbfaf7] rounded-xl p-4">
                     <div className="flex items-center justify-between mb-2">
                       <span className="text-[15px] font-semibold">{cat.category_name}</span>
                       <span className={`text-[12px] font-medium px-2 py-0.5 rounded-full ${
@@ -177,7 +177,7 @@ export default function MarketOpportunity() {
                               key={asin}
                               onClick={(e) => { e.stopPropagation(); toggleAsin(asin); }}
                               className={`text-[12px] px-2 py-1 rounded-full cursor-pointer transition-colors font-mono ${
-                                checked ? "bg-[#0071e3] text-white" : "bg-white text-[#0071e3] border border-[#0071e3]/20 hover:bg-[#0071e3]/[0.06]"
+                                checked ? "bg-[#0F2A24] text-white" : "bg-white text-[#0F2A24] border border-[#0F2A24]/20 hover:bg-[#0F2A24]/[0.06]"
                               }`}
                             >
                               {checked ? "✓ " : "+ "}{asin}
@@ -260,10 +260,10 @@ export default function MarketOpportunity() {
                       key={a.asin}
                       onClick={() => toggleAsin(a.asin)}
                       className={`flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-colors ${
-                        checked ? "bg-[#0071e3]/[0.06] border border-[#0071e3]/20" : "hover:bg-[#f5f5f7]"
+                        checked ? "bg-[#0F2A24]/[0.06] border border-[#0F2A24]/20" : "hover:bg-[#fbfaf7]"
                       }`}
                     >
-                      {checked ? <CheckSquare size={16} className="text-[#0071e3] shrink-0" /> : <Square size={16} className="text-[#d2d2d7] shrink-0" />}
+                      {checked ? <CheckSquare size={16} className="text-[#0F2A24] shrink-0" /> : <Square size={16} className="text-[#d2d2d7] shrink-0" />}
                       <span className="text-[12px] font-mono text-[#86868b] w-[100px] shrink-0">{a.asin}</span>
                       <span className="text-[13px] flex-1 truncate">{a.title}</span>
                       <span className={`text-[14px] font-bold shrink-0 w-[70px] text-right ${priceColor}`}>{a.price || "$—"}</span>
@@ -322,7 +322,7 @@ export default function MarketOpportunity() {
                   .filter(([key]) => !["product_categories", "best_opportunity_category"].includes(key))
                   .map(([key, val]) => (
                   <div key={key} className="flex gap-3">
-                    <div className="w-1.5 h-1.5 rounded-full bg-[#0071e3] mt-2 shrink-0" />
+                    <div className="w-1.5 h-1.5 rounded-full bg-[#0F2A24] mt-2 shrink-0" />
                     <div>
                       <p className="text-[13px] font-medium text-[#86868b]">{key}</p>
                       <p className="text-[15px]">
@@ -347,7 +347,7 @@ export default function MarketOpportunity() {
             {history.items.map((item) => (
               <div
                 key={item.id}
-                className="apple-card p-4 flex items-center justify-between hover:bg-[#f5f5f7] transition-colors"
+                className="apple-card p-4 flex items-center justify-between hover:bg-[#fbfaf7] transition-colors"
               >
                 <div className="flex items-center gap-3">
                   <Globe size={18} className="text-[#86868b]" />
@@ -390,7 +390,7 @@ function Indicator({
   value: string;
 }) {
   return (
-    <div className="bg-[#f5f5f7] rounded-xl p-3">
+    <div className="bg-[#fbfaf7] rounded-xl p-3">
       <div className="flex items-center gap-1.5 mb-1">
         <Icon size={14} className="text-[#86868b]" />
         <span className="text-[12px] text-[#86868b] font-medium">{label}</span>

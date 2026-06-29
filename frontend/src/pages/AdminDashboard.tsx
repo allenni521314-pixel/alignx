@@ -20,7 +20,7 @@ export default function AdminDashboard() {
   const { data: profiles, isLoading: la } = useQuery({ queryKey: ["admin-profiles"], queryFn: listAdminProfiles, enabled: true });
   const { data: audit } = useQuery({ queryKey: ["admin-audit"], queryFn: getAdminAudit, enabled: true });
 
-  if (lp || la) return <div className="max-w-[900px] mx-auto py-8"><div className="apple-card p-16 text-center"><div className="w-8 h-8 border-2 border-[#0071e3]/20 border-t-[#0071e3] rounded-full animate-spin mx-auto" /></div></div>;
+  if (lp || la) return <div className="max-w-[900px] mx-auto py-8"><div className="apple-card p-16 text-center"><div className="w-8 h-8 border-2 border-[#0F2A24]/20 border-t-[#0F2A24] rounded-full animate-spin mx-auto" /></div></div>;
 
   const loop = audit?.loop_health ?? {};
 
@@ -42,7 +42,7 @@ export default function AdminDashboard() {
 
       {/* ASIN Profiles */}
       <div className="apple-card p-5 mb-6">
-        <h3 className="flex items-center gap-2 text-[15px] font-semibold mb-3"><Database size={16} className="text-[#0071e3]" />ASIN 经营档案 ({profiles?.length ?? 0})</h3>
+        <h3 className="flex items-center gap-2 text-[15px] font-semibold mb-3"><Database size={16} className="text-[#0F2A24]" />ASIN 经营档案 ({profiles?.length ?? 0})</h3>
         <div className="overflow-x-auto">
           <table className="w-full text-[13px]">
             <thead><tr className="border-b border-[#d2d2d7]/20 text-left text-[#86868b]">
@@ -73,7 +73,7 @@ export default function AdminDashboard() {
 
       {/* Propositions */}
       <div className="apple-card p-5">
-        <h3 className="flex items-center gap-2 text-[15px] font-semibold mb-3"><BookOpen size={16} className="text-[#0071e3]" />命题库 ({props?.length ?? 0})</h3>
+        <h3 className="flex items-center gap-2 text-[15px] font-semibold mb-3"><BookOpen size={16} className="text-[#0F2A24]" />命题库 ({props?.length ?? 0})</h3>
         <div className="overflow-x-auto max-h-[500px] overflow-y-auto">
           <table className="w-full text-[13px]">
             <thead><tr className="border-b border-[#d2d2d7]/20 text-left text-[#86868b] sticky top-0 bg-white">
@@ -128,12 +128,12 @@ function RulesLibrary() {
 
   return (
     <div className="apple-card p-5 mb-6">
-      <h3 className="flex items-center gap-2 text-[15px] font-semibold mb-3"><Shield size={16} className="text-[#0071e3]" />平台规则库</h3>
+      <h3 className="flex items-center gap-2 text-[15px] font-semibold mb-3"><Shield size={16} className="text-[#0F2A24]" />平台规则库</h3>
       <div className="grid grid-cols-2 gap-3">
         {Object.entries(rules).map(([id, rule]: [string, any]) => (
           <div key={id} className="border border-[#d2d2d7]/20 rounded-xl p-3">
             <div className="flex items-center gap-2 mb-2">
-              <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${rule.risk === "high" ? "bg-[#ff3b30]/10 text-[#ff3b30]" : rule.risk === "medium" ? "bg-[#ff9500]/10 text-[#ff9500]" : "bg-[#f5f5f7] text-[#86868b]"}`}>{rule.category}</span>
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${rule.risk === "high" ? "bg-[#ff3b30]/10 text-[#ff3b30]" : rule.risk === "medium" ? "bg-[#ff9500]/10 text-[#ff9500]" : "bg-[#fbfaf7] text-[#86868b]"}`}>{rule.category}</span>
               <span className="text-[13px] font-medium">{rule.name}</span>
             </div>
             <p className="text-[11px] text-[#86868b] mb-2">{rule.description}</p>
@@ -149,9 +149,9 @@ function RulesLibrary() {
               <div>
                 <div className="text-[11px] text-[#86868b] max-h-[80px] overflow-y-auto">
                   {rule.items.slice(0, 5).map((item: string, i: number) => <p key={i} className="truncate">· {item}</p>)}
-                  {rule.items.length > 5 && <p className="text-[#0071e3]">+{rule.items.length - 5} 条</p>}
+                  {rule.items.length > 5 && <p className="text-[#0F2A24]">+{rule.items.length - 5} 条</p>}
                 </div>
-                <button onClick={() => handleEdit(id, rule.items)} className="text-[12px] text-[#0071e3] mt-1">编辑</button>
+                <button onClick={() => handleEdit(id, rule.items)} className="text-[12px] text-[#0F2A24] mt-1">编辑</button>
               </div>
             )}
           </div>
@@ -182,7 +182,7 @@ function BuyerLangTool() {
 
   return (
     <div className="apple-card p-5 mb-6">
-      <h3 className="flex items-center gap-2 text-[15px] font-semibold mb-3"><Languages size={16} className="text-[#0071e3]" />买家语言转译引擎</h3>
+      <h3 className="flex items-center gap-2 text-[15px] font-semibold mb-3"><Languages size={16} className="text-[#0F2A24]" />买家语言转译引擎</h3>
       <p className="text-[13px] text-[#86868b] mb-3">卖家技术语言 → 亚马逊买家购买语言</p>
 
       <div className="space-y-3 mb-4">
@@ -208,12 +208,12 @@ function BuyerLangTool() {
             const val = c[key];
             if (!val) return null;
             return (
-              <div key={style} className="flex items-start justify-between gap-2 p-2 rounded-lg bg-[#f5f5f7] mb-1">
+              <div key={style} className="flex items-start justify-between gap-2 p-2 rounded-lg bg-[#fbfaf7] mb-1">
                 <div className="flex-1 min-w-0">
                   <p className="text-[10px] text-[#86868b] uppercase mb-0.5">{style === "short" ? "标题/主图" : style === "bullet" ? "五点描述" : "A+"}</p>
-                  <p className="text-[13px] text-[#0071e3]">{val}</p>
+                  <p className="text-[13px] text-[#0F2A24]">{val}</p>
                 </div>
-                <button onClick={() => { navigator.clipboard.writeText(val); setCopied(`${i}-${style}`); setTimeout(() => setCopied(null), 2000); }} className="shrink-0 text-[12px] text-[#0071e3] hover:text-[#0077ed]">
+                <button onClick={() => { navigator.clipboard.writeText(val); setCopied(`${i}-${style}`); setTimeout(() => setCopied(null), 2000); }} className="shrink-0 text-[12px] text-[#0F2A24] hover:text-[#173a32]">
                   {copied === `${i}-${style}` ? "已复制" : "复制"}
                 </button>
               </div>

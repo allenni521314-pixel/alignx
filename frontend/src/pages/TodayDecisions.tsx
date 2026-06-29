@@ -19,7 +19,7 @@ export default function TodayDecisions() {
     return (
       <div className="max-w-[680px] mx-auto py-12">
         <div className="apple-card p-16 text-center">
-          <div className="w-8 h-8 border-2 border-[#0071e3]/20 border-t-[#0071e3] rounded-full animate-spin mx-auto" />
+          <div className="w-8 h-8 border-2 border-[#0F2A24]/20 border-t-[#0F2A24] rounded-full animate-spin mx-auto" />
         </div>
       </div>
     );
@@ -154,7 +154,7 @@ function FocusCard({ item }: { item: DecisionItem }) {
         </div>
 
         {/* Metrics */}
-        <div className="bg-[#f5f5f7] rounded-xl p-5 grid grid-cols-3 gap-4 mb-8">
+        <div className="bg-[#fbfaf7] rounded-xl p-5 grid grid-cols-3 gap-4 mb-8">
           <div className="text-center">
             <div className="text-[20px] font-bold text-[#ff3b30] tracking-[-0.02em]">{cost}</div>
             <div className="text-[11px] text-[#86868b] mt-1">验证成本</div>
@@ -179,13 +179,13 @@ function FocusCard({ item }: { item: DecisionItem }) {
             </div>
           ) : (
             <>
-              <button className="flex-1 py-3.5 rounded-full text-[15px] font-medium bg-[#f5f5f7] text-[#1d1d1f] hover:bg-[#e8e8ed] transition-colors active:scale-[0.97]">
+              <button className="flex-1 py-3.5 rounded-full text-[15px] font-medium bg-[#fbfaf7] text-[#1d1d1f] hover:bg-[#e8e8ed] transition-colors active:scale-[0.97]">
                 不做了
               </button>
               <button
                 onClick={handleStart}
                 disabled={starting || blocked}
-                className="flex-1 py-3.5 rounded-full text-[15px] font-medium bg-[#0071e3] text-white hover:bg-[#0077ed] shadow-sm shadow-[#0071e3]/25 transition-colors active:scale-[0.97] flex items-center justify-center gap-2 disabled:opacity-60"
+                className="flex-1 py-3.5 rounded-full text-[15px] font-medium bg-[#0F2A24] text-white hover:bg-[#173a32] shadow-sm shadow-[#0F2A24]/25 transition-colors active:scale-[0.97] flex items-center justify-center gap-2 disabled:opacity-60"
               >
                 {starting ? (
                   <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
@@ -208,8 +208,8 @@ function QueueItem({ item, index, running }: { item: DecisionItem; index: number
   const cost = item.estimated_cost != null ? `$${item.estimated_cost}` : "—";
 
   return (
-    <div className="apple-card p-4 flex items-center gap-4 hover:bg-[#f5f5f7] transition-colors cursor-pointer">
-      <div className="w-7 h-7 rounded-full bg-[#f5f5f7] flex items-center justify-center shrink-0">
+    <div className="apple-card p-4 flex items-center gap-4 hover:bg-[#fbfaf7] transition-colors cursor-pointer">
+      <div className="w-7 h-7 rounded-full bg-[#fbfaf7] flex items-center justify-center shrink-0">
         {running ? (
           <span className="w-2 h-2 rounded-full bg-[#ff9500] animate-pulse" />
         ) : (
@@ -240,7 +240,7 @@ function EmptyState() {
   const navigate = useNavigate();
   return (
     <div className="apple-card p-16 text-center">
-      <div className="w-12 h-12 rounded-full bg-[#f5f5f7] flex items-center justify-center mx-auto mb-4">
+      <div className="w-12 h-12 rounded-full bg-[#fbfaf7] flex items-center justify-center mx-auto mb-4">
         <ChevronRight size={20} className="text-[#d2d2d7]" />
       </div>
       <h3 className="text-[17px] font-semibold mb-1">还没有假设</h3>
@@ -249,7 +249,7 @@ function EmptyState() {
       </p>
       <button
         onClick={() => navigate("/market-opportunity")}
-        className="text-[14px] font-medium text-[#0071e3] hover:underline"
+        className="text-[14px] font-medium text-[#0F2A24] hover:underline"
       >
         去产品调研 →
       </button>

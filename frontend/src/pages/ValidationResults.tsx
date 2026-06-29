@@ -15,7 +15,7 @@ const STATUS_CFG: Record<string, { icon: React.ComponentType<{ size?: number; cl
   effective:     { icon: TrendingUp,    color: "text-[#34c759]", label: "有效", bg: "bg-[#34c759]/[0.06]" },
   ineffective:   { icon: TrendingDown,  color: "text-[#ff3b30]", label: "无效", bg: "bg-[#ff3b30]/[0.06]" },
   interfered:    { icon: AlertTriangle, color: "text-[#ff9500]", label: "受干扰", bg: "bg-[#ff9500]/[0.06]" },
-  insufficient_data:  { icon: HelpCircle,    color: "text-[#86868b]", label: "数据不足", bg: "bg-[#f5f5f7]" },
+  insufficient_data:  { icon: HelpCircle,    color: "text-[#86868b]", label: "数据不足", bg: "bg-[#fbfaf7]" },
 };
 
 export default function ValidationResults() {
@@ -60,7 +60,7 @@ export default function ValidationResults() {
     } catch {} finally { setSubmitting(false); }
   };
 
-  if (isLoading) return <div className="max-w-[800px] mx-auto py-8"><div className="apple-card p-16 text-center"><div className="w-8 h-8 border-2 border-[#0071e3]/20 border-t-[#0071e3] rounded-full animate-spin mx-auto" /></div></div>;
+  if (isLoading) return <div className="max-w-[800px] mx-auto py-8"><div className="apple-card p-16 text-center"><div className="w-8 h-8 border-2 border-[#0F2A24]/20 border-t-[#0F2A24] rounded-full animate-spin mx-auto" /></div></div>;
 
   return (
     <div className="max-w-[680px] mx-auto py-12">
@@ -167,7 +167,7 @@ export default function ValidationResults() {
                         <span className={`text-[11px] px-1.5 py-0.5 rounded-full ${
                           r.final_result_status === "effective" ? "bg-[#34c759]/10 text-[#34c759]" :
                           r.final_result_status === "ineffective" ? "bg-[#ff3b30]/10 text-[#ff3b30]" :
-                          "bg-[#f5f5f7] text-[#86868b]"
+                          "bg-[#fbfaf7] text-[#86868b]"
                         }`}>{r.next_step}</span>
                       )}
                     </div>
@@ -181,7 +181,7 @@ export default function ValidationResults() {
                   <div className="px-4 pb-4 border-t border-[#d2d2d7]/20 pt-3">
                     <p className="text-[14px]">{r.notes || "暂无"}</p>
                     {r.attribution_conclusion && (
-                      <div className="mt-3 p-3 bg-[#f5f5f7] rounded-lg">
+                      <div className="mt-3 p-3 bg-[#fbfaf7] rounded-lg">
                         <p className="text-[12px] text-[#86868b] mb-1">归因结论</p>
                         <p className="text-[14px]">{r.attribution_conclusion}</p>
                       </div>
@@ -194,7 +194,7 @@ export default function ValidationResults() {
                           const change = after - before;
                           const pct = before ? ((change / before) * 100).toFixed(1) : "—";
                           return (
-                            <div key={k} className="flex items-center justify-between p-2 rounded-lg bg-[#f5f5f7]">
+                            <div key={k} className="flex items-center justify-between p-2 rounded-lg bg-[#fbfaf7]">
                               <span className="text-[12px]">{k}</span>
                               <span className={`text-[12px] font-medium ${change > 0 ? "text-[#34c759]" : change < 0 ? "text-[#ff3b30]" : "text-[#86868b]"}`}>
                                 {before} → {after} ({pct}%)
