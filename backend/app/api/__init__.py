@@ -16,6 +16,7 @@ from app.api.lifecycle import router as lifecycle_router
 from app.api.report_uploads import router as report_uploads_router
 from app.api.auth import router as auth_router
 from app.api.admin import router as admin_router
+from app.api.help import router as help_router
 
 api_router = APIRouter()
 
@@ -33,3 +34,4 @@ api_router.include_router(asin_profiles_router)
 api_router.include_router(reports_router)
 api_router.include_router(lifecycle_router)
 api_router.include_router(report_uploads_router)
+api_router.include_router(help_router)

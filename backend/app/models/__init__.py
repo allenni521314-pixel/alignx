@@ -553,3 +553,61 @@ class OperationAuditLog(Base):
     before_json     = Column(JSON, nullable=True)
     after_json      = Column(JSON, nullable=True)
     created_at      = Column(DateTime, nullable=False, default=utcnow)
+
+
+# ═══════════════════════════════════════════
+# 19. Help Assistant
+# ═══════════════════════════════════════════
+
+class HelpTicket(Base):
+    __tablename__ = "help_tickets"
+
+    id            = Column(String(32), primary_key=True, default=new_uuid)
+    ticket_id     = Column(String(32), nullable=False, default=new_uuid, unique=True, index=True)
+    user_id       = Column(String(32), ForeignKey("users.id"), nullable=False, index=True)
+    user_email    = Column(String(255), nullable=True)
+    issue_type    = Column(String(64), nullable=False, default="other", index=True)
+    priority      = Column(String(32), nullable=False, default="medium", index=True)
+    language      = Column(String(8), nullable=False, default="zh")
+    page_url      = Column(Text, nullable=True)
+    user_message  = Column(Text, nullable=False)
+    screenshots   = Column(JSON, nullable=True)
+    status        = Column(String(32), nullable=False, default="open", index=True)
+    created_at    = Column(DateTime, nullable=False, default=utcnow)
+
+
+class HelpMessage(Base):
+    __tablename__ = "help_messages"
+
+    id           = Column(String(32), primary_key=True, default=new_uuid)
+    user_id      = Column(String(32), ForeignKey("users.id"), nullable=False, index=True)
+    language     = Column(String(8), nullable=False, default="zh")
+    page_url     = Column(Text, nullable=True)
+    role         = Column(String(32), nullable=False)  # user | assistant
+    message      = Column(Text, nullable=False)
+    source       = Column(String(32), nullable=False, default="faq")  # faq | deepseek | fallback
+    ticket_id    = Column(String(32), nullable=True, index=True)
+    created_at   = Column(DateTime, nullable=False, default=utcnow)
+
+
+class HelpFaqItem(Base):
+    __tablename__ = "help_faq_items"
+
+    id          = Column(String(32), primary_key=True, default=new_uuid)
+    category    = Column(String(64), nullable=False, index=True)
+    language    = Column(String(8), nullable=False, default="zh", index=True)
+    question    = Column(Text, nullable=False)
+    answer      = Column(Text, nullable=False)
+    keywords    = Column(JSON, nullable=True)
+    created_at  = Column(DateTime, nullable=False, default=utcnow)
+
+
+class HelpFeedback(Base):
+    __tablename__ = "help_feedback"
+
+    id          = Column(String(32), primary_key=True, default=new_uuid)
+    user_id     = Column(String(32), ForeignKey("users.id"), nullable=False, index=True)
+    message_id  = Column(String(32), ForeignKey("help_messages.id"), nullable=True)
+    rating      = Column(String(32), nullable=True)
+    comment     = Column(Text, nullable=True)
+    created_at  = Column(DateTime, nullable=False, default=utcnow)

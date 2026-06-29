@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Optional, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 # ═══════════════════════════════════════════
@@ -15,6 +15,59 @@ class PaginatedResponse(BaseModel):
     total: int
     page: int = 1
     page_size: int = 20
+
+
+# ═══════════════════════════════════════════
+# Help Assistant
+# ═══════════════════════════════════════════
+
+class HelpChatRequest(BaseModel):
+    message: str = Field(..., min_length=1, max_length=4000)
+    language: str = Field(default="zh", pattern="^(zh|en)$")
+    page_url: Optional[str] = None
+    recent_error_code: Optional[str] = None
+
+
+class HelpChatResponse(BaseModel):
+    answer: str
+    source: str
+    should_create_ticket: bool = False
+    suggested_issue_type: str = "other"
+    message_id: Optional[str] = None
+
+
+class HelpTicketCreate(BaseModel):
+    issue_type: str = Field(default="other")
+    priority: str = Field(default="medium")
+    language: str = Field(default="zh", pattern="^(zh|en)$")
+    page_url: Optional[str] = None
+    user_message: str = Field(..., min_length=1, max_length=4000)
+    screenshots: Optional[list[str]] = None
+
+
+class HelpTicketResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    ticket_id: str
+    user_email: Optional[str] = None
+    issue_type: str
+    priority: str
+    language: str
+    page_url: Optional[str] = None
+    user_message: str
+    screenshots: Optional[list[str]] = None
+    status: str
+    created_at: datetime
+
+
+class HelpFaqResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    category: str
+    language: str
+    question: str
+    answer: str
+    keywords: list[str] = []
 
 
 # ═══════════════════════════════════════════

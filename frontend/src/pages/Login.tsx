@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Shield, Mail, Building, Key, ArrowRight } from "lucide-react";
+import { Mail, Building, Key, ArrowRight } from "lucide-react";
 import { sendLoginCode, verifyLoginCode } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
 
@@ -57,10 +57,7 @@ export default function Login() {
         </div>
         {/* Brand */}
         <div className="text-center mb-8">
-          <div className="w-12 h-12 bg-[#0F2A24] rounded-2xl flex items-center justify-center mx-auto mb-4">
-            <Shield size={24} className="text-white" />
-          </div>
-          <h1 className="text-[28px] font-bold tracking-[-0.025em] mb-1">{t("login.title")}</h1>
+          <img src="/alignx-logo.png" alt={t("login.title")} className="mx-auto h-[76px] w-auto object-contain" />
         </div>
 
         {/* Form */}

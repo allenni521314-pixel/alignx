@@ -450,8 +450,8 @@ function Header({ lang }: { lang: Lang }) {
   return (
     <header className="sticky top-0 z-20 border-b border-[#0F2A24]/10 bg-[#fbfaf7]/92 backdrop-blur">
       <div className="mx-auto flex h-16 max-w-[1120px] items-center justify-between px-5">
-        <a href={`/${lang}`} className="text-[24px] font-semibold tracking-[-0.04em] text-[#0F2A24]">
-          AlignX
+        <a href={`/${lang}`} className="flex items-center">
+          <img src="/alignx-logo.png" alt="AlignX" className="h-[38px] w-auto object-contain" />
         </a>
         <nav className="hidden items-center gap-7 text-[14px] text-[#0F2A24]/70 lg:flex">
           {copy.nav.map((item, index) => {
@@ -618,7 +618,7 @@ function Footer({ lang, copy }: { lang: Lang; copy: typeof labels.en }) {
       <div className="mx-auto max-w-[1120px] px-5 py-10">
         <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
           <div>
-            <p className="text-[20px] font-semibold tracking-[-0.04em] text-[#0F2A24]">AlignX</p>
+            <img src="/alignx-logo.png" alt="AlignX" className="h-[42px] w-auto object-contain" />
             <p className="mt-2 text-[14px] text-[#0F2A24]/60">{copy.footerValue}</p>
             <p className="text-[14px] text-[#0F2A24]/60">{copy.method}</p>
           </div>

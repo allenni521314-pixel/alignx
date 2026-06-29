@@ -463,6 +463,71 @@ export function applyLifecycle(asin: string) {
   return request<LifecycleData>(`/lifecycle/${asin}/apply`, { method: "POST" });
 }
 
+// ── Help Assistant ──
+
+export interface HelpChatResponse {
+  answer: string;
+  source: string;
+  should_create_ticket: boolean;
+  suggested_issue_type: string;
+  message_id?: string | null;
+}
+
+export interface HelpTicket {
+  ticket_id: string;
+  user_email?: string | null;
+  issue_type: string;
+  priority: string;
+  language: string;
+  page_url?: string | null;
+  user_message: string;
+  screenshots?: string[] | null;
+  status: string;
+  created_at: string;
+}
+
+export interface HelpFaqItem {
+  category: string;
+  language: string;
+  question: string;
+  answer: string;
+  keywords: string[];
+}
+
+export function sendHelpMessage(data: {
+  message: string;
+  language: "zh" | "en";
+  page_url?: string;
+  recent_error_code?: string | null;
+}) {
+  return request<HelpChatResponse>("/help/chat", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export function createHelpTicket(data: {
+  issue_type: string;
+  priority: string;
+  language: "zh" | "en";
+  page_url?: string;
+  user_message: string;
+  screenshots?: string[];
+}) {
+  return request<HelpTicket>("/help/tickets", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export function listHelpTickets() {
+  return request<HelpTicket[]>("/help/tickets");
+}
+
+export function listHelpFaq(language: "zh" | "en") {
+  return request<HelpFaqItem[]>(`/help/faq?language=${language}`);
+}
+
 // ── Admin ──
 
 export interface AdminProposition {

@@ -1,5 +1,6 @@
 import { Routes, Route, Navigate } from "react-router-dom";
 import Sidebar from "./components/Sidebar";
+import HelpAssistant from "./components/help/HelpAssistant";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const token = localStorage.getItem("alignx_token");
@@ -62,6 +63,7 @@ export default function App() {
           <Route path="/admin" element={<AdminDashboard />} />
         </Routes>
       </main>
+      <HelpAssistant />
     </div>
         </RequireAuth>
       } />
