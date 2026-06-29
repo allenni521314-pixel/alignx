@@ -257,10 +257,10 @@ A+模块（每个模块按内容类型评分）：
 
 
 def build_prelaunch_prompt(materials: dict) -> str:
-    return f"""请审核以下 Listing 素材是否达到上架标准。
+    return """请审核以下 Listing 素材是否达到上架标准。
 
 素材内容：
-{json.dumps(materials, ensure_ascii=False, indent=2)}
+__MATERIALS_JSON__
 
 输出 JSON：
 {{
@@ -329,7 +329,10 @@ def build_prelaunch_prompt(materials: dict) -> str:
   }
 }}
 
-注意：未上传的位置标记为"缺失"，不要编造内容。"""
+注意：未上传的位置标记为"缺失"，不要编造内容。""".replace(
+        "__MATERIALS_JSON__",
+        json.dumps(materials, ensure_ascii=False, indent=2),
+    )
 
 
 # ═════════════════════════════════════════════════════
