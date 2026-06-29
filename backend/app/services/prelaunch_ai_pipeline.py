@@ -87,7 +87,15 @@ async def run_prelaunch_ai_pipeline(
         )
         result.ai_result = apply_prelaunch_rules(result.ai_result, result.materials)
     except Exception as exc:
-        result.ai_error = str(exc)
+        result.ai_error = "AI 解析失败，已使用规则兜底诊断。"
+        try:
+            result.ai_result = apply_prelaunch_rules(
+                _fallback_prelaunch_result(result.materials),
+                result.materials,
+            )
+        except Exception:
+            result.ai_result = None
+            result.ai_error = "AI 分析失败，请稍后重试。"
     return result
 
 
@@ -97,6 +105,40 @@ def _base_materials(req: PrelaunchCheckRequest) -> dict[str, Any]:
         "title_draft": req.title_draft,
         "key_highlights": req.key_highlights,
         "bullet_points": [req.bullet_1, req.bullet_2, req.bullet_3, req.bullet_4, req.bullet_5],
+    }
+
+
+def _fallback_prelaunch_result(materials: dict[str, Any]) -> dict[str, Any]:
+    """Build a deterministic, saveable diagnosis when AI JSON parsing fails."""
+    positions: list[dict[str, Any]] = []
+    bullet_points = materials.get("bullet_points") or []
+    for index, text in enumerate(bullet_points[:5], start=1):
+        if not text:
+            continue
+        positions.append({
+            "position_id": f"bullet_{index}",
+            "position": f"bullet_{index}",
+            "position_name": f"五点{index}",
+            "position_type": "text",
+            "uploaded": True,
+            "status": "待验证",
+            "issue_type": ["ai_fallback_diagnosis"],
+            "issue": "AI 诊断未完成，已使用规则兜底。",
+            "recommendation": "待验证",
+            "suggested_rewrite": "待验证",
+            "final_score": 3.0,
+            "score": 3.0,
+            "usable_status": "可使用但建议优化",
+            "risk_level": "low",
+            "validation_metric": "CVR",
+            "impact_metrics": ["CVR"],
+        })
+
+    return {
+        "admission_result": "待验证",
+        "conclusion": "AI 诊断未完成，已使用规则兜底。",
+        "position_diagnoses": positions,
+        "next_action": "先处理硬拦截项，再重新运行 AI 诊断。",
     }
 
 

@@ -34,6 +34,7 @@ from app.services.ai_calls import complete_json_with_log
 from app.services.asin_operation_tree import build_closed_loop_audit
 from app.services.conversion_diagnosis import diagnose
 from app.services.lifecycle_engine import detect_lifecycle
+from app.services.prelaunch_ai_pipeline import _fallback_prelaunch_result
 from app.services.proposition_library import (
     ensure_proposition_library,
     list_propositions,
@@ -619,6 +620,31 @@ class TenantIsolationTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["listing_intent"]["core_value_point"], "待录入")
         self.assertNotEqual(result["listing_intent"]["product_identity_zh"], "宠物小空间除臭器")
         self.assertNotIn("Pet Odor Eliminator", result["title_analysis"]["suggested_title"])
+
+    async def test_prelaunch_fallback_result_keeps_value_points_without_raw_ai_error(self):
+        materials = {
+            "product_name": "Gleeda Photocatalyst Pet Odor Eliminator",
+            "title_draft": (
+                "Gleeda Photocatalyst Pet Odor Eliminator, UVC Deodorizer With VOC Sensor, "
+                "USB Air Cleaner for Litter Box, Pet Cage, Bathroom and Closet"
+            ),
+            "key_highlights": "Pet odor control for small spaces",
+            "bullet_points": [
+                "Photocatalyst and UVC technology for pet odor spaces.",
+                "No ozone for litter box areas.",
+                "No filters or fragrance refills.",
+                "",
+                "",
+            ],
+            "uploaded_images": [{"position": "main_image"}],
+            "missing_images": ["aplus_8", "aplus_9"],
+        }
+
+        result = apply_prelaunch_rules(_fallback_prelaunch_result(materials), materials)
+
+        self.assertEqual(result["listing_intent"]["core_value_point"], "Pet small-space odor control")
+        self.assertEqual(result["listing_intent"]["supporting_value_points"], ["No ozone", "No filters or fragrance refills"])
+        self.assertNotIn("Unterminated string", str(result))
 
     async def test_conversion_diagnosis_uses_listing_mental_value_engine(self):
         capture = CaptureJob(
