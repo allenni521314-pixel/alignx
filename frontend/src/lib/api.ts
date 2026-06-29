@@ -199,6 +199,35 @@ export interface ConversionPositionDiagnosis {
   position_id: string;
   position_name: string;
   status: string;
+  score?: number | null;
+  currentText?: string | null;
+  issueTypes?: string[] | null;
+  humanDriver?: {
+    gainDrivers?: string[];
+    avoidanceDrivers?: string[];
+    primaryDriverType?: string | null;
+    primaryDriver?: string | null;
+    explanation?: string | null;
+  } | null;
+  mentalValuePoint?: {
+    primaryValuePoint?: string | null;
+    buyerMemorySentence?: string | null;
+    supportingBenefits?: string[];
+    proofPoints?: string[];
+  } | null;
+  buyerLanguageProblem?: string | null;
+  positionProblem?: string | null;
+  complianceRisk?: {
+    riskLevel?: string | null;
+    riskPhrases?: string[];
+    evidenceRequired?: boolean;
+    saferAlternatives?: string[];
+  } | null;
+  suggestedRewrite?: string | null;
+  reason?: string | null;
+  placementAdvice?: string | null;
+  rejectedPhrases?: string[] | null;
+  validationMetrics?: string[] | null;
   issue: string | null;
   evidence: string | null;
   conversion_impact: string | null;

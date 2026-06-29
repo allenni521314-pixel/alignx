@@ -6,6 +6,7 @@ from sqlalchemy import select, desc
 
 from app.models import ConversionDiagnosis
 from app.schemas import ConversionDiagnosisRequest, ConversionDiagnosisResponse
+from app.core.listing_mental_value import ListingMentalValueEngine
 from app.services.listing_ai_pipeline import extract_asin, run_conversion_listing_ai_pipeline
 from app.services.access import require_user_id, user_scoped
 
@@ -27,19 +28,20 @@ async def diagnose(req: ConversionDiagnosisRequest, db: AsyncSession, user_id: s
     )
     listing_data = pipeline_result.listing_data
     ai_result = pipeline_result.ai_result
+    mental_result = ListingMentalValueEngine().analyze(listing_data, ai_result) if listing_data else None
 
     title = listing_data.get("title") if listing_data else None
-    if ai_result and not pipeline_result.ai_error:
+    if mental_result:
         diagnosis = ConversionDiagnosis(
             user_id=uid, asin=asin, product_url=req.product_url,
             marketplace=req.marketplace, product_title=title,
-            overall_conclusion=ai_result.get("overall_conclusion"),
-            biggest_breakpoint=ai_result.get("biggest_breakpoint"),
-            priority_position=ai_result.get("priority_position"),
-            priority_action=ai_result.get("priority_action"),
-            impacted_ad_metrics=ai_result.get("impacted_ad_metrics"),
-            current_status=ai_result.get("current_status"),
-            position_diagnoses_json=ai_result.get("position_diagnoses"),
+            overall_conclusion=mental_result.get("overallConclusion"),
+            biggest_breakpoint=mental_result.get("priorityPosition"),
+            priority_position=mental_result.get("priorityPosition"),
+            priority_action=mental_result.get("priorityAction"),
+            impacted_ad_metrics=mental_result.get("impactedAdMetrics"),
+            current_status=mental_result.get("currentStatus"),
+            position_diagnoses_json=mental_result.get("positionDiagnoses"),
         )
     else:
         diagnosis = ConversionDiagnosis(

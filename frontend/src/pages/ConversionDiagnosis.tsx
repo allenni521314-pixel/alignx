@@ -172,10 +172,44 @@ export default function ConversionDiagnosis() {
                     {d.evidence && (
                       <p className="text-[13px] text-[#86868b] mb-1.5">{d.evidence}</p>
                     )}
+                    {(d.buyerLanguageProblem || d.positionProblem || d.reason) && (
+                      <div className="mt-3 space-y-2">
+                        <FieldBlock
+                          label="为什么有问题"
+                          value={d.reason || d.buyerLanguageProblem || d.positionProblem || "暂无"}
+                        />
+                        <FieldBlock
+                          label="命中的人性驱动力"
+                          value={[
+                            d.humanDriver?.primaryDriverType,
+                            d.humanDriver?.primaryDriver,
+                            ...(d.humanDriver?.gainDrivers ?? []),
+                            ...(d.humanDriver?.avoidanceDrivers ?? []),
+                          ].filter(Boolean).join(" / ") || "暂无"}
+                        />
+                        <FieldBlock
+                          label="主心智价值点"
+                          value={d.mentalValuePoint?.buyerMemorySentence || d.mentalValuePoint?.primaryValuePoint || "暂无"}
+                        />
+                      </div>
+                    )}
                     {d.recommendation && (
                       <p className="text-[13px] text-[#0071e3] bg-[#0071e3]/[0.04] rounded-lg p-2 mt-2">
                         {d.recommendation}
                       </p>
+                    )}
+                    {(d.complianceRisk?.riskLevel || d.rejectedPhrases?.length) && (
+                      <FieldBlock
+                        label="风险提示"
+                        value={[
+                          d.complianceRisk?.riskLevel,
+                          ...(d.rejectedPhrases ?? []),
+                          ...(d.complianceRisk?.saferAlternatives ?? []),
+                        ].filter(Boolean).join(" / ") || "暂无"}
+                      />
+                    )}
+                    {d.placementAdvice && (
+                      <FieldBlock label="位置建议" value={d.placementAdvice} />
                     )}
                   </div>
                 ))}
@@ -218,6 +252,15 @@ export default function ConversionDiagnosis() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function FieldBlock({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg bg-white/70 p-2">
+      <p className="text-[11px] text-[#86868b] mb-1">{label}</p>
+      <p className="text-[13px] text-[#1d1d1f] leading-relaxed">{value || "暂无"}</p>
     </div>
   );
 }

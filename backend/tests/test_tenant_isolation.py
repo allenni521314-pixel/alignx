@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.core.ai_orchestration import AIResponse
 from app.core.capture import CaptureResult
+from app.core.listing_mental_value import ListingMentalValueEngine
 from app.database import Base
 from app.models import (
     AiCallLog,
@@ -439,6 +440,109 @@ class TenantIsolationTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(pipeline["capture_status"], "snapshot")
         self.assertEqual(pipeline["ocr_status"], "success")
         self.assertEqual(captured_payload["listing_data"]["ocr_image_texts"], snapshot.ocr_image_texts)
+        self.assertEqual(result.current_status, "mental_value_evaluated")
+
+    async def test_listing_mental_value_engine_gleeda_main_value_and_risk(self):
+        listing_data = {
+            "title": "Gleeda Ozone-Free Small-Space Pet Odor Control Device",
+            "bullet_points": [
+                "Photocatalyst deodorizer for litter box areas and pet cages",
+                "No ozone, no filters, no refills, USB powered wall-mount design",
+                "Safe for pets and works while pets are present",
+            ],
+            "ocr_image_texts": {
+                "副图4": "Compact Size, Easy To Place 5.12 x 5.12 x 1.3 in",
+            },
+        }
+
+        result = ListingMentalValueEngine().analyze(listing_data)
+        title_row = next(row for row in result["positionDiagnoses"] if row["position"] == "title")
+        high_risk_rows = [
+            row for row in result["positionDiagnoses"]
+            if row["complianceRisk"]["riskLevel"] == "high"
+        ]
+
+        self.assertEqual(
+            result["mentalValuePoint"]["primaryValuePoint"],
+            "No-ozone, no-refill pet odor removal for small spaces",
+        )
+        self.assertEqual(result["humanDriverAnalysis"]["primaryDriverType"], "mixed")
+        self.assertIn("No ozone", result["mentalValuePoint"]["proofPoints"])
+        self.assertEqual(title_row["suggestedRewrite"], "Gleeda Pet Odor Eliminator, No Ozone, No Filters, USB Powered")
+        self.assertTrue(high_risk_rows)
+        self.assertIn("safe for pets", high_risk_rows[0]["complianceRisk"]["riskPhrases"])
+
+    async def test_listing_mental_value_engine_led_avoids_brightness_as_primary(self):
+        listing_data = {
+            "title": "Super Bright 50000LM LED Headlight Bulbs 300% Brighter",
+            "bullet_points": [
+                "LED headlight bulbs for halogen replacement",
+                "Focused beam pattern and clear beam for night driving",
+                "Plug-in fit for specified bulb models",
+            ],
+        }
+
+        result = ListingMentalValueEngine().analyze(listing_data)
+
+        self.assertEqual(
+            result["mentalValuePoint"]["primaryValuePoint"],
+            "Clearer halogen upgrade without harsh glare",
+        )
+        self.assertIn("risk_of_harm_avoidance", [
+            item["driver"] for item in result["humanDriverAnalysis"]["avoidanceDrivers"]
+        ])
+        self.assertEqual(
+            result["buyerLanguage"]["item_highlight"],
+            "Clearer night driving with a focused beam, not harsh glare",
+        )
+
+    async def test_conversion_diagnosis_uses_listing_mental_value_engine(self):
+        capture = CaptureJob(
+            user_id=self.user_a.id,
+            input_type="asin",
+            input_value="B0TENANT10",
+            marketplace="amazon.com",
+            status="success",
+        )
+        self.db.add(capture)
+        await self.db.flush()
+        snapshot = ListingSnapshot(
+            capture_job_id=capture.id,
+            asin="B0TENANT10",
+            marketplace="amazon.com",
+            title="Gleeda Ozone-Free Small-Space Pet Odor Control Device",
+            bullet_points=[
+                "Photocatalyst deodorizer for litter box areas and pet cages",
+                "No ozone, no filters, no refills, USB powered wall-mount design",
+            ],
+            ocr_image_texts={"副图4": "5.12 x 5.12 x 1.3 in"},
+        )
+        self.db.add(snapshot)
+        await self.db.flush()
+
+        async def fake_complete_json_with_log(**kwargs):
+            return {
+                "overall_conclusion": "AI raw",
+                "biggest_breakpoint": "title",
+                "priority_position": "title",
+                "priority_action": "Safe for pets",
+                "impacted_ad_metrics": ["CVR"],
+                "current_status": "pending",
+                "position_diagnoses": [],
+            }
+
+        with patch("app.services.listing_ai_pipeline.complete_json_with_log", side_effect=fake_complete_json_with_log):
+            result = await diagnose(
+                ConversionDiagnosisRequest(asin="B0TENANT10", marketplace="amazon.com"),
+                self.db,
+                user_id=self.user_a.id,
+            )
+
+        self.assertEqual(result.current_status, "mental_value_evaluated")
+        self.assertEqual(result.priority_position, "item_highlight")
+        self.assertIn("No-ozone, no-refill", result.overall_conclusion)
+        self.assertTrue(result.position_diagnoses_json)
+        self.assertIn("mentalValuePoint", result.position_diagnoses_json[0])
 
     async def test_proposition_library_module_ensures_7x7_library(self):
         await ensure_proposition_library(self.db)
