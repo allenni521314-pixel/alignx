@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from app.core.ai_orchestration import AIResponse
 from app.core.capture import CaptureResult
 from app.core.listing_mental_value import ListingMentalValueEngine
+from app.core.prelaunch_rules import apply_prelaunch_rules
 from app.database import Base
 from app.models import (
     AiCallLog,
@@ -495,6 +496,50 @@ class TenantIsolationTest(unittest.IsolatedAsyncioTestCase):
             result["buyerLanguage"]["item_highlight"],
             "Clearer night driving with a focused beam, not harsh glare",
         )
+
+    async def test_prelaunch_rules_block_overlong_title_and_sanitize_claims(self):
+        title = (
+            "Gleeda Pet Odor Eliminator Air Purifier for Litter Box Areas, No Ozone, No Filters, "
+            "USB Powered Deodorizer for Cat Litter, Small Spaces"
+        )
+        result = apply_prelaunch_rules(
+            {"admission_result": "可以上架", "position_diagnoses": []},
+            {
+                "title_draft": title,
+                "key_highlights": "Safe for pets and eliminates odors in every corner of your home",
+                "bullet_points": ["No harmful ozone", "", "", "", ""],
+                "uploaded_images": [{"position": "main_image"}],
+                "missing_images": ["aplus_8", "aplus_9"],
+            },
+        )
+
+        self.assertEqual(result["overall_status"], "fix_required_before_launch")
+        self.assertEqual(result["admission_result"], "暂不建议上架")
+        self.assertTrue(result["title_analysis"]["is_over_limit"])
+        self.assertLessEqual(result["title_analysis"]["suggested_title_character_count"], 75)
+        blocker_types = {item["type"] for item in result["hard_blockers"]}
+        self.assertIn("title_over_75_characters", blocker_types)
+        self.assertIn("high_risk_claim_without_evidence", blocker_types)
+        serialized = str(result["position_diagnoses"]).lower()
+        self.assertNotIn("safe for pets", serialized)
+        self.assertNotIn("eliminates odors", serialized)
+
+    async def test_prelaunch_rules_add_aplus_8_and_9_missing_positions(self):
+        result = apply_prelaunch_rules(
+            {"admission_result": "可以上架", "position_diagnoses": []},
+            {
+                "title_draft": "Gleeda Pet Odor Eliminator for Cat Litter, No Ozone, No Filters",
+                "key_highlights": "No filters or refills",
+                "bullet_points": ["USB powered", "", "", "", ""],
+                "uploaded_images": [{"position": "main_image"}],
+                "missing_images": ["aplus_8", "aplus_9"],
+            },
+        )
+        by_id = {item.get("position_id"): item for item in result["position_diagnoses"]}
+        self.assertIn("aplus_8", by_id)
+        self.assertIn("aplus_9", by_id)
+        self.assertEqual(by_id["aplus_8"]["final_score"], 1.0)
+        self.assertEqual(by_id["aplus_9"]["usable_status"], "不可使用")
 
     async def test_conversion_diagnosis_uses_listing_mental_value_engine(self):
         capture = CaptureJob(

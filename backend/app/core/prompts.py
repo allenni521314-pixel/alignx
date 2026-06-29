@@ -163,6 +163,18 @@ Amazon 图片规则（必须遵守）：
 - 所有图上文字必须买家语言（利益），不能卖家语言（功能）
 - 禁用词：Best, No.1, Guaranteed, 100%, Medical Grade
 
+标题硬规则（必须遵守）：
+- 标题必须计算字符数，包括空格和标点。
+- title.length > 75 时，status 必须为"需修改"，issue_type 必须包含 title_over_75_characters。
+- suggested_rewrite / recommendation 中的建议标题不得超过 75 characters including spaces。
+- 标题不是关键词仓库，只保留 Brand、Core Search Term、一个主要场景或身份、1-2 个差异点。
+- USB Powered、Wall Mount、Small Spaces、Bathroom、Closet、Shoe Cabinet 等场景词优先放入 Item Highlight 或五点，不强塞标题。
+- 必须输出 title_keyword_tradeoff，说明 kept、moved_to_item_highlight、moved_to_bullets、omitted_from_title_reason。
+
+Item Highlight 规则（必须遵守）：
+- 最大 125 characters including spaces。
+- 承接标题没放下的使用场景、材料、差异点，不重复标题完整内容。
+
 买家语言转译规则（内置）：
 1. 每个位置必须判断：语言是卖家视角还是买家视角
 2. 卖家视角语言 = 修改项 → 必须标注原因和改法
@@ -173,6 +185,16 @@ Amazon 图片规则（必须遵守）：
 标题、五点（1-5）、主图、副图（2-7）、A+（1-9）全部位置都要诊断。
 每个位置判定：通过 | 需修改 | 缺失。
 最终结论：可以上架 | 谨慎上架 | 暂不建议上架。
+
+硬拦截规则：
+- 主图缺失、主图非纯白底、主图出现文字/logo/水印/第三方品牌标识时，整体不得输出"可以上架"。
+- 标题超过 75 characters 时，整体不得输出"可以上架"。
+- 高风险 claim 未提供证据时，整体不得输出"可以上架"。
+- A+8 认证质保、A+9 FAQ+售后缺失时，必须在逐位置诊断中明确输出缺失，整体不得输出"内容完整"。
+
+Claim Risk Guardrail：
+- suggested_rewrite / recommendation 禁止出现：Safe for pets, Safe for cats, Safe for dogs, Safe for family, No harmful ozone, No ozone emissions, Non-toxic, Chemical-free, No harsh chemicals, Kills bacteria, Kills germs, Disinfects, Sterilizes, 100% odor removal, Completely eliminates odors, Eliminates odors, Odor-free home, Guaranteed freshness, Works while pets are present, Naturally removes odors, Medical grade, Hypoallergenic, Purifies all air, Whole home odor removal, Every corner of your home。
+- 使用替代表达：Made for pet areas, No ozone design, Made without ozone, No room-clearing ozone routine, No Filters Or Refills, No Fragrance Cover-Up, Helps Reduce Everyday Pet Odors, Freshens Litter Box Areas, Best For Small Odor-Prone Spaces。
 
 规则：
 1. 没有 ASIN，只基于上传素材判断。
@@ -273,8 +295,38 @@ def build_prelaunch_prompt(materials: dict) -> str:
       "usable_status": "可直接使用 | 可使用但建议优化 | 表达弱需重写 | 不可使用",
       "impact_metrics": ["CTR", "CVR"]
     }},
-    ... (同样结构覆盖：highlights, bullet_1~5, main_image, image_2~7, aplus_1~7)
-  ]
+    ... (同样结构覆盖：highlights, bullet_1~5, main_image, image_2~7, aplus_1~9)
+  ],
+  "overall_status": "ready_to_launch | cautious_launch_after_fix | fix_required_before_launch | not_recommended",
+  "hard_blockers": [],
+  "title_analysis": {
+    "current_title": "",
+    "character_count": 0,
+    "max_characters": 75,
+    "is_over_limit": false,
+    "kept_keywords": [],
+    "missing_keywords": [],
+    "moved_to_item_highlight": [],
+    "moved_to_bullets": [],
+    "suggested_title": "",
+    "suggested_title_character_count": 0,
+    "title_tradeoff_reason": ""
+  },
+  "item_highlight_analysis": {
+    "current_text": "",
+    "character_count": 0,
+    "max_characters": 125,
+    "is_over_limit": false,
+    "suggested_highlight": "",
+    "suggested_highlight_character_count": 0
+  },
+  "a_plus_analysis": [],
+  "claim_risk_analysis": {
+    "risk_phrases_found": [],
+    "risk_level": "low | medium | high",
+    "evidence_required": false,
+    "safer_alternatives": {{}}
+  }
 }}
 
 注意：未上传的位置标记为"缺失"，不要编造内容。"""

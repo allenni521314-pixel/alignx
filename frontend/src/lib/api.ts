@@ -155,6 +155,8 @@ export function getCompetitorAnalysis(id: string) {
 export interface PrelaunchCheck {
   id: string;
   product_name: string;
+  marketplace?: string;
+  title_draft?: string | null;
   admission_result: string | null;
   conclusion: string | null;
   position_diagnoses_json: PositionDiagnosis[] | null;
@@ -171,6 +173,14 @@ export interface PositionDiagnosis {
   impact: string | null;
   recommendation: string | null;
   modification_example: string | null;
+  final_score?: number | null;
+  usable_status?: string | null;
+  impact_metrics?: string[] | null;
+  issue_type?: string[] | null;
+  evidence?: string | null;
+  risk_level?: string | null;
+  suggested_rewrite?: string | null;
+  suggested_action?: string | null;
 }
 
 export function analyzePrelaunch(data: Record<string, unknown>) {
@@ -178,6 +188,12 @@ export function analyzePrelaunch(data: Record<string, unknown>) {
     method: "POST",
     body: JSON.stringify(data),
   });
+}
+
+export function listPrelaunchChecks(page = 1) {
+  return request<{ items: PrelaunchCheck[]; total: number }>(
+    `/prelaunch-check/history?page=${page}`
+  );
 }
 
 // ── Conversion Diagnosis ──

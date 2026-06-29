@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { ClipboardCheck, ArrowRight, AlertCircle, Check, ShieldAlert, Upload } from "lucide-react";
-import { analyzePrelaunch, PrelaunchCheck as PC } from "@/lib/api";
+import { analyzePrelaunch, listPrelaunchChecks, PrelaunchCheck as PC } from "@/lib/api";
 
 const SAVE_KEY = "alignx_prelaunch_draft";
 
@@ -19,6 +20,10 @@ export default function PrelaunchCheck() {
   const [highlights, setHighlights] = useState(draft?.highlights ?? "");
   const [bullets, setBullets] = useState(draft?.bullets ?? ["", "", "", "", ""]);
   const savedRef = useRef(false);
+  const { data: history, refetch: refetchHistory } = useQuery({
+    queryKey: ["prelaunch-check-history"],
+    queryFn: () => listPrelaunchChecks(1),
+  });
 
   useEffect(() => {
     if (!savedRef.current) { savedRef.current = true; return; }
@@ -61,6 +66,7 @@ export default function PrelaunchCheck() {
         image_count: images.length, image_slots: imgData,
       });
       setResult(res); setStep(4);
+      refetchHistory();
     } catch (e: any) { setError(e.message || "分析失败"); setStep(3); }
     finally { setAnalyzing(false); }
   };
@@ -129,6 +135,34 @@ export default function PrelaunchCheck() {
           {(result.position_diagnoses_json?.length ?? 0) > 0 && (
             <div className="apple-card p-6"><h3 className="text-[13px] font-semibold text-[#86868b] uppercase tracking-wide mb-4">逐位置诊断</h3><div className="space-y-3">{(result.position_diagnoses_json ?? []).map((d,i)=><DiagnosisItem key={i} diagnosis={d} statusIcon={statusIcon} />)}</div></div>
           )}
+        </div>
+      )}
+      {!result && history?.items && history.items.length > 0 && (
+        <div className="apple-card p-6 mt-6">
+          <h3 className="text-[13px] font-semibold text-[#86868b] uppercase tracking-wide mb-4">历史记录</h3>
+          <div className="space-y-3">
+            {history.items.slice(0, 6).map((item) => (
+              <button
+                key={item.id}
+                onClick={() => { setResult(item); setStep(4); }}
+                className="w-full text-left rounded-xl border border-[#d2d2d7]/70 bg-white/70 p-4 hover:border-[#0F2A24]/30 transition-colors"
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-[14px] font-semibold text-[#1d1d1f] truncate">{item.product_name || "暂无"}</p>
+                    <p className="text-[12px] text-[#86868b] mt-1 truncate">{item.conclusion || "暂无"}</p>
+                  </div>
+                  <span className={`shrink-0 text-[12px] px-2 py-1 rounded-full ${
+                    item.admission_result === "可以上架"
+                      ? "bg-[#34c759]/10 text-[#34c759]"
+                      : item.admission_result === "谨慎上架"
+                      ? "bg-[#ff9500]/10 text-[#ff9500]"
+                      : "bg-[#ff3b30]/10 text-[#ff3b30]"
+                  }`}>{item.admission_result || "暂无"}</span>
+                </div>
+              </button>
+            ))}
+          </div>
         </div>
       )}
     </div>

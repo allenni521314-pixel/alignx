@@ -4,14 +4,17 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.compliance import check_compliance
 from app.core.prompts import PRELAUNCH_SYSTEM, build_prelaunch_prompt
+from app.core.prelaunch_rules import apply_prelaunch_rules
 from app.core.scraperapi import ScraperAPIProvider
 from app.core.vision import extract_text_from_base64_list
+from app.models import CaptureJob
 from app.schemas import PrelaunchCheckRequest
 from app.services.access import require_user_id
 from app.services.ai_calls import complete_json_with_log
@@ -63,7 +66,7 @@ async def run_prelaunch_ai_pipeline(
     result = PrelaunchAiPipelineResult(materials=_base_materials(req))
     await _attach_image_materials(req, result)
     _attach_compliance(req, result)
-    await _attach_market_context(req, result)
+    await _attach_market_context(req, result, db=db, user_id=uid)
 
     try:
         prompt = build_prelaunch_prompt(result.materials)
@@ -82,6 +85,7 @@ async def run_prelaunch_ai_pipeline(
             },
             max_tokens=8192,
         )
+        result.ai_result = apply_prelaunch_rules(result.ai_result, result.materials)
     except Exception as exc:
         result.ai_error = str(exc)
     return result
@@ -165,7 +169,13 @@ def _attach_compliance(req: PrelaunchCheckRequest, result: PrelaunchAiPipelineRe
         result.materials["compliance_violations"] = violations
 
 
-async def _attach_market_context(req: PrelaunchCheckRequest, result: PrelaunchAiPipelineResult) -> None:
+async def _attach_market_context(
+    req: PrelaunchCheckRequest,
+    result: PrelaunchAiPipelineResult,
+    *,
+    db: AsyncSession,
+    user_id: str,
+) -> None:
     keyword = result.materials.get("product_name", "")[:60]
     if re.search(r"[\u4e00-\u9fff]", keyword):
         alt = (req.title_draft or req.key_highlights or "").strip()
@@ -174,9 +184,24 @@ async def _attach_market_context(req: PrelaunchCheckRequest, result: PrelaunchAi
     if not keyword:
         result.market_context_status = "skipped"
         return
+    capture_job = CaptureJob(
+        user_id=user_id,
+        input_type="prelaunch_market_context",
+        input_value=keyword,
+        marketplace=req.marketplace,
+        provider="scraperapi",
+        status="running",
+        started_at=datetime.utcnow(),
+    )
+    db.add(capture_job)
+    await db.flush()
     try:
         provider = ScraperAPIProvider()
         capture = await provider.capture_top20_by_keyword(keyword, req.marketplace)
+        capture_job.status = capture.capture_status
+        capture_job.finished_at = datetime.utcnow()
+        capture_job.error_message = capture.error_message
+        await db.flush()
         if capture.capture_status != "failed" and capture.extracted_fields:
             result.materials["market_context"] = capture.extracted_fields
             result.materials["market_context_note"] = f"Top 20 results for '{keyword}' on {req.marketplace}"
@@ -184,4 +209,8 @@ async def _attach_market_context(req: PrelaunchCheckRequest, result: PrelaunchAi
         else:
             result.market_context_status = "failed"
     except Exception as exc:
+        capture_job.status = "failed"
+        capture_job.finished_at = datetime.utcnow()
+        capture_job.error_message = str(exc)
+        await db.flush()
         result.market_context_status = f"failed:{exc}"
