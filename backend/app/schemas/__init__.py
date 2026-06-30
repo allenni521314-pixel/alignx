@@ -269,6 +269,8 @@ class ConversionDiagnosisResponse(BaseModel):
     impacted_ad_metrics: Optional[list[str]] = None
     current_status: Optional[str] = None
     position_diagnoses_json: Optional[list] = None
+    ai_readability_score_json: Optional[dict] = None
+    ai_readability_score_version: Optional[str] = None
     primary_matched_proposition_code: Optional[str] = None
     created_at: datetime
 

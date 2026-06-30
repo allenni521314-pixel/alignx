@@ -222,12 +222,46 @@ export interface ConversionDiagnosis {
   priority_action: string | null;
   impacted_ad_metrics: string[] | null;
   position_diagnoses_json: ConversionPositionDiagnosis[] | null;
+  ai_readability_score_json?: ListingValidationResult | null;
+  ai_readability_score_version?: string | null;
   created_at: string;
+}
+
+export interface ListingValidationResult {
+  diagnosis_type?: string;
+  primary_bottleneck?: string;
+  secondary_bottleneck?: string;
+  overall_health_score?: number;
+  confidence?: number;
+  evidence_strength?: number;
+  prediction_policy?: string;
+  rule_check?: {
+    rule_status?: string;
+    blocked_reasons?: string[];
+    warnings?: string[];
+    allowed_actions?: string[];
+    forbidden_actions?: string[];
+  };
+  keyword_position_mapping?: Array<Record<string, unknown>>;
+  funnel_diagnosis?: Array<Record<string, unknown>>;
+  position_gap_heatmap?: ConversionPositionDiagnosis[];
+  top_actions?: Array<Record<string, unknown>>;
+  validation_plan?: Record<string, unknown>;
 }
 
 export interface ConversionPositionDiagnosis {
   position_id: string;
   position_name: string;
+  position?: string;
+  position_type?: string;
+  funnel_stage?: string;
+  position_role?: string;
+  current_status?: string;
+  risk_level?: string;
+  impact_direction?: string[] | null;
+  evidence_strength?: number | null;
+  recommended_fix_type?: string | null;
+  impacted_ad_metrics?: string[] | null;
   status: string;
   score?: number | null;
   currentText?: string | null;

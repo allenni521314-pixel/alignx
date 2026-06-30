@@ -35,6 +35,21 @@ const STATUS_DOT: Record<string, string> = {
   "缺失": "bg-[#86868b]",
 };
 
+const HEAT_STATUS_LABEL: Record<string, string> = {
+  covered: "已覆盖",
+  weak: "弱覆盖",
+  missing: "缺失",
+  wrong_position: "错误位置",
+  blocked_by_rule: "平台规则禁止",
+  not_priority: "当前不优先",
+};
+
+const RISK_COLOR: Record<string, string> = {
+  high: "text-[#ff3b30]",
+  medium: "text-[#ff9500]",
+  low: "text-[#34c759]",
+ };
+
 export default function ConversionDiagnosis() {
   const [asin, setAsin] = useState("");
   const [analyzing, setAnalyzing] = useState(false);
@@ -101,6 +116,10 @@ export default function ConversionDiagnosis() {
 
       {result && (
         <div className="space-y-4 mb-10">
+          {result.ai_readability_score_json ? (
+            <UnifiedListingDiagnosis result={result} />
+          ) : (
+            <>
           {/* Summary */}
           <div className="apple-card p-6">
             <h2 className="text-[20px] font-semibold mb-1">{result.product_title}</h2>
@@ -216,6 +235,8 @@ export default function ConversionDiagnosis() {
               </div>
             </div>
           )}
+            </>
+          )}
         </div>
       )}
 
@@ -254,6 +275,128 @@ export default function ConversionDiagnosis() {
       )}
     </div>
   );
+}
+
+function UnifiedListingDiagnosis({ result }: { result: CD }) {
+  const data = result.ai_readability_score_json;
+  if (!data) return null;
+  const heatmap = data.position_gap_heatmap || result.position_diagnoses_json || [];
+  const topActions = data.top_actions || [];
+  const keywordRows = data.keyword_position_mapping || [];
+  const plan = data.validation_plan || {};
+  return (
+    <>
+      <div className="apple-card p-6">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-[20px] font-semibold mb-1">{result.product_title || result.asin}</h2>
+            <p className="text-[15px] text-[#86868b]">{result.overall_conclusion}</p>
+          </div>
+          <div className="text-right shrink-0">
+            <p className="text-[12px] text-[#86868b]">健康分</p>
+            <p className="text-[24px] font-semibold text-[#0F2A24]">{data.overall_health_score ?? 0}</p>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-5">
+          <MetricCard label="当前主断点" value={data.primary_bottleneck || "暂无"} />
+          <MetricCard label="次级断点" value={data.secondary_bottleneck || "暂无"} />
+          <MetricCard label="置信度" value={`${data.confidence ?? 0}/100`} />
+          <MetricCard label="证据强度" value={`${data.evidence_strength ?? 0}/100`} />
+        </div>
+        <p className="text-[12px] text-[#86868b] mt-4">{data.prediction_policy || "暂无"}</p>
+      </div>
+
+      <div className="apple-card p-6">
+        <h3 className="text-[13px] font-semibold text-[#86868b] uppercase tracking-wide mb-4">Top20 证据</h3>
+        {keywordRows.length ? (
+          <div className="space-y-2">
+            {keywordRows.map((row, index) => (
+              <div key={index} className="grid grid-cols-4 gap-3 rounded-xl bg-[#fbfaf7] p-3 text-[13px]">
+                <span>{asText(row.keyword)}</span>
+                <span>{asText(row.keyword_role)}</span>
+                <span>{asText(row.recommended_positions)}</span>
+                <span>{asText(row.position_consistency_score)}</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-[14px] text-[#86868b]">暂无</p>
+        )}
+      </div>
+
+      <div className="apple-card p-6">
+        <h3 className="text-[13px] font-semibold text-[#86868b] uppercase tracking-wide mb-4">区位缺口热力图</h3>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+          {heatmap.map((item) => (
+            <div key={item.position_id} className="rounded-xl border border-[#d2d2d7]/60 bg-white/70 p-3">
+              <p className="text-[13px] font-semibold">{item.position_name}</p>
+              <p className={`text-[12px] mt-1 ${RISK_COLOR[item.risk_level || ""] || "text-[#86868b]"}`}>
+                {HEAT_STATUS_LABEL[item.current_status || item.status] || item.current_status || item.status || "暂无"}
+              </p>
+              <p className="text-[11px] text-[#86868b] mt-2">{item.funnel_stage || "暂无"}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="apple-card p-6">
+        <h3 className="text-[13px] font-semibold text-[#86868b] uppercase tracking-wide mb-4">Top3 手术刀动作</h3>
+        {topActions.length ? (
+          <div className="space-y-3">
+            {topActions.slice(0, 3).map((action, index) => (
+              <div key={index} className="rounded-xl border border-[#d2d2d7]/70 bg-white/70 p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-[12px] px-2 py-1 rounded-full bg-[#0F2A24] text-white">Top {asText(action.priority)}</span>
+                  <span className="text-[14px] font-semibold">{asText(action.position_name || action.target_position)}</span>
+                  <span className="text-[12px] text-[#86868b] ml-auto">{asText(action.target_stage)}</span>
+                </div>
+                <FieldBlock label="当前问题" value={asText(action.current_problem)} />
+                <FieldBlock label="修复建议" value={asText(action.action)} />
+                <FieldBlock label="不要改什么" value={asText(action.do_not_change)} />
+                <div className="grid grid-cols-3 gap-2 mt-2">
+                  <FieldBlock label="影响方向" value={asText(action.expected_impact_direction)} />
+                  <FieldBlock label="置信度" value={`${asText(action.confidence)}/100`} />
+                  <FieldBlock label="验证指标" value={asText(action.verification_metrics)} />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-[14px] text-[#86868b]">暂无</p>
+        )}
+      </div>
+
+      <div className="apple-card p-6">
+        <h3 className="text-[13px] font-semibold text-[#86868b] uppercase tracking-wide mb-4">最小变量广告验证方案</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+          <FieldBlock label="本轮变量" value={asText(plan.target_position)} />
+          <FieldBlock label="对应漏斗层" value={asText(plan.target_stage)} />
+          <FieldBlock label="广告词建议" value="暂无" />
+          <FieldBlock label="预算建议" value={asText(plan.budget_level)} />
+          <FieldBlock label="验证周期" value={`${asText(plan.verification_period_days)} 天`} />
+          <FieldBlock label="观察指标" value={asText(plan.verification_metrics)} />
+          <FieldBlock label="成功条件" value={asText(plan.success_condition)} />
+          <FieldBlock label="失败后路径" value={asText(plan.failure_branch)} />
+        </div>
+      </div>
+    </>
+  );
+}
+
+function MetricCard({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="rounded-xl bg-[#fbfaf7] p-3">
+      <p className="text-[11px] text-[#86868b] mb-1">{label}</p>
+      <p className="text-[14px] font-semibold text-[#1d1d1f]">{value}</p>
+    </div>
+  );
+}
+
+function asText(value: unknown): string {
+  if (value == null || value === "") return "暂无";
+  if (Array.isArray(value)) return value.length ? value.join(" / ") : "暂无";
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
 }
 
 function FieldBlock({ label, value }: { label: string; value: string }) {

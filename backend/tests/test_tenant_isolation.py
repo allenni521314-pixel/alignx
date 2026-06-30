@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from app.core.ai_orchestration import AIResponse
 from app.core.capture import CaptureResult
 from app.core.listing_mental_value import ListingMentalValueEngine
+from app.core.listing_diagnosis_validation import ListingDiagnosisValidationEngine
 from app.core.prelaunch_rules import apply_prelaunch_rules
 from app.database import Base
 from app.models import (
@@ -666,7 +667,7 @@ class TenantIsolationTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(fields["aplus_images_json"][0]["slot"], "aplus9")
         self.assertEqual(fields["aplus_images_json"][0]["url"], "data:image/jpeg;base64,A9")
 
-    async def test_conversion_diagnosis_uses_listing_mental_value_engine(self):
+    async def test_conversion_diagnosis_uses_unified_listing_validation_engine(self):
         capture = CaptureJob(
             user_id=self.user_a.id,
             input_type="asin",
@@ -708,11 +709,40 @@ class TenantIsolationTest(unittest.IsolatedAsyncioTestCase):
                 user_id=self.user_a.id,
             )
 
-        self.assertEqual(result.current_status, "mental_value_evaluated")
-        self.assertEqual(result.priority_position, "item_highlight")
-        self.assertIn("No-ozone, no-refill", result.overall_conclusion)
+        self.assertEqual(result.current_status, "high_confidence_inference")
+        self.assertTrue(result.priority_position)
+        self.assertIn("当前最大断点", result.overall_conclusion)
         self.assertTrue(result.position_diagnoses_json)
-        self.assertIn("mentalValuePoint", result.position_diagnoses_json[0])
+        self.assertTrue(result.ai_readability_score_json)
+        self.assertIn("validation_plan", result.ai_readability_score_json)
+
+    async def test_listing_diagnosis_validation_outputs_top3_without_fake_uplift(self):
+        listing_data = {
+            "title": "Gleeda Photocatalyst Pet Odor Eliminator, UVC Deodorizer With VOC Sensor, USB Air Cleaner for Litter Box, Pet Cage, Bathroom and Closet",
+            "bullet_points": [
+                "Photocatalyst and UVC technology for pet odor spaces.",
+                "No ozone for litter box areas.",
+                "No filters or fragrance refills.",
+            ],
+            "main_image": "https://example.com/main.jpg",
+            "ocr_image_texts": {"main": "Odor Control"},
+        }
+
+        result = ListingDiagnosisValidationEngine().analyze(
+            asin="B0TEST1234",
+            marketplace="amazon.com",
+            listing_data=listing_data,
+        )
+
+        self.assertEqual(result["diagnosis_type"], "high_confidence_inference")
+        self.assertLessEqual(len(result["top_actions"]), 3)
+        self.assertEqual(result["rule_check"]["rule_status"], "block")
+        self.assertIn("main_image_text_logo_watermark_risk", result["rule_check"]["blocked_reasons"])
+        self.assertEqual(result["prediction_policy"], "No uplift percentage shown without historical validation samples.")
+        self.assertNotIn("%", str(result["top_actions"]))
+        top1 = result["top_actions"][0]
+        self.assertIn("do_not_change", top1)
+        self.assertEqual(top1["verification_period_days"], 7)
 
     async def test_proposition_library_module_ensures_7x7_library(self):
         await ensure_proposition_library(self.db)
