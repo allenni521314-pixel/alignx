@@ -10,6 +10,7 @@ from app.core.ai_orchestration import AIResponse
 from app.core.capture import CaptureResult
 from app.core.listing_mental_value import ListingMentalValueEngine
 from app.core.listing_diagnosis_validation import ListingDiagnosisValidationEngine
+from app.core.top20_keyword_mapping import build_top20_keyword_position_data, select_core_keyword
 from app.core.prelaunch_rules import apply_prelaunch_rules
 from app.database import Base
 from app.models import (
@@ -167,6 +168,27 @@ class TenantIsolationTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(logs[0].input_payload["prompt"], "prompt")
         self.assertEqual(logs[0].output_parsed["status"], "ok")
         self.assertEqual(logs[0].token_usage, 12)
+
+    async def test_conversion_top20_mapping_starts_from_own_listing_title(self):
+        title = (
+            "Gleeda Photocatalyst Pet Odor Eliminator, UVC Deodorizer With VOC Sensor, "
+            "USB Air Cleaner for Small Spaces"
+        )
+        keyword = select_core_keyword(title)
+        rows, context = build_top20_keyword_position_data(
+            title=title,
+            source_keyword=keyword,
+            top20_results=[
+                {"asin": "B0TOP20001", "title": "Pet Odor Eliminator for Litter Box and Small Spaces"},
+                {"asin": "B0TOP20002", "title": "Cat Litter Deodorizer for Pet Odor Control"},
+            ],
+        )
+
+        self.assertEqual(keyword, "pet odor eliminator")
+        self.assertEqual(context["source"], "own_listing_title")
+        self.assertEqual(context["source_keyword"], "pet odor eliminator")
+        self.assertEqual(rows[0]["keyword"], "pet odor eliminator")
+        self.assertEqual(rows[0]["data_source"], "own_listing_title_to_top20")
 
     async def test_unresolved_report_upload_goes_to_staging_only(self):
         result = await stage_report_upload(

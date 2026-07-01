@@ -5,6 +5,7 @@ import { AppSidebar } from "@/components/AppSidebar";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { useRequireAuth } from "@/hooks/useRequireAuth";
+import { label, FUNNEL_STAGE_LABELS, IMPACT_METRIC_LABELS, POSITION_LABELS } from "@/lib/label-maps";
 import {
   type AsinBusinessProfile,
   type AsinModuleView,
@@ -54,6 +55,17 @@ interface AsinModuleViewPageProps {
   uploadConfig?: AsinModuleUploadConfig;
 }
 
+function labelBackendKey(key: string) {
+  return label(
+    {
+      ...FUNNEL_STAGE_LABELS,
+      ...POSITION_LABELS,
+      ...IMPACT_METRIC_LABELS,
+    },
+    key,
+  );
+}
+
 function valueOrEmpty(value: unknown) {
   if (value === null || value === undefined || value === "") return EMPTY;
   if (typeof value === "number") {
@@ -64,7 +76,7 @@ function valueOrEmpty(value: unknown) {
   if (Array.isArray(value)) return value.length ? value.map(valueOrEmpty).join("；") : EMPTY;
   if (typeof value === "object") {
     const entries = Object.entries(value as Record<string, unknown>).filter(([, item]) => item !== null && item !== undefined && item !== "");
-    return entries.length ? entries.map(([key, item]) => `${key}：${valueOrEmpty(item)}`).join("；") : EMPTY;
+    return entries.length ? entries.map(([key, item]) => `${labelBackendKey(key)}：${valueOrEmpty(item)}`).join("；") : EMPTY;
   }
   return String(value);
 }

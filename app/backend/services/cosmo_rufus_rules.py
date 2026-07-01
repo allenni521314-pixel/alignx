@@ -65,7 +65,7 @@ def build_cosmo_rufus_analysis(listing: Any, diagnosis_data: dict[str, Any]) -> 
     buyer_questions = _buyer_questions(text, relation_map)
     gaps = _relation_gaps(relation_map, buyer_questions)
     hypotheses = _hypotheses(gaps, suggestions, ad_keywords)
-    scores = _scores(relation_map, buyer_questions, hypotheses)
+    scores = _scores(relation_map, buyer_questions, gaps, hypotheses)
 
     return {
         "version": "amazon-cosmo-rufus-rules-v1",
@@ -235,10 +235,15 @@ def _hypotheses(gaps: list[dict[str, str]], suggestions: dict[str, Any], ad_keyw
     return hypotheses
 
 
-def _scores(relation_map: dict[str, list[str]], buyer_questions: list[dict[str, str]], hypotheses: list[dict[str, Any]]) -> dict[str, int]:
+def _scores(
+    relation_map: dict[str, list[str]],
+    buyer_questions: list[dict[str, str]],
+    gaps: list[dict[str, str]],
+    hypotheses: list[dict[str, Any]],
+) -> dict[str, int]:
     relation_score = round(sum(1 for values in relation_map.values() if values) * 100 / len(RELATION_DIMENSIONS))
     question_score = round(sum(1 for item in buyer_questions if item["current_answer_quality"] == "strong") * 100 / len(buyer_questions))
-    validation_score = 80 if hypotheses else 35
+    validation_score = 90 if not gaps else (80 if hypotheses else 35)
     overall = round(relation_score * 0.4 + question_score * 0.4 + validation_score * 0.2)
     return {
         "relationship_graph_completeness": relation_score,

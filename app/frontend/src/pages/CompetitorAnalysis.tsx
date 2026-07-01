@@ -32,6 +32,7 @@ import axios from "axios";
 import { getAuthHeaders } from "@/lib/auth-headers";
 import { getAllProducts, saveCompetitorInsight, updateProductLifecycle, saveActionSnapshot, getActionSnapshots, type ActionSnapshot } from "@/lib/workflow-api";
 import { finishModuleTask, removeModuleTask, upsertModuleTask } from "@/lib/module-task-store";
+import { IMPACT_METRIC_LABELS, KEYWORD_TYPE_LABELS, label } from "@/lib/label-maps";
 
 /* ------------------------------------------------------------------ */
 /*  URL / ASIN Extraction Helpers (same as ListingDiagnosis)           */
@@ -420,12 +421,6 @@ const COLORS = [
   { color: "rgba(236, 72, 153, 1)", fill: "rgba(236, 72, 153, 0.15)" },
 ];
 
-const KEYWORD_TYPE_LABELS: Record<string, string> = {
-  attribute: "属性词",
-  relationship: "关系词",
-  state_trigger: "状态触发词",
-};
-
 const KEYWORD_TYPE_BADGES: Record<string, string> = {
   attribute: "bg-brand-50 text-brand-500 border-border",
   relationship: "bg-teal-50 text-teal-700 border-teal-200",
@@ -450,7 +445,7 @@ function KeywordBadge({ keyword, compact = false }: { keyword: string; compact?:
   return (
     <span className={`inline-flex items-center gap-1 rounded-full border ${compact ? "px-2 py-0.5 text-[11px]" : "px-3 py-1.5 text-sm"} ${KEYWORD_TYPE_BADGES[type]}`}>
       <span>{displayKeyword}</span>
-      <span className="text-[10px] opacity-75">{KEYWORD_TYPE_LABELS[type]}</span>
+      <span className="text-[10px] opacity-75">{label(KEYWORD_TYPE_LABELS, type)}</span>
     </span>
   );
 }
@@ -2734,7 +2729,7 @@ function ListingBreakdownView({ breakdown, compliance }: { breakdown: ListingBre
                   <div className="flex flex-wrap gap-1.5 mb-2">
                     {adRead.metrics.map((metric) => (
                       <span key={metric} className="rounded-full border border-brand-200 bg-white px-2 py-0.5 text-[11px] font-medium text-brand-700">
-                        {metric}
+                        {label(IMPACT_METRIC_LABELS, metric)}
                       </span>
                     ))}
                   </div>

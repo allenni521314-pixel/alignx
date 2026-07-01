@@ -9,6 +9,7 @@
 
 import json
 import logging
+import asyncio
 from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
 
@@ -158,9 +159,12 @@ class CausalDiagnosisService:
         logger.info(f"Starting causal diagnosis for listing: {title[:60]}...")
         
         # 并行执行三个核心分析
-        state_gaps_result = await self._extract_state_gaps(title, bullets, description)
-        mechanisms_result = await self._analyze_causal_mechanisms(title, bullets, description)
-        side_effects_result = await self._detect_side_effects(title, bullets, description)
+        results = await asyncio.gather(
+            self._extract_state_gaps(title, bullets, description),
+            self._analyze_causal_mechanisms(title, bullets, description),
+            self._detect_side_effects(title, bullets, description),
+        )
+        state_gaps_result, mechanisms_result, side_effects_result = results
         
         # 计算三个因果维度得分
         scores = self._calculate_causal_scores(

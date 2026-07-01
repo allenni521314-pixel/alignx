@@ -173,25 +173,32 @@ class ScraperAPIProvider:
         soup = BeautifulSoup(html, "html.parser")
         items = []
 
+        seen_asins = set()
         results = soup.select('[data-component-type="s-search-result"]')
-        for item in results[:20]:
+        for item in results:
+            if len(items) >= 20:
+                break
             asin = item.get("data-asin")
-            if not asin:
+            if not asin or asin in seen_asins:
                 continue
+            seen_asins.add(asin)
 
-            title_el = item.select_one("h2 a span")
-            # Improved price extraction - handle multiple formats
+            title = self._parse_search_title(item)
             price_text = ""
             price_whole = item.select_one(".a-price-whole")
             price_fraction = item.select_one(".a-price-fraction")
             if price_whole:
-                price_text = price_whole.text.strip()
+                whole = re.sub(r"[^\d]", "", price_whole.get_text("", strip=True))
+                fraction = re.sub(r"[^\d]", "", price_fraction.get_text("", strip=True)) if price_fraction else ""
+                price_text = f"{whole}.{fraction}" if whole and fraction else whole
+            if not price_text:
+                price_text = ""
                 if price_fraction:
-                    price_text += "." + price_fraction.text.strip()
+                    price_text = re.sub(r"[^\d.]", "", price_fraction.get_text("", strip=True))
             if not price_text:
                 price_offscreen = item.select_one(".a-price .a-offscreen")
                 if price_offscreen:
-                    price_text = price_offscreen.text.strip()
+                    price_text = price_offscreen.text.strip().replace("$", "")
             if not price_text:
                 price_range = item.select_one(".a-price-range")
                 if price_range:
@@ -208,7 +215,6 @@ class ScraperAPIProvider:
             review_text = review_el.get("aria-label") or review_el.text if review_el else ""
             review_count = None
             if review_text:
-                import re
                 match = re.search(r"([\d,]+)", review_text.replace(",", ""))
                 if match:
                     try:
@@ -220,8 +226,8 @@ class ScraperAPIProvider:
 
             items.append({
                 "asin": asin,
-                "title": title_el.text.strip() if title_el else "",
-                "price": price_text,
+                "title": title,
+                "price": f"${price_text}" if price_text and not price_text.startswith("$") else price_text,
                 "rating": float(rating_el.text.split()[0]) if rating_el else None,
                 "review_count": review_count,
                 "image": img_el.get("src", "") if img_el else "",
@@ -236,6 +242,27 @@ class ScraperAPIProvider:
         )
 
     # ── Helpers ───────────────────────────────────────
+
+    def _parse_search_title(self, item) -> str:
+        candidates = [
+            item.select_one("h2 a span"),
+            item.select_one("h2 span"),
+            item.select_one("[data-cy='title-recipe'] span"),
+        ]
+        for node in candidates:
+            if not node:
+                continue
+            title = self._clean_text(node.get_text(" ", strip=True))
+            if title:
+                return title
+
+        for node in [item.select_one("h2"), item.select_one("a.a-link-normal")]:
+            if not node:
+                continue
+            title = self._clean_text(node.get("aria-label") or node.get_text(" ", strip=True))
+            if title:
+                return title
+        return ""
 
     async def _ocr_images(self, result: CaptureResult) -> None:
         """Extract text from product images using vision AI."""

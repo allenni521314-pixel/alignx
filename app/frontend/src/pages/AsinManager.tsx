@@ -20,6 +20,7 @@ import { useRequireAuth } from "@/hooks/useRequireAuth";
 import { getApiErrorMessage } from "@/lib/api-retry";
 import axios from "axios";
 import { getAuthHeaders } from "@/lib/auth-headers";
+import { IMPACT_METRIC_LABELS, label } from "@/lib/label-maps";
 import { toast } from "sonner";
 import {
   Package,
@@ -1032,7 +1033,7 @@ function CompetitorListingBreakdownPanel({ modules }: { modules: CompetitorListi
                   <div className="mb-2 flex flex-wrap gap-1.5">
                     {adRead.metrics.map((metric) => (
                       <span key={metric} className="rounded-full border border-brand-200 bg-white px-2 py-0.5 text-[11px] font-medium text-brand-700">
-                        {metric}
+                        {label(IMPACT_METRIC_LABELS, metric)}
                       </span>
                     ))}
                   </div>

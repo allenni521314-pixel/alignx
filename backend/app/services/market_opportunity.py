@@ -53,7 +53,7 @@ async def analyze_market(req: MarketOpportunityRequest, db: AsyncSession, user_i
 
     db.add(report)
     await db.flush()
-    return MarketOpportunityResponse.model_validate(report, from_attributes=True)
+    return _enrich_report(report)
 
 
 async def list_reports(page: int, page_size: int, db: AsyncSession, user_id: str | None = None) -> dict:

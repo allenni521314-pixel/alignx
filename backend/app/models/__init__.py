@@ -126,7 +126,7 @@ class CaptureJob(Base):
     input_type        = Column(String(16), nullable=False)  # keyword | asin | product_url
     input_value       = Column(Text, nullable=False)
     marketplace       = Column(String(16), nullable=False, default="amazon.com")
-    provider          = Column(String(32), nullable=False, default="scraperapi")  # scraperapi | rainforest | manual
+    provider          = Column(String(32), nullable=False, default="scraperapi")  # scraperapi | manual
     status            = Column(String(16), nullable=False, default="pending")  # pending | running | success | partial | failed
     raw_html_path     = Column(Text, nullable=True)
     screenshot_path   = Column(Text, nullable=True)
@@ -472,9 +472,12 @@ class AiCallLog(Base):
     model_name        = Column(String(64), nullable=False)
     model_provider    = Column(String(64), nullable=False)
     prompt_version    = Column(String(64), nullable=False)
+    analysis_mode     = Column(String(64), nullable=True)
     input_payload     = Column(JSON, nullable=True)
     output_raw        = Column(Text, nullable=True)
     output_parsed     = Column(JSON, nullable=True)
+    trust_meta        = Column(JSON, nullable=True)
+    ai_trace          = Column(JSON, nullable=True)
     confidence_score  = Column(Float, nullable=True)
     risk_flags        = Column(JSON, nullable=True)
     error_message     = Column(Text, nullable=True)

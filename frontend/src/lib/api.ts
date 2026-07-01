@@ -243,6 +243,16 @@ export interface ListingValidationResult {
     forbidden_actions?: string[];
   };
   keyword_position_mapping?: Array<Record<string, unknown>>;
+  top20_keyword_mapping_context?: {
+    source?: string;
+    source_keyword?: string | null;
+    source_keyword_candidates?: string[];
+    top20_capture_status?: string;
+    top20_sample_count?: number;
+    top20_asins?: Array<Record<string, unknown>>;
+    capture_job_id?: string;
+    error_message?: string;
+  };
   funnel_diagnosis?: Array<Record<string, unknown>>;
   position_gap_heatmap?: ConversionPositionDiagnosis[];
   top_actions?: Array<Record<string, unknown>>;
@@ -314,6 +324,45 @@ export function listConversionDiagnoses(page = 1) {
 
 export function getConversionDiagnosis(id: string) {
   return request<ConversionDiagnosis>(`/conversion-diagnosis/${id}`);
+}
+
+// ── Multi-Source Diagnosis ──
+
+export interface MultiSourceResult {
+  asin: string;
+  diagnosis_type: string;
+  primary_problem: string;
+  primary_confidence: number;
+  primary_evidence: string;
+  dimensions: Array<{
+    dimension: string;
+    label: string;
+    confidence: number;
+    evidence: string;
+    system_capable: boolean;
+  }>;
+  top_actions: Array<{
+    priority: number;
+    action: string;
+    target: string;
+    system_capable: boolean;
+    route?: string;
+  }>;
+  system_can_fix: Array<Record<string, unknown>>;
+  human_required: Array<Record<string, unknown>>;
+}
+
+export function runMultiSourceDiagnosis(payload: {
+  asin: string;
+  ad_metrics?: Record<string, unknown>;
+  listing_data?: Record<string, unknown>;
+  ai_result?: Record<string, unknown>;
+  top20_context?: Record<string, unknown>;
+}) {
+  return request<MultiSourceResult>("/conversion-diagnosis/multi-source", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }
 
 // ── Validation Tasks ──

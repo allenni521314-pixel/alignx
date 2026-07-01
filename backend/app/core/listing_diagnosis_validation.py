@@ -145,6 +145,7 @@ class ListingDiagnosisValidationEngine:
             "prediction_policy": "No uplift percentage shown without historical validation samples.",
             "rule_check": rule_check,
             "keyword_position_mapping": keyword_mapping,
+            "top20_keyword_mapping_context": ai_result.get("top20_keyword_mapping_context") or {},
             "funnel_diagnosis": funnel.get("funnel_diagnosis", []),
             "position_gap_heatmap": heatmap,
             "buyer_language_repairs": buyer_language,

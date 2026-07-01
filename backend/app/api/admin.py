@@ -8,7 +8,7 @@ from app.database import get_db
 from app.api.deps import get_current_user_id
 from app.core.rules_registry import get_rules, update_rule_items
 from app.services.access import require_admin_user
-from app.services.asin_operation_tree import build_closed_loop_audit, list_operation_profiles
+from app.services.asin_operation_tree import build_closed_loop_audit, build_orphan_audit, list_operation_profiles
 from app.services.proposition_library import (
     ensure_proposition_library,
     list_proposition_categories,
@@ -100,3 +100,9 @@ async def list_asin_profiles(db: AsyncSession = Depends(get_db), user_id: str | 
 async def audit_loop(asin: str = "", db: AsyncSession = Depends(get_db), user_id: str | None = Depends(get_current_user_id)):
     require_admin_user(user_id)
     return await build_closed_loop_audit(db, asin=asin)
+
+
+@router.get("/audit/orphans")
+async def audit_orphans(asin: str = "", db: AsyncSession = Depends(get_db), user_id: str | None = Depends(get_current_user_id)):
+    require_admin_user(user_id)
+    return await build_orphan_audit(db, asin=asin)

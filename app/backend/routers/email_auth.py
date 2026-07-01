@@ -12,7 +12,7 @@ from typing import Optional
 from core.auth import create_access_token
 from core.config import settings
 from core.database import get_db
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from models.action_snapshots import ActionSnapshot
 from models.ad_campaigns import Ad_campaigns
 from models.ad_data import Ad_data
@@ -165,6 +165,16 @@ def _email_debug_enabled() -> bool:
     return str(raw).lower() in {"1", "true", "yes", "on"}
 
 
+def _is_local_request(request: Request) -> bool:
+    host = (request.client.host if request.client else "") or ""
+    return host in {"127.0.0.1", "::1", "localhost"}
+
+
+def _allow_debug_code(request: Request) -> bool:
+    environment = str(getattr(settings, "environment", "") or "").strip().lower()
+    return environment == "development" and _is_local_request(request)
+
+
 def _smtp_port() -> int:
     try:
         return int(getattr(settings, "smtp_port", "587"))
@@ -178,7 +188,7 @@ def _as_aware_utc(value: datetime) -> datetime:
     return value.astimezone(timezone.utc)
 
 
-def _send_email_code(email: str, code: str) -> str:
+def _send_email_code(email: str, code: str, *, allow_debug: bool = False) -> str:
     smtp_host = getattr(settings, "smtp_host", "")
     smtp_user = getattr(settings, "smtp_username", "")
     smtp_password = getattr(settings, "smtp_password", "")
@@ -186,7 +196,9 @@ def _send_email_code(email: str, code: str) -> str:
     from_name = getattr(settings, "smtp_from_name", "AlignX")
 
     if not smtp_host or not from_email:
-        return "debug"
+        if allow_debug:
+            return "debug"
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="验证码邮件服务未配置")
 
     message = EmailMessage()
     message["Subject"] = "AlignX 登录验证码"
@@ -229,7 +241,7 @@ def _send_email_code(email: str, code: str) -> str:
 
 
 @router.post("/send-code", response_model=EmailCodeResponse)
-async def send_email_code(payload: EmailCodeRequest, db: AsyncSession = Depends(get_db)):
+async def send_email_code(payload: EmailCodeRequest, request: Request, db: AsyncSession = Depends(get_db)):
     email = _normalize_email(payload.email)
     now = datetime.now(timezone.utc)
 
@@ -245,7 +257,8 @@ async def send_email_code(payload: EmailCodeRequest, db: AsyncSession = Depends(
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="验证码发送过快，请稍后再试")
 
     code = f"{secrets.randbelow(1_000_000):06d}"
-    delivery = _send_email_code(email, code)
+    allow_debug = _allow_debug_code(request)
+    delivery = _send_email_code(email, code, allow_debug=allow_debug)
 
     db.add(
         EmailVerificationCode(
@@ -263,7 +276,7 @@ async def send_email_code(payload: EmailCodeRequest, db: AsyncSession = Depends(
         message="验证码已发送",
         expires_in=CODE_TTL_MINUTES * 60,
         delivery=delivery,
-        debug_code=code if delivery == "debug" else None,
+        debug_code=code if delivery == "debug" and allow_debug else None,
     )
 
 

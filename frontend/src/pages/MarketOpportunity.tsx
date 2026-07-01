@@ -1,8 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Globe, ArrowRight, TrendingUp, AlertTriangle, Target, CheckSquare, Square, BarChart3 } from "lucide-react";
+import { Globe, ArrowRight, TrendingUp, AlertTriangle, Target } from "lucide-react";
 import {
-  analyzeCompetitor,
   analyzeMarketOpportunity,
   getMarketOpportunity,
   listMarketOpportunities,
@@ -13,37 +12,22 @@ export default function MarketOpportunity() {
   const [keyword, setKeyword] = useState("");
   const [analyzing, setAnalyzing] = useState(false);
   const [result, setResult] = useState<MO | null>(null);
-  const [selectedAsins, setSelectedAsins] = useState<string[]>([]);
-  const [comparing, setComparing] = useState(false);
-  const [comparison, setComparison] = useState<any[] | null>(null);
+  const [error, setError] = useState("");
 
   const { data: history } = useQuery({
     queryKey: ["market-opportunity-history"],
     queryFn: () => listMarketOpportunities(),
   });
 
-  const toggleAsin = (asin: string) => {
-    setSelectedAsins(prev => 
-      prev.includes(asin) ? prev.filter(a => a !== asin) : 
-      prev.length >= 5 ? prev : [...prev, asin]
-    );
-  };
-
-  const handleCompare = async () => {
-    if (selectedAsins.length < 2) return;
-    setComparing(true);
-    const results = await Promise.all(
-      selectedAsins.map((asin) => analyzeCompetitor(asin))
-    );
-    setComparison(results);
-    setComparing(false);
-  };
   const handleAnalyze = async () => {
     if (!keyword.trim()) return;
     setAnalyzing(true);
+    setError("");
     try {
       const res = await analyzeMarketOpportunity(keyword.trim());
       setResult(res);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "分析失败");
     } finally {
       setAnalyzing(false);
     }
@@ -54,10 +38,10 @@ export default function MarketOpportunity() {
       {/* Hero */}
       <div className="mb-10">
         <h1 className="text-[32px] font-bold tracking-[-0.025em] mb-2">
-          产品调研
+          产品机会
         </h1>
         <p className="text-[17px] text-[#86868b] leading-relaxed">
-          输入精准关键词搜索 Top 20 竞品，系统自动按产品形态分类并做 7 层分析。越精准的词分类越准
+          输入产品名称搜索 Top 20 样本，判断这个关键词市场值不值得做。
         </p>
       </div>
 
@@ -90,6 +74,9 @@ export default function MarketOpportunity() {
             )}
           </button>
         </div>
+        {error && (
+          <p className="mt-3 text-[14px] text-[#ff3b30]">{error}</p>
+        )}
       </div>
 
       {/* Result */}
@@ -131,209 +118,7 @@ export default function MarketOpportunity() {
             )}
           </div>
 
-          {/* Product Category Breakdown */}
-          {((result.product_categories?.length ?? 0) > 0 ||
-            (result.seven_layer_result_json && (result.seven_layer_result_json as any).product_categories?.length > 0)) && (
-            (() => {
-              const cats = result.product_categories || (result.seven_layer_result_json as any)?.product_categories || [];
-              return (
-            <div className="apple-card p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-[13px] font-semibold text-[#86868b] uppercase tracking-wide">
-                  产品分类统计
-                </h3>
-                {selectedAsins.length >= 2 && (
-                  <button onClick={handleCompare} disabled={comparing} className="apple-btn-primary flex items-center gap-1 text-[13px] px-4 py-2">
-                    <BarChart3 size={14} />
-                    {comparing ? "分析中..." : `对比选中 (${selectedAsins.length})`}
-                  </button>
-                )}
-              </div>
-              <div className="space-y-3">
-                {cats.map((cat: any, i: number) => (
-                  <div key={i} className="bg-[#fbfaf7] rounded-xl p-4">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-[15px] font-semibold">{cat.category_name}</span>
-                      <span className={`text-[12px] font-medium px-2 py-0.5 rounded-full ${
-                        cat.competition_level === "低" ? "bg-[#34c759]/10 text-[#34c759]" :
-                        cat.competition_level === "中" ? "bg-[#ff9500]/10 text-[#ff9500]" :
-                        "bg-[#ff3b30]/10 text-[#ff3b30]"
-                      }`}>
-                        竞争{cat.competition_level}
-                      </span>
-                    </div>
-                    <div className="grid grid-cols-4 gap-3 text-[13px] text-[#86868b] mb-2">
-                      <span>{cat.asin_count} 个ASIN</span>
-                      <span>{cat.avg_price}</span>
-                      <span>⭐ {cat.avg_rating}</span>
-                      <span>{cat.avg_reviews} 评</span>
-                    </div>
-                    {cat.key_players?.length > 0 && (
-                      <div className="flex flex-wrap gap-1.5 mt-2">
-                        {cat.key_players.slice(0, 5).map((asin: string) => {
-                          const checked = selectedAsins.includes(asin);
-                          return (
-                            <span
-                              key={asin}
-                              onClick={(e) => { e.stopPropagation(); toggleAsin(asin); }}
-                              className={`text-[12px] px-2 py-1 rounded-full cursor-pointer transition-colors font-mono ${
-                                checked ? "bg-[#0F2A24] text-white" : "bg-white text-[#0F2A24] border border-[#0F2A24]/20 hover:bg-[#0F2A24]/[0.06]"
-                              }`}
-                            >
-                              {checked ? "✓ " : "+ "}{asin}
-                            </span>
-                          );
-                        })}
-                      </div>
-                    )}
-                    {cat.common_weaknesses?.length > 0 && (
-                      <p className="text-[12px] text-[#ff3b30]">
-                        共性弱点：{cat.common_weaknesses.join("；")}
-                      </p>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-              );
-            })()
-          )}
-
-          {/* Top20 ASIN comparison */}
-          {((result.seven_layer_result_json as any)?.top20_asins?.length > 0) && (
-            <div className="apple-card p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-[13px] font-semibold text-[#86868b] uppercase tracking-wide">
-                  Top 20 竞品列表（勾选 2-5 个对比）
-                </h3>
-                <button
-                  onClick={handleCompare}
-                  disabled={selectedAsins.length < 2 || comparing}
-                  className="apple-btn-primary flex items-center gap-1 text-[13px] px-4 py-2"
-                >
-                  <BarChart3 size={14} />
-                  {comparing ? "分析中..." : `对比选中 (${selectedAsins.length})`}
-                </button>
-              </div>
-
-              {/* Price band summary */}
-              {(() => {
-                const asins = (result.seven_layer_result_json as any).top20_asins || [];
-                const priced = asins.filter((a: any) => a.price && !isNaN(parseFloat(String(a.price).replace('$',''))));
-                const priceVals = priced.map((a: any) => parseFloat(String(a.price).replace('$','')));
-                if (priceVals.length === 0) return null;
-                const min = Math.min(...priceVals);
-                const max = Math.max(...priceVals);
-                const lowCut = min + (max - min) / 3;
-                const highCut = min + 2 * (max - min) / 3;
-                const getBand = (p: number) => p < lowCut ? "low" : p >= highCut ? "high" : "mid";
-                const bands = { low: priced.filter((a: any) => getBand(parseFloat(String(a.price).replace('$',''))) === "low"),
-                                mid: priced.filter((a: any) => getBand(parseFloat(String(a.price).replace('$',''))) === "mid"),
-                                high: priced.filter((a: any) => getBand(parseFloat(String(a.price).replace('$',''))) === "high") };
-                return (
-                  <div className="grid grid-cols-3 gap-3 mb-4">
-                    <div className="bg-[#34c759]/[0.04] rounded-xl p-3 text-center">
-                      <p className="text-[11px] text-[#86868b]">低价带</p>
-                      <p className="text-[15px] font-bold">≤${lowCut.toFixed(0)}</p>
-                      <p className="text-[12px] text-[#34c759]">{bands.low.length} 个</p>
-                    </div>
-                    <div className="bg-[#ff9500]/[0.04] rounded-xl p-3 text-center">
-                      <p className="text-[11px] text-[#86868b]">中价带</p>
-                      <p className="text-[15px] font-bold">${lowCut.toFixed(0)}-${highCut.toFixed(0)}</p>
-                      <p className="text-[12px] text-[#ff9500]">{bands.mid.length} 个</p>
-                    </div>
-                    <div className="bg-[#ff3b30]/[0.04] rounded-xl p-3 text-center">
-                      <p className="text-[11px] text-[#86868b]">高价带</p>
-                      <p className="text-[15px] font-bold">≥${highCut.toFixed(0)}</p>
-                      <p className="text-[12px] text-[#ff3b30]">{bands.high.length} 个</p>
-                    </div>
-                  </div>
-                );
-              })()}
-
-              <div className="space-y-1 max-h-[400px] overflow-y-auto">
-                {((result.seven_layer_result_json as any).top20_asins).map((a: any) => {
-                  const checked = selectedAsins.includes(a.asin);
-                  const priceColor = !a.price ? "text-[#86868b]" : "text-[#1d1d1f]";
-                  return (
-                    <div
-                      key={a.asin}
-                      onClick={() => toggleAsin(a.asin)}
-                      className={`flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-colors ${
-                        checked ? "bg-[#0F2A24]/[0.06] border border-[#0F2A24]/20" : "hover:bg-[#fbfaf7]"
-                      }`}
-                    >
-                      {checked ? <CheckSquare size={16} className="text-[#0F2A24] shrink-0" /> : <Square size={16} className="text-[#d2d2d7] shrink-0" />}
-                      <span className="text-[12px] font-mono text-[#86868b] w-[100px] shrink-0">{a.asin}</span>
-                      <span className="text-[13px] flex-1 truncate">{a.title}</span>
-                      <span className={`text-[14px] font-bold shrink-0 w-[70px] text-right ${priceColor}`}>{a.price || "$—"}</span>
-                      <span className="text-[12px] text-[#ff9500] shrink-0 w-[45px]">{a.rating ? `⭐${a.rating}` : ""}</span>
-                      <span className="text-[12px] text-[#86868b] shrink-0 w-[55px] text-right">{a.review_count ? `${a.review_count}评` : ""}</span>
-                    </div>
-                  );
-                })}
-              </div>
-
-              {/* Comparison Table */}
-              {comparison && comparison.length > 0 && (
-                <div className="mt-6 border-t border-[#d2d2d7]/20 pt-4">
-                  <h4 className="text-[13px] font-semibold mb-3">对比结果</h4>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-[13px]">
-                      <thead>
-                        <tr className="border-b border-[#d2d2d7]/20 text-left text-[#86868b]">
-                          <th className="py-2 pr-3">指标</th>
-                          {comparison.map((c: any, i: number) => (
-                            <th key={i} className="py-2 pr-3 font-mono text-[12px]">{c.asin?.slice(0, 10)}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {["price", "rating", "review_count", "overall_judgment", "main_strengths", "attack_points"].map(field => (
-                          <tr key={field} className="border-b border-[#d2d2d7]/10">
-                            <td className="py-2 pr-3 text-[#86868b]">
-                              {field === "price" ? "价格" : field === "rating" ? "评分" : field === "review_count" ? "评论" : field === "overall_judgment" ? "综合判断" : field === "main_strengths" ? "优势" : "可攻击点"}
-                            </td>
-                            {comparison.map((c: any, i: number) => (
-                              <td key={i} className="py-2 pr-3">
-                                {Array.isArray(c[field])
-                                  ? c[field]?.slice(0, 2).map((s: string, j: number) => <p key={j} className="text-[12px]">· {s}</p>)
-                                  : <span className="text-[12px]">{c[field] || "—"}</span>}
-                              </td>
-                            ))}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* 7-layer result */}
-          {result.seven_layer_result_json && (
-            <div className="apple-card p-6">
-              <h3 className="text-[15px] font-semibold text-[#86868b] uppercase tracking-wide mb-4">
-                7 层分析
-              </h3>
-              <div className="space-y-3">
-                {Object.entries(result.seven_layer_result_json)
-                  .filter(([key]) => !["product_categories", "best_opportunity_category"].includes(key))
-                  .map(([key, val]) => (
-                  <div key={key} className="flex gap-3">
-                    <div className="w-1.5 h-1.5 rounded-full bg-[#0F2A24] mt-2 shrink-0" />
-                    <div>
-                      <p className="text-[13px] font-medium text-[#86868b]">{key}</p>
-                      <p className="text-[15px]">
-                        {typeof val === "string" ? val : ""}
-                      </p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+          <Top20Evidence result={result} />
         </div>
       )}
 
@@ -398,4 +183,135 @@ function Indicator({
       <p className="text-[14px] font-medium leading-tight">{value}</p>
     </div>
   );
+}
+
+function Top20Evidence({ result }: { result: MO }) {
+  const json = (result.seven_layer_result_json || {}) as Record<string, any>;
+  const top20 = Array.isArray(json.top20_asins) ? json.top20_asins : [];
+  const categories = result.product_categories || json.product_categories || [];
+  const phrases = extractTitlePhrases(top20);
+  const headPhrases = extractTitlePhrases(top20.slice(0, 5));
+  const tailPhrases = extractTitlePhrases(top20.slice(15, 20));
+  const reviewTerms = extractReviewTerms(top20, json);
+
+  return (
+    <div className="apple-card p-6">
+      <h3 className="text-[15px] font-semibold text-[#1d1d1f] mb-4">
+        关键词 & Top20 证据
+      </h3>
+
+      <div className="grid grid-cols-2 gap-3 mb-4">
+        <EvidenceBlock label="核心关键词" items={[result.keyword]} />
+        <EvidenceBlock label="长尾关键词" items={phrases.slice(0, 8)} />
+        <EvidenceBlock label="优先验证关键词" items={headPhrases.slice(0, 8)} />
+        <EvidenceBlock label="评论词提取" items={reviewTerms.slice(0, 8)} />
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 mb-4">
+        <EvidenceBlock label="Top1-5 高频词" items={headPhrases.slice(0, 8)} />
+        <EvidenceBlock label="Top16-20 高频词" items={tailPhrases.slice(0, 8)} />
+      </div>
+
+      {categories.length > 0 && (
+        <div className="mb-4">
+          <p className="text-[13px] font-medium text-[#86868b] mb-2">市场承接方式</p>
+          <div className="space-y-2">
+            {categories.slice(0, 5).map((cat: any, i: number) => (
+              <div key={i} className="rounded-xl bg-[#fbfaf7] p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-[14px] font-semibold">{cat.category_name || "暂无"}</span>
+                  <span className="text-[12px] text-[#86868b]">{cat.asin_count ?? "暂无"} 个ASIN</span>
+                </div>
+                <div className="mt-2 grid grid-cols-3 gap-2 text-[12px] text-[#86868b]">
+                  <span>{cat.avg_price || "暂无"}</span>
+                  <span>{cat.avg_rating != null ? `评分 ${cat.avg_rating}` : "暂无"}</span>
+                  <span>{cat.avg_reviews != null ? `${cat.avg_reviews} 评` : "暂无"}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {top20.length > 0 ? (
+        <div>
+          <p className="text-[13px] font-medium text-[#86868b] mb-2">Top20 ASIN 样本</p>
+          <div className="space-y-1 max-h-[360px] overflow-y-auto">
+            {top20.map((item: any, index: number) => (
+              <div key={`${item.asin || index}`} className="grid grid-cols-[36px_96px_1fr_72px_56px] gap-2 items-center rounded-lg p-2 hover:bg-[#fbfaf7]">
+                <span className="text-[12px] text-[#86868b]">#{index + 1}</span>
+                <span className="text-[12px] font-mono text-[#86868b] truncate">{item.asin || "暂无"}</span>
+                <span className="text-[13px] truncate">{item.title || "暂无"}</span>
+                <span className="text-[13px] font-semibold text-right">{item.price || "暂无"}</span>
+                <span className="text-[12px] text-[#86868b] text-right">{item.rating || "暂无"}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <p className="text-[14px] text-[#86868b]">暂无</p>
+      )}
+    </div>
+  );
+}
+
+function EvidenceBlock({ label, items }: { label: string; items: string[] }) {
+  const cleanItems = Array.from(new Set(items.map((item) => item.trim()).filter(Boolean)));
+  return (
+    <div className="rounded-xl bg-[#fbfaf7] p-3 min-h-[86px]">
+      <p className="text-[12px] font-medium text-[#86868b] mb-2">{label}</p>
+      {cleanItems.length > 0 ? (
+        <div className="flex flex-wrap gap-1.5">
+          {cleanItems.map((item) => (
+            <span key={item} className="rounded-full border border-[#d2d2d7]/70 bg-white px-2 py-1 text-[12px] text-[#1d1d1f]">
+              {item}
+            </span>
+          ))}
+        </div>
+      ) : (
+        <p className="text-[13px] text-[#86868b]">暂无</p>
+      )}
+    </div>
+  );
+}
+
+function extractTitlePhrases(items: any[]) {
+  const stop = new Set([
+    "and", "with", "for", "the", "a", "an", "of", "to", "in", "on", "by", "or", "as", "at",
+    "from", "is", "are", "be", "this", "that", "these", "those", "your", "you", "our", "it",
+    "pack", "pcs", "set", "new", "best",
+  ]);
+  const counts = new Map<string, number>();
+  for (const item of items) {
+    const words = String(item?.title || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9\s-]/g, " ")
+      .split(/\s+/)
+      .map((word) => word.trim())
+      .filter((word) => word.length > 2 && !stop.has(word));
+    for (let size = 1; size <= 3; size += 1) {
+      for (let i = 0; i <= words.length - size; i += 1) {
+        const phrase = words.slice(i, i + size).join(" ");
+        if (phrase.length < 4) continue;
+        counts.set(phrase, (counts.get(phrase) || 0) + 1);
+      }
+    }
+  }
+  return Array.from(counts.entries())
+    .filter(([, count]) => count > 1)
+    .sort((a, b) => b[1] - a[1] || a[0].length - b[0].length)
+    .map(([phrase]) => phrase)
+    .slice(0, 24);
+}
+
+function extractReviewTerms(top20: any[], json: Record<string, any>) {
+  const source = [
+    json.review_keywords,
+    json.review_terms,
+    json.review_snippets,
+    json.customer_reviews,
+    ...top20.map((item) => item.review_keywords || item.review_terms || item.review_snippets || item.customer_reviews),
+  ].flat().filter(Boolean);
+  if (source.length === 0) return [];
+  return extractTitlePhrases(source.map((value) => ({ title: String(value) })));
 }

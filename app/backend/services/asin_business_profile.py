@@ -385,6 +385,26 @@ class AsinBusinessProfileService:
         ) if metric_column is not None else None
         task.baseline_value = baseline_value
         task.result_value = result_value
+        task_meta = self.parse_validation_task_meta(task)
+        is_orphan = not bool(
+            task_meta.get("hypothesis_id") and task_meta.get("source_snapshot_id")
+        )
+        if is_orphan:
+            task.status = "orphan_validation_result"
+            task.result_summary = "缺少 hypothesis_id 或 source_snapshot_id，无法闭环回写"
+            task.data_source = json_dumps(
+                {
+                    **task_meta,
+                    "data_source": task.data_source,
+                    "orphan_reason": "missing_hypothesis_id_or_source_snapshot_id",
+                    "result_summary": task.result_summary,
+                }
+            )
+            task.updated_at = datetime.now(timezone.utc)
+            await self.db.commit()
+            await self.db.refresh(task)
+            return task
+
         task.status = self.evaluate_validation_status(
             baseline_value=baseline_value,
             target_value=task.target_value,
@@ -1213,6 +1233,28 @@ class AsinBusinessProfileService:
         total = total_result.scalar() or 0
         result = await self.db.execute(query.order_by(AiDecisionTrace.created_at.desc()).offset(skip).limit(limit))
         return {"items": list(result.scalars().all()), "total": total, "skip": skip, "limit": limit}
+
+    @staticmethod
+    def parse_validation_task_meta(task: ValidationTask) -> dict:
+        meta: dict[str, Any] = {}
+        for key in ("hypothesis_id", "source_snapshot_id"):
+            value = getattr(task, key, None)
+            if value:
+                meta[key] = value
+
+        for field in ("data_source", "action_plan"):
+            raw_value = getattr(task, field, None)
+            if not raw_value:
+                continue
+            try:
+                parsed = json.loads(raw_value) if isinstance(raw_value, str) else raw_value
+            except Exception:
+                parsed = None
+            if isinstance(parsed, dict):
+                for key in ("hypothesis_id", "source_snapshot_id"):
+                    if parsed.get(key) and not meta.get(key):
+                        meta[key] = parsed.get(key)
+        return meta
 
     @staticmethod
     def evaluate_validation_status(

@@ -46,3 +46,24 @@ async def get_conversion_diagnosis(
     if not diagnosis:
         raise HTTPException(status_code=404, detail="Diagnosis not found")
     return diagnosis
+
+
+@router.post("/multi-source")
+async def multi_source_diagnosis(
+    payload: dict,
+    db: AsyncSession = Depends(get_db),
+    user_id: str | None = Depends(get_current_user_id),
+):
+    """Run 5-dimension diagnosis using ad data + listing + TOP20."""
+    from app.core.multi_source_diagnosis import MultiSourceDiagnosisEngine
+
+    engine = MultiSourceDiagnosisEngine()
+    result = engine.diagnose(
+        asin=payload.get("asin", ""),
+        marketplace=payload.get("marketplace", "amazon.com"),
+        ad_metrics=payload.get("ad_metrics"),
+        listing_data=payload.get("listing_data"),
+        ai_result=payload.get("ai_result"),
+        top20_context=payload.get("top20_context"),
+    )
+    return result

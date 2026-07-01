@@ -55,6 +55,9 @@ async def init_db():
             await _add_sqlite_column(conn, "report_upload_staging_records", "asin_attribution_status", "VARCHAR(32) NOT NULL DEFAULT 'missing'")
             await _add_sqlite_column(conn, "report_upload_staging_records", "validation_task_id", "VARCHAR(32)")
             await _add_sqlite_column(conn, "report_upload_staging_records", "execution_record_id", "VARCHAR(32)")
+            await _add_sqlite_column(conn, "ai_call_logs", "analysis_mode", "VARCHAR(64)")
+            await _add_sqlite_column(conn, "ai_call_logs", "trust_meta", "JSON")
+            await _add_sqlite_column(conn, "ai_call_logs", "ai_trace", "JSON")
             await _ensure_sqlite_profile_tenant_unique(conn)
 
 

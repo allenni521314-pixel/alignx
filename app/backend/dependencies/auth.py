@@ -1,5 +1,6 @@
 import hashlib
 import logging
+import os
 from datetime import datetime
 from typing import Optional
 
@@ -19,9 +20,10 @@ LOCAL_DEV_TOKEN = "dev-local-token"
 
 
 def _is_local_request(request: Request) -> bool:
+    if os.getenv("ENABLE_LOCAL_DEV_BYPASS", "false").strip().lower() not in {"1", "true", "yes", "on"}:
+        return False
     host = (request.client.host if request.client else "") or ""
-    request_host = request.url.hostname or ""
-    return host in {"127.0.0.1", "::1", "localhost"} or request_host in {"127.0.0.1", "::1", "localhost"}
+    return host in {"127.0.0.1", "::1", "localhost"}
 
 
 async def get_bearer_token(

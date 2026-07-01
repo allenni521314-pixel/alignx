@@ -114,7 +114,6 @@ const navGroups: NavGroup[] = [
 
 const bottomNavItems: NavItem[] = [
   { path: "/settings?tab=account", label: "账号中心", icon: Settings, moduleKey: "settings" },
-  { path: "/settings", label: "系统设置", icon: Settings, moduleKey: "settings" },
 ];
 
 const pathOnly = (path: string) => path.split("?")[0];

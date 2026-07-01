@@ -10,6 +10,7 @@
 
 import json
 import logging
+import asyncio
 import time
 import hashlib
 from typing import Any, Dict, Optional, Callable, List
@@ -134,7 +135,7 @@ def with_retry(max_retries: int = 3, backoff_factor: float = 1.0):
                         f"Attempt {attempt + 1}/{max_retries} for {func.__name__} failed: {e}. "
                         f"Retrying in {wait_time}s..."
                     )
-                    time.sleep(wait_time)
+                    await asyncio.sleep(wait_time)
 
             # 所有重试都失败了
             logger.error(f"All {max_retries} attempts failed for {func.__name__}")

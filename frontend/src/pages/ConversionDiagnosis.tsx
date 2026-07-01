@@ -8,6 +8,8 @@ import {
   ConversionDiagnosis as CD,
 } from "@/lib/api";
 
+type HeatmapItem = Record<string, unknown> | NonNullable<CD["position_diagnoses_json"]>[number];
+
 const AD_METRIC_LABELS: Record<string, string> = {
   CTR: "点击率",
   CVR: "转化率",
@@ -49,6 +51,40 @@ const RISK_COLOR: Record<string, string> = {
   medium: "text-[#ff9500]",
   low: "text-[#34c759]",
  };
+
+const FUNNEL_LABELS: Record<string, string> = {
+  demand_trigger: "需求触发",
+  search_intent: "搜索意图",
+  search_match: "搜索匹配",
+  click_decision: "点击判断",
+  first_screen_confirmation: "首屏确认",
+  value_understanding: "卖点理解",
+  trust_building: "信任证明",
+  objection_handling: "疑虑消除",
+  purchase_confirmation: "购买确认",
+};
+
+const FUNNEL_STAGE_LABELS = [
+  "需求触发",
+  "搜索意图",
+  "搜索匹配",
+  "点击判断",
+  "首屏确认",
+  "卖点理解",
+  "信任证明",
+  "疑虑消除",
+  "购买确认",
+];
+
+const STAGE_ORDER = ["search_match", "click_decision", "first_screen_confirmation", "value_understanding", "trust_building", "objection_handling"];
+
+const STAGE_COLORS: Record<string, { bg: string; border: string; dot: string }> = {
+  covered: { bg: "bg-[#34c759]/[0.06]", border: "border-[#34c759]/30", dot: "bg-[#34c759]" },
+  weak: { bg: "bg-[#ff9500]/[0.06]", border: "border-[#ff9500]/30", dot: "bg-[#ff9500]" },
+  missing: { bg: "bg-[#ff3b30]/[0.06]", border: "border-[#ff3b30]/30", dot: "bg-[#ff3b30]" },
+  blocked_by_rule: { bg: "bg-[#ff3b30]/[0.08]", border: "border-[#ff3b30]/40", dot: "bg-[#ff3b30]" },
+  not_priority: { bg: "bg-[#86868b]/[0.04]", border: "border-[#86868b]/20", dot: "bg-[#86868b]" },
+};
 
 export default function ConversionDiagnosis() {
   const [asin, setAsin] = useState("");
@@ -284,6 +320,8 @@ function UnifiedListingDiagnosis({ result }: { result: CD }) {
   const topActions = data.top_actions || [];
   const keywordRows = data.keyword_position_mapping || [];
   const plan = data.validation_plan || {};
+  const funnelRows = normalizeFunnelRows(data.funnel_diagnosis || []);
+
   return (
     <>
       <div className="apple-card p-6">
@@ -298,12 +336,39 @@ function UnifiedListingDiagnosis({ result }: { result: CD }) {
           </div>
         </div>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-5">
-          <MetricCard label="当前主断点" value={data.primary_bottleneck || "暂无"} />
-          <MetricCard label="次级断点" value={data.secondary_bottleneck || "暂无"} />
+          <MetricCard label="当前主断点" value={funnelLabel(data.primary_bottleneck)} />
+          <MetricCard label="次级断点" value={funnelLabel(data.secondary_bottleneck)} />
           <MetricCard label="置信度" value={`${data.confidence ?? 0}/100`} />
           <MetricCard label="证据强度" value={`${data.evidence_strength ?? 0}/100`} />
         </div>
         <p className="text-[12px] text-[#86868b] mt-4">{data.prediction_policy || "暂无"}</p>
+      </div>
+
+      {/* Buyer Decision Chain Funnel */}
+      <div className="apple-card p-6">
+        <h3 className="text-[13px] font-semibold text-[#86868b] uppercase tracking-wide mb-4">买家决策链漏斗</h3>
+        <div className="space-y-2">
+          {funnelRows.map((row) => (
+            <div key={row.stage} className="grid grid-cols-[96px_72px_1fr] gap-3 items-center rounded-xl bg-[#fbfaf7] p-3">
+              <span className="text-[13px] font-semibold">{row.stage}</span>
+              <span className={`text-[12px] font-medium ${riskTextClass(row.risk)}`}>{riskLabel(row.risk)}</span>
+              <span className="text-[13px] text-[#86868b] truncate">{row.evidence}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Listing Heatmap */}
+      <ListingHeatmap heatmap={heatmap} />
+
+      {/* Position Diagnosis Cards */}
+      <div className="apple-card p-6">
+        <h3 className="text-[13px] font-semibold text-[#86868b] uppercase tracking-wide mb-4">区位诊断</h3>
+        <div className="space-y-3">
+          {heatmap.map((item, index) => (
+            <PositionDiagnosisCard key={`${item.position_id || item.position_name}-${index}`} item={item} />
+          ))}
+        </div>
       </div>
 
       <div className="apple-card p-6">
@@ -322,21 +387,6 @@ function UnifiedListingDiagnosis({ result }: { result: CD }) {
         ) : (
           <p className="text-[14px] text-[#86868b]">暂无</p>
         )}
-      </div>
-
-      <div className="apple-card p-6">
-        <h3 className="text-[13px] font-semibold text-[#86868b] uppercase tracking-wide mb-4">区位缺口热力图</h3>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-          {heatmap.map((item) => (
-            <div key={item.position_id} className="rounded-xl border border-[#d2d2d7]/60 bg-white/70 p-3">
-              <p className="text-[13px] font-semibold">{item.position_name}</p>
-              <p className={`text-[12px] mt-1 ${RISK_COLOR[item.risk_level || ""] || "text-[#86868b]"}`}>
-                {HEAT_STATUS_LABEL[item.current_status || item.status] || item.current_status || item.status || "暂无"}
-              </p>
-              <p className="text-[11px] text-[#86868b] mt-2">{item.funnel_stage || "暂无"}</p>
-            </div>
-          ))}
-        </div>
       </div>
 
       <div className="apple-card p-6">
@@ -383,6 +433,129 @@ function UnifiedListingDiagnosis({ result }: { result: CD }) {
   );
 }
 
+/* ── Listing Heatmap Component ── */
+
+function ListingHeatmap({ heatmap }: { heatmap: HeatmapItem[] }) {
+  const grouped: Record<string, HeatmapItem[]> = {};
+  for (const item of heatmap) {
+    const stage = String(item.funnel_stage || "");
+    if (!grouped[stage]) grouped[stage] = [];
+    grouped[stage].push(item);
+  }
+
+  return (
+    <div className="apple-card p-6">
+      <h3 className="text-[13px] font-semibold text-[#86868b] uppercase tracking-wide mb-5">
+        Listing 区位热力图
+      </h3>
+      <div className="space-y-3">
+        {STAGE_ORDER.map((stage) => {
+          const positions = grouped[stage];
+          if (!positions || !positions.length) return null;
+          const health = stageHealth(positions);
+          const first = positions[0];
+          const isProblem = first && (first.risk_level === "high" || first.risk_level === "medium");
+          return (
+            <div key={stage} className="flex items-stretch gap-3">
+              <div className="w-[88px] shrink-0 flex flex-col justify-center">
+                <span className="text-[13px] font-semibold text-[#1d1d1f]">{funnelLabel(stage)}</span>
+                <div className="flex gap-0.5 mt-1">
+                  {health.ok > 0 && <span className="h-1 rounded-full bg-[#34c759]" style={{ flex: health.ok }} />}
+                  {health.warn > 0 && <span className="h-1 rounded-full bg-[#ff9500]" style={{ flex: health.warn }} />}
+                  {health.bad > 0 && <span className="h-1 rounded-full bg-[#ff3b30]" style={{ flex: health.bad }} />}
+                </div>
+              </div>
+              <div className={`w-[2px] shrink-0 rounded-full ${isProblem ? "bg-[#ff9500]/40" : "bg-[#d2d2d7]/40"}`} />
+              <div className="flex flex-wrap gap-2 items-center flex-1">
+                {positions.map((pos) => {
+                  const status = String(pos.current_status || pos.status || "");
+                  const colors = STAGE_COLORS[status] || STAGE_COLORS.not_priority;
+                  return (
+                    <div
+                      key={String(pos.position_id || pos.position_name)}
+                      className={`rounded-lg border px-2.5 py-1.5 ${colors.bg} ${colors.border} flex items-center gap-1.5`}
+                    >
+                      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${colors.dot}`} />
+                      <span className="text-[12px] font-medium text-[#1d1d1f]">
+                        {String(pos.position_name || "")}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {/* Legend */}
+      <div className="flex items-center gap-4 mt-5 pt-4 border-t border-[#d2d2d7]/30">
+        {[
+          { label: "已覆盖", dot: "bg-[#34c759]" },
+          { label: "弱覆盖", dot: "bg-[#ff9500]" },
+          { label: "缺失/禁止", dot: "bg-[#ff3b30]" },
+          { label: "当前不优先", dot: "bg-[#86868b]" },
+        ].map((item) => (
+          <span key={item.label} className="flex items-center gap-1.5 text-[11px] text-[#86868b]">
+            <span className={`w-2 h-2 rounded-full ${item.dot}`} />
+            {item.label}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ── Helpers ── */
+
+function stageHealth(positions: HeatmapItem[]): { ok: number; warn: number; bad: number } {
+  let ok = 0, warn = 0, bad = 0;
+  for (const p of positions) {
+    const s = p.current_status || p.status;
+    if (s === "covered") ok++;
+    else if (s === "weak" || s === "not_priority") warn++;
+    else bad++;
+  }
+  return { ok, warn, bad };
+}
+
+function normalizeFunnelRows(rows: Array<Record<string, unknown>>) {
+  return FUNNEL_STAGE_LABELS.map((stage) => {
+    const row = rows.find((item) => funnelLabel(item.stage || item.funnel_stage) === stage);
+    if (row) {
+      return {
+        stage,
+        risk: asText(row.risk_level || row.risk || row.status),
+        evidence: asText(row.evidence || row.diagnosis || row.issue || row.reason),
+      };
+    }
+    return {
+      stage,
+      risk: "low",
+      evidence: "当前未检测到明显问题，待更多数据验证。",
+    };
+  });
+}
+
+function riskLabel(risk: string) {
+  if (risk === "high" || risk === "高") return "高风险";
+  if (risk === "medium" || risk === "中") return "中风险";
+  if (risk === "low" || risk === "低") return "低风险";
+  return risk === "暂无" ? "暂无" : risk;
+}
+
+function riskTextClass(risk: string) {
+  if (risk === "high" || risk === "高") return "text-[#ff3b30]";
+  if (risk === "medium" || risk === "中") return "text-[#ff9500]";
+  if (risk === "low" || risk === "低") return "text-[#34c759]";
+  return "text-[#86868b]";
+}
+
+function funnelLabel(value: unknown): string {
+  const text = asText(value);
+  if (text === "暂无") return text;
+  return FUNNEL_LABELS[text] || text;
+}
+
 function MetricCard({ label, value }: { label: string; value: string | number }) {
   return (
     <div className="rounded-xl bg-[#fbfaf7] p-3">
@@ -390,6 +563,44 @@ function MetricCard({ label, value }: { label: string; value: string | number })
       <p className="text-[14px] font-semibold text-[#1d1d1f]">{value}</p>
     </div>
   );
+}
+
+function PositionDiagnosisCard({ item }: { item: HeatmapItem }) {
+  const status = String(item.current_status || item.status || "");
+  const issue = asText(item.reason || item.buyerLanguageProblem || item.positionProblem || item.issue);
+  const fix = asText(item.suggestedRewrite || item.recommendation);
+  const metrics = item.validationMetrics || item.impacted_ad_metrics || [];
+  return (
+    <div className={`rounded-xl p-4 border ${heatClass(String(item.current_status || item.status))}`}>
+      <div className="flex items-center gap-2 mb-2">
+        <div className={`w-2 h-2 rounded-full ${heatDot(String(item.current_status || item.status))}`} />
+        <span className="text-[13px] font-semibold">{asText(item.position_name)}</span>
+        <span className="text-[11px] text-[#86868b]">{funnelLabel(item.funnel_stage)}</span>
+        <span className="text-[11px] text-[#86868b] ml-auto">
+          {HEAT_STATUS_LABEL[status] || status || "暂无"}
+        </span>
+      </div>
+      <p className="text-[13px] text-[#1d1d1f] mb-2">{issue}</p>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5">
+        <span className="text-[11px] text-[#86868b]">{asText(item.issue || item.recommendation) ? "建议: " + asText(item.recommendation || item.recommended_fix_type) : ""}</span>
+        <span className="text-[11px] text-[#86868b]">影响: {asText(item.impact_direction || item.impacted_ad_metrics)}</span>
+      </div>
+    </div>
+  );
+}
+
+function heatClass(status?: string) {
+  if (status === "covered" || status === "通过" || status === "已覆盖") return "bg-[#34c759]/[0.04] border-[#34c759]/20";
+  if (status === "weak" || status === "需修改" || status === "弱覆盖" || status === "not_priority") return "bg-[#ff9500]/[0.04] border-[#ff9500]/20";
+  if (status === "blocked_by_rule" || status === "平台禁止" || status === "平台规则禁止") return "bg-[#ff3b30]/[0.04] border-[#ff3b30]/20";
+  return "bg-white/70 border-[#d2d2d7]/60";
+}
+
+function heatDot(status?: string) {
+  if (status === "covered" || status === "通过" || status === "已覆盖") return "bg-[#34c759]";
+  if (status === "weak" || status === "需修改" || status === "弱覆盖" || status === "not_priority") return "bg-[#ff9500]";
+  if (status === "blocked_by_rule" || status === "平台禁止" || status === "平台规则禁止") return "bg-[#ff3b30]";
+  return "bg-[#86868b]";
 }
 
 function asText(value: unknown): string {

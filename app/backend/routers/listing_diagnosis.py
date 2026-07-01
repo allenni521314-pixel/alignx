@@ -62,6 +62,7 @@ from services.human_nature_model import build_human_nature_graph, human_nature_p
 from services.cosmo_operator_agent import CosmoOperatorAgent
 from services.scrapeless_amazon_capture import scrape_amazon_product_via_scrapeless
 from services.asin_business_profile import AsinBusinessProfileService
+from services.funnel_signals import build_funnel_prompt_context, fetch_funnel_signals, route_diagnosis_focus
 
 logger = logging.getLogger(__name__)
 AI_DIAGNOSIS_TIMEOUT_SECONDS = int(os.getenv("AI_DIAGNOSIS_TIMEOUT_SECONDS", "300"))
@@ -2741,6 +2742,11 @@ async def _diagnose_single(
         precision_context["review_intent_assets"] = review_intent_assets
 
     product_title = listing.title or "未提供"
+    funnel = await fetch_funnel_signals(listing.asin, user_id, db)
+    diagnosis_focus = route_diagnosis_focus(funnel)
+    data_context = build_funnel_prompt_context(funnel, diagnosis_focus)
+    precision_context["funnel_signals"] = funnel
+    precision_context["diagnosis_focus"] = diagnosis_focus
     evidence_chain = await _build_listing_evidence_chain(listing, ai_service)
     listing = _merge_visual_ocr_into_listing(listing, evidence_chain)
     buyer_language_translation = await _build_listing_buyer_language_translation(listing, evidence_chain)
@@ -2774,6 +2780,8 @@ async def _diagnose_single(
         + json.dumps(evidence_chain, ensure_ascii=False)[:6000]
         + "\n\n【买家语言转译层】以下内容是本次上架准入和承接决策共用的买家语言翻译层。必须先用它判断Listing是否还是卖家思维，再做10维评分、模块归因和广告验证。不要把内部字段名暴露给卖家：\n"
         + json.dumps(buyer_language_translation, ensure_ascii=False)[:3600]
+        + "\n\n【漏斗数据上下文】\n"
+        + data_context
     )
     if review_intent_assets:
         prompt += (
@@ -2950,6 +2958,8 @@ async def _diagnose_single(
     ad_validation_plan = merge_toolbox_into_ad_validation_plan(ad_validation_plan, toolbox_enhancements)
     data["ad_validation_plan"] = ad_validation_plan
     data["diagnosis_mode"] = diagnosis_mode
+    data["funnel_signals"] = funnel
+    data["diagnosis_focus"] = diagnosis_focus
     data["buyer_language_translation"] = buyer_language_translation
     data["listing_position_diagnosis"] = build_listing_position_diagnosis(data, _position_payload_from_listing(listing))
     data["ad_validation_readiness_gate"] = JudgmentSystemService.apply_ad_validation_gate_to_outputs(data, listing)

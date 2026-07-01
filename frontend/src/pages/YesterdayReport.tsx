@@ -1,52 +1,14 @@
-import { useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import {
-  TrendingUp, DollarSign, Target, CheckCircle2, XCircle, AlertTriangle,
-  Upload, FileText, Calendar, BarChart3,
+  TrendingUp, DollarSign, Target, CheckCircle2, XCircle, BarChart3,
 } from "lucide-react";
-import { getYesterdayReport, stageReportUpload } from "@/lib/api";
-
-type ReportType = "daily" | "weekly" | "monthly";
-
-const REPORT_LABELS: Record<ReportType, string> = { daily: "昨日日报", weekly: "周报", monthly: "月报" };
+import { getYesterdayReport } from "@/lib/api";
 
 export default function YesterdayReport() {
-  const queryClient = useQueryClient();
-  const [reportType, setReportType] = useState<ReportType>("daily");
-  const [uploading, setUploading] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
-
   const { data: report, isLoading } = useQuery({
-    queryKey: ["yesterday-report", reportType],
+    queryKey: ["yesterday-report"],
     queryFn: () => getYesterdayReport(),
   });
-
-  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setUploading(true);
-    const text = await file.text();
-    const rows = text.split("\n").filter((r) => r.trim());
-    const headers = rows[0].split(/[,\t]/).map((h) => h.trim());
-    const parsedRows = rows.slice(1).map((row) => {
-      const cols = row.split(/[,\t]/);
-      return headers.reduce<Record<string, string>>((acc, header, index) => {
-        acc[header || `column_${index + 1}`] = cols[index]?.trim() || "";
-        return acc;
-      }, {});
-    });
-    const result = await stageReportUpload({
-      report_type: reportType,
-      marketplace: "amazon.com",
-      source_filename: file.name,
-      rows: parsedRows,
-    });
-
-    setToast(`待确认：${result.total_rows} 条`);
-    queryClient.invalidateQueries({ queryKey: ["yesterday-report"] });
-    setUploading(false);
-    setTimeout(() => setToast(null), 3000);
-  };
 
   const ys = report?.summary;
 
@@ -66,40 +28,6 @@ export default function YesterdayReport() {
       <div className="text-center mb-12">
         <h1 className="text-[36px] font-bold tracking-[-0.025em] mb-2">昨日战报</h1>
         <p className="text-[17px] text-[#86868b]">验证结果 / 广告数据</p>
-      </div>
-
-      {/* Report type selector */}
-      <div className="flex items-center gap-2 mb-4">
-        {(["daily", "weekly", "monthly"] as ReportType[]).map((t) => (
-          <button
-            key={t}
-            onClick={() => setReportType(t)}
-            className={`px-4 py-2 rounded-xl text-[14px] font-medium transition-colors ${
-              reportType === t ? "bg-[#0F2A24] text-white" : "bg-[#fbfaf7] text-[#86868b] hover:bg-[#e8e8ed]"
-            }`}
-          >
-            <Calendar size={14} className="inline mr-1" />
-            {REPORT_LABELS[t]}
-          </button>
-        ))}
-      </div>
-
-      {/* Upload area */}
-      <div className="apple-card mb-6">
-        <label className="flex items-center gap-4 p-5 cursor-pointer hover:bg-[#fbfaf7] transition-colors rounded-xl">
-          <div className="w-10 h-10 rounded-xl bg-[#0F2A24]/[0.08] flex items-center justify-center shrink-0">
-            <Upload size={20} className="text-[#0F2A24]" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-[15px] font-semibold">上传广告报表</p>
-            <p className="text-[13px] text-[#86868b]">CSV</p>
-          </div>
-          <div className={`px-4 py-2 rounded-xl text-[14px] font-medium shrink-0 ${uploading ? "bg-[#fbfaf7] text-[#86868b]" : "bg-[#0F2A24] text-white"}`}>
-            <FileText size={14} className="inline mr-1" />
-            {uploading ? "导入中..." : "选择 CSV 文件"}
-          </div>
-          <input type="file" accept=".csv" className="hidden" onChange={handleUpload} disabled={uploading} />
-        </label>
       </div>
 
       {/* KPI cards */}
@@ -190,12 +118,6 @@ export default function YesterdayReport() {
         </div>
       )}
 
-      {/* Toast */}
-      {toast && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-[#1d1d1f] text-white px-5 py-3 rounded-xl text-[14px] shadow-lg z-50">
-          ✅ {toast}
-        </div>
-      )}
     </div>
   );
 }

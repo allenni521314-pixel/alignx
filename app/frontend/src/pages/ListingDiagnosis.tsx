@@ -67,6 +67,13 @@ import { getAuthHeaders } from "@/lib/auth-headers";
 import { getAllProducts, getCompetitorInsights, updateProductLifecycle, saveTimelineEvent, saveActionSnapshot, type CompetitorInsight, type ActionSnapshot } from "@/lib/workflow-api";
 import { client } from "@/lib/api";
 import { finishModuleTask, removeModuleTask, upsertModuleTask } from "@/lib/module-task-store";
+import {
+  ACTION_PRIORITY_LABELS,
+  IMPACT_METRIC_LABELS,
+  KEYWORD_TYPE_LABELS,
+  RISK_LEVEL_LABELS,
+  label,
+} from "@/lib/label-maps";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -928,12 +935,6 @@ const COMPETITION_COLORS: Record<string, string> = {
   low: "text-emerald-600",
 };
 
-const KEYWORD_TYPE_LABELS: Record<string, string> = {
-  attribute: "属性词",
-  relationship: "关系词",
-  state_trigger: "状态触发词",
-};
-
 const KEYWORD_TYPE_BADGES: Record<string, string> = {
   attribute: "bg-gray-100 text-gray-600 border-gray-200",
   relationship: "bg-teal-100 text-teal-600 border-teal-200",
@@ -952,64 +953,13 @@ function keywordTypeForUi(keyword: string): "attribute" | "relationship" | "stat
 }
 
 function normalizeAmazonAdKeyword(keyword: string): string {
-  let text = String(keyword || "").trim().toLowerCase();
+  const text = String(keyword || "").trim().toLowerCase();
   if (!text) return "";
   if (/[\u4e00-\u9fff]/.test(text)) {
-    const rules: Array<[RegExp, string]> = [
-      [/旅行箱.*充电宝|旅行.*充电宝/, "travel power bank"],
-      [/适合.*小钱包.*充电器|小钱包.*充电器/, "compact charger for small purse"],
-      [/双装.*移动电源.*礼品|移动电源.*礼品/, "power bank gift set"],
-      [/口袋型.*超薄.*电池组|超薄.*电池组|口袋型.*电池/, "slim pocket power bank"],
-      [/usb\\s*c.*移动电源.*iphone.*三星|移动电源.*iphone.*三星/i, "usb c power bank for iphone and samsung"],
-      [/slimmest.*10000mah.*移动电源|10000mah.*移动电源/, "slimmest 10000mah power bank"],
-      [/轻型.*飞机.*手机充电器|飞机.*手机充电器/, "lightweight phone charger for flights"],
-      [/便携式.*充电器|充电宝|移动电源|手机充电器/, "portable phone power bank"],
-      [/泳池.*夹式.*蓝牙|夹式.*蓝牙.*泳池/, "clip on bluetooth speaker for pool"],
-      [/夹式.*蓝牙|蓝牙.*夹式/, "clip on bluetooth speaker"],
-      [/便携式.*防水.*扬声器.*调频|防水.*扬声器.*调频|fm.*防水.*扬声器/i, "portable waterproof speaker with fm radio"],
-      [/迷你.*户外.*音箱.*背带|户外.*音箱.*背带/, "mini outdoor speaker with carrying strap"],
-      [/适用于.*海滩.*tws|海滩.*tws.*无线.*扬声器|tws.*海滩/i, "tws speaker for beach trips"],
-      [/旅行.*徒步.*淋浴.*音箱|淋浴.*音箱.*旅行|淋浴.*音箱.*徒步/, "shower speaker for hiking and travel"],
-      [/沙滩.*专用.*tws|沙滩.*tws.*无线.*音箱/, "tws speaker for beach trips"],
-      [/防水.*蓝牙.*音箱|蓝牙.*音箱.*防水/, "waterproof bluetooth speaker"],
-      [/防水.*扬声器|扬声器.*防水/, "waterproof speaker"],
-      [/便携式.*蓝牙.*音箱|蓝牙.*音箱.*便携式/, "portable bluetooth speaker"],
-      [/海滩|沙滩/, "bluetooth speaker for beach trips"],
-      [/露营|户外/, "portable speaker for camping"],
-      [/泳池|池边/, "poolside bluetooth speaker"],
-      [/调频|收音机|fm/i, "bluetooth speaker with fm radio"],
-      [/背带|挂绳|肩带/, "portable speaker with carrying strap"],
-      [/夹式|夹子/, "clip on speaker"],
-      [/淋浴/, "shower speaker"],
-      [/徒步/, "speaker for hiking"],
-      [/tws/i, "tws bluetooth speaker"],
-      [/led|灯|彩灯|灯光|炫彩/, "bluetooth speaker with led lights"],
-      [/礼物|送礼|生日/, "bluetooth speaker gift"],
-      [/儿童|孩子|男孩|女孩|青少年/, "speaker gift for kids"],
-      [/卧室|房间/, "bedroom bluetooth speaker"],
-      [/派对|聚会/, "party speaker with lights"],
-      [/猫砂.*臭|除臭|异味/, "cat litter box odor control"],
-      [/氨气/, "ammonia odor control"],
-      [/猫砂.*公寓|公寓.*猫/, "litter box for apartment cats"],
-      [/防外溅|追踪|带砂/, "reduce litter tracking"],
-    ];
-    const converted = rules.find(([pattern]) => pattern.test(text))?.[1];
-    if (converted) return converted;
-    const englishOnly = text.replace(/[\u4e00-\u9fff]+/g, " ");
-    text = englishOnly;
+    return "";
   }
-  const replacements: Record<string, string> = {
-    odour: "odor",
-    colour: "color",
-    favourite: "favorite",
-    travelling: "traveling",
-    jewellery: "jewelry",
-  };
-  Object.entries(replacements).forEach(([from, to]) => {
-    text = text.replace(new RegExp(`\\b${from}\\b`, "g"), to);
-  });
-  text = text.replace(/[^a-z0-9 +&/-]/g, " ").replace(/\s+/g, " ").trim();
-  const normalized = text.split(" ").slice(0, 8).join(" ");
+  const normalized = text.replace(/\s+/g, " ").trim();
+  if (!/^[a-z0-9 +&/-]+$/.test(normalized)) return "";
   return /[a-z]/.test(normalized) ? normalized : "";
 }
 
@@ -1937,7 +1887,8 @@ function getListingPositionValidation(result: DiagnosisResult, module: ListingPo
   const keywordText = getValidationKeywordText(validation, result);
   if (!keywordText) return "暂无";
   const supplement = getMissingKeywordText(result) || "暂无";
-  return `假设：${hypothesis && !isGenericValidationText(hypothesis) ? hypothesis : "暂无"}\n词组：${keywordText}\n补词：${supplement}\n指标：${read.metrics.join(" / ")}`;
+  const metricText = read.metrics.map((metric) => label(IMPACT_METRIC_LABELS, metric)).join(" / ");
+  return `假设：${hypothesis && !isGenericValidationText(hypothesis) ? hypothesis : "暂无"}\n词组：${keywordText}\n补词：${supplement}\n指标：${metricText}`;
 }
 
 function getListingPositionProblem(result: DiagnosisResult, listing: ListingInput, module: ListingPositionModule, label: string, index?: number): string {
@@ -2094,7 +2045,10 @@ function buildListingPositionRows(
       ? sanitizeValidationText(backendPosition.ad_validation.hypothesis)
       : "";
     const backendMetrics = backendPosition?.ad_validation && typeof backendPosition.ad_validation === "object" && Array.isArray(backendPosition.ad_validation.metrics)
-      ? backendPosition.ad_validation.metrics.filter(Boolean).join(" / ")
+      ? backendPosition.ad_validation.metrics
+        .filter(Boolean)
+        .map((metric: unknown) => label(IMPACT_METRIC_LABELS, String(metric)))
+        .join(" / ")
       : "";
     const backendValidation = backendKeywords && !isGenericValidationText(backendHypothesis)
       ? `假设：${backendHypothesis || "暂无"}\n词组：${backendKeywords}\n指标：${backendMetrics || "暂无"}`
@@ -2118,7 +2072,7 @@ function buildListingPositionRows(
       originalContent: content.content,
       snapshotUrl: content.snapshotUrl,
       rule: getListingPositionRule(result, module, index),
-      metrics: adMetricRead(module === "highlights" ? "title" : module).metrics.join(" / "),
+      metrics: adMetricRead(module === "highlights" ? "title" : module).metrics.map((metric) => label(IMPACT_METRIC_LABELS, metric)).join(" / "),
       problem,
 	      suggestion: hasProblem ? suggestion : "暂无",
 	      validation: hasProblem ? (backendValidation || getListingPositionValidation(result, module)) : "暂无",
@@ -2518,7 +2472,7 @@ function AmazonCompliancePanel({ compliance }: { compliance?: ComplianceResult }
             </div>
           </div>
           <Badge variant="outline" className={tone.badge}>
-            {compliance.overall_risk_level} · {compliance.overall_score}
+            {label(RISK_LEVEL_LABELS, compliance.overall_risk_level)} · {compliance.overall_score}
           </Badge>
         </div>
         <div className="space-y-3">
@@ -2707,14 +2661,14 @@ function ListingHypothesisLoopPanel({ result, listing }: { result: DiagnosisResu
                   <p className="mt-1 text-xs text-gray-500">{row.issue?.judgement || "检查该模块是否承接标题语义和购买理由。"}</p>
                 </div>
                 <Badge className={row.priority.startsWith("P0") ? "bg-red-600 text-white" : row.priority.startsWith("P1") ? "bg-amber-500 text-white" : "bg-gray-100 text-gray-600"}>
-                  {row.priority}
+                  {label(ACTION_PRIORITY_LABELS, row.priority)}
                 </Badge>
               </div>
 
               <div className="mt-3 flex flex-wrap gap-1.5">
                 {row.metrics.map((metric) => (
                   <Badge key={metric} variant="outline" className="bg-white border-teal-100 text-teal-700 text-[10px]">
-                    {metric}
+                    {label(IMPACT_METRIC_LABELS, metric)}
                   </Badge>
                 ))}
               </div>
@@ -4019,7 +3973,7 @@ export default function ListingDiagnosis() {
           review_intent_assets: activeFetchMeta?.review_intent_assets || {},
           top_competitor_count: 0,
           ad_clicks: 0,
-          ad_orders: 0,
+          ad_orders: null,
         },
       };
       if (competitorContext) {
@@ -5582,7 +5536,7 @@ function PriorityIssueTable({ rows }: { rows: PriorityIssue[] }) {
                   <Badge variant="outline" className={impactClass[row.impact]}>{row.impact}</Badge>
                 </td>
                 <td className="py-3 pr-3">
-                  <Badge className={priorityClass[row.priority]}>{row.priority}</Badge>
+                  <Badge className={priorityClass[row.priority]}>{label(ACTION_PRIORITY_LABELS, row.priority)}</Badge>
                 </td>
                 <td className="py-3 text-gray-700">{row.action}</td>
               </tr>
@@ -6077,7 +6031,7 @@ function AdKeywordSection({
                   )}
                   {kw.keyword_type && (
                     <Badge variant="outline" className={`text-[9px] ${KEYWORD_TYPE_BADGES[kw.keyword_type] || "bg-gray-100 text-gray-600 border-gray-200"}`}>
-                      {KEYWORD_TYPE_LABELS[kw.keyword_type] || kw.keyword_type}
+                      {label(KEYWORD_TYPE_LABELS, kw.keyword_type)}
                     </Badge>
                   )}
                   {kw.competition && (

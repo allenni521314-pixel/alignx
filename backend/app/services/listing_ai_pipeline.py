@@ -120,6 +120,14 @@ class ListingAiPipeline:
                     "listing_data": result.listing_data,
                     "pipeline": result.evidence_payload(),
                 },
+                analysis_mode="listing_reasoning",
+                trust_meta=result.evidence_payload(),
+                ai_trace={
+                    "capture_job_id": result.capture_job_id,
+                    "listing_snapshot_id": result.listing_snapshot_id,
+                    "capture_status": result.capture_status,
+                    "ocr_status": result.ocr_status,
+                },
             )
         except Exception as exc:
             result.ai_error = str(exc)
