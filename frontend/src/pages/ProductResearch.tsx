@@ -3,11 +3,14 @@ import { useQuery } from "@tanstack/react-query";
 import { ArrowRight, TrendingUp, AlertTriangle, Target, Search, Globe, ChevronRight } from "lucide-react";
 import { analyzeMarketOpportunity, getMarketOpportunity, listMarketOpportunities, MarketOpportunity as MO } from "@/lib/api";
 import { useNavigate } from "react-router-dom";
+import { useProgress } from "@/lib/useProgress";
 
 export default function ProductResearch() {
   const navigate = useNavigate();
   const [keyword, setKeyword] = useState("");
   const [analyzing, setAnalyzing] = useState(false);
+  const [done, setDone] = useState(false);
+  const progress = useProgress(analyzing, done);
   const [result, setResult] = useState<MO | null>(null);
 
   const { data: history } = useQuery({
@@ -18,9 +21,11 @@ export default function ProductResearch() {
   const handleAnalyze = async () => {
     if (!keyword.trim()) return;
     setAnalyzing(true);
+    setDone(false);
     try {
       const res = await analyzeMarketOpportunity(keyword.trim());
       setResult(res);
+      setDone(true);
     } finally {
       setAnalyzing(false);
     }
@@ -57,7 +62,7 @@ export default function ProductResearch() {
             {analyzing ? (
               <>
                 <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                分析中
+                {done ? "分析完成" : progress > 0 ? `${progress}%` : "分析中"}
               </>
             ) : (
               <>
@@ -67,6 +72,21 @@ export default function ProductResearch() {
             )}
           </button>
         </div>
+        {analyzing ? (
+          <div className="mt-4">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[11px] text-[#86868b]">{done ? "分析完成" : "AI 分析中"}</span>
+              <span className="text-[11px] font-medium text-[#ff3b30]">{progress}%</span>
+            </div>
+            <div className="h-[3px] bg-[#e8e8ed] rounded-full overflow-hidden">
+              <div className="h-full bg-[#ff3b30] rounded-full transition-all duration-300" style={{width:`${progress}%`}} />
+            </div>
+          </div>
+        ) : (
+          <div className="mt-4 h-[3px] bg-[#e8e8ed] rounded-full overflow-hidden opacity-30">
+            <div className="h-full bg-[#ff3b30] rounded-full" style={{width:"0%"}} />
+          </div>
+        )}
       </div>
 
       {/* Result */}

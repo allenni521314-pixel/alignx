@@ -4,6 +4,7 @@ import { ClipboardCheck, ArrowRight, AlertCircle, Check, ShieldAlert, Upload } f
 import { analyzePrelaunch, listPrelaunchChecks, PrelaunchCheck as PC, type PositionDiagnosis } from "@/lib/api";
 
 const SAVE_KEY = "alignx_prelaunch_draft";
+const ANALYSIS_STEPS = ["提交素材", "图片压缩", "OCR识别", "规则检查", "AI分析", "保存结果"];
 const METRIC_LABELS: Record<string, string> = {
   CTR: "点击率",
   CVR: "转化率",
@@ -23,6 +24,7 @@ function saveDraft(d: Record<string, unknown>) { try { localStorage.setItem(SAVE
 export default function PrelaunchCheck() {
   const draft = loadDraft();
   const [step, setStep] = useState(1);
+  const [analysisStep, setAnalysisStep] = useState(0);
   const [analyzing, setAnalyzing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<PC | null>(null);
@@ -61,10 +63,19 @@ export default function PrelaunchCheck() {
     return () => clearTimeout(t);
   }, [productName, titleDraft, highlights, bullets, images]);
 
+  useEffect(() => {
+    if (!analyzing || step !== 3) return;
+    setAnalysisStep(0);
+    const timer = window.setInterval(() => {
+      setAnalysisStep((current) => Math.min(current + 1, ANALYSIS_STEPS.length - 1));
+    }, 1200);
+    return () => window.clearInterval(timer);
+  }, [analyzing, step]);
+
   const handleAnalyze = () => { if (!productName.trim()) return; setStep(2); };
 
   const handleConfirm = async () => {
-    setAnalyzing(true); setStep(3);
+    setError(null); setResult(null); setAnalysisStep(0); setAnalyzing(true); setStep(3);
     try {
       const imgData: { slot: string; name: string; base64: string }[] = images.map(img => ({
         slot: img.slot,
@@ -76,6 +87,7 @@ export default function PrelaunchCheck() {
         bullet_1: bullets[0], bullet_2: bullets[1], bullet_3: bullets[2], bullet_4: bullets[3], bullet_5: bullets[4],
         image_count: images.length, image_slots: imgData,
       });
+      setAnalysisStep(ANALYSIS_STEPS.length - 1);
       setResult(res); setStep(4);
       refetchHistory();
     } catch (e: any) { setError(e.message || "分析失败"); setStep(3); }
@@ -104,9 +116,22 @@ export default function PrelaunchCheck() {
             {s<4 && <div className={`w-8 h-0.5 rounded ${step>s?"bg-[#0F2A24]":"bg-[#e8e8ed]"}`} />}
           </div>
         ))}
-        <span className="text-[14px] text-[#86868b] ml-2">{step===1?"填写素材":step===2?"确认提交":step===3?"AI分析中":"诊断结果"}</span>
+        <span className="text-[14px] text-[#86868b] ml-2">{step===1?"填写素材":step===2?"确认提交":step===3?ANALYSIS_STEPS[analysisStep]:"完成分析"}</span>
       </div>
-
+      {step >= 3 && (
+        <div className="mb-6">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-[11px] text-[#86868b]">{step === 4 ? "完成分析" : ANALYSIS_STEPS[analysisStep]}</span>
+            <span className="text-[11px] font-medium text-[#0F2A24]">{step === 4 ? ANALYSIS_STEPS.length : analysisStep + 1}/{ANALYSIS_STEPS.length}</span>
+          </div>
+          <div className="h-[3px] bg-[#e8e8ed] rounded-full overflow-hidden">
+            <div
+              className="h-full bg-[#0F2A24] rounded-full transition-all duration-300"
+              style={{width:`${step === 4 ? 100 : Math.round(((analysisStep + 1) / ANALYSIS_STEPS.length) * 100)}%`}}
+            />
+          </div>
+        </div>
+      )}
       {step === 1 && (
         <div className="space-y-4">
           <div className="apple-card p-6 space-y-4">
@@ -136,13 +161,13 @@ export default function PrelaunchCheck() {
 
       {step === 3 && !result && (
         <div className="apple-card p-16 text-center">
-          {error ? <><ShieldAlert size={32} className="text-[#ff3b30] mx-auto mb-3" /><p className="text-[17px] text-[#ff3b30]">分析失败</p><p className="text-[14px] text-[#86868b] mt-2">{error}</p><button onClick={()=>{setError(null);setStep(1)}} className="apple-btn-primary mt-4 px-6 py-2">← 返回重试</button></> : <><div className="w-10 h-10 border-2 border-[#0F2A24]/20 border-t-[#0F2A24] rounded-full animate-spin mx-auto mb-4" /><p className="text-[17px] text-[#86868b]">AI 正在逐位置诊断...</p></>}
+          {error ? <><ShieldAlert size={32} className="text-[#ff3b30] mx-auto mb-3" /><p className="text-[17px] text-[#ff3b30]">分析失败</p><p className="text-[14px] text-[#86868b] mt-2">{error}</p><button onClick={()=>{setError(null);setStep(1)}} className="apple-btn-primary mt-4 px-6 py-2">← 返回重试</button></> : <><div className="w-10 h-10 border-2 border-[#0F2A24]/20 border-t-[#0F2A24] rounded-full animate-spin mx-auto mb-4" /><p className="text-[17px] text-[#86868b]">{ANALYSIS_STEPS[analysisStep]}</p></>}
         </div>
       )}
 
       {result && (
         <div className="space-y-4">
-          <div className="flex gap-3 mb-2"><button onClick={()=>{setStep(1);setResult(null)}} className="apple-btn-secondary text-[14px] px-4 py-2">← 重新修改</button></div>
+          <div className="flex gap-3 mb-2"><button className="apple-btn-primary text-[14px] px-4 py-2 flex items-center gap-1.5"><Check size={15} />完成分析</button><button onClick={()=>{setStep(1);setResult(null)}} className="apple-btn-secondary text-[14px] px-4 py-2">← 重新修改</button></div>
           <div className="apple-card p-6"><div className="flex items-center gap-3 mb-3"><div className={`w-10 h-10 rounded-full flex items-center justify-center ${result.admission_result==="可以上架"?"bg-[#34c759]/10":result.admission_result==="谨慎上架"?"bg-[#ff9500]/10":"bg-[#ff3b30]/10"}`}>{result.admission_result==="可以上架"?<Check size={20} className="text-[#34c759]"/>:result.admission_result==="谨慎上架"?<AlertCircle size={20} className="text-[#ff9500]"/>:<ShieldAlert size={20} className="text-[#ff3b30]"/>}</div><div><p className="text-[20px] font-semibold">{result.admission_result}</p>{result.conclusion&&<p className="text-[14px] text-[#86868b] mt-0.5">{result.conclusion}</p>}</div></div></div>
           {(result.position_diagnoses_json?.length ?? 0) > 0 && (
             <div className="apple-card p-6"><h3 className="text-[13px] font-semibold text-[#86868b] uppercase tracking-wide mb-4">逐位置诊断</h3><div className="space-y-3">{(result.position_diagnoses_json ?? []).map((d,i)=><DiagnosisItem key={i} diagnosis={d} statusIcon={statusIcon} />)}</div></div>
@@ -230,6 +255,7 @@ function DiagnosisItem({diagnosis:d,statusIcon}:{diagnosis:PositionDiagnosis;sta
   return <div className={`rounded-xl p-4 border ${cardClass}`}>
     <div className="flex items-center gap-2 mb-2">{statusIcon(d.status)}<span className="text-[14px] font-semibold">{d.position_name}</span>{ocrPending?<span className="ml-auto text-[13px] font-bold text-[#86868b]">待识别</span>:d.final_score!=null&&<span className={`ml-auto text-[13px] font-bold ${sc}`}>{d.final_score.toFixed(1)}</span>}{d.usable_status&&d.status!=="通过"&&<span className={`text-[11px] px-1.5 py-0.5 rounded-full ${badgeClass}`}>{d.usable_status}</span>}</div>
     {d.issue&&<p className="text-[14px] mb-1">{d.issue}</p>}
+    {d.evidence&&<div className="mt-2 mb-2 rounded-lg bg-white/70 border border-[#d2d2d7]/60 p-3"><p className="text-[11px] text-[#86868b] mb-1">识别文案</p><p className="text-[13px] text-[#1d1d1f] whitespace-pre-wrap leading-relaxed">{d.evidence}</p></div>}
     {metrics.length>0&&<div className="flex items-center gap-2 mb-2"><span className="text-[11px] text-[#86868b]">影响指标</span>{metrics.map((m:string,i:number)=><span key={i} className="text-[11px] px-1.5 py-0.5 rounded-full bg-[#0F2A24]/[0.06] text-[#0F2A24]">{metricLabel(m)}</span>)}</div>}
     {hasSuggestion&&<div className="mt-2"><div className="bg-[#fbfaf7] rounded-lg p-3 flex items-start justify-between gap-3"><div className="flex-1 min-w-0"><p className="text-[11px] text-[#86868b] mb-1">{ocrPending?"规则参考（未读取图片内容）":"修改建议"}</p><p className="text-[13px] text-[#0F2A24]">{d.recommendation}</p></div><button onClick={()=>{navigator.clipboard.writeText(d.recommendation||"");setCopied(true);setTimeout(()=>setCopied(false),2000)}} className="shrink-0 px-3 py-1.5 rounded-lg bg-[#0F2A24] text-white text-[12px] hover:bg-[#173a32] transition-colors">{copied?"已复制":"复制"}</button></div></div>}
   </div>;

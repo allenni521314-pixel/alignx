@@ -8,6 +8,7 @@ import {
   ConversionDiagnosis as CD,
 } from "@/lib/api";
 import { label, FUNNEL_STAGE_LABELS as FUNNEL_MAP, POSITION_LABELS as POS_MAP, IMPACT_METRIC_LABELS, KEYWORD_TYPE_LABELS, labelMetrics } from "@/lib/label-maps";
+import { useProgress } from "@/lib/useProgress";
 
 type HeatmapItem = Record<string, unknown> | NonNullable<CD["position_diagnoses_json"]>[number];
 
@@ -90,6 +91,8 @@ const STAGE_COLORS: Record<string, { bg: string; border: string; dot: string }> 
 export default function ConversionDiagnosis() {
   const [asin, setAsin] = useState("");
   const [analyzing, setAnalyzing] = useState(false);
+  const [done, setDone] = useState(false);
+  const progress = useProgress(analyzing, done);
   const [result, setResult] = useState<CD | null>(null);
   const [error, setError] = useState("");
 
@@ -101,10 +104,12 @@ export default function ConversionDiagnosis() {
   const handleDiagnose = async () => {
     if (!asin.trim()) return;
     setAnalyzing(true);
+    setDone(false);
     setError("");
     try {
       const res = await diagnoseConversion(asin.trim());
       setResult(res);
+      setDone(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : "请求失败");
     } finally {
@@ -137,7 +142,7 @@ export default function ConversionDiagnosis() {
             className="apple-btn-primary flex items-center gap-2 px-6"
           >
             {analyzing ? (
-              <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />{done ? "分析完成" : progress > 0 ? `${progress}%` : "分析中"}</>
             ) : (
               <>
                 诊断转化
@@ -146,6 +151,17 @@ export default function ConversionDiagnosis() {
             )}
           </button>
         </div>
+        {analyzing && (
+          <div className="mt-3">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[11px] text-[#86868b]">{done ? "分析完成" : "AI 分析中"}</span>
+              <span className="text-[11px] font-medium text-[#ff3b30]">{progress}%</span>
+            </div>
+            <div className="h-[3px] bg-[#e8e8ed] rounded-full overflow-hidden">
+              <div className="h-full bg-[#ff3b30] rounded-full transition-all duration-300" style={{width:`${progress}%`}} />
+            </div>
+          </div>
+        )}
         {error && (
           <p className="mt-3 text-[13px] text-[#ff3b30]">{error}</p>
         )}

@@ -40,6 +40,9 @@ async def init_db():
     import app.models  # noqa: F401
 
     async with engine.begin() as conn:
+        if is_sqlite:
+            await conn.execute(text("PRAGMA journal_mode=WAL;"))
+            await conn.execute(text("PRAGMA busy_timeout=5000;"))
         await conn.run_sync(Base.metadata.create_all)
         if is_sqlite:
             await _add_sqlite_column(conn, "listing_snapshots", "ocr_image_texts", "JSON")

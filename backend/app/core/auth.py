@@ -15,6 +15,8 @@ from sqlalchemy import select, delete
 from app.config import get_settings
 from app.models import User, VerificationCode
 
+ADMIN_USER_ID = "__admin__"
+
 
 def generate_code_sync() -> str:
     return "".join(random.choices(string.digits, k=6))
@@ -89,7 +91,7 @@ async def get_or_create_user(email: str, store_name: str, db: AsyncSession) -> U
         # Super admin: allenni521314@gmail.com gets admin role
         is_admin = email == "allenni521314@gmail.com"
         user = User(
-            id=uuid.uuid4().hex[:32],
+            id=ADMIN_USER_ID if is_admin else uuid.uuid4().hex[:32],
             email=email,
             name=store_name or email,
             role="admin" if is_admin else "seller",

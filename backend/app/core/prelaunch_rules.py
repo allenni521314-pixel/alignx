@@ -63,6 +63,60 @@ A_PLUS_MODULES = [
 ]
 
 
+def _ocr_lines(text: str) -> list[str]:
+    lines = []
+    for line in str(text or "").splitlines():
+        clean = " ".join(line.replace("可见文案：", "").split()).strip()
+        if clean:
+            lines.append(clean)
+    return lines
+
+
+def _ocr_text_review(role: str, ocr_text: str) -> dict[str, Any]:
+    lines = _ocr_lines(ocr_text)
+    unique_lines = _dedupe([line.lower() for line in lines])
+    repeated_count = max(0, len(lines) - len(unique_lines))
+    text_density_high = len(lines) >= 8
+    text_density_low = len(lines) <= 1
+
+    notes = [f"OCR共提取 {len(lines)} 行文案。"]
+    if repeated_count:
+        notes.append("存在重复文案。")
+    if text_density_high:
+        notes.append("文字密度偏高。")
+    if text_density_low:
+        notes.append("文案信息偏少。")
+    notes.append(f"需确认是否覆盖：{role}。")
+
+    if repeated_count:
+        recommendation = f"删减重复文案，保留与「{role}」直接相关的信息。"
+        score = 3.2
+    elif text_density_high:
+        recommendation = f"压缩长段文案，保留与「{role}」直接相关的信息。"
+        score = 3.4
+    elif text_density_low:
+        recommendation = f"补充与「{role}」直接相关的信息。"
+        score = 3.4
+    else:
+        recommendation = f"围绕「{role}」保留主信息，继续验证。"
+        score = 4.0
+
+    return {
+        "issue": "".join(notes),
+        "recommendation": recommendation,
+        "score": score,
+        "issue_type": [
+            flag
+            for flag, enabled in [
+                ("ocr_repeated_text", bool(repeated_count)),
+                ("ocr_text_density_high", text_density_high),
+                ("ocr_text_density_low", text_density_low),
+            ]
+            if enabled
+        ],
+    }
+
+
 def apply_prelaunch_rules(ai_result: dict[str, Any], materials: dict[str, Any]) -> dict[str, Any]:
     result = deepcopy(ai_result or {})
     result.setdefault("position_diagnoses", [])
@@ -264,23 +318,28 @@ def _a_plus_analysis(materials: dict[str, Any]) -> list[dict[str, Any]]:
     modules: list[dict[str, Any]] = []
     for position_id, module, role, missing_status in A_PLUS_MODULES:
         is_uploaded = position_id in uploaded and position_id not in missing
+        ocr_text = _image_ocr_text(ocr_texts, position_id)
         ocr_status = _image_ocr_status(ocr_texts, position_id)
         has_ocr = ocr_status == "success"
         status = missing_status
         score: float | None = 1.0
         content_risk = "暂无"
         suggested_action = f"补充{module}：{role}。"
+        ocr_review: dict[str, Any] = {}
         if is_uploaded:
             status = "uploaded_with_ocr" if has_ocr else "uploaded_missing_ocr"
-            score = 3.6 if has_ocr else None
+            ocr_review = _ocr_text_review(role, ocr_text) if has_ocr else {}
+            score = ocr_review.get("score", 3.6) if has_ocr else None
             content_risk = "待检查"
-            suggested_action = f"检查该图是否承担：{role}。" if has_ocr else f"补充或确认该图文案，目标：{role}。"
+            suggested_action = ocr_review.get("recommendation") if has_ocr else f"补充或确认该图文案，目标：{role}。"
         modules.append({
             "position_id": position_id,
             "module": module,
             "expected_role": role,
             "uploaded": is_uploaded,
             "has_ocr": has_ocr,
+            "ocr_text": ocr_text,
+            "ocr_review": ocr_review,
             "ocr_status": ocr_status if is_uploaded else "pending",
             "score": score,
             "status": status,
@@ -351,7 +410,8 @@ def _a_plus_position(module: dict[str, Any]) -> dict[str, Any]:
         usable_status = "不可使用"
         risk_level = "low"
     elif module.get("has_ocr"):
-        issue = f"{module['module']}已上传并提取到OCR文案。目标：{module['expected_role']}。"
+        ocr_review = module.get("ocr_review") or {}
+        issue = str(ocr_review.get("issue") or f"{module['module']}已上传并提取到OCR文案。目标：{module['expected_role']}。")
         status = "待验证"
         recommendation = module["suggested_action"]
         usable_status = "可使用但建议优化"
@@ -370,8 +430,9 @@ def _a_plus_position(module: dict[str, Any]) -> dict[str, Any]:
         "uploaded": module["uploaded"],
         "ocr_status": module.get("ocr_status", "pending"),
         "status": status,
-        "issue_type": [module["status"]],
+        "issue_type": _dedupe([module["status"], *((module.get("ocr_review") or {}).get("issue_type") or [])]),
         "issue": issue,
+        "evidence": module.get("ocr_text") if module.get("has_ocr") else None,
         "recommendation": recommendation,
         "suggested_action": recommendation,
         "final_score": module["score"],
@@ -401,22 +462,24 @@ def _secondary_image_positions(materials: dict[str, Any]) -> list[dict[str, Any]
     positions: list[dict[str, Any]] = []
     for position_id, name, role, suggestion, slot_name in SECONDARY_IMAGE_SLOTS:
         is_uploaded = position_id in uploaded and position_id not in missing
-        has_ocr = bool(
-            isinstance(ocr_texts, dict) and (
-                ocr_texts.get(slot_name) or ocr_texts.get(position_id)
-            )
-        )
+        ocr_text = _image_ocr_text(ocr_texts, position_id)
+        ocr_status = _image_ocr_status(ocr_texts, position_id)
+        if ocr_status != "success" and slot_name:
+            ocr_text = _image_ocr_text(ocr_texts, slot_name)
+            ocr_status = _image_ocr_status(ocr_texts, slot_name)
+        has_ocr = ocr_status == "success"
 
         if is_uploaded:
-            score = 4.0 if has_ocr else None
+            ocr_review = _ocr_text_review(role, ocr_text) if has_ocr else {}
+            score = ocr_review.get("score", 4.0) if has_ocr else None
             status = "通过" if has_ocr else "待识别"
-            issue_type = [] if has_ocr else ["missing_ocr_text"]
+            issue_type = ocr_review.get("issue_type", []) if has_ocr else ["missing_ocr_text"]
             issue = (
-                f"{name}已上传，OCR已提取文案。"
+                ocr_review.get("issue") or f"{name}已上传，OCR已提取文案。"
                 if has_ocr
                 else "图片已上传，文字识别尚未完成。以下建议基于图位规则推断，不代表对实际图片内容的评估。"
             )
-            recommendation = suggestion
+            recommendation = ocr_review.get("recommendation") if has_ocr else suggestion
             usable = "可使用但建议优化" if has_ocr else "图片待识别"
         else:
             score = 1.0
@@ -435,6 +498,7 @@ def _secondary_image_positions(materials: dict[str, Any]) -> list[dict[str, Any]
             "status": status,
             "issue_type": issue_type,
             "issue": issue,
+            "evidence": ocr_text if has_ocr else None,
             "recommendation": recommendation,
             "suggested_action": recommendation,
             "final_score": score,
@@ -454,6 +518,12 @@ def _image_ocr_status(ocr_texts: Any, position_id: str) -> str:
     if str(value or "").strip():
         return "success"
     return "failed"
+
+
+def _image_ocr_text(ocr_texts: Any, position_id: str) -> str:
+    if not isinstance(ocr_texts, dict):
+        return ""
+    return str(ocr_texts.get(position_id) or "").strip()
 
 
 def _sanitize_diagnosis(diagnosis: dict[str, Any]) -> dict[str, Any]:
