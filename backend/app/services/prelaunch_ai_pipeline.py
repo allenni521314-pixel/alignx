@@ -213,7 +213,7 @@ async def _attach_image_materials(req: PrelaunchCheckRequest, result: PrelaunchA
         {"url": f"data:image/jpeg;base64,{slot_item.get('base64', '')}", "slot": slot_item.get("slot", "")}
         for slot_item in image_slots
         if slot_item.get("base64")
-    ][:7]
+    ]
     if not b64_list:
         result.ocr_status = "skipped"
         return

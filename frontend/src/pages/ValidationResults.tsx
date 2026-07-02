@@ -151,7 +151,7 @@ export default function ValidationResults() {
       ) : (
         <div className="space-y-3">
           {results.map((r) => {
-            const cfg = STATUS_CFG[r.final_result_status] ?? STATUS_CFG.insufficient_data;
+            const cfg = STATUS_CFG[r.final_result_status || "insufficient_data"] ?? STATUS_CFG.insufficient_data;
             const Icon = cfg.icon;
             const open = expanded === r.id;
 

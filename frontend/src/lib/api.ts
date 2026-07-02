@@ -482,15 +482,23 @@ export interface ExecutionRecord {
   id: string;
   validation_task_id: string;
   asin: string;
+  executed_at: string;
+  executor: string | null;
   action_summary: string | null;
+  changed_variable: string | null;
+  changed_position: string | null;
+  change_detail: string | null;
   cost_amount: number | null;
   cost_type: string | null;
   evidence_note: string | null;
   created_at: string;
 }
 
-export function listExecutionRecords(taskId?: string) {
-  const qs = taskId ? `?validation_task_id=${taskId}` : "";
+export function listExecutionRecords(taskId?: string, pageSize = 50) {
+  const params = new URLSearchParams();
+  if (taskId) params.set("validation_task_id", taskId);
+  params.set("page_size", String(pageSize));
+  const qs = `?${params.toString()}`;
   return request<{ items: ExecutionRecord[]; total: number }>(`/execution-records${qs}`);
 }
 
@@ -515,12 +523,16 @@ export interface ValidationResult {
   id: string;
   asin: string;
   validation_task_id: string;
-  final_result_status: "effective" | "ineffective" | "interfered" | "insufficient_data";
+  final_result_status: "effective" | "ineffective" | "interfered" | "insufficient_data" | null;
   notes: string | null;
   attribution_conclusion: string | null;
   next_step: string | null;
   baseline_metrics_json: Record<string, number> | null;
   result_metrics_json: Record<string, number> | null;
+  sample_days: number | null;
+  sample_clicks: number | null;
+  sample_orders: number | null;
+  suggested_result_status: string | null;
   created_at: string;
 }
 

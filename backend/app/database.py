@@ -7,6 +7,7 @@ Supports both PostgreSQL (asyncpg) and SQLite (aiosqlite) for local dev.
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy import text
+from sqlalchemy.exc import OperationalError
 
 from app.config import get_settings
 
@@ -59,6 +60,7 @@ async def init_db():
             await _add_sqlite_column(conn, "ai_call_logs", "analysis_mode", "VARCHAR(64)")
             await _add_sqlite_column(conn, "ai_call_logs", "trust_meta", "JSON")
             await _add_sqlite_column(conn, "ai_call_logs", "ai_trace", "JSON")
+            await _add_sqlite_column(conn, "validation_results", "user_id", "VARCHAR(32) NOT NULL DEFAULT '00000000default0000000000000000'")
             await _ensure_sqlite_profile_tenant_unique(conn)
 
 
@@ -75,7 +77,12 @@ async def _add_sqlite_column(conn, table_name: str, column_name: str, definition
         return
     columns = await _sqlite_columns(conn, table_name)
     if column_name not in columns:
-        await conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {definition}"))
+        try:
+            await conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {definition}"))
+        except OperationalError as exc:
+            if "duplicate column name" in str(exc).lower():
+                return
+            raise
 
 
 async def _ensure_sqlite_profile_tenant_unique(conn) -> None:

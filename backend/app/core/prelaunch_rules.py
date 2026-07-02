@@ -384,12 +384,12 @@ def _a_plus_position(module: dict[str, Any]) -> dict[str, Any]:
 
 
 SECONDARY_IMAGE_SLOTS = [
-    ("image_2", "副图2", "核心卖点可视化", "图标+短句展示核心卖点，避免纯文字堆砌"),
-    ("image_3", "副图3", "使用场景展示", "真实环境拍摄，展示产品在实际场景中的使用"),
-    ("image_4", "副图4", "尺寸规格对比", "带参照物或标注，清晰展示产品尺寸"),
-    ("image_5", "副图5", "功能细节演示", "特写/步骤图，展示关键功能或使用方法"),
-    ("image_6", "副图6", "信任背书", "认证标志、质保信息或包装展示"),
-    ("image_7", "副图7", "场景氛围", "生活方式场景图，建立情感连接"),
+    ("image_2", "副图2", "核心卖点可视化", "图标+短句展示核心卖点，避免纯文字堆砌", "img2"),
+    ("image_3", "副图3", "使用场景展示", "真实环境拍摄，展示产品在实际场景中的使用", "img3"),
+    ("image_4", "副图4", "尺寸规格对比", "带参照物或标注，清晰展示产品尺寸", "img4"),
+    ("image_5", "副图5", "功能细节演示", "特写/步骤图，展示关键功能或使用方法", "img5"),
+    ("image_6", "副图6", "信任背书", "认证标志、质保信息或包装展示", "img6"),
+    ("image_7", "副图7", "场景氛围", "生活方式场景图，建立情感连接", "img7"),
 ]
 
 
@@ -399,10 +399,13 @@ def _secondary_image_positions(materials: dict[str, Any]) -> list[dict[str, Any]
     ocr_texts = materials.get("ocr_texts") or {}
 
     positions: list[dict[str, Any]] = []
-    for position_id, name, role, suggestion in SECONDARY_IMAGE_SLOTS:
+    for position_id, name, role, suggestion, slot_name in SECONDARY_IMAGE_SLOTS:
         is_uploaded = position_id in uploaded and position_id not in missing
-        ocr_status = _image_ocr_status(ocr_texts, position_id)
-        has_ocr = ocr_status == "success"
+        has_ocr = bool(
+            isinstance(ocr_texts, dict) and (
+                ocr_texts.get(slot_name) or ocr_texts.get(position_id)
+            )
+        )
 
         if is_uploaded:
             score = 4.0 if has_ocr else None
