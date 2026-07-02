@@ -182,6 +182,8 @@ export interface PositionDiagnosis {
   position_id: string;
   position_name: string;
   position_type: string;
+  uploaded?: boolean;
+  ocr_status?: "success" | "failed" | "pending" | string | null;
   status: string;
   issue: string | null;
   impact: string | null;

@@ -1,12 +1,24 @@
 import { useState, useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ClipboardCheck, ArrowRight, AlertCircle, Check, ShieldAlert, Upload } from "lucide-react";
-import { analyzePrelaunch, listPrelaunchChecks, PrelaunchCheck as PC } from "@/lib/api";
+import { analyzePrelaunch, listPrelaunchChecks, PrelaunchCheck as PC, type PositionDiagnosis } from "@/lib/api";
 
 const SAVE_KEY = "alignx_prelaunch_draft";
+const METRIC_LABELS: Record<string, string> = {
+  CTR: "点击率",
+  CVR: "转化率",
+  ACOS: "ACOS",
+  CPC: "CPC",
+  "Add to Cart": "加购率",
+  "Session%": "会话占比",
+};
+
+function metricLabel(value: string) {
+  return METRIC_LABELS[value] || value || "暂无";
+}
 
 function loadDraft() { try { const r = localStorage.getItem(SAVE_KEY); return r ? JSON.parse(r) : null; } catch { return null; } }
-function saveDraft(d: Record<string, unknown>) { try { localStorage.setItem(SAVE_KEY, JSON.stringify(d)); } catch {} }
+function saveDraft(d: Record<string, unknown>) { try { localStorage.setItem(SAVE_KEY, JSON.stringify(d)); } catch { console.warn("自动保存失败：存储空间不足，请清理浏览器缓存。"); } }
 
 export default function PrelaunchCheck() {
   const draft = loadDraft();
@@ -54,30 +66,11 @@ export default function PrelaunchCheck() {
   const handleConfirm = async () => {
     setAnalyzing(true); setStep(3);
     try {
-      const imgData: { slot: string; name: string; base64: string }[] = [];
-      for (const img of images) {
-        try {
-          const blob = await fetch(img.url).then(r => r.blob());
-          const b64 = await new Promise<string>((resolve) => {
-            const reader = new FileReader();
-            reader.onload = () => {
-              const tempImg = new Image();
-              tempImg.onload = () => {
-                const canvas = document.createElement('canvas');
-                const maxW = 512;
-                const scale = Math.min(1, maxW / tempImg.width);
-                canvas.width = tempImg.width * scale;
-                canvas.height = tempImg.height * scale;
-                canvas.getContext('2d')!.drawImage(tempImg, 0, 0, canvas.width, canvas.height);
-                resolve(canvas.toDataURL('image/jpeg', 0.6).split(',')[1]);
-              };
-              tempImg.src = reader.result as string;
-            };
-            reader.readAsDataURL(blob);
-          });
-          imgData.push({ slot: img.slot, name: img.name, base64: b64 });
-        } catch {}
-      }
+      const imgData: { slot: string; name: string; base64: string }[] = images.map(img => ({
+        slot: img.slot,
+        name: img.name,
+        base64: img.url.includes('base64,') ? img.url.split('base64,')[1] : img.url.split(',')[1],
+      }));
       const res = await analyzePrelaunch({
         product_name: productName, title_draft: titleDraft, key_highlights: highlights,
         bullet_1: bullets[0], bullet_2: bullets[1], bullet_3: bullets[2], bullet_4: bullets[3], bullet_5: bullets[4],
@@ -93,6 +86,7 @@ export default function PrelaunchCheck() {
     switch (s) {
       case "通过": return <Check size={16} className="text-[#34c759]" />;
       case "需修改": return <AlertCircle size={16} className="text-[#ff9500]" />;
+      case "待识别": return <AlertCircle size={16} className="text-[#86868b]" />;
       default: return <ShieldAlert size={16} className="text-[#ff3b30]" />;
     }
   };
@@ -213,20 +207,49 @@ function Field({label,value,onChange,placeholder}:{label?:string;value:string;on
   return <div>{label&&<label className="block text-[13px] font-medium text-[#86868b] mb-2">{label}</label>}<textarea ref={ref} rows={1} value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} className="apple-input min-h-[48px] resize-none overflow-hidden leading-[1.45]" /></div>
 }
 
-function DiagnosisItem({diagnosis:d,statusIcon}:{diagnosis:{status:string;position_name:string;position_type:string;issue?:string|null;recommendation?:string|null;final_score?:number|null;usable_status?:string|null};statusIcon:(s:string)=>React.ReactNode}){
+function DiagnosisItem({diagnosis:d,statusIcon}:{diagnosis:PositionDiagnosis;statusIcon:(s:string)=>React.ReactNode}){
   const [copied,setCopied]=useState(false);
+  const metrics = d.impact_metrics ?? [];
   const hasSuggestion=d.recommendation&&d.status!=="通过";
-  const sc=d.final_score!=null?(d.final_score>=4.5?"text-[#34c759]":d.final_score>=3.5?"text-[#ff9500]":d.final_score>=2.5?"text-[#ff3b30]":"text-[#ff3b30]"):"text-[#86868b]";
-  return <div className={`rounded-xl p-4 border ${d.status==="通过"?"bg-[#34c759]/[0.04] border-[#34c759]/20":d.status==="需修改"?"bg-[#ff9500]/[0.04] border-[#ff9500]/20":"bg-[#ff3b30]/[0.04] border-[#ff3b30]/20"}`}>
-    <div className="flex items-center gap-2 mb-2">{statusIcon(d.status)}<span className="text-[14px] font-semibold">{d.position_name}</span><span className="text-[12px] text-[#86868b]">{d.position_type}</span>{d.final_score!=null&&<span className={`ml-auto text-[13px] font-bold ${sc}`}>{d.final_score.toFixed(1)}</span>}{d.usable_status&&d.status!=="通过"&&<span className={`text-[11px] px-1.5 py-0.5 rounded-full ${d.final_score!=null&&d.final_score>=4?"bg-[#34c759]/10 text-[#34c759]":d.final_score!=null&&d.final_score>=3?"bg-[#ff9500]/10 text-[#ff9500]":"bg-[#ff3b30]/10 text-[#ff3b30]"}`}>{d.usable_status}</span>}</div>
+  const ocrPending = d.uploaded === true && (d.ocr_status === "pending" || d.ocr_status === "failed");
+  const sc=d.final_score!=null?(d.final_score>=4?"text-[#34c759]":d.final_score>=3?"text-[#ff9500]":"text-[#ff3b30]"):"text-[#86868b]";
+  const cardClass = ocrPending
+    ? "bg-[#86868b]/[0.04] border-[#86868b]/20"
+    : d.status==="通过"
+    ? "bg-[#34c759]/[0.04] border-[#34c759]/20"
+    : d.status==="需修改"
+    ? "bg-[#ff9500]/[0.04] border-[#ff9500]/20"
+    : "bg-[#ff3b30]/[0.04] border-[#ff3b30]/20";
+  const badgeClass = ocrPending
+    ? "bg-[#86868b]/10 text-[#86868b]"
+    : d.final_score!=null&&d.final_score>=4
+    ? "bg-[#34c759]/10 text-[#34c759]"
+    : d.final_score!=null&&d.final_score>=3
+    ? "bg-[#ff9500]/10 text-[#ff9500]"
+    : "bg-[#ff3b30]/10 text-[#ff3b30]";
+  return <div className={`rounded-xl p-4 border ${cardClass}`}>
+    <div className="flex items-center gap-2 mb-2">{statusIcon(d.status)}<span className="text-[14px] font-semibold">{d.position_name}</span>{ocrPending?<span className="ml-auto text-[13px] font-bold text-[#86868b]">待识别</span>:d.final_score!=null&&<span className={`ml-auto text-[13px] font-bold ${sc}`}>{d.final_score.toFixed(1)}</span>}{d.usable_status&&d.status!=="通过"&&<span className={`text-[11px] px-1.5 py-0.5 rounded-full ${badgeClass}`}>{d.usable_status}</span>}</div>
     {d.issue&&<p className="text-[14px] mb-1">{d.issue}</p>}
-    {(d as any).impact_metrics?.length>0&&<div className="flex items-center gap-2 mb-2"><span className="text-[11px] text-[#86868b]">影响指标</span>{(d as any).impact_metrics.map((m:string,i:number)=><span key={i} className="text-[11px] px-1.5 py-0.5 rounded-full bg-[#0F2A24]/[0.06] text-[#0F2A24]">{m}</span>)}</div>}
-    {hasSuggestion&&<div className="mt-2"><div className="bg-[#fbfaf7] rounded-lg p-3 flex items-start justify-between gap-3"><div className="flex-1 min-w-0"><p className="text-[11px] text-[#86868b] mb-1">修改建议</p><p className="text-[13px] text-[#0F2A24]">{d.recommendation}</p></div><button onClick={()=>{navigator.clipboard.writeText(d.recommendation||"");setCopied(true);setTimeout(()=>setCopied(false),2000)}} className="shrink-0 px-3 py-1.5 rounded-lg bg-[#0F2A24] text-white text-[12px] hover:bg-[#173a32] transition-colors">{copied?"已复制":"复制"}</button></div></div>}
+    {metrics.length>0&&<div className="flex items-center gap-2 mb-2"><span className="text-[11px] text-[#86868b]">影响指标</span>{metrics.map((m:string,i:number)=><span key={i} className="text-[11px] px-1.5 py-0.5 rounded-full bg-[#0F2A24]/[0.06] text-[#0F2A24]">{metricLabel(m)}</span>)}</div>}
+    {hasSuggestion&&<div className="mt-2"><div className="bg-[#fbfaf7] rounded-lg p-3 flex items-start justify-between gap-3"><div className="flex-1 min-w-0"><p className="text-[11px] text-[#86868b] mb-1">{ocrPending?"规则参考（未读取图片内容）":"修改建议"}</p><p className="text-[13px] text-[#0F2A24]">{d.recommendation}</p></div><button onClick={()=>{navigator.clipboard.writeText(d.recommendation||"");setCopied(true);setTimeout(()=>setCopied(false),2000)}} className="shrink-0 px-3 py-1.5 rounded-lg bg-[#0F2A24] text-white text-[12px] hover:bg-[#173a32] transition-colors">{copied?"已复制":"复制"}</button></div></div>}
   </div>;
 }
 
 function ImageSlots({images,setImages}:{images:{name:string;url:string;slot:string}[];setImages:(imgs:{name:string;url:string;slot:string}[])=>void}){
-  const up=(slot:string)=>(e:React.ChangeEvent<HTMLInputElement>)=>{const f=e.target.files?.[0];if(!f)return;const r=new FileReader();r.onload=()=>setImages(images.filter(i=>i.slot!==slot).concat({name:f.name,url:r.result as string,slot}));r.readAsDataURL(f);};
+  const compressImage = (dataUrl: string): Promise<string> => new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const maxW = 512;
+      const scale = Math.min(1, maxW / img.width);
+      canvas.width = img.width * scale;
+      canvas.height = img.height * scale;
+      canvas.getContext('2d')!.drawImage(img, 0, 0, canvas.width, canvas.height);
+      resolve(canvas.toDataURL('image/jpeg', 0.6));
+    };
+    img.src = dataUrl;
+  });
+  const up=(slot:string)=>(e:React.ChangeEvent<HTMLInputElement>)=>{const f=e.target.files?.[0];if(!f)return;const r=new FileReader();r.onload=async()=>{const compressed=await compressImage(r.result as string);setImages(images.filter(i=>i.slot!==slot).concat({name:f.name,url:compressed,slot}));};r.readAsDataURL(f);};
   const rm=(slot:string)=>setImages(images.filter(i=>i.slot!==slot));
   const get=(slot:string)=>images.find(i=>i.slot===slot);
   const slots=[{s:"main",l:"主图",f:"搜索结果第一视觉",r:"纯白底·仅产品·无文字logo"},{s:"img2",l:"副图2",f:"核心卖点可视化",r:"图标+短句"},{s:"img3",l:"副图3",f:"使用场景展示",r:"真实环境"},{s:"img4",l:"副图4",f:"尺寸规格对比",r:"参照物+标注"},{s:"img5",l:"副图5",f:"功能细节演示",r:"特写/步骤"},{s:"img6",l:"副图6",f:"信任背书",r:"认证/质保/包装"},{s:"img7",l:"副图7",f:"场景氛围",r:"生活方式"}];

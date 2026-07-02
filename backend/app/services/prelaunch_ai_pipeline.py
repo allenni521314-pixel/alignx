@@ -2,6 +2,7 @@ from __future__ import annotations
 
 """Prelaunch pipeline: materials -> OCR/compliance/context -> AI reasoning."""
 
+import asyncio
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -68,34 +69,41 @@ async def run_prelaunch_ai_pipeline(
     _attach_compliance(req, result)
     await _attach_market_context(req, result, db=db, user_id=uid)
 
-    try:
-        prompt = build_prelaunch_prompt(result.materials)
-        result.ai_result = await complete_json_with_log(
-            db=db,
-            user_id=uid,
-            module_name="prelaunch_check",
-            prompt_version="prelaunch_check:v1",
-            prompt=prompt,
-            system=PRELAUNCH_SYSTEM,
-            input_payload={
-                "product_name": req.product_name,
-                "marketplace": req.marketplace,
-                "materials": result.materials,
-                "pipeline": result.evidence_payload(),
-            },
-            max_tokens=8192,
-        )
-        result.ai_result = apply_prelaunch_rules(result.ai_result, result.materials)
-    except Exception as exc:
-        result.ai_error = "AI 解析失败，已使用规则兜底诊断。"
+    last_error = None
+    for attempt in range(2):
         try:
-            result.ai_result = apply_prelaunch_rules(
-                _fallback_prelaunch_result(result.materials),
-                result.materials,
+            prompt = build_prelaunch_prompt(result.materials)
+            result.ai_result = await complete_json_with_log(
+                db=db,
+                user_id=uid,
+                module_name="prelaunch_check",
+                prompt_version="prelaunch_check:v1",
+                prompt=prompt,
+                system=PRELAUNCH_SYSTEM,
+                input_payload={
+                    "product_name": req.product_name,
+                    "marketplace": req.marketplace,
+                    "materials": result.materials,
+                    "pipeline": result.evidence_payload(),
+                },
+                max_tokens=8192,
             )
-        except Exception:
-            result.ai_result = None
-            result.ai_error = "AI 分析失败，请稍后重试。"
+            result.ai_result = apply_prelaunch_rules(result.ai_result, result.materials)
+            break
+        except Exception as exc:
+            last_error = exc
+            if attempt == 0:
+                await asyncio.sleep(3)
+                continue
+            result.ai_error = f"AI 调用失败（已重试1次）：{exc}"
+            try:
+                result.ai_result = apply_prelaunch_rules(
+                    _fallback_prelaunch_result(result.materials),
+                    result.materials,
+                )
+            except Exception:
+                result.ai_result = None
+                result.ai_error = "AI 分析失败，请稍后重试。"
     return result
 
 
@@ -109,36 +117,76 @@ def _base_materials(req: PrelaunchCheckRequest) -> dict[str, Any]:
 
 
 def _fallback_prelaunch_result(materials: dict[str, Any]) -> dict[str, Any]:
-    """Build a deterministic, saveable diagnosis when AI JSON parsing fails."""
+    """Build a deterministic, saveable diagnosis when AI JSON parsing fails.
+    
+    Uses actual bullet point text to create differentiated results:
+    - Very short text (<20 chars) → low score, missing detail warning
+    - Short text (20-60 chars) → medium score, needs expansion
+    - Good length (>60 chars) → higher score, minor suggestions
+    """
     positions: list[dict[str, Any]] = []
     bullet_points = materials.get("bullet_points") or []
+    impact_metrics_pool = ["CVR", "加购率", "Session%", "转化率", "浏览深度"]
+    
     for index, text in enumerate(bullet_points[:5], start=1):
         if not text:
             continue
+        
+        text_len = len(str(text))
+        has_number = any(c.isdigit() for c in str(text))
+        has_cn = bool(re.search(r"[\u4e00-\u9fff]", str(text)))
+        
+        if text_len < 20:
+            score = 2.5
+            issue = f"五点{index}内容过短（{text_len}字），买家无法获取足够决策信息。"
+            recommendation = f"建议将五点{index}扩展至至少60字符，补充具体数据和使用场景。"
+            usable = "需优化"
+            status = "需修改"
+            metric = impact_metrics_pool[index % len(impact_metrics_pool)]
+        elif text_len < 60:
+            score = 3.5
+            issue = f"五点{index}长度适中（{text_len}字），但缺少量化数据支撑卖点。"
+            recommendation = f"五点{index}可增加具体数字、百分比或对比数据，增强说服力。"
+            usable = "可使用但建议优化"
+            status = "待验证"
+            metric = impact_metrics_pool[(index + 1) % len(impact_metrics_pool)]
+        else:
+            score = 4.0
+            issue = f"五点{index}内容充实（{text_len}字），建议用买家视角检查是否突出了最核心的购买理由。"
+            recommendation = f"五点{index}基础良好，可将功能描述转化为买家可感知的结果。"
+            usable = "可使用但建议优化"
+            status = "待验证"
+            metric = impact_metrics_pool[(index + 2) % len(impact_metrics_pool)]
+        
+        if has_number and text_len >= 30:
+            score += 0.5
+            issue += " 已包含数据，加分。"
+        
+        score = min(score, 4.5)
+        
         positions.append({
             "position_id": f"bullet_{index}",
             "position": f"bullet_{index}",
             "position_name": f"五点{index}",
-            "position_type": "text",
             "uploaded": True,
-            "status": "待验证",
-            "issue_type": ["ai_fallback_diagnosis"],
-            "issue": "AI 诊断未完成，已使用规则兜底。",
-            "recommendation": "待验证",
-            "suggested_rewrite": "待验证",
-            "final_score": 3.0,
-            "score": 3.0,
-            "usable_status": "可使用但建议优化",
-            "risk_level": "low",
-            "validation_metric": "CVR",
-            "impact_metrics": ["CVR"],
+            "status": status,
+            "issue_type": ["text_quality_fallback"],
+            "issue": issue,
+            "recommendation": recommendation,
+            "suggested_rewrite": recommendation,
+            "final_score": round(score, 1),
+            "score": round(score, 1),
+            "usable_status": usable,
+            "risk_level": "medium" if score < 3.5 else "low",
+            "validation_metric": metric,
+            "impact_metrics": [metric],
         })
 
     return {
         "admission_result": "待验证",
-        "conclusion": "AI 诊断未完成，已使用规则兜底。",
+        "conclusion": "AI 服务暂时不可用，已基于文本规则生成初步诊断。建议稍后重新运行 AI 分析获取完整建议。",
         "position_diagnoses": positions,
-        "next_action": "先处理硬拦截项，再重新运行 AI 诊断。",
+        "next_action": "完善文本内容后，重新运行 AI 诊断以获取精准建议。",
     }
 
 
@@ -180,14 +228,28 @@ async def _attach_image_materials(req: PrelaunchCheckRequest, result: PrelaunchA
         f"五点4：{req.bullet_4 or '暂无'}",
         f"五点5：{req.bullet_5 or '暂无'}",
     ])
+    attempted_positions = {
+        SLOT_LABEL_MAP.get(item.get("slot", ""), item.get("slot", "")): ""
+        for item in b64_list
+        if item.get("slot")
+    }
     try:
         ocr_results = await extract_text_from_base64_list(b64_list, product_context=product_context)
         if ocr_results:
-            result.materials["ocr_texts"] = {r["slot"]: r["text"] for r in ocr_results if r.get("text")}
+            result.materials["ocr_texts"] = {
+                **attempted_positions,
+                **{
+                    SLOT_LABEL_MAP.get(r.get("slot", ""), r.get("slot", "")): r["text"]
+                    for r in ocr_results
+                    if r.get("text")
+                },
+            }
             result.ocr_status = "success"
         else:
+            result.materials["ocr_texts"] = attempted_positions
             result.ocr_status = "skipped"
     except Exception as exc:
+        result.materials["ocr_texts"] = attempted_positions
         result.ocr_status = f"failed:{exc}"
 
 

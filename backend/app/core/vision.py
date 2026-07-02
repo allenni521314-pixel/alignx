@@ -2,11 +2,17 @@ from __future__ import annotations
 """Image OCR — extract text from listing images using Qwen Vision."""
 
 import base64
+from io import BytesIO
+
 import httpx
+import logging
 import os
+from PIL import Image, ImageOps
+
 from app.config import get_settings
 
 settings = get_settings()
+_logger = logging.getLogger(__name__)
 
 QWEN_KEY = settings.qwen_api_key
 if not QWEN_KEY:
@@ -18,7 +24,10 @@ if not QWEN_KEY:
         except Exception:
             pass
 
-QWEN_BASE = settings.qwen_base_url
+_logger.debug("QWEN_KEY loaded: %s chars", len(QWEN_KEY) if QWEN_KEY else 0)
+
+QWEN_BASE = settings.qwen_base_url.rstrip("/")
+QWEN_MODEL = settings.qwen_model
 
 LISTING_IMAGE_OCR_PROMPT = """识别这张 Amazon Listing 图片。
 优先任务：逐字提取图片上的所有可见文案。
@@ -48,28 +57,60 @@ def _build_listing_image_ocr_prompt(slot: str = "", product_context: str = "") -
 {context}"""
 
 
-async def _call_qwen_vision(image_b64: str, prompt: str, max_tokens: int = 200) -> str:
+def _compress_image_data_url(image_data: str, *, max_side: int = 1600, quality: int = 84) -> str:
+    """Normalize uploaded/captured images before OCR to reduce model failures."""
+    value = (image_data or "").strip()
+    if not value:
+        return ""
+    raw_b64 = value.split(",", 1)[-1] if value.startswith("data:image/") else value
+    try:
+        raw = base64.b64decode(raw_b64, validate=False)
+        with Image.open(BytesIO(raw)) as img:
+            img = ImageOps.exif_transpose(img)
+            if img.mode not in ("RGB", "L"):
+                background = Image.new("RGB", img.size, (255, 255, 255))
+                if img.mode in ("RGBA", "LA"):
+                    background.paste(img.convert("RGBA"), mask=img.convert("RGBA").split()[-1])
+                    img = background
+                else:
+                    img = img.convert("RGB")
+            else:
+                img = img.convert("RGB")
+            img.thumbnail((max_side, max_side))
+            buf = BytesIO()
+            img.save(buf, format="JPEG", quality=quality, optimize=True)
+            return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
+    except Exception as exc:
+        _logger.warning("Image compression skipped before OCR: %s", str(exc) or type(exc).__name__)
+        if value.startswith("data:image/"):
+            return value
+        return f"data:image/jpeg;base64,{value}"
+
+
+async def _call_qwen_vision(image_data: str, prompt: str, max_tokens: int = 200) -> str:
     """Call Qwen Vision API."""
     if not QWEN_KEY:
         return ""
+    image_url = _compress_image_data_url(image_data)
     timeout = httpx.Timeout(30.0, connect=8.0)
-    async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
+    async with httpx.AsyncClient(timeout=timeout, trust_env=True) as client:
         resp = await client.post(
             f"{QWEN_BASE}/chat/completions",
             headers={"Authorization": f"Bearer {QWEN_KEY}"},
             json={
-                "model": "qwen-vl-max",
+                "model": QWEN_MODEL,
                 "messages": [{
                     "role": "user",
                     "content": [
-                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"}},
+                        {"type": "image_url", "image_url": {"url": image_url}},
                         {"type": "text", "text": prompt},
                     ],
                 }],
                 "max_tokens": max_tokens,
             },
         )
-        resp.raise_for_status()
+        if resp.status_code >= 400:
+            raise RuntimeError(f"Qwen OCR HTTP {resp.status_code}: {resp.text[:300]}")
         data = resp.json()
         if "choices" not in data:
             raise RuntimeError(str(data)[:500])
@@ -89,7 +130,7 @@ async def extract_text_from_images(
     results = {}
     errors: list[str] = []
     timeout = httpx.Timeout(30.0, connect=8.0)
-    async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
+    async with httpx.AsyncClient(timeout=timeout, trust_env=True) as client:
         for url in image_urls[:7]:
             try:
                 img_resp = await client.get(url)
@@ -125,17 +166,24 @@ async def extract_text_from_base64_list(items: list[dict], product_context: str 
     Returns: [{"slot": "img3", "text": "...", "content_type": "usage_scenario", "mismatch": false}, ...]
     """
     if not items or not QWEN_KEY:
+        if not QWEN_KEY:
+            _logger.warning("Qwen API key not configured — OCR skipped")
         return []
 
     results = []
+    errors: list[str] = []
     for item in items[:7]:
         try:
-            b64 = item.get("url", "").split(",", 1)[-1]
+            image_data = item.get("url", "")
             slot = item.get("slot", "")
             prompt = _build_listing_image_ocr_prompt(slot=slot, product_context=product_context)
-            text = await _call_qwen_vision(b64, prompt, max_tokens=800)
+            text = await _call_qwen_vision(image_data, prompt, max_tokens=800)
             if text:
                 results.append({"slot": slot, "text": text})
-        except Exception:
+        except Exception as exc:
+            errors.append(f"{item.get('slot', '?')}: {type(exc).__name__}: {str(exc) or '[no message]'}")
+            _logger.warning("OCR failed for slot=%s: type=%s msg=%s", item.get("slot", "?"), type(exc).__name__, str(exc) or "[no message]")
             continue
+    if not results and errors:
+        raise RuntimeError("; ".join(errors[:3]))
     return results

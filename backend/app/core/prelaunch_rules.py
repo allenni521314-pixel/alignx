@@ -51,15 +51,15 @@ DIFFERENTIATION_TERMS = ["no ozone", "ozone free", "no filters", "no refills", "
 PLACEMENT_TERMS = ["usb powered", "wall mount", "small spaces", "bathroom", "closet", "shoe cabinet", "pet cage"]
 
 A_PLUS_MODULES = [
-    ("aplus_1", "A+1 Brand Hero", "建立品牌和产品第一印象", "missing_required_module"),
-    ("aplus_2", "A+2 Differentiation Comparison", "解释为什么不是传统除味方案", "missing_required_module"),
-    ("aplus_3", "A+3 Benefit Deep Dive 1", "强化 No Ozone 或无臭氧设计", "missing_required_module"),
-    ("aplus_4", "A+4 Benefit Deep Dive 2", "强化 No Filters / No Refills", "missing_required_module"),
-    ("aplus_5", "A+5 Benefit Deep Dive 3", "强化安装便利", "missing_required_module"),
-    ("aplus_6", "A+6 Technical Specs", "提供可信参数", "missing_required_module"),
-    ("aplus_7", "A+7 Usage Scenarios", "说明适用小空间", "missing_required_module"),
-    ("aplus_8", "A+8 Certification & Warranty", "建立认证、质保和支持信任", "missing_required_trust_module"),
-    ("aplus_9", "A+9 FAQ & After-Sales", "解除购买前疑虑和售后疑虑", "missing_required_faq_module"),
+    ("aplus_1", "A+1", "品牌主视觉", "missing_required_module"),
+    ("aplus_2", "A+2", "差异化对比", "missing_required_module"),
+    ("aplus_3", "A+3", "卖点1", "missing_required_module"),
+    ("aplus_4", "A+4", "卖点2", "missing_required_module"),
+    ("aplus_5", "A+5", "卖点3", "missing_required_module"),
+    ("aplus_6", "A+6", "技术规格参数", "missing_required_module"),
+    ("aplus_7", "A+7", "场景详解", "missing_required_module"),
+    ("aplus_8", "A+8", "认证质保", "missing_required_trust_module"),
+    ("aplus_9", "A+9", "FAQ+售后", "missing_required_faq_module"),
 ]
 
 
@@ -94,10 +94,12 @@ def apply_prelaunch_rules(ai_result: dict[str, Any], materials: dict[str, Any]) 
     a_plus_analysis = _a_plus_analysis(materials)
     result["a_plus_analysis"] = a_plus_analysis
     for module in a_plus_analysis:
-        if not module["uploaded"]:
-            _upsert_position(result["position_diagnoses"], _a_plus_position(module))
-        if module["module"] in {"A+8 Certification & Warranty", "A+9 FAQ & After-Sales"} and not module["uploaded"]:
+        _upsert_position(result["position_diagnoses"], _a_plus_position(module))
+        if module["position_id"] in {"aplus_8", "aplus_9"} and not module["uploaded"]:
             hard_blockers.append({"type": module["status"], "position": module["position_id"]})
+
+    for pos in _secondary_image_positions(materials):
+        _upsert_position(result["position_diagnoses"], pos)
 
     result["position_diagnoses"] = _apply_intent_to_positions(result["position_diagnoses"], intent)
     result["position_diagnoses"] = [_sanitize_diagnosis(d) for d in result["position_diagnoses"]]
@@ -258,19 +260,33 @@ def _main_image_guardrail(materials: dict[str, Any]) -> dict[str, Any] | None:
 def _a_plus_analysis(materials: dict[str, Any]) -> list[dict[str, Any]]:
     missing = set(materials.get("missing_images") or [])
     uploaded = {item.get("position") for item in materials.get("uploaded_images") or [] if isinstance(item, dict)}
+    ocr_texts = materials.get("ocr_texts") or {}
     modules: list[dict[str, Any]] = []
     for position_id, module, role, missing_status in A_PLUS_MODULES:
         is_uploaded = position_id in uploaded and position_id not in missing
+        ocr_status = _image_ocr_status(ocr_texts, position_id)
+        has_ocr = ocr_status == "success"
+        status = missing_status
+        score: float | None = 1.0
+        content_risk = "暂无"
+        suggested_action = f"补充{module}：{role}。"
+        if is_uploaded:
+            status = "uploaded_with_ocr" if has_ocr else "uploaded_missing_ocr"
+            score = 3.6 if has_ocr else None
+            content_risk = "待检查"
+            suggested_action = f"检查该图是否承担：{role}。" if has_ocr else f"补充或确认该图文案，目标：{role}。"
         modules.append({
             "position_id": position_id,
             "module": module,
             "expected_role": role,
             "uploaded": is_uploaded,
-            "score": 3.0 if is_uploaded else 1.0,
-            "status": "uploaded_requires_task_review" if is_uploaded else missing_status,
+            "has_ocr": has_ocr,
+            "ocr_status": ocr_status if is_uploaded else "pending",
+            "score": score,
+            "status": status,
             "missing_reason": None if is_uploaded else "未上传",
-            "content_risk": "待识别" if is_uploaded else "暂无",
-            "suggested_action": "按该位置承接任务检查图片文案、场景和证据。" if is_uploaded else "补充该 A+ 模块。",
+            "content_risk": content_risk,
+            "suggested_action": suggested_action,
         })
     return modules
 
@@ -328,24 +344,113 @@ def _highlight_position(analysis: dict[str, Any]) -> dict[str, Any]:
 
 
 def _a_plus_position(module: dict[str, Any]) -> dict[str, Any]:
+    if not module["uploaded"]:
+        issue = f"{module['module']}未上传。目标：{module['expected_role']}。"
+        status = "缺失"
+        recommendation = module["suggested_action"]
+        usable_status = "不可使用"
+        risk_level = "low"
+    elif module.get("has_ocr"):
+        issue = f"{module['module']}已上传并提取到OCR文案。目标：{module['expected_role']}。"
+        status = "待验证"
+        recommendation = module["suggested_action"]
+        usable_status = "可使用但建议优化"
+        risk_level = "medium"
+    else:
+        issue = "图片已上传，文字识别尚未完成。以下建议基于图位规则推断，不代表对实际图片内容的评估。"
+        status = "待识别"
+        recommendation = module["suggested_action"]
+        usable_status = "图片待识别"
+        risk_level = "pending"
     return {
         "position_id": module["position_id"],
         "position": module["position_id"],
         "position_name": module["module"],
         "position_type": "a_plus",
         "uploaded": module["uploaded"],
-        "status": "需修改" if module["uploaded"] else "缺失",
+        "ocr_status": module.get("ocr_status", "pending"),
+        "status": status,
         "issue_type": [module["status"]],
-        "issue": f"{module['module']}：{module['expected_role']}。{module['missing_reason'] or '需按承接任务逐图检查。'}",
-        "recommendation": module["suggested_action"],
-        "suggested_action": module["suggested_action"],
+        "issue": issue,
+        "recommendation": recommendation,
+        "suggested_action": recommendation,
         "final_score": module["score"],
         "score": module["score"],
-        "usable_status": "可使用但建议优化" if module["uploaded"] else "不可使用",
-        "risk_level": "medium" if module["uploaded"] else "low",
+        "usable_status": usable_status,
+        "risk_level": risk_level,
         "validation_metric": "CVR",
-        "impact_metrics": ["CVR", "Add to Cart"],
+        "impact_metrics": ["CVR", "加购率"],
     }
+
+
+SECONDARY_IMAGE_SLOTS = [
+    ("image_2", "副图2", "核心卖点可视化", "图标+短句展示核心卖点，避免纯文字堆砌"),
+    ("image_3", "副图3", "使用场景展示", "真实环境拍摄，展示产品在实际场景中的使用"),
+    ("image_4", "副图4", "尺寸规格对比", "带参照物或标注，清晰展示产品尺寸"),
+    ("image_5", "副图5", "功能细节演示", "特写/步骤图，展示关键功能或使用方法"),
+    ("image_6", "副图6", "信任背书", "认证标志、质保信息或包装展示"),
+    ("image_7", "副图7", "场景氛围", "生活方式场景图，建立情感连接"),
+]
+
+
+def _secondary_image_positions(materials: dict[str, Any]) -> list[dict[str, Any]]:
+    missing = set(materials.get("missing_images") or [])
+    uploaded = {item.get("position") for item in materials.get("uploaded_images") or [] if isinstance(item, dict)}
+    ocr_texts = materials.get("ocr_texts") or {}
+
+    positions: list[dict[str, Any]] = []
+    for position_id, name, role, suggestion in SECONDARY_IMAGE_SLOTS:
+        is_uploaded = position_id in uploaded and position_id not in missing
+        ocr_status = _image_ocr_status(ocr_texts, position_id)
+        has_ocr = ocr_status == "success"
+
+        if is_uploaded:
+            score = 4.0 if has_ocr else None
+            status = "通过" if has_ocr else "待识别"
+            issue_type = [] if has_ocr else ["missing_ocr_text"]
+            issue = (
+                f"{name}已上传，OCR已提取文案。"
+                if has_ocr
+                else "图片已上传，文字识别尚未完成。以下建议基于图位规则推断，不代表对实际图片内容的评估。"
+            )
+            recommendation = suggestion
+            usable = "可使用但建议优化" if has_ocr else "图片待识别"
+        else:
+            score = 1.0
+            status = "缺失"
+            issue_type = ["missing_secondary_image"]
+            issue = f"{name}（{role}）缺失，建议补充。"
+            recommendation = f"上传{name}：{suggestion}"
+            usable = "不可使用"
+
+        positions.append({
+            "position_id": position_id,
+            "position": position_id,
+            "position_name": name,
+            "uploaded": is_uploaded,
+            "ocr_status": ocr_status if is_uploaded else "pending",
+            "status": status,
+            "issue_type": issue_type,
+            "issue": issue,
+            "recommendation": recommendation,
+            "suggested_action": recommendation,
+            "final_score": score,
+            "score": score,
+            "usable_status": usable,
+            "risk_level": "pending" if is_uploaded and not has_ocr else ("medium" if not is_uploaded else "low"),
+            "validation_metric": "CVR",
+            "impact_metrics": ["CVR", "加购率"] if is_uploaded else ["CVR"],
+        })
+    return positions
+
+
+def _image_ocr_status(ocr_texts: Any, position_id: str) -> str:
+    if not isinstance(ocr_texts, dict) or position_id not in ocr_texts:
+        return "pending"
+    value = ocr_texts.get(position_id)
+    if str(value or "").strip():
+        return "success"
+    return "failed"
 
 
 def _sanitize_diagnosis(diagnosis: dict[str, Any]) -> dict[str, Any]:

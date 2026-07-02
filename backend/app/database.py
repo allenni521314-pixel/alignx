@@ -50,6 +50,7 @@ async def init_db():
             await _add_sqlite_column(conn, "asins", "sp_api_product_type_synced_at", "DATETIME")
             await _add_sqlite_column(conn, "conversion_diagnoses", "ai_readability_score_json", "JSON")
             await _add_sqlite_column(conn, "conversion_diagnoses", "ai_readability_score_version", "VARCHAR(64)")
+            await _add_sqlite_column(conn, "execution_records", "user_id", "VARCHAR(32) NOT NULL DEFAULT '00000000default0000000000000000'")
             await _add_sqlite_column(conn, "asin_operation_profiles", "marketplace", "VARCHAR(16) NOT NULL DEFAULT 'amazon.com'")
             await _add_sqlite_column(conn, "report_upload_staging_records", "asin_id", "VARCHAR(32)")
             await _add_sqlite_column(conn, "report_upload_staging_records", "asin_attribution_status", "VARCHAR(32) NOT NULL DEFAULT 'missing'")

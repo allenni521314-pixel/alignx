@@ -26,11 +26,22 @@ def extract_asin(value: str | None) -> str | None:
     text = (value or "").strip()
     if not text:
         return None
-    direct = re.fullmatch(r"[A-Z0-9]{10}", text.upper())
+
+    upper = text.upper()
+    direct = re.fullmatch(r"[A-Z0-9]{10}", upper)
     if direct:
         return direct.group(0)
-    match = re.search(r"/(?:dp|gp/product|product-reviews)/([A-Z0-9]{10})(?:[/?#]|$)", text, re.I)
-    return match.group(1).upper() if match else None
+
+    for pattern in (
+        r"/(?:DP|GP/PRODUCT|PRODUCT-REVIEWS|ASIN)/([A-Z0-9]{10})(?:[/?#]|$)",
+        r"[?&](?:ASIN|ASINLIST)=([A-Z0-9]{10})(?:[&#]|$)",
+        r"/(B0[A-Z0-9]{8})(?:[/?#]|$)",
+    ):
+        match = re.search(pattern, upper, re.I)
+        if match:
+            return match.group(1).upper()
+
+    return None
 
 
 @dataclass

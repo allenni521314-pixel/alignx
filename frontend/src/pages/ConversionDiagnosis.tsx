@@ -7,6 +7,7 @@ import {
   listConversionDiagnoses,
   ConversionDiagnosis as CD,
 } from "@/lib/api";
+import { label, FUNNEL_STAGE_LABELS as FUNNEL_MAP, POSITION_LABELS as POS_MAP, IMPACT_METRIC_LABELS, KEYWORD_TYPE_LABELS, labelMetrics } from "@/lib/label-maps";
 
 type HeatmapItem = Record<string, unknown> | NonNullable<CD["position_diagnoses_json"]>[number];
 
@@ -341,22 +342,11 @@ function UnifiedListingDiagnosis({ result }: { result: CD }) {
           <MetricCard label="置信度" value={`${data.confidence ?? 0}/100`} />
           <MetricCard label="证据强度" value={`${data.evidence_strength ?? 0}/100`} />
         </div>
-        <p className="text-[12px] text-[#86868b] mt-4">{data.prediction_policy || "暂无"}</p>
+        <p className="text-[12px] text-[#86868b] mt-4">{data.prediction_policy === "No uplift percentage shown without historical validation samples." ? "暂无历史验证数据，效果提升预测需完成首次广告验证后生成。" : (data.prediction_policy || "暂无")}</p>
       </div>
 
-      {/* Buyer Decision Chain Funnel */}
-      <div className="apple-card p-6">
-        <h3 className="text-[13px] font-semibold text-[#86868b] uppercase tracking-wide mb-4">买家决策链漏斗</h3>
-        <div className="space-y-2">
-          {funnelRows.map((row) => (
-            <div key={row.stage} className="grid grid-cols-[96px_72px_1fr] gap-3 items-center rounded-xl bg-[#fbfaf7] p-3">
-              <span className="text-[13px] font-semibold">{row.stage}</span>
-              <span className={`text-[12px] font-medium ${riskTextClass(row.risk)}`}>{riskLabel(row.risk)}</span>
-              <span className="text-[13px] text-[#86868b] truncate">{row.evidence}</span>
-            </div>
-          ))}
-        </div>
-      </div>
+      {/* Funnel Chart */}
+      <FunnelChart rows={funnelRows} />
 
       {/* Listing Heatmap */}
       <ListingHeatmap heatmap={heatmap} />
@@ -375,11 +365,17 @@ function UnifiedListingDiagnosis({ result }: { result: CD }) {
         <h3 className="text-[13px] font-semibold text-[#86868b] uppercase tracking-wide mb-4">Top20 证据</h3>
         {keywordRows.length ? (
           <div className="space-y-2">
+            <div className="grid grid-cols-4 gap-3 px-3 text-[11px] text-[#86868b] font-medium">
+              <span>关键词</span>
+              <span>类型</span>
+              <span>建议位置</span>
+              <span>匹配度</span>
+            </div>
             {keywordRows.map((row, index) => (
               <div key={index} className="grid grid-cols-4 gap-3 rounded-xl bg-[#fbfaf7] p-3 text-[13px]">
                 <span>{asText(row.keyword)}</span>
-                <span>{asText(row.keyword_role)}</span>
-                <span>{asText(row.recommended_positions)}</span>
+                <span>{label(KEYWORD_TYPE_LABELS, asText(row.keyword_role))}</span>
+                <span>{label(POS_MAP, asText(row.recommended_positions))}</span>
                 <span>{asText(row.position_consistency_score)}</span>
               </div>
             ))}
@@ -419,12 +415,12 @@ function UnifiedListingDiagnosis({ result }: { result: CD }) {
       <div className="apple-card p-6">
         <h3 className="text-[13px] font-semibold text-[#86868b] uppercase tracking-wide mb-4">最小变量广告验证方案</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-          <FieldBlock label="本轮变量" value={asText(plan.target_position)} />
-          <FieldBlock label="对应漏斗层" value={asText(plan.target_stage)} />
+          <FieldBlock label="本轮变量" value={label(POS_MAP, plan.target_position as string)} />
+          <FieldBlock label="对应漏斗层" value={label(FUNNEL_MAP, plan.target_stage as string)} />
           <FieldBlock label="广告词建议" value="暂无" />
           <FieldBlock label="预算建议" value={asText(plan.budget_level)} />
           <FieldBlock label="验证周期" value={`${asText(plan.verification_period_days)} 天`} />
-          <FieldBlock label="观察指标" value={asText(plan.verification_metrics)} />
+          <FieldBlock label="观察指标" value={labelMetrics(Array.isArray(plan.verification_metrics) ? plan.verification_metrics as string[] : typeof plan.verification_metrics === 'string' ? (plan.verification_metrics as string).split(' / ') : [])} />
           <FieldBlock label="成功条件" value={asText(plan.success_condition)} />
           <FieldBlock label="失败后路径" value={asText(plan.failure_branch)} />
         </div>
@@ -433,71 +429,140 @@ function UnifiedListingDiagnosis({ result }: { result: CD }) {
   );
 }
 
-/* ── Listing Heatmap Component ── */
+/* ── Funnel Chart Component ── */
 
-function ListingHeatmap({ heatmap }: { heatmap: HeatmapItem[] }) {
-  const grouped: Record<string, HeatmapItem[]> = {};
-  for (const item of heatmap) {
-    const stage = String(item.funnel_stage || "");
-    if (!grouped[stage]) grouped[stage] = [];
-    grouped[stage].push(item);
-  }
+const FUNNEL_STAGE_ORDER = ["需求触发","搜索意图","搜索匹配","点击判断","首屏确认","卖点理解","信任证明","疑虑消除","购买确认"];
 
+function FunnelChart({ rows }: { rows: Array<{ stage: string; risk: string; evidence: string }> }) {
+  const total = rows.length;
+  const palette = ["#0071e3","#5ac8fa","#34c759","#ff9500","#ff3b30","#af52de","#ff375f","#30b0c7","#ff9f0a"];
+  const maxW = 520;
+  const minW = 80;
+  const step = (maxW - minW) / total;
   return (
     <div className="apple-card p-6">
-      <h3 className="text-[13px] font-semibold text-[#86868b] uppercase tracking-wide mb-5">
-        Listing 区位热力图
-      </h3>
-      <div className="space-y-3">
-        {STAGE_ORDER.map((stage) => {
-          const positions = grouped[stage];
-          if (!positions || !positions.length) return null;
-          const health = stageHealth(positions);
-          const first = positions[0];
-          const isProblem = first && (first.risk_level === "high" || first.risk_level === "medium");
+      <h3 className="text-[13px] font-semibold text-[#86868b] uppercase tracking-wide mb-5">转化路径分析</h3>
+      <div className="flex flex-col items-center" style={{ width: maxW, margin: "0 auto" }}>
+        {rows.map((row, i) => {
+          const topW = maxW - i * step;
+          const bottomW = i < total - 1 ? maxW - (i + 1) * step : minW;
+          const riskKey = row.risk.includes("高") ? "高风险" : row.risk.includes("中") ? "中风险" : "低风险";
+          const color = palette[i % palette.length];
+          const isLast = i === total - 1;
+          const leftIndent = (topW - bottomW) / 2;
+          const leftPct = topW > 0 ? (leftIndent / topW) * 100 : 0;
           return (
-            <div key={stage} className="flex items-stretch gap-3">
-              <div className="w-[88px] shrink-0 flex flex-col justify-center">
-                <span className="text-[13px] font-semibold text-[#1d1d1f]">{funnelLabel(stage)}</span>
-                <div className="flex gap-0.5 mt-1">
-                  {health.ok > 0 && <span className="h-1 rounded-full bg-[#34c759]" style={{ flex: health.ok }} />}
-                  {health.warn > 0 && <span className="h-1 rounded-full bg-[#ff9500]" style={{ flex: health.warn }} />}
-                  {health.bad > 0 && <span className="h-1 rounded-full bg-[#ff3b30]" style={{ flex: health.bad }} />}
-                </div>
+            <div
+              key={row.stage}
+              className="relative flex items-center justify-center"
+              style={{
+                width: topW,
+                height: 42,
+                background: color,
+                clipPath: isLast
+                  ? "none"
+                  : `polygon(0 0, 100% 0, ${100 - leftPct}% 100%, ${leftPct}% 100%)`,
+                marginBottom: -2,
+              }}
+            >
+              <span className="text-[13px] font-semibold text-white drop-shadow-sm">{row.stage}</span>
+              <span className="absolute right-3 text-[10px] font-bold text-white/70">{riskKey}</span>
+            </div>
+          );
+        })}
+        <div
+          style={{
+            width: 0, height: 0,
+            borderLeft: `${minW/2}px solid transparent`,
+            borderRight: `${minW/2}px solid transparent`,
+            borderTop: `16px solid ${palette[(total-1) % palette.length]}`,
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
+
+/* ── Listing Heatmap Matrix ── */
+
+const HEATMAP_STAGES = ["search_match", "click_decision", "first_screen_confirmation", "value_understanding", "trust_building", "objection_handling"];
+
+function ListingHeatmap({ heatmap }: { heatmap: HeatmapItem[] }) {
+  const byStage: Record<string, Record<string, { status: string; score: number }>> = {};
+  const allPositions: string[] = [];
+
+  for (const item of heatmap) {
+    const stage = String(item.funnel_stage || "");
+    const pos = String(item.position_name || item.position_id || "");
+    const status = String(item.current_status || item.status || "");
+    const score = status === "covered" ? 100 : status === "weak" ? 50 : status === "missing" || status === "blocked_by_rule" ? 15 : 30;
+    if (!byStage[stage]) byStage[stage] = {};
+    byStage[stage][pos] = { status, score };
+    if (!allPositions.includes(pos)) allPositions.push(pos);
+  }
+
+  // Color: red(15) → orange(50) → green(100)
+  const cellColor = (score: number, status: string) => {
+    if (!status) return "bg-gray-50";
+    if (status === "covered") return "bg-emerald-400";
+    if (status === "weak") return "bg-amber-400";
+    if (status === "missing" || status === "blocked_by_rule") return "bg-red-400";
+    return "bg-gray-300";
+  };
+
+  return (
+    <div className="apple-card p-6 overflow-x-auto">
+      <h3 className="text-[13px] font-semibold text-[#86868b] uppercase tracking-wide mb-4">Listing 区位热力图</h3>
+      <div className="inline-block">
+        {/* Header row */}
+        <div className="flex">
+          <div className="w-[80px] shrink-0" />
+          {allPositions.map(pos => (
+            <div key={pos} className="w-[64px] text-center pb-1.5">
+              <span className="text-[10px] text-[#86868b] leading-tight block">{label(POS_MAP, pos, pos)}</span>
+            </div>
+          ))}
+        </div>
+        {/* Data rows */}
+        {HEATMAP_STAGES.map(stage => {
+          const cells = byStage[stage] || {};
+          return (
+            <div key={stage} className="flex items-center">
+              <div className="w-[80px] shrink-0 pr-2">
+                <span className="text-[10px] font-medium text-[#86868b]">{funnelLabel(stage)}</span>
               </div>
-              <div className={`w-[2px] shrink-0 rounded-full ${isProblem ? "bg-[#ff9500]/40" : "bg-[#d2d2d7]/40"}`} />
-              <div className="flex flex-wrap gap-2 items-center flex-1">
-                {positions.map((pos) => {
-                  const status = String(pos.current_status || pos.status || "");
-                  const colors = STAGE_COLORS[status] || STAGE_COLORS.not_priority;
-                  return (
+              {allPositions.map(pos => {
+                const cell = cells[pos];
+                const s = cell?.status || "";
+                const sc = cell?.score || 0;
+                return (
+                  <div key={pos} className="w-[64px] h-[36px] flex items-center justify-center">
                     <div
-                      key={String(pos.position_id || pos.position_name)}
-                      className={`rounded-lg border px-2.5 py-1.5 ${colors.bg} ${colors.border} flex items-center gap-1.5`}
+                      className={`w-[56px] h-[30px] rounded flex items-center justify-center ${cellColor(sc, s)}`}
+                      title={s ? `${label(POS_MAP, pos, pos)}: ${HEAT_STATUS_LABEL[s] || s}` : ""}
                     >
-                      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${colors.dot}`} />
-                      <span className="text-[12px] font-medium text-[#1d1d1f]">
-                        {String(pos.position_name || "")}
+                      <span className="text-[10px] font-bold text-white drop-shadow-sm">
+                        {s === "covered" ? sc : s === "weak" ? sc : s === "missing" || s === "blocked_by_rule" ? sc : "—"}
                       </span>
                     </div>
-                  );
-                })}
-              </div>
+                  </div>
+                );
+              })}
             </div>
           );
         })}
       </div>
       {/* Legend */}
-      <div className="flex items-center gap-4 mt-5 pt-4 border-t border-[#d2d2d7]/30">
+      <div className="flex items-center gap-4 mt-4 pt-3 border-t border-[#d2d2d7]/20">
         {[
-          { label: "已覆盖", dot: "bg-[#34c759]" },
-          { label: "弱覆盖", dot: "bg-[#ff9500]" },
-          { label: "缺失/禁止", dot: "bg-[#ff3b30]" },
-          { label: "当前不优先", dot: "bg-[#86868b]" },
-        ].map((item) => (
+          { label: "已覆盖", color: "bg-emerald-400", score: "100" },
+          { label: "弱覆盖", color: "bg-amber-400", score: "50" },
+          { label: "缺失/禁止", color: "bg-red-400", score: "15" },
+          { label: "不适用", color: "bg-gray-300", score: "—" },
+        ].map(item => (
           <span key={item.label} className="flex items-center gap-1.5 text-[11px] text-[#86868b]">
-            <span className={`w-2 h-2 rounded-full ${item.dot}`} />
-            {item.label}
+            <span className={`w-3 h-3 rounded ${item.color}`} />{item.label}
           </span>
         ))}
       </div>
@@ -505,18 +570,6 @@ function ListingHeatmap({ heatmap }: { heatmap: HeatmapItem[] }) {
   );
 }
 
-/* ── Helpers ── */
-
-function stageHealth(positions: HeatmapItem[]): { ok: number; warn: number; bad: number } {
-  let ok = 0, warn = 0, bad = 0;
-  for (const p of positions) {
-    const s = p.current_status || p.status;
-    if (s === "covered") ok++;
-    else if (s === "weak" || s === "not_priority") warn++;
-    else bad++;
-  }
-  return { ok, warn, bad };
-}
 
 function normalizeFunnelRows(rows: Array<Record<string, unknown>>) {
   return FUNNEL_STAGE_LABELS.map((stage) => {
@@ -574,7 +627,7 @@ function PositionDiagnosisCard({ item }: { item: HeatmapItem }) {
     <div className={`rounded-xl p-4 border ${heatClass(String(item.current_status || item.status))}`}>
       <div className="flex items-center gap-2 mb-2">
         <div className={`w-2 h-2 rounded-full ${heatDot(String(item.current_status || item.status))}`} />
-        <span className="text-[13px] font-semibold">{asText(item.position_name)}</span>
+        <span className="text-[13px] font-semibold">{label(POS_MAP, item.position_name as string, asText(item.position_name))}</span>
         <span className="text-[11px] text-[#86868b]">{funnelLabel(item.funnel_stage)}</span>
         <span className="text-[11px] text-[#86868b] ml-auto">
           {HEAT_STATUS_LABEL[status] || status || "暂无"}
@@ -583,7 +636,7 @@ function PositionDiagnosisCard({ item }: { item: HeatmapItem }) {
       <p className="text-[13px] text-[#1d1d1f] mb-2">{issue}</p>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5">
         <span className="text-[11px] text-[#86868b]">{asText(item.issue || item.recommendation) ? "建议: " + asText(item.recommendation || item.recommended_fix_type) : ""}</span>
-        <span className="text-[11px] text-[#86868b]">影响: {asText(item.impact_direction || item.impacted_ad_metrics)}</span>
+        <span className="text-[11px] text-[#86868b]">影响: {labelMetrics(Array.isArray(item.impacted_ad_metrics) ? item.impacted_ad_metrics as string[] : (typeof item.impact_direction === 'string' ? (item.impact_direction as string).split(' / ') : []))}</span>
       </div>
     </div>
   );

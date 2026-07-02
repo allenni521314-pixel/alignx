@@ -272,6 +272,14 @@ class ConversionDiagnosisResponse(BaseModel):
     ai_readability_score_json: Optional[dict] = None
     ai_readability_score_version: Optional[str] = None
     primary_matched_proposition_code: Optional[str] = None
+    overall_health_score: Optional[int] = None
+    root_cause: Optional[str] = None
+    funnel_diagnosis: Optional[list] = None
+    heatmap: Optional[list] = None
+    top_3_actions: Optional[list] = None
+    keyword_map: Optional[list] = None
+    data_sources: Optional[dict] = None
+    confidence: Optional[str] = None
     created_at: datetime
 
 
