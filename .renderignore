@@ -1,0 +1,16 @@
+_archive/
+*.db
+*.db-shm
+*.db-wal
+*.tsbuildinfo
+node_modules/
+dist/
+__pycache__/
+*.pyc
+.git/
+logs/
+sketches/
+wiki.md
+ALIGNX_INTEGRATION_AUDIT.md
+ALIGNX_V1_INTEGRATION_PLAN.md
+ALIGNX_V1_FINAL_REPORT.md
