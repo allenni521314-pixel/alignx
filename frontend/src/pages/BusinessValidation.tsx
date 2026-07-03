@@ -210,7 +210,12 @@ export default function BusinessValidation() {
                   </div>
 
                   <div>
-                    <p className="text-[13px] font-medium text-[#86868b] mb-2">成功结果</p>
+                    <div className="flex items-center gap-1.5 mb-2">
+                      {summary.effectiveResults.length > 0 && (
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#b8860a]" />
+                      )}
+                      <p className="text-[13px] font-medium text-[#86868b]">成功结果</p>
+                    </div>
                     {summary.effectiveResults.length > 0 ? (
                       <div className="space-y-2">
                         {summary.effectiveResults.slice(0, 2).map((result) => (
@@ -218,6 +223,7 @@ export default function BusinessValidation() {
                             key={result.id}
                             result={result}
                             task={summary.tasks.find((task) => task.id === result.validation_task_id)}
+                            highlight
                           />
                         ))}
                       </div>
@@ -421,9 +427,12 @@ function ExecutionRow({ record }: { record: ExecutionRecord }) {
   );
 }
 
-function ResultCard({ result, task }: { result: ValidationResult; task?: ValidationTask }) {
+function ResultCard({ result, task, highlight }: { result: ValidationResult; task?: ValidationTask; highlight?: boolean }) {
+  const [toast, setToast] = useState<string | null>(null);
+  const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 2500); };
+
   return (
-    <div className="rounded-xl border border-[#d2d2d7]/40 bg-white px-4 py-3">
+    <div className={`rounded-xl px-4 py-3 ${highlight ? "border border-[#b8860a]/30 bg-[#fdf3dc]/25" : "border border-[#d2d2d7]/40 bg-white"}`}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2 mb-1">
@@ -450,6 +459,18 @@ function ResultCard({ result, task }: { result: ValidationResult; task?: Validat
           样本：{result.sample_days ?? "暂无"} 天 · {result.sample_clicks ?? "暂无"} 点击 · {result.sample_orders ?? "暂无"} 订单
         </p>
       )}
+      {highlight && (
+        <div className="mt-3 pt-3 border-t border-[#b8860a]/15 flex justify-end">
+          <button
+            type="button"
+            onClick={() => showToast("放大投入：待接入")}
+            className="apple-btn-amber text-[12px] px-3 py-1.5"
+          >
+            放大投入
+          </button>
+        </div>
+      )}
+      {toast && <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-[#1d1d1f] text-white px-5 py-3 rounded-xl text-[14px] shadow-lg z-50">{toast}</div>}
     </div>
   );
 }
