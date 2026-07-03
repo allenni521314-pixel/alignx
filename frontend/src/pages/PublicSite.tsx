@@ -478,7 +478,7 @@ function Home({ lang }: { lang: Lang }) {
     <main>
       <section className="mx-auto grid min-h-[650px] max-w-[1120px] items-center gap-12 px-5 py-20 lg:grid-cols-[1.05fr_0.95fr]">
         <div>
-          <p className="mb-6 text-[15px] font-medium text-[#B18742]">{h.supportLine}</p>
+          <p className="mb-6 text-[15px] font-medium text-[#C6A86E]">{h.supportLine}</p>
           <h1 className="max-w-[780px] text-[46px] font-semibold leading-[1.04] tracking-[-0.055em] text-[#0F2A24] sm:text-[62px]">
             {h.heroTitle}
           </h1>

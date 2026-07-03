@@ -20,14 +20,14 @@ export default function AdminDashboard() {
   const { data: profiles, isLoading: la } = useQuery({ queryKey: ["admin-profiles"], queryFn: listAdminProfiles, enabled: true });
   const { data: audit } = useQuery({ queryKey: ["admin-audit"], queryFn: getAdminAudit, enabled: true });
 
-  if (lp || la) return <div className="max-w-[900px] mx-auto py-8"><div className="apple-card p-16 text-center"><div className="w-8 h-8 border-2 border-[#0F2A24]/20 border-t-[#0F2A24] rounded-full animate-spin mx-auto" /></div></div>;
+  if (lp || la) return <div className="max-w-[900px] mx-auto py-10"><div className="apple-card p-16 text-center"><div className="w-8 h-8 border-2 border-[#0F2A24]/20 border-t-[#0F2A24] rounded-full animate-spin mx-auto" /></div></div>;
 
   const loop = audit?.loop_health ?? {};
 
   return (
-    <div className="max-w-[900px] mx-auto py-8">
+    <div className="max-w-[900px] mx-auto py-10">
       <div className="mb-8">
-        <h1 className="text-[28px] font-bold tracking-[-0.025em] mb-1">管理后台</h1>
+        <h1 className="text-[32px] font-bold tracking-[-0.025em] mb-1">管理后台</h1>
         <p className="text-[15px] text-[#86868b]">命题库 · ASIN 档案 · 闭环审计</p>
       </div>
 

@@ -160,9 +160,9 @@ export default function BusinessValidation() {
   const isLoading = tasksLoading || profilesLoading || executionsLoading || resultsLoading;
 
   return (
-    <div className="max-w-[760px] mx-auto py-12">
-      <div className="text-center mb-12">
-        <h1 className="text-[36px] font-bold tracking-[-0.025em] mb-2">效果验证</h1>
+    <div className="max-w-[720px] mx-auto py-10">
+      <div className="mb-8">
+        <h1 className="text-[32px] font-bold tracking-[-0.025em] mb-2">效果验证</h1>
         <p className="text-[17px] text-[#86868b]">执行记录与验证结果汇总</p>
       </div>
 

@@ -12,7 +12,7 @@ import {
 const PRIORITY_GROUPS = {
   p0: { level: "P0", label: "立即处理", color: "bg-[#ff3b30]", bg: "bg-[#ff3b30]/6", border: "border-[#ff3b30]/20", minScore: 80 },
   p1: { level: "P1", label: "本轮优化", color: "bg-[#ff9500]", bg: "bg-[#ff9500]/6", border: "border-[#ff9500]/20", minScore: 50 },
-  p2: { level: "P2", label: "下轮跟进", color: "bg-[#0071e3]", bg: "bg-[#0071e3]/6", border: "border-[#0071e3]/20", minScore: 20 },
+  p2: { level: "P2", label: "下轮跟进", color: "bg-[#C6A86E]", bg: "bg-[#C6A86E]/6", border: "border-[#C6A86E]/20", minScore: 20 },
   p3: { level: "P3", label: "观察", color: "bg-[#86868b]", bg: "bg-[#86868b]/6", border: "border-[#86868b]/20", minScore: 0 },
 } as const;
 
@@ -48,9 +48,9 @@ export default function TodayDecisions() {
   const queue = pending.slice(1);
 
   return (
-    <div className="max-w-[680px] mx-auto py-12">
+    <div className="max-w-[680px] mx-auto py-10">
       <div className="text-center mb-10">
-        <h1 className="text-[36px] font-bold tracking-[-0.025em] mb-2">今天先做这件事</h1>
+        <h1 className="text-[32px] font-bold tracking-[-0.025em] mb-2">今天先做这件事</h1>
         <p className="text-[17px] text-[#86868b]">最低成本验证一个假设，明天再看结果</p>
       </div>
 

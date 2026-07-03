@@ -118,7 +118,7 @@ export default function ConversionDiagnosis() {
   };
 
   return (
-    <div className="max-w-[720px] mx-auto py-8">
+    <div className="max-w-[720px] mx-auto py-10">
       <div className="mb-10">
         <h1 className="text-[32px] font-bold tracking-[-0.025em] mb-2">承接转化</h1>
         <p className="text-[17px] text-[#86868b] leading-relaxed">
@@ -349,7 +349,7 @@ function UnifiedListingDiagnosis({ result }: { result: CD }) {
           </div>
           <div className="text-right shrink-0">
             <p className="text-[12px] text-[#86868b]">健康分</p>
-            <p className="text-[24px] font-semibold text-[#0F2A24]">{data.overall_health_score ?? 0}</p>
+            <p className="text-[24px] font-semibold text-[#C6A86E]">{data.overall_health_score ?? 0}</p>
           </div>
         </div>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-5">
@@ -451,7 +451,7 @@ const FUNNEL_STAGE_ORDER = ["需求触发","搜索意图","搜索匹配","点击
 
 function FunnelChart({ rows }: { rows: Array<{ stage: string; risk: string; evidence: string }> }) {
   const total = rows.length;
-  const palette = ["#0071e3","#5ac8fa","#34c759","#ff9500","#ff3b30","#af52de","#ff375f","#30b0c7","#ff9f0a"];
+  const palette = ["#0F2A24","#C6A86E","#34c759","#ff9500","#ff3b30","#7A7466","#5C7A70","#A98A50","#8FA89E"];
   const maxW = 520;
   const minW = 80;
   const step = (maxW - minW) / total;

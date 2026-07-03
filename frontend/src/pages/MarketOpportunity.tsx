@@ -34,7 +34,7 @@ export default function MarketOpportunity() {
   };
 
   return (
-    <div className="max-w-[720px] mx-auto py-8">
+    <div className="max-w-[720px] mx-auto py-10">
       {/* Hero */}
       <div className="mb-10">
         <h1 className="text-[32px] font-bold tracking-[-0.025em] mb-2">
@@ -89,7 +89,7 @@ export default function MarketOpportunity() {
                 {result.market_entry_conclusion ?? "分析完成"}
               </h2>
               {result.opportunity_score != null && (
-                <span className="text-[28px] font-bold text-[#0F2A24]">
+                <span className="text-[28px] font-bold text-[#C6A86E]">
                   {result.opportunity_score}
                   <span className="text-sm font-normal text-[#86868b] ml-1">分</span>
                 </span>

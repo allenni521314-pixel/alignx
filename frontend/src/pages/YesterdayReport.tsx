@@ -76,7 +76,7 @@ export default function YesterdayReport() {
     };
   }, [items]);
 
-  if (isLoading) return <div className="max-w-[760px] mx-auto py-12"><div className="apple-card p-16 text-center"><div className="w-8 h-8 border-2 border-[#0F2A24]/20 border-t-[#0F2A24] rounded-full animate-spin mx-auto" /></div></div>;
+  if (isLoading) return <div className="max-w-[720px] mx-auto py-10"><div className="apple-card p-16 text-center"><div className="w-8 h-8 border-2 border-[#0F2A24]/20 border-t-[#0F2A24] rounded-full animate-spin mx-auto" /></div></div>;
 
   const m = metrics;
   const asinAlerts = items.length > 0 ? [...new Set(items.map(r => r.asin))].map(asin => {
@@ -99,10 +99,10 @@ export default function YesterdayReport() {
   }) : [];
 
   return (
-    <div className="max-w-[760px] mx-auto py-12">
-      <div className="text-center mb-10">
-        <h1 className="text-[36px] font-bold tracking-[-0.025em] mb-2">昨日经营变化</h1>
-        <p className="text-[14px] text-[#86868b]">
+    <div className="max-w-[720px] mx-auto py-10">
+      <div className="mb-8">
+        <h1 className="text-[32px] font-bold tracking-[-0.025em] mb-2">昨日经营变化</h1>
+        <p className="text-[17px] text-[#86868b]">
           汇总 {m?.active_asins ?? 0} 个 ASIN 昨日数据
           {(m?.risk_asins ?? 0) > 0 && <span className="text-[#ff3b30]"> · {m?.risk_asins} 个异常</span>}
         </p>
@@ -138,7 +138,7 @@ export default function YesterdayReport() {
               <p><span className="text-[#86868b]">涉及 ASIN：</span>{m.asins.join(" · ")}</p>
               <p><span className="text-[#86868b]">最近改动：</span>基于执行记录数据，{m.asins.length} 个 ASIN 共 {items.length} 次优化动作。</p>
               <p><span className="text-[#86868b]">建议处理：</span>
-                <a href="/today-decisions" className="text-[#0071e3] underline ml-1">今日决策</a>
+                <a href="/today-decisions" className="text-[#0F2A24] underline ml-1">今日决策</a>
               </p>
             </div>
           </div>

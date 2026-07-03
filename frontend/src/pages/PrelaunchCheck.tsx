@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ClipboardCheck, ArrowRight, AlertCircle, Check, ShieldAlert, Upload } from "lucide-react";
 import { analyzePrelaunch, listPrelaunchChecks, PrelaunchCheck as PC, type PositionDiagnosis } from "@/lib/api";
+import RiskBadge from "@/components/RiskBadge";
 
 const SAVE_KEY = "alignx_prelaunch_draft";
 const ANALYSIS_STEPS = ["提交素材", "图片压缩", "OCR识别", "规则检查", "AI分析", "保存结果"];
@@ -104,7 +105,7 @@ export default function PrelaunchCheck() {
   };
 
   return (
-    <div className="max-w-[760px] mx-auto py-8">
+    <div className="max-w-[720px] mx-auto py-10">
       <div className="mb-8">
         <h1 className="text-[32px] font-bold tracking-[-0.025em] mb-2">上架准入</h1>
         <p className="text-[17px] text-[#86868b]">上传 Listing 素材，逐位置诊断是否达到上架标准</p>
@@ -168,7 +169,7 @@ export default function PrelaunchCheck() {
       {result && (
         <div className="space-y-4">
           <div className="flex gap-3 mb-2"><button className="apple-btn-primary text-[14px] px-4 py-2 flex items-center gap-1.5"><Check size={15} />完成分析</button><button onClick={()=>{setStep(1);setResult(null)}} className="apple-btn-secondary text-[14px] px-4 py-2">← 重新修改</button></div>
-          <div className="apple-card p-6"><div className="flex items-center gap-3 mb-3"><div className={`w-10 h-10 rounded-full flex items-center justify-center ${result.admission_result==="可以上架"?"bg-[#34c759]/10":result.admission_result==="谨慎上架"?"bg-[#ff9500]/10":"bg-[#ff3b30]/10"}`}>{result.admission_result==="可以上架"?<Check size={20} className="text-[#34c759]"/>:result.admission_result==="谨慎上架"?<AlertCircle size={20} className="text-[#ff9500]"/>:<ShieldAlert size={20} className="text-[#ff3b30]"/>}</div><div><p className="text-[20px] font-semibold">{result.admission_result}</p>{result.conclusion&&<p className="text-[14px] text-[#86868b] mt-0.5">{result.conclusion}</p>}</div></div></div>
+          <div className="apple-card p-6"><RiskBadge label={result.admission_result ?? "待判定"} detail={result.conclusion} /></div>
           {(result.position_diagnoses_json?.length ?? 0) > 0 && (
             <div className="apple-card p-6"><h3 className="text-[13px] font-semibold text-[#86868b] uppercase tracking-wide mb-4">逐位置诊断</h3><div className="space-y-3">{(result.position_diagnoses_json ?? []).map((d,i)=><DiagnosisItem key={i} diagnosis={d} statusIcon={statusIcon} />)}</div></div>
           )}

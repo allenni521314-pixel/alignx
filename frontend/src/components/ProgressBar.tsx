@@ -12,7 +12,7 @@ export default function ProgressBar({ step }: { step: number }) {
       </div>
       <div className="h-[4px] bg-[#d2d2d7]/20 rounded-full overflow-hidden">
         <div
-          className="h-full bg-gradient-to-r from-[#0071e3] via-[#34c759] to-[#0F2A24] rounded-full transition-all duration-700 ease-out"
+          className="h-full bg-gradient-to-r from-[#C6A86E] via-[#34c759] to-[#0F2A24] rounded-full transition-all duration-700 ease-out"
           style={{ width: `${pct}%` }}
         />
       </div>

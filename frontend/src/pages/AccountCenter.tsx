@@ -25,9 +25,9 @@ export default function AccountCenter() {
   };
 
   return (
-    <div className="max-w-[680px] mx-auto py-8">
+    <div className="max-w-[680px] mx-auto py-10">
       <div className="mb-10">
-        <h1 className="text-[36px] font-bold tracking-[-0.025em] mb-2">{t("account.title")}</h1>
+        <h1 className="text-[32px] font-bold tracking-[-0.025em] mb-2">{t("account.title")}</h1>
         <p className="text-[17px] text-[#86868b] leading-relaxed">{t("account.subtitle")}</p>
       </div>
 
@@ -72,7 +72,7 @@ export default function AccountCenter() {
           </span>
         </div>
         {/* Progress bar */}
-        <div className="w-full h-2 rounded-full bg-[#f0f0f0] overflow-hidden">
+        <div className="w-full h-2 rounded-full bg-[#E3DED2] overflow-hidden">
           <div
             className="h-full rounded-full bg-[#0F2A24] transition-all duration-500"
             style={{
@@ -94,7 +94,7 @@ export default function AccountCenter() {
           <div className="flex-1">
             <p className="text-[15px] font-medium">账户余额</p>
           </div>
-          <span className="text-[20px] font-bold text-[#0F2A24]">
+          <span className="text-[20px] font-bold text-[#C6A86E]">
             ${(account?.balance ?? 0).toFixed(2)}
           </span>
         </div>
@@ -143,7 +143,7 @@ export default function AccountCenter() {
           </a>
         )}
 
-        <div onClick={handleLogout} className="apple-card p-5 flex items-center gap-4 hover:bg-[#fff5f5] cursor-pointer transition-colors">
+        <div onClick={handleLogout} className="apple-card p-5 flex items-center gap-4 hover:bg-[#ff3b30]/[0.04] cursor-pointer transition-colors">
           <div className="w-10 h-10 rounded-full bg-[#ff3b30]/[0.06] flex items-center justify-center">
             <LogOut size={20} className="text-[#ff3b30]" />
           </div>

@@ -46,9 +46,9 @@ export default function ExecutionRecords() {
   const totalCost = items.reduce((s, r) => s + (r.cost_amount ?? 0), 0);
 
   return (
-    <div className="max-w-[720px] mx-auto py-12">
-      <div className="text-center mb-10">
-        <h1 className="text-[36px] font-bold tracking-[-0.025em] mb-2">执行记录</h1>
+    <div className="max-w-[720px] mx-auto py-10">
+      <div className="mb-8">
+        <h1 className="text-[32px] font-bold tracking-[-0.025em] mb-2">执行记录</h1>
         <p className="text-[17px] text-[#86868b]">
           按 ASIN 追踪每次优化的花费与Listing表现变化
         </p>

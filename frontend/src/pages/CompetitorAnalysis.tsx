@@ -77,7 +77,7 @@ export default function CompetitorAnalysis() {
   };
 
   return (
-    <div className="max-w-[720px] mx-auto py-8">
+    <div className="max-w-[720px] mx-auto py-10">
       {/* Header */}
       <div className="mb-10">
         <h1 className="text-[32px] font-bold tracking-[-0.025em] mb-2">竞品分析</h1>
