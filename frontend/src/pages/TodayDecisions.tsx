@@ -8,28 +8,37 @@ import {
   createExecutionRecord, getTodayDecisions, stageReportUpload, updateValidationTask, type DecisionItem,
 } from "@/lib/api";
 
-// ── PLACEHOLDER: P0-P3 优先级展示 ──
-// 后端 reports/today 当前不返回优先级分级数据。
-// 此常量为 UI 占位，待后端增加优先级字段后替换为动态数据。
-const PRIORITY_TASKS = [
-  { level: "P0", label: "立即处理", color: "bg-[#ff3b30]", bg: "bg-[#ff3b30]/6", border: "border-[#ff3b30]/20",
-    items: [
-      { title: "主图含文字违规", asin: "B0FDKQGRCK", action: "替换纯白底主图", route: "/prelaunch-check" },
-    ]},
-  { level: "P1", label: "本轮优化", color: "bg-[#ff9500]", bg: "bg-[#ff9500]/6", border: "border-[#ff9500]/20",
-    items: [
-      { title: "CTR 下降 18%，点击理由不足", asin: "B0FDKQGRCK", action: "检查标题前段 + 主图", route: "/conversion-diagnosis" },
-      { title: "CVR 下降 14%，首屏未承接", asin: "B0GXV4ZXLM", action: "检查副图2 + 五点1", route: "/conversion-diagnosis" },
-    ]},
-  { level: "P2", label: "下轮跟进", color: "bg-[#0071e3]", bg: "bg-[#0071e3]/6", border: "border-[#0071e3]/20",
-    items: [
-      { title: "广告 ACOS 偏高", asin: "B0FDKQGRCK", action: "调整关键词出价", route: "/advertising-strategy" },
-    ]},
-  { level: "P3", label: "观察", color: "bg-[#86868b]", bg: "bg-[#86868b]/6", border: "border-[#86868b]/20",
-    items: [
-      { title: "新品上架准入待完善", asin: "—", action: "补充 A+ 模块", route: "/prelaunch-check" },
-    ]},
-];
+// ── 优先级分组：按 priority_score 分 P0/P1/P2/P3 ──
+const PRIORITY_GROUPS = {
+  p0: { level: "P0", label: "立即处理", color: "bg-[#ff3b30]", bg: "bg-[#ff3b30]/6", border: "border-[#ff3b30]/20", minScore: 80 },
+  p1: { level: "P1", label: "本轮优化", color: "bg-[#ff9500]", bg: "bg-[#ff9500]/6", border: "border-[#ff9500]/20", minScore: 50 },
+  p2: { level: "P2", label: "下轮跟进", color: "bg-[#0071e3]", bg: "bg-[#0071e3]/6", border: "border-[#0071e3]/20", minScore: 20 },
+  p3: { level: "P3", label: "观察", color: "bg-[#86868b]", bg: "bg-[#86868b]/6", border: "border-[#86868b]/20", minScore: 0 },
+} as const;
+
+function groupByPriority(pending: DecisionItem[]) {
+  const groups: Record<string, DecisionItem[]> = { p0: [], p1: [], p2: [], p3: [] };
+  for (const item of pending) {
+    const score = item.priority_score ?? 0;
+    if (score >= 80) groups.p0.push(item);
+    else if (score >= 50) groups.p1.push(item);
+    else if (score >= 20) groups.p2.push(item);
+    else groups.p3.push(item);
+  }
+  return groups;
+}
+
+function sourceRoute(source: string): string {
+  const map: Record<string, string> = {
+    "承接转化": "/conversion-diagnosis",
+    "竞品分析": "/competitor-analysis",
+    "上架准入": "/prelaunch-check",
+    "产品调研": "/market-opportunity",
+    "流量策略": "/traffic-strategy",
+    "手动创建": "/business-validation",
+  };
+  return map[source] || "/business-validation";
+}
 
 export default function TodayDecisions() {
   const { data: report, isLoading } = useQuery({ queryKey: ["today-decisions"], queryFn: getTodayDecisions });
@@ -54,8 +63,8 @@ export default function TodayDecisions() {
           {/* Card 1: 报表上传 */}
           <ReportUploadCard />
 
-          {/* Card 2: P0-P3 优先级处理 */}
-          <PriorityTaskCard />
+          {/* Card 2: P0-P3 优先级处理 — 用真实 pending 数据 */}
+          <PriorityTaskCard pending={pending} />
 
           {/* Card 3: 今日优先动作 */}
           {hasPending && (
@@ -143,35 +152,58 @@ function ReportUploadCard() {
   );
 }
 
-/* ── Card 2: P0-P3 优先级处理 ── */
-function PriorityTaskCard() {
+/* ── Card 2: P0-P3 优先级处理（真实数据版）── */
+function PriorityTaskCard({ pending }: { pending: DecisionItem[] }) {
   const navigate = useNavigate();
+  const groups = groupByPriority(pending);
+
+  if (pending.length === 0) {
+    return (
+      <div className="apple-card p-6">
+        <div className="flex items-center gap-2 mb-4">
+          <div className="w-8 h-8 rounded-lg bg-[#0F2A24]/10 flex items-center justify-center"><Zap size={16} className="text-[#0F2A24]" /></div>
+          <h3 className="text-[15px] font-semibold">事件处理优先级</h3>
+        </div>
+        <p className="text-[14px] text-[#86868b] text-center py-8">暂无待处理事件。上传广告报表或完成一次诊断后可生成优先级。</p>
+      </div>
+    );
+  }
+
+  const keys = ["p0", "p1", "p2", "p3"] as const;
+  const nonEmpty = keys.filter(k => groups[k].length > 0);
+
   return (
     <div className="apple-card p-6">
       <div className="flex items-center gap-2 mb-4">
         <div className="w-8 h-8 rounded-lg bg-[#0F2A24]/10 flex items-center justify-center"><Zap size={16} className="text-[#0F2A24]" /></div>
         <h3 className="text-[15px] font-semibold">事件处理优先级</h3>
+        <span className="text-[12px] text-[#86868b] ml-auto">{pending.length} 项待处理</span>
       </div>
       <div className="space-y-3">
-        {PRIORITY_TASKS.map((group) => (
-          <div key={group.level} className={`rounded-xl ${group.bg} border ${group.border} p-4`}>
-            <div className="flex items-center gap-2 mb-2">
-              <span className={`text-[11px] font-bold text-white px-2 py-0.5 rounded-full ${group.color}`}>{group.level}</span>
-              <span className="text-[12px] font-medium text-[#86868b]">{group.label}</span>
-              <span className="text-[11px] text-[#86868b] ml-auto">{group.items.length} 项</span>
-            </div>
-            {group.items.map((item, i) => (
-              <div key={i} className="flex items-center gap-3 py-2 border-t border-black/5 first:border-0 cursor-pointer hover:opacity-80 transition-opacity"
-                onClick={() => navigate(item.route)}>
-                <div className="flex-1 min-w-0">
-                  <p className="text-[13px] font-medium text-[#1d1d1f]">{item.title}</p>
-                  <p className="text-[11px] text-[#86868b]">{item.asin} · {item.action}</p>
-                </div>
-                <ChevronRight size={14} className="text-[#d2d2d7] shrink-0" />
+        {nonEmpty.map((k) => {
+          const cfg = PRIORITY_GROUPS[k];
+          const items = groups[k];
+          return (
+            <div key={k} className={`rounded-xl ${cfg.bg} border ${cfg.border} p-4`}>
+              <div className="flex items-center gap-2 mb-2">
+                <span className={`text-[11px] font-bold text-white px-2 py-0.5 rounded-full ${cfg.color}`}>{cfg.level}</span>
+                <span className="text-[12px] font-medium text-[#86868b]">{cfg.label}</span>
+                <span className="text-[11px] text-[#86868b] ml-auto">{items.length} 项</span>
               </div>
-            ))}
-          </div>
-        ))}
+              {items.map((item, i) => (
+                <div key={item.id || i} className="flex items-center gap-3 py-2 border-t border-black/5 first:border-0 cursor-pointer hover:opacity-80 transition-opacity"
+                  onClick={() => navigate(sourceRoute(item.source))}>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[13px] font-medium text-[#1d1d1f] truncate">{item.hypothesis}</p>
+                    <p className="text-[11px] text-[#86868b]">{item.asin}{item.product_title ? ` · ${item.product_title}` : ""} · {item.source}</p>
+                  </div>
+                  <span className="text-[11px] font-semibold text-[#86868b] shrink-0">{item.history_signal || ""}</span>
+                  <ChevronRight size={14} className="text-[#d2d2d7] shrink-0" />
+                </div>
+              ))}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -198,7 +230,7 @@ function OnboardingGuide() {
   );
 }
 
-/* ── Focus / Queue (unchanged) ── */
+/* ── Focus / Queue ── */
 function FocusCard({ item }: { item: DecisionItem }) {
   const queryClient = useQueryClient();
   const [starting, setStarting] = useState(false);

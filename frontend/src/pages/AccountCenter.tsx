@@ -1,8 +1,15 @@
-import { User, Store, CreditCard, Settings, LogOut, Shield } from "lucide-react";
+import { User, Store, CreditCard, Settings, LogOut, Shield, Database, ReceiptText } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
+import { useQuery } from "@tanstack/react-query";
+import { getAccountInfo, type AccountInfo } from "@/lib/api";
 
 export default function AccountCenter() {
   const { t, language, setLanguage } = useI18n();
+  const { data: account } = useQuery({
+    queryKey: ["account"],
+    queryFn: getAccountInfo,
+    staleTime: 60_000,
+  });
   const userData = JSON.parse(localStorage.getItem("alignx_user") || "{}");
   const isAdmin = userData.email === "allenni521314@gmail.com";
 
@@ -12,10 +19,15 @@ export default function AccountCenter() {
     window.location.href = "/login";
   };
 
+  const planLabel = (plan: string) => {
+    const map: Record<string, string> = { free: "Free Plan", pro: "Pro", enterprise: "Enterprise" };
+    return map[plan] || plan;
+  };
+
   return (
-    <div className="max-w-[720px] mx-auto py-8">
+    <div className="max-w-[680px] mx-auto py-8">
       <div className="mb-10">
-        <h1 className="text-[32px] font-bold tracking-[-0.025em] mb-2">{t("account.title")}</h1>
+        <h1 className="text-[36px] font-bold tracking-[-0.025em] mb-2">{t("account.title")}</h1>
         <p className="text-[17px] text-[#86868b] leading-relaxed">{t("account.subtitle")}</p>
       </div>
 
@@ -45,6 +57,50 @@ export default function AccountCenter() {
         </div>
       </div>
 
+      {/* Usage stats — real data from backend */}
+      <div className="apple-card p-5 mb-3">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 rounded-full bg-[#fbfaf7] flex items-center justify-center">
+            <Database size={20} className="text-[#86868b]" />
+          </div>
+          <div className="flex-1">
+            <p className="text-[15px] font-medium">{t("account.planUsage")}</p>
+            <p className="text-[13px] text-[#86868b]">{account ? planLabel(account.plan) : t("account.planUsage")}</p>
+          </div>
+          <span className="text-[13px] font-semibold text-[#0F2A24]">
+            {account?.used_calls ?? 0} / {account?.total_calls ?? 0}
+          </span>
+        </div>
+        {/* Progress bar */}
+        <div className="w-full h-2 rounded-full bg-[#f0f0f0] overflow-hidden">
+          <div
+            className="h-full rounded-full bg-[#0F2A24] transition-all duration-500"
+            style={{
+              width: account && account.total_calls > 0
+                ? `${Math.min(100, (account.used_calls / account.total_calls) * 100)}%`
+                : "0%",
+            }}
+          />
+        </div>
+        <p className="text-[12px] text-[#86868b] mt-2">AI 调用量</p>
+      </div>
+
+      {/* Balance */}
+      <div className="apple-card p-5 mb-3">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-full bg-[#fbfaf7] flex items-center justify-center">
+            <ReceiptText size={20} className="text-[#86868b]" />
+          </div>
+          <div className="flex-1">
+            <p className="text-[15px] font-medium">账户余额</p>
+          </div>
+          <span className="text-[20px] font-bold text-[#0F2A24]">
+            ${(account?.balance ?? 0).toFixed(2)}
+          </span>
+        </div>
+      </div>
+
+      {/* Settings */}
       <div className="space-y-3">
         <div className="apple-card p-5 flex items-center gap-4">
           <div className="w-10 h-10 rounded-full bg-[#fbfaf7] flex items-center justify-center">
@@ -72,26 +128,6 @@ export default function AccountCenter() {
           <div className="flex-1">
             <p className="text-[15px] font-medium">{t("account.storeManagement")}</p>
             <p className="text-[13px] text-[#86868b]">{t("account.amazonStoreBinding")}</p>
-          </div>
-        </div>
-
-        <div className="apple-card p-5 flex items-center gap-4 hover:bg-[#fbfaf7] cursor-pointer transition-colors">
-          <div className="w-10 h-10 rounded-full bg-[#fbfaf7] flex items-center justify-center">
-            <CreditCard size={20} className="text-[#86868b]" />
-          </div>
-          <div className="flex-1">
-            <p className="text-[15px] font-medium">{t("account.planUsage")}</p>
-            <p className="text-[13px] text-[#86868b]">Free Plan</p>
-          </div>
-        </div>
-
-        <div className="apple-card p-5 flex items-center gap-4 hover:bg-[#fbfaf7] cursor-pointer transition-colors">
-          <div className="w-10 h-10 rounded-full bg-[#fbfaf7] flex items-center justify-center">
-            <Settings size={20} className="text-[#86868b]" />
-          </div>
-          <div className="flex-1">
-            <p className="text-[15px] font-medium">{t("account.preferences")}</p>
-            <p className="text-[13px] text-[#86868b]">{t("account.preferenceDesc")}</p>
           </div>
         </div>
 

@@ -1,14 +1,18 @@
-# AlignX V2 — Render deployment config
+# AlignX — Render deployment config
 services:
   # Backend API
   - type: web
-    name: alignx-api
+    name: alignxagent-api
     env: python
     plan: starter
-    buildCommand: pip install -r backend/requirements.txt
-    startCommand: cd backend && uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
     envVars:
       - key: DATABASE_URL
+        sync: false
+      - key: DATABASE_URL_SYNC
         sync: false
       - key: DEEPSEEK_API_KEY
         sync: false
@@ -21,20 +25,29 @@ services:
       - key: QWEN_API_KEY
         sync: false
       - key: QWEN_BASE_URL
-        value: https://api.siliconflow.cn/v1
+        sync: false
       - key: QWEN_MODEL
         value: Qwen/Qwen3-VL-8B-Instruct
       - key: AUTH_SECRET_KEY
         sync: false
       - key: AI_PROVIDER
         value: deepseek
+      - key: AMAZON_CAPTURE_PROVIDER
+        value: scraperapi
+      - key: ENVIRONMENT
+        value: prod
+      - key: DEBUG
+        value: "false"
 
   # Frontend static site
   - type: web
-    name: alignx-frontend
+    name: alignx-vi
     env: static
-    buildCommand: cd frontend && npm install && npm run build
-    staticPublishPath: frontend/dist
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
     envVars:
       - key: VITE_API_BASE
-        value: https://alignx-api.onrender.com
+        value: https://alignxagent-api.onrender.com
+      - key: PNPM_CONFIG_FROZEN_LOCKFILE
+        value: "false"

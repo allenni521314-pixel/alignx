@@ -793,3 +793,18 @@ export function getYesterdayReport() {
 export function getTodayDecisions() {
   return request<TodayDecisions>("/reports/today");
 }
+
+// ── Account ──
+
+export interface AccountInfo {
+  user_id: string;
+  plan: string;
+  balance: number;
+  total_calls: number;
+  used_calls: number;
+  created_at: string | null;
+}
+
+export function getAccountInfo() {
+  return request<AccountInfo>("/account");
+}
