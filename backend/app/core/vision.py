@@ -3,11 +3,14 @@ import httpx
 import logging
 import os
 import re
+import struct
 from typing import Optional, Dict, List, Any
 from app.config import get_settings
 
 settings = get_settings()
 _logger = logging.getLogger(__name__)
+
+MIN_IMAGE_DIMENSION = 28  # Qwen VL 系列模型的最小边长要求
 
 QWEN_KEY = settings.qwen_api_key
 if not QWEN_KEY:
@@ -43,6 +46,76 @@ def _image_data_url(image_data: str) -> str:
     return f"data:{mime};base64,{image_data}"
 
 
+def _decode_image_bytes(image_data: str) -> Optional[bytes]:
+    """从 data URL 或裸 base64 字符串解出原始图片二进制。解不出来返回 None。"""
+    raw = (image_data or "").strip()
+    if raw.startswith("data:") and "," in raw:
+        raw = raw.split(",", 1)[1]
+    try:
+        return base64.b64decode(raw, validate=False)
+    except Exception:
+        return None
+
+
+def _get_image_dimensions(data: bytes) -> Optional[tuple]:
+    """零依赖解析常见图片格式（PNG/JPEG/GIF/WEBP）的宽高。解不出来返回 None（不阻断，交给下游 API 判断）。"""
+    if not data or len(data) < 24:
+        return None
+    try:
+        # PNG: 8字节签名 + IHDR chunk，宽高在偏移16-24
+        if data[:8] == b"\x89PNG\r\n\x1a\n":
+            width, height = struct.unpack(">II", data[16:24])
+            return (width, height)
+        # GIF: 签名后6字节是宽高（小端）
+        if data[:6] in (b"GIF87a", b"GIF89a"):
+            width, height = struct.unpack("<HH", data[6:10])
+            return (width, height)
+        # WEBP (RIFF容器，VP8/VP8L/VP8X)
+        if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+            chunk = data[12:16]
+            if chunk == b"VP8X" and len(data) >= 30:
+                width = 1 + (data[24] | (data[25] << 8) | (data[26] << 16))
+                height = 1 + (data[27] | (data[28] << 8) | (data[29] << 16))
+                return (width, height)
+            if chunk == b"VP8 " and len(data) >= 30:
+                width, height = struct.unpack("<HH", data[26:30])
+                return (width & 0x3FFF, height & 0x3FFF)
+        # JPEG: 需要遍历 marker 找 SOF
+        if data[:2] == b"\xff\xd8":
+            i = 2
+            n = len(data)
+            while i < n - 9:
+                if data[i] != 0xFF:
+                    i += 1
+                    continue
+                marker = data[i + 1]
+                if marker in (0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7,
+                              0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF):
+                    height, width = struct.unpack(">HH", data[i + 5:i + 9])
+                    return (width, height)
+                if marker in (0xD8, 0xD9, 0x01) or 0xD0 <= marker <= 0xD7:
+                    i += 2
+                    continue
+                seg_len = struct.unpack(">H", data[i + 2:i + 4])[0]
+                i += 2 + seg_len
+            return None
+    except Exception:
+        return None
+    return None
+
+
+def _image_too_small(image_data: str) -> bool:
+    """预检查：图片宽或高小于模型最小要求时返回 True。解析失败时保守放行（返回 False），交给下游 API 自行判断。"""
+    data = _decode_image_bytes(image_data)
+    if not data:
+        return False
+    dims = _get_image_dimensions(data)
+    if not dims:
+        return False
+    width, height = dims
+    return width < MIN_IMAGE_DIMENSION or height < MIN_IMAGE_DIMENSION
+
+
 def _build_listing_image_ocr_prompt(slot: str = "", product_context: str = "") -> str:
     context = product_context.strip()[:1500] if product_context else "暂无"
     return f"""{LISTING_IMAGE_OCR_PROMPT}
@@ -52,6 +125,8 @@ def _build_listing_image_ocr_prompt(slot: str = "", product_context: str = "") -
 async def _call_qwen_vision(image_b64: str, prompt: str, max_tokens: int = 200) -> str:
     if not QWEN_KEY:
         return ""
+    if _image_too_small(image_b64):
+        raise ValueError(f"图片尺寸过小（小于 {MIN_IMAGE_DIMENSION}px），无法识别")
     timeout = httpx.Timeout(30.0, connect=8.0)
     async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
         resp = await client.post(
