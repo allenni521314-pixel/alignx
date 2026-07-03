@@ -46,6 +46,7 @@ class UnifiedAIClient:
     def __init__(self):
         self.provider = os.getenv("AI_PROVIDER", "openai-compatible")
         self.provider_lower = self.provider.lower()
+        self.vision_provider = (os.getenv("VISION_PROVIDER") or "").lower()
         self.text_base_url = (
             os.getenv("OPENAI_BASE_URL")
             or os.getenv("APP_AI_BASE_URL")
@@ -54,6 +55,7 @@ class UnifiedAIClient:
         self.vision_base_url = (
             os.getenv("VISION_BASE_URL")
             or os.getenv("QWEN_BASE_URL")
+            or os.getenv("SILICONFLOW_BASE_URL")
             or "https://dashscope.aliyuncs.com/compatible-mode/v1"
         ).strip().rstrip("/")
         self.default_model = (
@@ -78,11 +80,11 @@ class UnifiedAIClient:
     def _resolve_text_api_key(self) -> str:
         if self._is_dashscope_text():
             return (
-                os.getenv("VISION_API_KEY")
-                or os.getenv("DASHSCOPE_API_KEY")
+                os.getenv("DASHSCOPE_API_KEY")
                 or os.getenv("QWEN_API_KEY")
                 or os.getenv("OPENAI_API_KEY")
                 or os.getenv("APP_AI_KEY")
+                or (os.getenv("VISION_API_KEY") if self.vision_provider in {"qwen", "dashscope"} else "")
                 or ""
             ).strip()
         return (
@@ -97,6 +99,7 @@ class UnifiedAIClient:
     def _resolve_vision_api_key(self) -> str:
         return (
             os.getenv("VISION_API_KEY")
+            or os.getenv("SILICONFLOW_API_KEY")
             or os.getenv("QWEN_API_KEY")
             or os.getenv("DASHSCOPE_API_KEY")
             or self.text_api_key

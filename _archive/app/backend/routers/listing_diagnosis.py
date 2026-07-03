@@ -35,6 +35,7 @@ from core.database import get_db
 from dependencies.auth import get_current_user, get_user_scope_ids
 from schemas.auth import UserResponse
 from services.aihub import AIHubService
+from services.visual_ocr_evidence import extract_visual_ocr_evidence
 from services.amazon_rules_engine import evaluate_amazon_compliance, load_active_rules
 from services.amazon_skill_toolbox import (
     build_review_intent_assets,
@@ -2511,46 +2512,96 @@ async def _run_visual_ocr_batch(
     main_count: int,
     aplus_count: int,
 ) -> dict[str, Any]:
-    from schemas.aihub import (
-        ChatMessage,
-        ContentPartImage,
-        ContentPartText,
-        GenTxtRequest,
-        ImageUrl,
+    context = (
+        f"Listing标题：{listing.title or '暂无'}\n"
+        f"五点描述：{(listing.bullet_points or '')[:1000] or '暂无'}\n"
+        f"主图描述：{listing.main_image_description or '暂无'}\n"
+        f"已有图片文字：{json.dumps({'main_image_texts': listing.main_image_texts or [], 'a_plus_image_texts': listing.a_plus_image_texts or []}, ensure_ascii=False)[:1200]}\n"
+        f"A+摘要：{(listing.a_plus_content or '')[:700] or '暂无'}"
     )
-
-    prompt = (
-        "你是AlignX视觉/OCR证据提取器。只提取事实，不做最终评分，不改写Listing。"
-        "请严格按图片输入顺序逐张识别图片内文字和可见表达，判断图片表达与图片文案是否错位，以及文案是否是买家容易理解的语言。"
-        "不能做最终评分，不能凭空补图中不存在的信息。"
-        "只返回JSON，格式："
-        '{"items":[{"position_id":"主图","image_group":"listing","order":1,"image_text":"图片内可见文字，保持原文；没有则空字符串","image_expression":"图片实际表达的产品/场景/人群/利益点","copy_fit":"只写图文是否一致的事实；未知则空字符串","buyer_language_note":"只写图片文案是否买家易懂的事实；未知则空字符串"}]}'
-        f"\n图片顺序：{json.dumps([{k: v for k, v in item.items() if k != 'url'} for item in image_items], ensure_ascii=False)}"
-        f"\nListing标题：{listing.title}"
-        f"\n五点描述：{listing.bullet_points[:1000] if listing.bullet_points else '未提供'}"
-        f"\n主图描述：{listing.main_image_description or '未提供'}"
-        f"\n已有图片文字：{json.dumps({'main_image_texts': listing.main_image_texts or [], 'a_plus_image_texts': listing.a_plus_image_texts or []}, ensure_ascii=False)[:1200]}"
-        f"\nA+摘要：{listing.a_plus_content[:700] if listing.a_plus_content else '未提供'}"
-    )
-    content = [ContentPartText(type="text", text=prompt)]
+    visual_items: list[dict[str, Any]] = []
     for item in image_items:
-        content.append(ContentPartImage(type="image_url", image_url=ImageUrl(url=item["url"])))
-    response = await asyncio.wait_for(
-        ai_service.gentxt(
-            GenTxtRequest(
-                messages=[ChatMessage(role="user", content=content)],
-                model="AI_VISION_MODEL",
-                temperature=0,
-                max_tokens=1400,
-            )
-        ),
+        visual_items.append(
+            {
+                "slot": item.get("position_id") or "",
+                "position_id": item.get("position_id") or "",
+                "position_name": item.get("position_id") or "",
+                "image_group": item.get("image_group") or "",
+                "order": item.get("order"),
+                "target": item.get("position_id") or "",
+                "url": item.get("url") or "",
+            }
+        )
+
+    evidence = await asyncio.wait_for(
+        extract_visual_ocr_evidence(visual_items, context=context, prompt_mode="listing"),
         timeout=min(AI_DIAGNOSIS_TIMEOUT_SECONDS, 75),
     )
-    parsed = _parse_visual_ocr_by_position(response.content or "", main_count=main_count, aplus_count=aplus_count)
-    parsed["summary"] = (response.content or "")[:1400]
-    parsed["usage"] = response.usage or {}
-    parsed["model"] = response.model
-    return parsed
+    result = {
+        "items": [],
+        "main_image_texts": _empty_text_slots(main_count),
+        "a_plus_image_texts": _empty_text_slots(aplus_count),
+        "summary": str(evidence.get("raw") or "")[:1400],
+        "usage": {},
+        "model": str(evidence.get("model") or ""),
+    }
+    usage = evidence.get("usage")
+    if isinstance(usage, list) and usage:
+        result["usage"] = usage[0] if isinstance(usage[0], dict) else {}
+    elif isinstance(usage, dict):
+        result["usage"] = usage
+
+    for raw_item in evidence.get("items", []):
+        if not isinstance(raw_item, dict):
+            continue
+        try:
+            order = int(raw_item.get("order") or 0)
+        except Exception:
+            order = 0
+        item = {
+            "position_id": _clean_visual_ocr_text(raw_item.get("position_id") or raw_item.get("slot"), 40),
+            "image_group": _clean_visual_ocr_text(raw_item.get("image_group"), 40).lower(),
+            "order": order,
+            "image_text": _clean_visual_ocr_text(raw_item.get("ocr_text"), 320),
+            "image_expression": _clean_visual_ocr_text(raw_item.get("image_expression") or raw_item.get("summary"), 320),
+            "copy_fit": _clean_visual_ocr_text(raw_item.get("copy_fit"), 240),
+            "buyer_language_note": _clean_visual_ocr_text(raw_item.get("buyer_language_note") or raw_item.get("recommendation"), 240),
+            "ocr_status": _clean_visual_ocr_text(raw_item.get("ocr_status"), 20),
+        }
+        result["items"].append(item)
+        item_text = _visual_item_text(item)
+        if not item_text:
+            continue
+
+        position_id = item["position_id"]
+        image_group = item["image_group"]
+        if position_id == "主图" or (image_group == "listing" and order == 1):
+            if result["main_image_texts"]:
+                result["main_image_texts"][0] = item_text
+            continue
+        secondary_match = re.search(r"副图\s*(\d+)", position_id)
+        if secondary_match:
+            idx = int(secondary_match.group(1))
+            if 1 <= idx < len(result["main_image_texts"]):
+                result["main_image_texts"][idx] = item_text
+            continue
+        if image_group == "listing" and order > 1:
+            idx = order - 1
+            if 0 <= idx < len(result["main_image_texts"]):
+                result["main_image_texts"][idx] = item_text
+            continue
+        aplus_match = re.search(r"A\+\s*图\s*(\d+)", position_id, re.I)
+        if aplus_match:
+            idx = int(aplus_match.group(1)) - 1
+            if 0 <= idx < len(result["a_plus_image_texts"]):
+                result["a_plus_image_texts"][idx] = item_text
+            continue
+        if image_group == "aplus" and order > 0:
+            idx = order - 1
+            if 0 <= idx < len(result["a_plus_image_texts"]):
+                result["a_plus_image_texts"][idx] = item_text
+
+    return result
 
 
 async def _build_listing_evidence_chain(listing: ListingInput, ai_service: AIHubService) -> dict:

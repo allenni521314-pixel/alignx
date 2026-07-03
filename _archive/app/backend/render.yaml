@@ -43,11 +43,13 @@ services:
       - key: AI_DEEP_MODEL
         value: qwen3-32b
       - key: VISION_BASE_URL
-        value: https://dashscope.aliyuncs.com/compatible-mode/v1
+        value: https://api.siliconflow.cn/v1
+      - key: VISION_PROVIDER
+        value: siliconflow
       - key: VISION_API_KEY
         sync: false
       - key: AI_VISION_MODEL
-        value: qwen3-vl-plus
+        value: Qwen/Qwen3-VL-8B-Instruct
       - key: AMAZON_CAPTURE_PROVIDER
         value: scraperapi
       - key: SCRAPERAPI_KEY

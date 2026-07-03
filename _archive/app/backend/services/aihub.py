@@ -56,8 +56,8 @@ class AIHubService:
         if not self.vision_base_url.startswith(("http://", "https://")):
             logger.warning("Invalid VISION_BASE_URL %s, falling back to DashScope compatible endpoint", self.vision_base_url)
             self.vision_base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-        if not self.vision_model.startswith("qwen"):
-            logger.warning("Invalid AI_VISION_MODEL %s, falling back to qwen3-vl-plus", self.vision_model)
+        if not self.vision_model:
+            logger.warning("AI_VISION_MODEL is empty, falling back to qwen3-vl-plus")
             self.vision_model = "qwen3-vl-plus"
 
         if not self.base_url or not self.api_key:
@@ -146,20 +146,22 @@ class AIHubService:
             model = self._resolve_model(request.model)
             if self._is_vision_request(request.model):
                 async with httpx.AsyncClient(timeout=float(os.getenv("VISION_REQUEST_TIMEOUT", os.getenv("AI_REQUEST_TIMEOUT", "180"))), trust_env=False) as client:
+                    payload = {
+                        "model": model,
+                        "messages": messages,
+                        "temperature": request.temperature,
+                        "max_tokens": request.max_tokens,
+                        "stream": False,
+                    }
+                    if "dashscope.aliyuncs.com" in self.vision_base_url:
+                        payload["enable_thinking"] = False
                     response = await client.post(
                         f"{self.vision_base_url.rstrip('/')}/chat/completions",
                         headers={
                             "Authorization": f"Bearer {self.vision_api_key}",
                             "Content-Type": "application/json",
                         },
-                        json={
-                            "model": model,
-                            "messages": messages,
-                            "temperature": request.temperature,
-                            "max_tokens": request.max_tokens,
-                            "stream": False,
-                            "enable_thinking": False,
-                        },
+                        json=payload,
                     )
                     response.raise_for_status()
                     data = response.json()

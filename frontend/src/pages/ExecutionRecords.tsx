@@ -8,7 +8,7 @@ const COST_LABELS: Record<string, string> = {
   ad_spend: "广告花费", design_cost: "设计费用", discount_cost: "折扣成本", labor_cost: "人工成本", other: "其他",
 };
 
-// Mock effect data — will come from validation results API in production
+// 验证结果状态 → UI 标签映射（非 mock，是 result_status 的前端翻译层）
 const EFFECT: Record<number, { label: string; dot: string; cls: string }> = {
   0: { label: "有效", dot: "bg-[#34c759]", cls: "text-[#34c759]" },
   1: { label: "无效", dot: "bg-[#ff3b30]", cls: "text-[#ff3b30]" },

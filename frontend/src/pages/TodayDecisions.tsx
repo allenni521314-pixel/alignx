@@ -8,7 +8,9 @@ import {
   createExecutionRecord, getTodayDecisions, stageReportUpload, updateValidationTask, type DecisionItem,
 } from "@/lib/api";
 
-// ── Mock P0-P3 tasks ──
+// ── PLACEHOLDER: P0-P3 优先级展示 ──
+// 后端 reports/today 当前不返回优先级分级数据。
+// 此常量为 UI 占位，待后端增加优先级字段后替换为动态数据。
 const PRIORITY_TASKS = [
   { level: "P0", label: "立即处理", color: "bg-[#ff3b30]", bg: "bg-[#ff3b30]/6", border: "border-[#ff3b30]/20",
     items: [

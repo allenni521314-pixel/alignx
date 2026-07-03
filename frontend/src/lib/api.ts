@@ -194,6 +194,7 @@ export interface PositionDiagnosis {
   impact_metrics?: string[] | null;
   issue_type?: string[] | null;
   evidence?: string | null;
+  evidence_summary?: string | null;
   risk_level?: string | null;
   suggested_rewrite?: string | null;
   suggested_action?: string | null;

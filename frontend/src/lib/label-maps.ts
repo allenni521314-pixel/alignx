@@ -32,6 +32,7 @@ export const POSITION_LABELS: Record<string, string> = {
   title_middle:       "标题中段",
   title_end:          "标题尾段",
   title:              "标题",
+  listing:            "Listing",
   main_image:         "主图",
   image_2:            "副图2",
   image_3:            "副图3",

@@ -20,6 +20,7 @@ import {
   type ValidationResult,
   type ValidationTask,
 } from "@/lib/api";
+import { IMPACT_METRIC_LABELS, POSITION_LABELS, label } from "@/lib/label-maps";
 
 type SummaryStatus = "running" | "pending" | "effective" | "ineffective" | "interfered" | "insufficient_data";
 
@@ -58,6 +59,14 @@ const METRIC_LABELS: Record<string, string> = {
   cvr: "CVR",
   acos: "ACoS",
   cpc: "CPC",
+};
+
+const COST_LABELS: Record<string, string> = {
+  ad_spend: "广告花费",
+  design_cost: "设计费用",
+  discount_cost: "折扣成本",
+  labor_cost: "人工成本",
+  other: "其他",
 };
 
 export default function BusinessValidation() {
@@ -392,22 +401,22 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 }
 
 function ExecutionRow({ record }: { record: ExecutionRecord }) {
+  const meta = formatExecutionMeta(record);
+  const evidence = formatEvidence(record.evidence_note);
+
   return (
     <div className="rounded-xl border border-[#d2d2d7]/40 bg-white px-4 py-3 mb-2">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-[14px] font-medium truncate">{record.action_summary || "暂无"}</p>
           <p className="text-[12px] text-[#86868b] mt-1">
-            {record.changed_position || "暂无"} · {record.changed_variable || "暂无"}
+            {formatChangedField(record.changed_position, POSITION_LABELS)} · {formatChangedField(record.changed_variable, IMPACT_METRIC_LABELS)}
           </p>
         </div>
         <p className="text-[12px] text-[#86868b] shrink-0">{formatDate(record.executed_at || record.created_at)}</p>
       </div>
-      {(record.cost_amount || record.cost_type || record.evidence_note) && (
-        <p className="text-[12px] text-[#86868b] mt-2">
-          {record.cost_type || "暂无"} {record.cost_amount ?? "暂无"} · {record.evidence_note || "暂无"}
-        </p>
-      )}
+      {meta && <p className="text-[12px] text-[#86868b] mt-2">{meta}</p>}
+      {evidence && <p className="text-[12px] text-[#86868b] mt-1">{evidence}</p>}
     </div>
   );
 }
@@ -583,15 +592,70 @@ function formatDate(value?: string | null) {
 
 function formatObject(value: Record<string, unknown> | null) {
   if (!value) return "暂无";
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return "暂无";
-  }
+  return formatEvidenceObject(value) || "暂无";
 }
 
 function formatMetricValue(key: string, value: number) {
   if (key === "ctr" || key === "cvr" || key === "acos") return `${(value * 100).toFixed(2)}%`;
   if (key === "spend" || key === "sales" || key === "cpc") return `$${Number(value).toFixed(2)}`;
   return String(value);
+}
+
+function formatChangedField(value: string | null, map: Record<string, string>) {
+  if (!value) return "暂无";
+  return label(map, value);
+}
+
+function formatExecutionMeta(record: ExecutionRecord) {
+  const parts: string[] = [];
+  if (record.cost_type) parts.push(label(COST_LABELS, record.cost_type));
+  if (record.cost_amount != null) parts.push(formatCostAmount(record.cost_amount));
+  return parts.join(" · ");
+}
+
+function formatCostAmount(value: number) {
+  return `$${Number(value).toFixed(2)}`;
+}
+
+function formatEvidence(value: string | null) {
+  if (!value) return "";
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  try {
+    const parsed = JSON.parse(trimmed) as Record<string, unknown>;
+    return formatEvidenceObject(parsed);
+  } catch {
+    return trimmed;
+  }
+}
+
+function formatEvidenceObject(value: Record<string, unknown>) {
+  const parts: string[] = [];
+  const metrics = ["impressions", "clicks", "orders", "sales", "spend", "ctr", "cvr", "acos", "cpc"];
+
+  for (const key of metrics) {
+    const raw = value[key];
+    if (typeof raw === "number" && Number.isFinite(raw)) {
+      parts.push(`${METRIC_LABELS[key] || key} ${formatMetricValue(key, raw)}`);
+    }
+  }
+
+  if (typeof value.report_date === "string" && value.report_date) {
+    parts.push(`报表日期 ${value.report_date}`);
+  }
+
+  if (typeof value.source_type === "string" && value.source_type) {
+    parts.push(`来源 ${formatSourceType(value.source_type)}`);
+  }
+
+  return parts.join(" · ");
+}
+
+function formatSourceType(value: string) {
+  const sourceLabels: Record<string, string> = {
+    uploaded_report: "上传报表",
+    browser_extension: "浏览器插件",
+    manual: "手动录入",
+  };
+  return sourceLabels[value] || value;
 }

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import asyncio
 import json
+import logging
 import re
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -12,12 +12,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import get_db
 from dependencies.auth import get_current_user, get_user_scope_ids
-from schemas.aihub import ChatMessage, ContentPartImage, ContentPartText, GenTxtRequest, ImageUrl
 from schemas.auth import UserResponse
-from services.aihub import AIHubService
 from services.prelaunch_test_results import Prelaunch_test_resultsService
+from services.visual_ocr_evidence import extract_visual_ocr_evidence
 
 router = APIRouter(prefix="/api/v1/prelaunch-check", tags=["prelaunch-check"])
+logger = logging.getLogger(__name__)
 
 
 class PrelaunchImageSlot(BaseModel):
@@ -65,15 +65,6 @@ METRICS_BY_TYPE = {
 }
 
 
-def _clean_ocr_text(value: str) -> str:
-    lines = []
-    for line in re.split(r"[\r\n]+", value or ""):
-        cleaned = re.sub(r"\s+", " ", line).strip()
-        if cleaned:
-            lines.append(cleaned)
-    return "\n".join(lines[:80])
-
-
 def _text_lines(value: str) -> list[str]:
     return [line.strip() for line in (value or "").splitlines() if line.strip()]
 
@@ -116,42 +107,23 @@ def _ocr_review(position_name: str, target: str, ocr_text: str) -> tuple[str, st
     return "".join(issue_parts), recommendation, score, usable
 
 
-async def _extract_ocr(slot: PrelaunchImageSlot, context: str) -> str:
-    if not slot.base64:
-        return ""
-    image_url = slot.base64 if slot.base64.startswith("data:") else f"data:image/jpeg;base64,{slot.base64}"
-    request = GenTxtRequest(
-        model="AI_VISION_MODEL",
-        temperature=0,
-        max_tokens=1400,
-        messages=[
-            ChatMessage(
-                role="user",
-                content=[
-                    ContentPartText(
-                        type="text",
-                        text=(
-                            "只提取图片中可见文字，保持原语言和换行。"
-                            "不要解释，不要总结，不要补充图片里没有的内容。"
-                            f"\n{context}"
-                        ),
-                    ),
-                    ContentPartImage(type="image_url", image_url=ImageUrl(url=image_url)),
-                ],
-            )
-        ],
-    )
-    service = AIHubService()
-    response = await service.gentxt(request)
-    return _clean_ocr_text(response.content)
-
-
-async def _build_position(slot: PrelaunchImageSlot, context: str) -> dict[str, Any]:
+async def _build_position(
+    slot: PrelaunchImageSlot,
+    context: str,
+    extracted: Optional[dict[str, str]] = None,
+    *,
+    batch_failed: bool = False,
+) -> dict[str, Any]:
     position_name, position_type, target = SLOT_META.get(slot.slot, (slot.slot, "image", "暂无"))
-    try:
-        text = await _extract_ocr(slot, context)
-    except Exception:
-        text = ""
+    ocr_failed = batch_failed
+    summary = ""
+    recommendation_from_ai = ""
+    text = ""
+    if extracted:
+        text = extracted.get("ocr_text", "")
+        summary = extracted.get("summary", "")
+        recommendation_from_ai = extracted.get("recommendation", "")
+        ocr_failed = extracted.get("ocr_status") == "failed"
 
     if not text:
         return {
@@ -159,9 +131,9 @@ async def _build_position(slot: PrelaunchImageSlot, context: str) -> dict[str, A
             "position_name": position_name,
             "position_type": position_type,
             "uploaded": True,
-            "ocr_status": "pending",
+            "ocr_status": "failed" if ocr_failed else "pending",
             "status": "待识别",
-            "issue": "图片已上传，文字识别尚未完成。以下建议基于图位规则推断，不代表对实际图片内容的评估。",
+            "issue": "图片已上传，文字识别失败。" if ocr_failed else "图片已上传，文字识别尚未完成。以下建议基于图位规则推断，不代表对实际图片内容的评估。",
             "impact": None,
             "recommendation": f"规则参考（未读取图片内容）：确认该图是否承接：{target}。",
             "modification_example": None,
@@ -169,9 +141,14 @@ async def _build_position(slot: PrelaunchImageSlot, context: str) -> dict[str, A
             "usable_status": "图片待识别",
             "impact_metrics": METRICS_BY_TYPE.get(position_type, ["转化率"]),
             "evidence": None,
+            "evidence_summary": None,
         }
 
     issue, recommendation, score, usable = _ocr_review(position_name, target, text)
+    if summary:
+        issue = f"{issue} 总结：{summary}"
+    if recommendation_from_ai:
+        recommendation = recommendation_from_ai
     return {
         "position_id": slot.slot,
         "position_name": position_name,
@@ -187,6 +164,7 @@ async def _build_position(slot: PrelaunchImageSlot, context: str) -> dict[str, A
         "usable_status": usable,
         "impact_metrics": METRICS_BY_TYPE.get(position_type, ["转化率"]),
         "evidence": text,
+        "evidence_summary": summary or None,
     }
 
 
@@ -271,11 +249,47 @@ async def analyze_prelaunch_check(
         f"标题草案：{req.title_draft or '暂无'}",
         f"亮点：{req.key_highlights or '暂无'}",
     ])
-    positions = await asyncio.gather(*[
-        _build_position(slot, context)
-        for slot in req.image_slots
-        if slot.base64
-    ])
+    positions: list[dict[str, Any]] = []
+    image_slots = [slot for slot in req.image_slots if slot.base64]
+    extracted_by_slot: dict[str, dict[str, str]] = {}
+    failed_batch_slots: set[str] = set()
+    if image_slots:
+        visual_items: list[dict[str, Any]] = []
+        for slot in image_slots:
+            position_name, position_type, target = SLOT_META.get(slot.slot, (slot.slot, "image", "暂无"))
+            visual_items.append({
+                "slot": slot.slot,
+                "position_id": slot.slot,
+                "position_name": position_name,
+                "image_group": position_type,
+                "target": target,
+                "base64": slot.base64,
+            })
+        try:
+            visual_evidence = await extract_visual_ocr_evidence(
+                visual_items,
+                context=context,
+                prompt_mode="prelaunch",
+            )
+            extracted_by_slot = {
+                str(item.get("slot") or item.get("position_id")): {
+                    "ocr_text": str(item.get("ocr_text") or ""),
+                    "summary": str(item.get("summary") or item.get("image_expression") or ""),
+                    "recommendation": str(item.get("recommendation") or ""),
+                    "ocr_status": str(item.get("ocr_status") or ""),
+                }
+                for item in visual_evidence.get("items", [])
+                if item.get("slot") or item.get("position_id")
+            }
+        except Exception as exc:
+            logger.warning("Prelaunch visual_ocr_evidence failed: %s", exc)
+            failed_batch_slots.update(slot.slot for slot in image_slots)
+    for slot in image_slots:
+        extracted = extracted_by_slot.get(slot.slot)
+        if extracted and extracted.get("ocr_text"):
+            positions.append(await _build_position(slot, context, extracted))
+            continue
+        positions.append(await _build_position(slot, context, extracted, batch_failed=slot.slot in failed_batch_slots))
     if not positions:
         positions = [{
             "position_id": "materials",
@@ -297,7 +311,22 @@ async def analyze_prelaunch_check(
     recognized = [item for item in positions if item.get("ocr_status") == "success"]
     pending = [item for item in positions if item.get("ocr_status") != "success"]
     admission_result = "谨慎上架" if recognized and pending else "可以上架" if recognized else "暂不建议上架"
-    conclusion = f"已识别{len(recognized)}张图片，待识别{len(pending)}张图片。"
+    reason_items = []
+    failed_count = len([item for item in positions if item.get("ocr_status") == "failed"])
+    pending_count = len([item for item in positions if item.get("ocr_status") == "pending"])
+    if failed_count:
+        reason_items.append(f"{failed_count}张图片识别失败")
+    if pending_count:
+        reason_items.append(f"{pending_count}张图片待识别")
+    for item in positions:
+        if item.get("ocr_status") == "success" and item.get("status") != "通过":
+            issue = str(item.get("issue") or "").strip()
+            if issue:
+                reason_items.append(f"{item.get('position_name')}: {issue}")
+        if len(reason_items) >= 4:
+            break
+    reason_text = "；".join(reason_items) if reason_items else "暂无"
+    conclusion = f"已识别{len(recognized)}张图片，待识别{len(pending)}张图片。不建议上架原因：{reason_text}。"
     image_fields = _image_fields(req)
     full_report = {
         "input_snapshot": req.model_dump(),

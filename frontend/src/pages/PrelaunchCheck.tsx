@@ -161,7 +161,7 @@ export default function PrelaunchCheck() {
 
       {step === 3 && !result && (
         <div className="apple-card p-16 text-center">
-          {error ? <><ShieldAlert size={32} className="text-[#ff3b30] mx-auto mb-3" /><p className="text-[17px] text-[#ff3b30]">分析失败</p><p className="text-[14px] text-[#86868b] mt-2">{error}</p><button onClick={()=>{setError(null);setStep(1)}} className="apple-btn-primary mt-4 px-6 py-2">← 返回重试</button></> : <><div className="w-10 h-10 border-2 border-[#0F2A24]/20 border-t-[#0F2A24] rounded-full animate-spin mx-auto mb-4" /><p className="text-[17px] text-[#86868b]">{ANALYSIS_STEPS[analysisStep]}</p></>}
+          {error ? <><ShieldAlert size={32} className="text-[#ff3b30] mx-auto mb-3" /><p className="text-[17px] text-[#ff3b30]">分析失败</p><p className="text-[14px] text-[#86868b] mt-2">{error}</p><button onClick={()=>{setError(null);setStep(1)}} className="apple-btn-primary mt-4 px-6 py-2">← 返回重试</button></> : <><div className="w-10 h-10 border-2 border-[#0F2A24]/20 border-t-[#0F2A24] rounded-full animate-spin mx-auto mb-4" /><p className="text-[17px] text-[#86868b]">{ANALYSIS_STEPS[analysisStep]}</p><p className="text-[12px] text-[#86868b] mt-2">{analysisStep + 1}/{ANALYSIS_STEPS.length}</p></>}
         </div>
       )}
 
@@ -253,8 +253,9 @@ function DiagnosisItem({diagnosis:d,statusIcon}:{diagnosis:PositionDiagnosis;sta
     ? "bg-[#ff9500]/10 text-[#ff9500]"
     : "bg-[#ff3b30]/10 text-[#ff3b30]";
   return <div className={`rounded-xl p-4 border ${cardClass}`}>
-    <div className="flex items-center gap-2 mb-2">{statusIcon(d.status)}<span className="text-[14px] font-semibold">{d.position_name}</span>{ocrPending?<span className="ml-auto text-[13px] font-bold text-[#86868b]">待识别</span>:d.final_score!=null&&<span className={`ml-auto text-[13px] font-bold ${sc}`}>{d.final_score.toFixed(1)}</span>}{d.usable_status&&d.status!=="通过"&&<span className={`text-[11px] px-1.5 py-0.5 rounded-full ${badgeClass}`}>{d.usable_status}</span>}</div>
+    <div className="flex items-center gap-2 mb-2">{statusIcon(d.status)}<span className="text-[14px] font-semibold">{d.position_name}</span>{ocrPending?<span className={`ml-auto text-[13px] font-bold ${d.ocr_status==="failed"?"text-[#ff3b30]":"text-[#86868b]"}`}>{d.ocr_status==="failed"?"识别失败":"待识别"}</span>:d.final_score!=null&&<span className={`ml-auto text-[13px] font-bold ${sc}`}>{d.final_score.toFixed(1)}</span>}{d.usable_status&&d.status!=="通过"&&<span className={`text-[11px] px-1.5 py-0.5 rounded-full ${badgeClass}`}>{d.usable_status}</span>}</div>
     {d.issue&&<p className="text-[14px] mb-1">{d.issue}</p>}
+    {d.evidence_summary&&<div className="mt-2 mb-2 rounded-lg bg-white/70 border border-[#d2d2d7]/60 p-3"><p className="text-[11px] text-[#86868b] mb-1">识别总结</p><p className="text-[13px] text-[#1d1d1f] whitespace-pre-wrap leading-relaxed">{d.evidence_summary}</p></div>}
     {d.evidence&&<div className="mt-2 mb-2 rounded-lg bg-white/70 border border-[#d2d2d7]/60 p-3"><p className="text-[11px] text-[#86868b] mb-1">识别文案</p><p className="text-[13px] text-[#1d1d1f] whitespace-pre-wrap leading-relaxed">{d.evidence}</p></div>}
     {metrics.length>0&&<div className="flex items-center gap-2 mb-2"><span className="text-[11px] text-[#86868b]">影响指标</span>{metrics.map((m:string,i:number)=><span key={i} className="text-[11px] px-1.5 py-0.5 rounded-full bg-[#0F2A24]/[0.06] text-[#0F2A24]">{metricLabel(m)}</span>)}</div>}
     {hasSuggestion&&<div className="mt-2"><div className="bg-[#fbfaf7] rounded-lg p-3 flex items-start justify-between gap-3"><div className="flex-1 min-w-0"><p className="text-[11px] text-[#86868b] mb-1">{ocrPending?"规则参考（未读取图片内容）":"修改建议"}</p><p className="text-[13px] text-[#0F2A24]">{d.recommendation}</p></div><button onClick={()=>{navigator.clipboard.writeText(d.recommendation||"");setCopied(true);setTimeout(()=>setCopied(false),2000)}} className="shrink-0 px-3 py-1.5 rounded-lg bg-[#0F2A24] text-white text-[12px] hover:bg-[#173a32] transition-colors">{copied?"已复制":"复制"}</button></div></div>}
@@ -266,12 +267,12 @@ function ImageSlots({images,setImages}:{images:{name:string;url:string;slot:stri
     const img = new Image();
     img.onload = () => {
       const canvas = document.createElement('canvas');
-      const maxW = 512;
+      const maxW = 1280;
       const scale = Math.min(1, maxW / img.width);
       canvas.width = img.width * scale;
       canvas.height = img.height * scale;
       canvas.getContext('2d')!.drawImage(img, 0, 0, canvas.width, canvas.height);
-      resolve(canvas.toDataURL('image/jpeg', 0.6));
+      resolve(canvas.toDataURL('image/jpeg', 0.82));
     };
     img.src = dataUrl;
   });

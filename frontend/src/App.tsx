@@ -12,7 +12,6 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
 import MarketOpportunity from "./pages/MarketOpportunity";
 import PublicSite, { RootRedirect } from "./pages/PublicSite";
 import Login from "./pages/Login";
-import ProductResearch from "./pages/ProductResearch";
 import CompetitorAnalysis from "./pages/CompetitorAnalysis";
 import BusinessValidation from "./pages/BusinessValidation";
 import YesterdayReport from "./pages/YesterdayReport";
@@ -50,7 +49,6 @@ export default function App() {
             <main className="min-h-screen overflow-y-auto p-6 pl-[244px]">
               <Routes>
           <Route path="/market-opportunity" element={<MarketOpportunity />} />
-          <Route path="/product-research" element={<ProductResearch />} />
           <Route path="/competitor-analysis" element={<CompetitorAnalysis />} />
           <Route path="/business-validation" element={<BusinessValidation />} />
           <Route path="/yesterday-report" element={<YesterdayReport />} />

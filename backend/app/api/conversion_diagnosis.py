@@ -145,90 +145,23 @@ async def _fetch_listing_from_scraper(asin: str, marketplace: str) -> dict | Non
 
 
 async def _fetch_ad_metrics_from_db(asin: str, user_id: str | None, db: AsyncSession) -> dict | None:
-    """Aggregate 30-day ad metrics from ad_data table (legacy model)."""
-    try:
-        from app.backend.models.ad_data import Ad_data  # type: ignore[import-untyped]
+    """Aggregate 30-day ad metrics from report_upload_staging_records.
 
-        cutoff = datetime.utcnow() - timedelta(days=30)
-        stmt = select(
-            func.sum(Ad_data.impressions),
-            func.sum(Ad_data.clicks),
-            func.sum(Ad_data.orders),
-            func.sum(Ad_data.spend),
-            func.sum(Ad_data.sales),
-        ).where(
-            Ad_data.user_id == (user_id or ""),
-            Ad_data.date >= cutoff,
-        )
-        result = await db.execute(stmt)
-        row = result.first()
-        if not row or row[0] is None:
-            return None
-
-        impressions, clicks, orders, spend, sales = row
-        ctr = round(clicks / impressions, 4) if impressions else None
-        cvr = round(orders / clicks, 4) if clicks else None
-        acos = round(spend / sales, 4) if sales else None
-
-        return {
-            "impressions": impressions,
-            "clicks": clicks,
-            "orders": orders,
-            "spend": spend,
-            "sales": sales,
-            "ctr": ctr,
-            "cvr": cvr,
-            "acos": acos,
-        }
-    except Exception:
-        return None
+    V2 architecture: ad data comes from uploaded advertising reports,
+    not a legacy ad_data table. Returns None if no data available.
+    """
+    # V2: ad metrics are stored in ReportUploadStagingRecord.normalized_metrics_json
+    # This function is a placeholder — multi-source diagnosis will mark
+    # ad_metrics as "not_available" until report upload data is populated.
+    return None
 
 
 async def _fetch_top20_from_db(asin: str, user_id: str | None, db: AsyncSession) -> dict | None:
-    """Extract avg_price, bsr_trend from historical CaptureJob records for this ASIN."""
-    try:
-        stmt = (
-            select(CaptureJob)
-            .where(
-                CaptureJob.user_id == (user_id or ""),
-                CaptureJob.input_value.contains(asin),
-                CaptureJob.status == "success",
-            )
-            .order_by(desc(CaptureJob.finished_at))
-            .limit(3)
-        )
-        result = await db.execute(stmt)
-        jobs = result.scalars().all()
+    """Extract avg_price, bsr_trend from historical CaptureJob records for this ASIN.
 
-        prices: list[float] = []
-        bsr_values: list[int] = []
-        keywords: list[str] = []
-
-        for job in jobs:
-            fields = job.extracted_fields or {}
-            if isinstance(fields, dict):
-                results_list = fields.get("results")
-                if isinstance(results_list, list):
-                    for item in results_list:
-                        if isinstance(item, dict):
-                            if item.get("asin") == asin and item.get("price"):
-                                try:
-                                    prices.append(float(str(item["price"]).replace("$", "").replace(",", "")))
-                                except (ValueError, TypeError):
-                                    pass
-                            kw = item.get("keyword")
-                            if kw and kw not in keywords:
-                                keywords.append(str(kw))
-
-        if not prices and not keywords:
-            return None
-
-        avg_price = round(sum(prices) / len(prices), 2) if prices else None
-        return {
-            "avg_price": avg_price,
-            "top20_sample_count": len(prices),
-            "bsr_trend": "stable",
-            "keywords": keywords[:10],
-        }
-    except Exception:
-        return None
+    V2 architecture: CaptureJob no longer has extracted_fields (that was legacy).
+    Listing data is stored in ListingSnapshot table. This function is a placeholder.
+    """
+    # V2: CaptureJob stores raw_html_path/screenshot_path only.
+    # Parsed listing data lives in ListingSnapshot. To be implemented when needed.
+    return None
