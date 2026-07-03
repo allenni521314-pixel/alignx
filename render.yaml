@@ -11,7 +11,7 @@ services:
     healthCheckPath: /health
     envVars:
       - key: DATABASE_URL
-        sync: false
+        value: sqlite+aiosqlite:///./alignx_v2.db
       - key: DATABASE_URL_SYNC
         sync: false
       - key: DEEPSEEK_API_KEY
