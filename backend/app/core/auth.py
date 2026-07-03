@@ -9,6 +9,7 @@ import base64
 import hashlib
 import hmac
 import json
+import logging
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
 
@@ -16,10 +17,15 @@ from app.config import get_settings
 from app.models import User, VerificationCode
 
 ADMIN_USER_ID = "__admin__"
+logger = logging.getLogger(__name__)
 
 
 def generate_code_sync() -> str:
     return "".join(random.choices(string.digits, k=6))
+
+
+def is_smtp_configured() -> bool:
+    return False
 
 
 async def send_code(email: str, db: AsyncSession) -> str | None:
@@ -42,7 +48,7 @@ async def send_code(email: str, db: AsyncSession) -> str | None:
     vc = VerificationCode(email=email, code=code, expires_at=now + 300)
     db.add(vc)
     await db.flush()
-    print(f"[AUTH] Code for {email}: {code}")
+    logger.info("[AUTH] Verification code generated for %s", email)
     return code
 
 

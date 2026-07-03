@@ -19,6 +19,7 @@ class Settings(BaseSettings):
 
     app_name: str = "AlignX"
     app_version: str = "1.0.0"
+    environment: str = "development"
     debug: bool = False
     database_url: str = "sqlite+aiosqlite:///./alignx_v2.db"
     database_url_sync: str = "sqlite:///./alignx_v2.db"
