@@ -50,15 +50,17 @@ async def send(req: SendCodeRequest, request: Request, db: AsyncSession = Depend
     settings = get_settings()
     is_development = settings.environment.lower() == "development"
     allow_debug_code = is_development and _is_local_request(request)
+    allow_temp_code = settings.enable_temp_login_code
 
-    if not is_smtp_configured() and not allow_debug_code:
+    if not is_smtp_configured() and not allow_debug_code and not allow_temp_code:
         raise HTTPException(status_code=503, detail="邮件服务未配置")
 
     code = await send_code(req.email, db)
     if code is None:
         raise HTTPException(status_code=429, detail="发送过于频繁，请稍后重试")
-    response = {"success": True, "message": "验证码已发送"}
-    if allow_debug_code:
+    response = {"success": True, "message": "验证码已生成"}
+    if allow_debug_code or allow_temp_code:
+        response["code"] = code
         response["debug_code"] = code
     return response
 

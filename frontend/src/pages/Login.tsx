@@ -19,7 +19,8 @@ export default function Login() {
     setSending(true); setError("");
     try {
       const data = await sendLoginCode(email);
-      if (data.code) { setDevCode(data.code); setSent(true); }
+      const tempCode = data.code || data.debug_code;
+      if (tempCode) { setDevCode(tempCode); setCode(tempCode); setSent(true); }
       else { setError(data.detail || t("login.sendFailed")); }
     } catch (e) { setError(e instanceof Error ? e.message : t("common.networkError")); }
     finally { setSending(false); }
@@ -115,7 +116,7 @@ export default function Login() {
             </div>
           </div>
 
-          {/* Dev: show code */}
+          {/* Temporary code */}
           {devCode && (
             <div className="bg-[#ff9500]/[0.06] rounded-xl p-3 text-center">
               <p className="text-[12px] text-[#86868b]">{t("login.devCode")}</p>

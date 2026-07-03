@@ -41,7 +41,7 @@ export async function request<T>(url: string, options?: RequestInit): Promise<T>
 // ── Market Opportunity ──
 
 export function sendLoginCode(email: string) {
-  return request<{ code?: string; detail?: string }>("/auth/send-code", {
+  return request<{ code?: string; debug_code?: string; detail?: string }>("/auth/send-code", {
     method: "POST",
     body: JSON.stringify({ email }),
   });
