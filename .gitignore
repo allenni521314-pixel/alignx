@@ -21,3 +21,9 @@ uploads/
 .deepseek_key
 .scraperapi_key
 .qwen_key
+*.db-shm
+*.db-wal
+*.tsbuildinfo
+__pycache__/
+*.pyc
+logs/
