@@ -43,6 +43,12 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
+    import os
+    # Auto-convert DATABASE_URL for async SQLAlchemy
+    db_url = os.environ.get("DATABASE_URL", "")
+    if db_url and db_url.startswith("postgresql://"):
+        os.environ["DATABASE_URL"] = db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+
     s = Settings()
 
     def read_local_secret(filename: str) -> str:
