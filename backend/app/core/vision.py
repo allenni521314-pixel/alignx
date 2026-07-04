@@ -227,6 +227,12 @@ async def _process_single_item(item: dict, product_context: str = "") -> Optiona
     if not slot or not image_data:
         return None
     try:
+        if str(image_data).startswith(("http://", "https://")):
+            timeout = httpx.Timeout(30.0, connect=8.0)
+            async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
+                resp = await client.get(image_data)
+                resp.raise_for_status()
+                image_data = base64.b64encode(resp.content).decode()
         text = await _call_qwen_vision(
             image_data,
             _build_listing_image_ocr_prompt(slot=slot, product_context=product_context),

@@ -209,11 +209,21 @@ async def _attach_image_materials(req: PrelaunchCheckRequest, result: PrelaunchA
     all_positions = list(SLOT_LABEL_MAP.values())
     result.materials["missing_images"] = [p for p in all_positions if p not in [u["position"] for u in uploaded]]
 
-    b64_list = [
-        {"url": f"data:image/jpeg;base64,{slot_item.get('base64', '')}", "slot": slot_item.get("slot", "")}
-        for slot_item in image_slots
-        if slot_item.get("base64")
-    ]
+    b64_list = []
+    for slot_item in image_slots:
+        slot = slot_item.get("slot", "")
+        base64_value = (slot_item.get("base64") or "").strip()
+        url_value = (slot_item.get("url") or "").strip()
+        if base64_value:
+            image_url = (
+                base64_value
+                if base64_value.startswith("data:image/")
+                else f"data:image/jpeg;base64,{base64_value}"
+            )
+        else:
+            image_url = url_value
+        if slot and image_url:
+            b64_list.append({"url": image_url, "slot": slot})
     if not b64_list:
         result.ocr_status = "skipped"
         return

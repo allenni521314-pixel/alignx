@@ -78,10 +78,11 @@ export default function PrelaunchCheck() {
   const handleConfirm = async () => {
     setError(null); setResult(null); setAnalysisStep(0); setAnalyzing(true); setStep(3);
     try {
-      const imgData: { slot: string; name: string; base64: string }[] = images.map(img => ({
+      const imgData: { slot: string; name: string; base64: string; url: string }[] = images.map(img => ({
         slot: img.slot,
         name: img.name,
-        base64: img.url.includes('base64,') ? img.url.split('base64,')[1] : img.url.split(',')[1],
+        base64: img.url.includes('base64,') ? img.url.split('base64,')[1] : "",
+        url: img.url,
       }));
       const res = await analyzePrelaunch({
         product_name: productName, title_draft: titleDraft, key_highlights: highlights,
