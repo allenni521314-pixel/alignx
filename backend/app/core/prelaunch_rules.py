@@ -62,6 +62,11 @@ A_PLUS_MODULES = [
     ("aplus_9", "A+9", "FAQ+售后", "missing_required_faq_module"),
 ]
 
+RAW_A_PLUS_SLOT_BY_POSITION = {
+    position_id: position_id.replace("aplus_", "aplus")
+    for position_id, *_ in A_PLUS_MODULES
+}
+
 
 def _ocr_lines(text: str) -> list[str]:
     lines = []
@@ -320,6 +325,10 @@ def _a_plus_analysis(materials: dict[str, Any]) -> list[dict[str, Any]]:
         is_uploaded = position_id in uploaded and position_id not in missing
         ocr_text = _image_ocr_text(ocr_texts, position_id)
         ocr_status = _image_ocr_status(ocr_texts, position_id)
+        raw_slot = RAW_A_PLUS_SLOT_BY_POSITION.get(position_id)
+        if ocr_status != "success" and raw_slot:
+            ocr_text = _image_ocr_text(ocr_texts, raw_slot)
+            ocr_status = _image_ocr_status(ocr_texts, raw_slot)
         has_ocr = ocr_status == "success"
         status = missing_status
         score: float | None = 1.0
@@ -432,6 +441,7 @@ def _a_plus_position(module: dict[str, Any]) -> dict[str, Any]:
         "status": status,
         "issue_type": _dedupe([module["status"], *((module.get("ocr_review") or {}).get("issue_type") or [])]),
         "issue": issue,
+        "evidence_summary": (module.get("ocr_review") or {}).get("issue") if module.get("has_ocr") else None,
         "evidence": module.get("ocr_text") if module.get("has_ocr") else None,
         "recommendation": recommendation,
         "suggested_action": recommendation,
@@ -498,6 +508,7 @@ def _secondary_image_positions(materials: dict[str, Any]) -> list[dict[str, Any]
             "status": status,
             "issue_type": issue_type,
             "issue": issue,
+            "evidence_summary": ocr_review.get("issue") if has_ocr else None,
             "evidence": ocr_text if has_ocr else None,
             "recommendation": recommendation,
             "suggested_action": recommendation,

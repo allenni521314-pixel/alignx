@@ -1,8 +1,8 @@
 import base64
+import asyncio
 import httpx
 import logging
 import os
-import re
 import struct
 from typing import Optional, Dict, List, Any
 from app.config import get_settings
@@ -180,73 +180,45 @@ async def extract_text_from_image_url(url: str) -> str:
 
 
 async def extract_text_from_base64_list(items: list, product_context: str = "") -> list:
-    """OCR uploaded images and retry missing slots one by one."""
+    """OCR uploaded images with the same single-image path used by listing analysis."""
     if not items or not QWEN_KEY:
         if not QWEN_KEY:
             _logger.warning("Qwen API key not configured — OCR skipped")
         return []
-    if not items:
-        return []
 
-    BATCH_SIZE = 3
-
-    async def _process_batch(batch: list) -> list:
-        content_parts = []
-        for item in batch:
-            image_data = item.get("url", "")
-            slot = item.get("slot", "")
-            content_parts.append({"type": "image_url", "image_url": {"url": _image_data_url(image_data)}})
-            content_parts.append({"type": "text", "text": f"[图片位置: {slot}]"})
-
-        batch_prompt = f"""逐一识别以下 {len(batch)} 张图片的可见文案。
-对每张图片按「图片位置」标注，逐字提取所有可见文字。如果没有可见文案，写"可见文案：暂无"。
-已知产品信息：{product_context[:500] if product_context else '暂无'}
-
-输出格式（每个位置一段）：
-[img2]
-可见文案：...
-"""
-        content_parts.append({"type": "text", "text": batch_prompt})
-
-        try:
-            timeout = httpx.Timeout(60.0, connect=10.0)
-            async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
-                resp = await client.post(
-                    f"{QWEN_BASE}/chat/completions",
-                    headers={"Authorization": f"Bearer {QWEN_KEY}"},
-                    json={
-                        "model": QWEN_MODEL,
-                        "messages": [{"role": "user", "content": content_parts}],
-                        "max_tokens": 2048,
-                    },
-                )
-                resp.raise_for_status()
-                data = resp.json()
-                if "choices" not in data:
-                    raise RuntimeError(str(data)[:500])
-                raw_text = data["choices"][0]["message"]["content"].strip()
-        except Exception as exc:
-            _logger.warning("Batch OCR failed: %s", exc)
-            return []
-
-        return _parse_batch_ocr(raw_text, batch)
-
-    batches = [items[i:i+BATCH_SIZE] for i in range(0, len(items), BATCH_SIZE)]
-    all_results = []
-    for batch in batches:
-        all_results.extend(await _process_batch(batch))
-
-    found_slots = {str(item.get("slot", "")).strip() for item in all_results if item.get("slot")}
-    missing_items = [
+    normalized_items = [
         item for item in items
-        if str(item.get("slot", "")).strip() and str(item.get("slot", "")).strip() not in found_slots
+        if str(item.get("slot", "")).strip() and item.get("url")
     ]
-    for item in missing_items:
-        result = await _process_single_item(item, product_context=product_context)
-        if result:
-            all_results.append(result)
+    semaphore = asyncio.Semaphore(2)
 
-    return all_results
+    async def _guarded_process(item: dict) -> Optional[dict]:
+        slot = str(item.get("slot", "")).strip()
+        async with semaphore:
+            result = await _process_single_item(item, product_context=product_context)
+            if result:
+                return result
+            await asyncio.sleep(0.8)
+            retry = await _process_single_item(item, product_context=product_context)
+            if retry:
+                return retry
+            _logger.warning("OCR returned empty after retry for slot %s", slot)
+            return None
+
+    raw_results = await asyncio.gather(
+        *(_guarded_process(item) for item in normalized_items),
+        return_exceptions=True,
+    )
+    results: list[dict] = []
+    for item, raw in zip(normalized_items, raw_results):
+        if isinstance(raw, Exception):
+            _logger.warning("OCR task failed for slot %s: %s", item.get("slot"), raw)
+            continue
+        if raw and raw.get("text"):
+            results.append(raw)
+    if len(results) < len(normalized_items):
+        _logger.warning("OCR incomplete: %s/%s slots recognized", len(results), len(normalized_items))
+    return results
 
 
 async def _process_single_item(item: dict, product_context: str = "") -> Optional[dict]:
@@ -267,30 +239,3 @@ async def _process_single_item(item: dict, product_context: str = "") -> Optiona
     if not text:
         return None
     return {"slot": slot, "text": text}
-
-
-def _parse_batch_ocr(raw_text: str, batch: list) -> list[dict]:
-    """Parse OCR output without requiring one exact marker format."""
-    results: list[dict] = []
-    if not raw_text:
-        return results
-
-    slots = [str(item.get("slot", "")).strip() for item in batch if item.get("slot")]
-    for slot in slots:
-        patterns = [
-            rf"\[{re.escape(slot)}\]\s*(.*?)(?=\n\s*\[[^\]]+\]\s*|\Z)",
-            rf"(?:图片位置|位置)\s*[:：]\s*{re.escape(slot)}\s*(.*?)(?=\n\s*(?:图片位置|位置)\s*[:：]\s*|\Z)",
-        ]
-        text = ""
-        for pattern in patterns:
-            match = re.search(pattern, raw_text, re.DOTALL | re.IGNORECASE)
-            if match:
-                text = match.group(1).strip()
-                break
-        if text:
-            results.append({"slot": slot, "text": text})
-
-    if not results and len(slots) == 1:
-        results.append({"slot": slots[0], "text": raw_text.strip()})
-
-    return results
