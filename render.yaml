@@ -23,11 +23,11 @@ services:
       - key: SCRAPERAPI_BASE_URL
         value: https://api.scraperapi.com
       - key: QWEN_API_KEY
-        sync: false
+        value: sk-nujvwdljnmknhkiwubesnzvzohdseysyxaofygdcwxudagid
       - key: QWEN_BASE_URL
-        sync: false
+        value: https://api.siliconflow.cn/v1
       - key: QWEN_MODEL
-        value: Qwen/Qwen3-VL-8B-Instruct
+        value: Qwen/Qwen2.5-VL-72B-Instruct
       - key: AUTH_SECRET_KEY
         sync: false
       - key: AI_PROVIDER
