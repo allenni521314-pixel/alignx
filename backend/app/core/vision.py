@@ -127,7 +127,7 @@ async def _call_qwen_vision(image_b64: str, prompt: str, max_tokens: int = 200) 
         return ""
     if _image_too_small(image_b64):
         raise ValueError(f"图片尺寸过小（小于 {MIN_IMAGE_DIMENSION}px），无法识别")
-    timeout = httpx.Timeout(30.0, connect=8.0)
+    timeout = httpx.Timeout(60.0, connect=10.0)
     async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
         resp = await client.post(
             f"{QWEN_BASE}/chat/completions",
@@ -190,30 +190,20 @@ async def extract_text_from_base64_list(items: list, product_context: str = "") 
         item for item in items
         if str(item.get("slot", "")).strip() and item.get("url")
     ]
-    semaphore = asyncio.Semaphore(2)
-
-    async def _guarded_process(item: dict) -> Optional[dict]:
+    async def _process_with_retry(item: dict) -> Optional[dict]:
         slot = str(item.get("slot", "")).strip()
-        async with semaphore:
+        for attempt in range(3):
             result = await _process_single_item(item, product_context=product_context)
             if result:
                 return result
-            await asyncio.sleep(0.8)
-            retry = await _process_single_item(item, product_context=product_context)
-            if retry:
-                return retry
-            _logger.warning("OCR returned empty after retry for slot %s", slot)
-            return None
+            if attempt < 2:
+                await asyncio.sleep(1.2 * (attempt + 1))
+        _logger.warning("OCR returned empty after retries for slot %s", slot)
+        return None
 
-    raw_results = await asyncio.gather(
-        *(_guarded_process(item) for item in normalized_items),
-        return_exceptions=True,
-    )
     results: list[dict] = []
-    for item, raw in zip(normalized_items, raw_results):
-        if isinstance(raw, Exception):
-            _logger.warning("OCR task failed for slot %s: %s", item.get("slot"), raw)
-            continue
+    for item in normalized_items:
+        raw = await _process_with_retry(item)
         if raw and raw.get("text"):
             results.append(raw)
     if len(results) < len(normalized_items):
@@ -228,7 +218,7 @@ async def _process_single_item(item: dict, product_context: str = "") -> Optiona
         return None
     try:
         if str(image_data).startswith(("http://", "https://")):
-            timeout = httpx.Timeout(30.0, connect=8.0)
+            timeout = httpx.Timeout(60.0, connect=10.0)
             async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
                 resp = await client.get(image_data)
                 resp.raise_for_status()

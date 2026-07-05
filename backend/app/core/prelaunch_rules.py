@@ -51,16 +51,25 @@ DIFFERENTIATION_TERMS = ["no ozone", "ozone free", "no filters", "no refills", "
 PLACEMENT_TERMS = ["usb powered", "wall mount", "small spaces", "bathroom", "closet", "shoe cabinet", "pet cage"]
 
 A_PLUS_MODULES = [
-    ("aplus_1", "A+1", "品牌主视觉", "missing_required_module"),
-    ("aplus_2", "A+2", "差异化对比", "missing_required_module"),
-    ("aplus_3", "A+3", "卖点1", "missing_required_module"),
-    ("aplus_4", "A+4", "卖点2", "missing_required_module"),
-    ("aplus_5", "A+5", "卖点3", "missing_required_module"),
-    ("aplus_6", "A+6", "技术规格参数", "missing_required_module"),
-    ("aplus_7", "A+7", "场景详解", "missing_required_module"),
-    ("aplus_8", "A+8", "认证质保", "missing_required_trust_module"),
-    ("aplus_9", "A+9", "FAQ+售后", "missing_required_faq_module"),
+    ("aplus_1", "A+素材1", "ASIN描述完整度", "uploaded_a_plus_material"),
+    ("aplus_2", "A+素材2", "ASIN描述完整度", "uploaded_a_plus_material"),
+    ("aplus_3", "A+素材3", "ASIN描述完整度", "uploaded_a_plus_material"),
+    ("aplus_4", "A+素材4", "ASIN描述完整度", "uploaded_a_plus_material"),
+    ("aplus_5", "A+素材5", "ASIN描述完整度", "uploaded_a_plus_material"),
+    ("aplus_6", "A+素材6", "ASIN描述完整度", "uploaded_a_plus_material"),
+    ("aplus_7", "A+素材7", "ASIN描述完整度", "uploaded_a_plus_material"),
+    ("aplus_8", "A+素材8", "ASIN描述完整度", "uploaded_a_plus_material"),
+    ("aplus_9", "A+素材9", "ASIN描述完整度", "uploaded_a_plus_material"),
 ]
+
+BLOCKER_LABELS = {
+    "title_over_75_characters": "标题超过 75 characters",
+    "main_image_non_compliant": "主图不符合上架要求",
+    "high_risk_claim_without_evidence": "存在缺少证据的高风险表达",
+    "missing_required_module": "缺少 A+ 素材",
+    "missing_required_trust_module": "缺少 A+ 素材",
+    "missing_required_faq_module": "缺少 A+ 素材",
+}
 
 RAW_A_PLUS_SLOT_BY_POSITION = {
     position_id: position_id.replace("aplus_", "aplus")
@@ -154,8 +163,6 @@ def apply_prelaunch_rules(ai_result: dict[str, Any], materials: dict[str, Any]) 
     result["a_plus_analysis"] = a_plus_analysis
     for module in a_plus_analysis:
         _upsert_position(result["position_diagnoses"], _a_plus_position(module))
-        if module["position_id"] in {"aplus_8", "aplus_9"} and not module["uploaded"]:
-            hard_blockers.append({"type": module["status"], "position": module["position_id"]})
 
     for pos in _secondary_image_positions(materials):
         _upsert_position(result["position_diagnoses"], pos)
@@ -323,6 +330,8 @@ def _a_plus_analysis(materials: dict[str, Any]) -> list[dict[str, Any]]:
     modules: list[dict[str, Any]] = []
     for position_id, module, role, missing_status in A_PLUS_MODULES:
         is_uploaded = position_id in uploaded and position_id not in missing
+        if not is_uploaded:
+            continue
         ocr_text = _image_ocr_text(ocr_texts, position_id)
         ocr_status = _image_ocr_status(ocr_texts, position_id)
         raw_slot = RAW_A_PLUS_SLOT_BY_POSITION.get(position_id)
@@ -455,12 +464,12 @@ def _a_plus_position(module: dict[str, Any]) -> dict[str, Any]:
 
 
 SECONDARY_IMAGE_SLOTS = [
-    ("image_2", "副图2", "核心卖点可视化", "图标+短句展示核心卖点，避免纯文字堆砌", "img2"),
-    ("image_3", "副图3", "使用场景展示", "真实环境拍摄，展示产品在实际场景中的使用", "img3"),
-    ("image_4", "副图4", "尺寸规格对比", "带参照物或标注，清晰展示产品尺寸", "img4"),
-    ("image_5", "副图5", "功能细节演示", "特写/步骤图，展示关键功能或使用方法", "img5"),
-    ("image_6", "副图6", "信任背书", "认证标志、质保信息或包装展示", "img6"),
-    ("image_7", "副图7", "场景氛围", "生活方式场景图，建立情感连接", "img7"),
+    ("image_2", "副图素材1", "ASIN描述完整度", "补充或确认该图文案。", "img2"),
+    ("image_3", "副图素材2", "ASIN描述完整度", "补充或确认该图文案。", "img3"),
+    ("image_4", "副图素材3", "ASIN描述完整度", "补充或确认该图文案。", "img4"),
+    ("image_5", "副图素材4", "ASIN描述完整度", "补充或确认该图文案。", "img5"),
+    ("image_6", "副图素材5", "ASIN描述完整度", "补充或确认该图文案。", "img6"),
+    ("image_7", "副图素材6", "ASIN描述完整度", "补充或确认该图文案。", "img7"),
 ]
 
 
@@ -472,6 +481,9 @@ def _secondary_image_positions(materials: dict[str, Any]) -> list[dict[str, Any]
     positions: list[dict[str, Any]] = []
     for position_id, name, role, suggestion, slot_name in SECONDARY_IMAGE_SLOTS:
         is_uploaded = position_id in uploaded and position_id not in missing
+        if not is_uploaded:
+            continue
+
         ocr_text = _image_ocr_text(ocr_texts, position_id)
         ocr_status = _image_ocr_status(ocr_texts, position_id)
         if ocr_status != "success" and slot_name:
@@ -491,13 +503,6 @@ def _secondary_image_positions(materials: dict[str, Any]) -> list[dict[str, Any]
             )
             recommendation = ocr_review.get("recommendation") if has_ocr else suggestion
             usable = "可使用但建议优化" if has_ocr else "图片待识别"
-        else:
-            score = 1.0
-            status = "缺失"
-            issue_type = ["missing_secondary_image"]
-            issue = f"{name}（{role}）缺失，建议补充。"
-            recommendation = f"上传{name}：{suggestion}"
-            usable = "不可使用"
 
         positions.append({
             "position_id": position_id,
@@ -515,9 +520,9 @@ def _secondary_image_positions(materials: dict[str, Any]) -> list[dict[str, Any]
             "final_score": score,
             "score": score,
             "usable_status": usable,
-            "risk_level": "pending" if is_uploaded and not has_ocr else ("medium" if not is_uploaded else "low"),
+            "risk_level": "pending" if not has_ocr else "low",
             "validation_metric": "CVR",
-            "impact_metrics": ["CVR", "加购率"] if is_uploaded else ["CVR"],
+            "impact_metrics": ["CVR", "加购率"],
         })
     return positions
 
@@ -614,8 +619,6 @@ def _overall_status(hard_blockers: list[dict[str, Any]]) -> str:
         return "ready_to_launch"
     if types & {"main_image_non_compliant", "title_over_75_characters", "high_risk_claim_without_evidence"}:
         return "fix_required_before_launch"
-    if types & {"missing_required_trust_module", "missing_required_faq_module"}:
-        return "cautious_launch_after_fix"
     return "not_recommended"
 
 
@@ -631,7 +634,7 @@ def _admission_result(overall_status: str) -> str:
 def _overall_summary(overall_status: str, blockers: list[dict[str, Any]]) -> str:
     if overall_status == "ready_to_launch":
         return "当前未发现硬拦截项。"
-    names = "、".join(_dedupe([item["type"] for item in blockers]))
+    names = "、".join(_dedupe([_blocker_label(item.get("type")) for item in blockers]))
     return f"当前存在上架前必须处理的问题：{names}。"
 
 
@@ -645,7 +648,11 @@ def _next_action(blockers: list[dict[str, Any]]) -> str:
         return "先重新拍摄或替换主图。"
     if first == "high_risk_claim_without_evidence":
         return "先移除或替换高风险 claim。"
-    return "先补齐缺失的 A+ 关键模块。"
+    return "暂无"
+
+
+def _blocker_label(value: Any) -> str:
+    return BLOCKER_LABELS.get(str(value or ""), "未设置")
 
 
 def _dedupe(values: list[Any]) -> list[Any]:

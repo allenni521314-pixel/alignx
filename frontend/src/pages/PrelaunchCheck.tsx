@@ -281,16 +281,24 @@ function ImageSlots({images,setImages}:{images:{name:string;url:string;slot:stri
   const up=(slot:string)=>(e:React.ChangeEvent<HTMLInputElement>)=>{const f=e.target.files?.[0];if(!f)return;const r=new FileReader();r.onload=async()=>{const compressed=await compressImage(r.result as string);setImages(images.filter(i=>i.slot!==slot).concat({name:f.name,url:compressed,slot}));};r.readAsDataURL(f);};
   const rm=(slot:string)=>setImages(images.filter(i=>i.slot!==slot));
   const get=(slot:string)=>images.find(i=>i.slot===slot);
-  const slots=[{s:"main",l:"主图",f:"搜索结果第一视觉",r:"纯白底·仅产品·无文字logo"},{s:"img2",l:"副图2",f:"核心卖点可视化",r:"图标+短句"},{s:"img3",l:"副图3",f:"使用场景展示",r:"真实环境"},{s:"img4",l:"副图4",f:"尺寸规格对比",r:"参照物+标注"},{s:"img5",l:"副图5",f:"功能细节演示",r:"特写/步骤"},{s:"img6",l:"副图6",f:"信任背书",r:"认证/质保/包装"},{s:"img7",l:"副图7",f:"场景氛围",r:"生活方式"}];
-  const aplus=[{s:"aplus1",l:"A+1",f:"品牌主视觉"},{s:"aplus2",l:"A+2",f:"差异化对比"},{s:"aplus3",l:"A+3",f:"卖点1·左图右文"},{s:"aplus4",l:"A+4",f:"卖点2"},{s:"aplus5",l:"A+5",f:"卖点3"},{s:"aplus6",l:"A+6",f:"技术规格参数"},{s:"aplus7",l:"A+7",f:"场景详解"},{s:"aplus8",l:"A+8",f:"认证质保"},{s:"aplus9",l:"A+9",f:"FAQ+售后"}];
+  const slots=[
+    {s:"main",l:"主图",f:"主图合规",r:"纯白底·仅产品·无文字logo"},
+    {s:"img2",l:"副图素材1",f:"ASIN描述完整度"},
+    {s:"img3",l:"副图素材2",f:"ASIN描述完整度"},
+    {s:"img4",l:"副图素材3",f:"ASIN描述完整度"},
+    {s:"img5",l:"副图素材4",f:"ASIN描述完整度"},
+    {s:"img6",l:"副图素材5",f:"ASIN描述完整度"},
+    {s:"img7",l:"副图素材6",f:"ASIN描述完整度"},
+  ];
+  const aplus=Array.from({length:9},(_,i)=>({s:`aplus${i+1}`,l:`A+素材${i+1}`}));
   return <div className="space-y-3">
     <div className="apple-card p-5"><h3 className="text-[13px] font-semibold text-[#86868b] uppercase tracking-wide mb-3">主图 & 副图</h3><div className="grid grid-cols-4 gap-3">{slots.map(s=><Slot key={s.s} slot={s.s} label={s.l} func={s.f} rule={s.r} img={get(s.s)} up={up(s.s)} rm={()=>rm(s.s)}/>)}</div></div>
-    <div className="apple-card p-5"><h3 className="text-[13px] font-semibold text-[#86868b] uppercase tracking-wide mb-3">A+ 内容（最多9张）</h3><div className="grid grid-cols-5 gap-3">{aplus.map(s=><Slot key={s.s} slot={s.s} label={s.l} func={s.f} img={get(s.s)} up={up(s.s)} rm={()=>rm(s.s)}/>)}</div></div>
+    <div className="apple-card p-5"><h3 className="text-[13px] font-semibold text-[#86868b] uppercase tracking-wide mb-3">A+ 内容</h3><div className="grid grid-cols-5 gap-3">{aplus.map(s=><Slot key={s.s} slot={s.s} label={s.l} img={get(s.s)} up={up(s.s)} rm={()=>rm(s.s)}/>)}</div></div>
   </div>;
 }
 
-function Slot({slot,label,func,rule,img,up,rm}:{slot:string;label:string;func:string;rule?:string;img?:{name:string;url:string};up:(e:React.ChangeEvent<HTMLInputElement>)=>void;rm:()=>void}){
+function Slot({slot,label,func,rule,img,up,rm}:{slot:string;label:string;func?:string;rule?:string;img?:{name:string;url:string};up:(e:React.ChangeEvent<HTMLInputElement>)=>void;rm:()=>void}){
   const [dr,setDr]=useState(false);
   const id=`slot-${slot}`;
-  return <div><input id={id} type="file" accept="image/*" className="hidden" onChange={up}/><label htmlFor={id} onDragOver={e=>{e.preventDefault();setDr(true)}} onDragLeave={()=>setDr(false)} onDrop={e=>{e.preventDefault();setDr(false);const f=e.dataTransfer.files?.[0];if(f&&f.type.startsWith("image/"))up({target:{files:e.dataTransfer.files}}as any)}} className={`flex flex-col items-center justify-center rounded-xl border-2 border-dashed cursor-pointer transition-colors h-[88px] ${img?"border-[#34c759]/40 bg-[#34c759]/[0.03]":dr?"border-[#0F2A24] bg-[#0F2A24]/[0.05]":"border-[#d2d2d7] hover:border-[#0F2A24]/40 hover:bg-[#0F2A24]/[0.02]"}`}>{img?<div className="relative w-full h-full"><img src={img.url} alt={img.name} className="w-full h-full object-cover rounded-lg"/><button onClick={e=>{e.preventDefault();rm()}} className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-[#ff3b30] text-white rounded-full text-[8px] flex items-center justify-center">×</button></div>:<span className="text-[11px] font-medium text-[#86868b]">{label}</span>}</label><p className="text-[10px] text-[#86868b] mt-1 text-center">{func}</p>{rule&&!img&&<p className="text-[9px] text-[#86868b]/60 text-center">{rule}</p>}</div>;
+  return <div><input id={id} type="file" accept="image/*" className="hidden" onChange={up}/><label htmlFor={id} onDragOver={e=>{e.preventDefault();setDr(true)}} onDragLeave={()=>setDr(false)} onDrop={e=>{e.preventDefault();setDr(false);const f=e.dataTransfer.files?.[0];if(f&&f.type.startsWith("image/"))up({target:{files:e.dataTransfer.files}}as any)}} className={`flex flex-col items-center justify-center rounded-xl border-2 border-dashed cursor-pointer transition-colors h-[88px] ${img?"border-[#34c759]/40 bg-[#34c759]/[0.03]":dr?"border-[#0F2A24] bg-[#0F2A24]/[0.05]":"border-[#d2d2d7] hover:border-[#0F2A24]/40 hover:bg-[#0F2A24]/[0.02]"}`}>{img?<div className="relative w-full h-full"><img src={img.url} alt={img.name} className="w-full h-full object-cover rounded-lg"/><button onClick={e=>{e.preventDefault();rm()}} className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-[#ff3b30] text-white rounded-full text-[8px] flex items-center justify-center">×</button></div>:<span className="text-[11px] font-medium text-[#86868b]">{label}</span>}</label>{func&&<p className="text-[10px] text-[#86868b] mt-1 text-center">{func}</p>}{rule&&!img&&<p className="text-[9px] text-[#86868b]/60 text-center">{rule}</p>}</div>;
 }

@@ -147,19 +147,8 @@ PRELAUNCH_SYSTEM = """你是一位 Amazon 上架准入审核专家。检查 List
 
 Amazon 图片规则（必须遵守）：
 - 主图：纯白底(RGB255)，产品占85%以上，无文字/logo/水印
-- 副图2：核心卖点可视化，图标+短句标注，用买家语言不用技术词
-- 副图3：真实使用场景，不能是白底产品图
-- 副图4：尺寸对比，必须有参照物+尺寸标注
-- 副图5：功能细节特写或使用步骤
-- 副图6：认证/质保/包装内容，信任背书
-- 副图7：生活方式场景氛围
-- A+1：品牌主视觉banner
-- A+2：产品差异化对比
-- A+3-5：卖点深挖（左图右文）
-- A+6：技术规格参数表
-- A+7：使用场景详解
-- A+8：认证质保
-- A+9：FAQ+售后
+- 副图：根据实际上传的副图素材判断 ASIN 描述完整度，不要求固定张数
+- A+内容：根据实际上传的 A+ 素材判断 ASIN 描述完整度，不要求固定张数
 - 所有图上文字必须买家语言（利益），不能卖家语言（功能）
 - 禁用词：Best, No.1, Guaranteed, 100%, Medical Grade
 
@@ -182,7 +171,7 @@ Item Highlight 规则（必须遵守）：
 4. 检查合规风险：绝对化词汇、夸大效果、无依据医疗承诺。如果 materials 中包含 compliance_violations，必须基于实际检测到的违规词输出高风险警告。
 
 逐位置诊断规则：
-标题、五点（1-5）、主图、副图（2-7）、A+（1-9）全部位置都要诊断。
+标题、五点（1-5）、主图、已上传副图素材、已上传 A+ 素材全部位置都要诊断。
 每个位置判定：通过 | 需修改 | 缺失。
 最终结论：可以上架 | 谨慎上架 | 暂不建议上架。
 
@@ -190,7 +179,6 @@ Item Highlight 规则（必须遵守）：
 - 主图缺失、主图非纯白底、主图出现文字/logo/水印/第三方品牌标识时，整体不得输出"可以上架"。
 - 标题超过 75 characters 时，整体不得输出"可以上架"。
 - 高风险 claim 未提供证据时，整体不得输出"可以上架"。
-- A+8 认证质保、A+9 FAQ+售后缺失时，必须在逐位置诊断中明确输出缺失，整体不得输出"内容完整"。
 
 Claim Risk Guardrail：
 - suggested_rewrite / recommendation 禁止出现：Safe for pets, Safe for cats, Safe for dogs, Safe for family, No harmful ozone, No ozone emissions, Non-toxic, Chemical-free, No harsh chemicals, Kills bacteria, Kills germs, Disinfects, Sterilizes, 100% odor removal, Completely eliminates odors, Eliminates odors, Odor-free home, Guaranteed freshness, Works while pets are present, Naturally removes odors, Medical grade, Hypoallergenic, Purifies all air, Whole home odor removal, Every corner of your home。
@@ -200,7 +188,7 @@ Claim Risk Guardrail：
 1. 没有 ASIN，只基于上传素材判断。
 2. 不出现广告、库存、物流字段。
 3. 每个需修改的位置给出具体的英文修改建议——即卖家可以直接粘贴到 Amazon Listing 的英文买家表达。
-4. 图片位置：uploaded_images 列出了已上传的位置和文件名，missing_images 列出了未上传的位置。如果 materials 中包含 ocr_texts，必须对照“可见文案、图片内容、产品场景吻合度”判断图片是否错配。错配标注并扣分。已上传的位置 → 各维度至少给 3 分。未上传的位置 → 各维度给 1 分，标注缺失。
+4. 图片位置：uploaded_images 列出了已上传的位置和文件名，missing_images 列出了未上传的位置。如果 materials 中包含 ocr_texts，必须对照“可见文案、图片内容、产品场景吻合度”判断图片是否错配。错配标注并扣分。已上传的位置 → 各维度至少给 3 分。主图未上传 → 各维度给 1 分，标注缺失。副图和 A+ 未上传位置不参与诊断。
 
 每个位置 issue 必须具体（不少于20字），说明「该位置现在是什么」「应该是什么」「差距在哪」。不允许笼统描述如"图片质量一般"。
 
@@ -213,35 +201,11 @@ Claim Risk Guardrail：
 - 点击力(0-5)：买家搜索看到会不会点
 - 影响指标：CTR
 
-副图2（核心卖点可视化）：
-- 卖点表达(0-5)：图标+短句是否清晰
+已上传副图素材：
+- 描述完整度(0-5)：是否补足 ASIN 的核心信息
 - 文案语言(0-5)：卖家技术语言=低分，买家利益语言=高分
+- 场景吻合度(0-5)：图片内容是否与 ASIN 描述一致
 - 影响指标：CVR, 加购率
-
-副图3（使用场景）：
-- 场景代入(0-5)：买家能否立即代入
-- 真实性(0-5)：是否真实环境而非PS
-- 影响指标：CVR, Session%
-
-副图4（尺寸规格）：
-- 对比清晰(0-5)：参照物+尺寸标注是否一目了然
-- 信息完整(0-5)：是否缺关键尺寸
-- 影响指标：退货率
-
-副图5（功能细节）：
-- 细节可读(0-5)：特写/步骤是否清晰
-- 差异化(0-5)：是否展示竞品没有的功能
-- 影响指标：CVR, 广告转化率
-
-副图6（信任背书）：
-- 信任度(0-5)：认证/质保/包装是否完整
-- 合规风险(0-5)：是否有夸大或虚假背书
-- 影响指标：退货率, 差评率
-
-副图7（场景氛围）：
-- 情感共鸣(0-5)：生活方式展示是否打动买家
-- 品牌调性(0-5)：是否符合目标客群审美
-- 影响指标：品牌搜索量
 
 A+模块（每个模块按内容类型评分）：
 - 如果是品牌故事 → 品牌记忆度(0-5)
@@ -295,7 +259,7 @@ __MATERIALS_JSON__
       "usable_status": "可直接使用 | 可使用但建议优化 | 表达弱需重写 | 不可使用",
       "impact_metrics": ["CTR", "CVR"]
     }},
-    ... (同样结构覆盖：highlights, bullet_1~5, main_image, image_2~7, aplus_1~9)
+    ... (同样结构覆盖：highlights, bullet_1~5, main_image, 已上传副图素材, 已上传 A+ 素材)
   ],
   "overall_status": "ready_to_launch | cautious_launch_after_fix | fix_required_before_launch | not_recommended",
   "hard_blockers": [],

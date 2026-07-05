@@ -549,7 +549,7 @@ class TenantIsolationTest(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("safe for pets", serialized)
         self.assertNotIn("eliminates odors", serialized)
 
-    async def test_prelaunch_rules_add_aplus_8_and_9_missing_positions(self):
+    async def test_prelaunch_rules_do_not_require_fixed_aplus_slots(self):
         result = apply_prelaunch_rules(
             {"admission_result": "可以上架", "position_diagnoses": []},
             {
@@ -561,10 +561,26 @@ class TenantIsolationTest(unittest.IsolatedAsyncioTestCase):
             },
         )
         by_id = {item.get("position_id"): item for item in result["position_diagnoses"]}
-        self.assertIn("aplus_8", by_id)
-        self.assertIn("aplus_9", by_id)
-        self.assertEqual(by_id["aplus_8"]["final_score"], 1.0)
-        self.assertEqual(by_id["aplus_9"]["usable_status"], "不可使用")
+        blocker_types = {item["type"] for item in result["hard_blockers"]}
+        self.assertNotIn("aplus_8", by_id)
+        self.assertNotIn("aplus_9", by_id)
+        self.assertNotIn("missing_required_trust_module", blocker_types)
+        self.assertNotIn("missing_required_faq_module", blocker_types)
+
+    async def test_prelaunch_rules_do_not_require_fixed_secondary_image_slots(self):
+        result = apply_prelaunch_rules(
+            {"admission_result": "可以上架", "position_diagnoses": []},
+            {
+                "title_draft": "Gleeda Pet Odor Eliminator for Cat Litter, No Ozone, No Filters",
+                "key_highlights": "No filters or refills",
+                "bullet_points": ["USB powered", "", "", "", ""],
+                "uploaded_images": [{"position": "main_image"}],
+                "missing_images": ["image_2", "image_3", "image_4", "image_5", "image_6", "image_7"],
+            },
+        )
+        by_id = {item.get("position_id"): item for item in result["position_diagnoses"]}
+        for position_id in ["image_2", "image_3", "image_4", "image_5", "image_6", "image_7"]:
+            self.assertNotIn(position_id, by_id)
 
     async def test_prelaunch_rules_use_pet_small_space_intent_not_technical_terms(self):
         result = apply_prelaunch_rules(
@@ -582,11 +598,11 @@ class TenantIsolationTest(unittest.IsolatedAsyncioTestCase):
                     },
                     {
                         "position_id": "aplus_1",
-                        "position_name": "A+1 Brand Hero",
+                        "position_name": "A+素材1",
                         "position_type": "a_plus",
                         "status": "需修改",
                         "issue": "AI逐图判断",
-                        "recommendation": "AI原始建议",
+                        "recommendation": "补充或确认该图文案，目标：ASIN描述完整度。",
                         "final_score": 3.8,
                     },
                 ],
@@ -614,7 +630,8 @@ class TenantIsolationTest(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("Photocatalyst", result["title_analysis"]["suggested_title"])
         by_id = {item.get("position_id"): item for item in result["position_diagnoses"]}
         self.assertNotIn("VOC", by_id["bullet_1"]["recommendation"])
-        self.assertEqual(by_id["aplus_1"]["recommendation"], "AI原始建议")
+        self.assertEqual(by_id["aplus_1"]["position_name"], "A+素材1")
+        self.assertEqual(by_id["aplus_1"]["recommendation"], "补充或确认该图文案，目标：ASIN描述完整度。")
 
     async def test_prelaunch_rules_do_not_force_pet_intent_on_other_categories(self):
         result = apply_prelaunch_rules(

@@ -65,10 +65,20 @@ def _saved_image_fields(req: PrelaunchCheckRequest) -> dict:
         if not isinstance(item, dict):
             continue
         slot = item.get("slot")
-        base64_value = item.get("base64")
-        if not slot or not base64_value:
+        base64_value = str(item.get("base64") or "").strip()
+        url_value = str(item.get("url") or "").strip()
+        if not slot:
             continue
-        url = f"data:image/jpeg;base64,{base64_value}"
+        if base64_value:
+            url = (
+                base64_value
+                if base64_value.startswith("data:image/")
+                else f"data:image/jpeg;base64,{base64_value}"
+            )
+        elif url_value:
+            url = url_value
+        else:
+            continue
         if slot in slot_to_field:
             fields[slot_to_field[slot]] = url
         elif str(slot).startswith("aplus"):
