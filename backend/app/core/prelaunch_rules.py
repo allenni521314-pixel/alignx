@@ -335,7 +335,7 @@ def _a_plus_analysis(materials: dict[str, Any]) -> list[dict[str, Any]]:
         ocr_text = _image_ocr_text(ocr_texts, position_id)
         ocr_status = _image_ocr_status(ocr_texts, position_id)
         raw_slot = RAW_A_PLUS_SLOT_BY_POSITION.get(position_id)
-        if ocr_status != "success" and raw_slot:
+        if ocr_status == "pending" and raw_slot:
             ocr_text = _image_ocr_text(ocr_texts, raw_slot)
             ocr_status = _image_ocr_status(ocr_texts, raw_slot)
         has_ocr = ocr_status == "success"
@@ -486,7 +486,7 @@ def _secondary_image_positions(materials: dict[str, Any]) -> list[dict[str, Any]
 
         ocr_text = _image_ocr_text(ocr_texts, position_id)
         ocr_status = _image_ocr_status(ocr_texts, position_id)
-        if ocr_status != "success" and slot_name:
+        if ocr_status == "pending" and slot_name:
             ocr_text = _image_ocr_text(ocr_texts, slot_name)
             ocr_status = _image_ocr_status(ocr_texts, slot_name)
         has_ocr = ocr_status == "success"

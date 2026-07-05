@@ -124,7 +124,7 @@ def _build_listing_image_ocr_prompt(slot: str = "", product_context: str = "") -
 
 async def _call_qwen_vision(image_b64: str, prompt: str, max_tokens: int = 200) -> str:
     if not QWEN_KEY:
-        return ""
+        raise RuntimeError("视觉识别 API Key 未配置（QWEN_API_KEY 为空），请在 Render 环境变量中设置")
     if _image_too_small(image_b64):
         raise ValueError(f"图片尺寸过小（小于 {MIN_IMAGE_DIMENSION}px），无法识别")
     timeout = httpx.Timeout(60.0, connect=10.0)
@@ -183,7 +183,7 @@ async def extract_text_from_base64_list(items: list, product_context: str = "") 
     """OCR uploaded images with the same single-image path used by listing analysis."""
     if not items or not QWEN_KEY:
         if not QWEN_KEY:
-            _logger.warning("Qwen API key not configured — OCR skipped")
+            raise RuntimeError("视觉识别 API Key 未配置（QWEN_API_KEY 为空），请在 Render 环境变量中设置")
         return []
 
     normalized_items = [
