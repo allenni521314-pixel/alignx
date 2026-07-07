@@ -41,6 +41,10 @@ class Settings(BaseSettings):
     aws_secret_access_key: str = ""
     s3_bucket: str = "alignx-data"
     validation_budget_limit: float = 0.0
+    sendgrid_api_key: str = ""
+    report_from_email: str = "report@alignx.io"
+    report_from_name: str = "AlignX"
+    report_push_token: str = ""
 
 
 @lru_cache

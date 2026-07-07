@@ -40,6 +40,13 @@ services:
         value: "true"
       - key: DEBUG
         value: "false"
+      - key: SENDGRID_API_KEY
+        sync: false
+      - key: REPORT_FROM_EMAIL
+        value: report@alignx.io
+      - key: REPORT_FROM_NAME
+        value: AlignX
+      - fromGroup: alignx-report-push
 
   # Frontend static site
   - type: web
@@ -53,3 +60,22 @@ services:
         value: https://alignxagent-api.onrender.com
       - key: PNPM_CONFIG_FROZEN_LOCKFILE
         value: "false"
+
+  # Daily report push
+  - type: cron
+    name: alignx-daily-report-push
+    runtime: python
+    rootDir: backend
+    schedule: "0 0 * * *"
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m app.jobs.trigger_daily_report_push
+    envVars:
+      - key: ALIGNX_API_BASE
+        value: https://alignxagent-api.onrender.com
+      - fromGroup: alignx-report-push
+
+envVarGroups:
+  - name: alignx-report-push
+    envVars:
+      - key: REPORT_PUSH_TOKEN
+        generateValue: true

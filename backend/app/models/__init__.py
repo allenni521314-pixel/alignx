@@ -614,3 +614,20 @@ class HelpFeedback(Base):
     rating      = Column(String(32), nullable=True)
     comment     = Column(Text, nullable=True)
     created_at  = Column(DateTime, nullable=False, default=utcnow)
+
+
+# ═══════════════════════════════════════════
+# 20. Daily Report Push Logs
+# ═══════════════════════════════════════════
+
+class DailyReportPushLog(Base):
+    __tablename__ = "daily_report_push_logs"
+
+    id            = Column(String(32), primary_key=True, default=new_uuid)
+    user_id       = Column(String(32), ForeignKey("users.id"), nullable=False, index=True)
+    report_date   = Column(String(32), nullable=False, index=True)
+    email         = Column(String(255), nullable=False)
+    status        = Column(String(32), nullable=False, index=True)
+    error_message = Column(Text, nullable=True)
+    sent_at       = Column(DateTime, nullable=True)
+    created_at    = Column(DateTime, nullable=False, default=utcnow)
