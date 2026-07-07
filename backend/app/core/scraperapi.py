@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import re
 import httpx
+from urllib.parse import urlparse
 from app.config import get_settings
 from app.core.capture import CaptureResult
 from app.core.listing_images import extract_slot_image_texts
@@ -53,10 +54,21 @@ class ScraperAPIProvider:
 
     async def _fetch(self, amazon_url: str, identifier: str, is_search: bool = False) -> CaptureResult:
         try:
-            proxy_url = f"https://api.scraperapi.com/?api_key={self.key}&url={amazon_url}&country_code=us"
-            resp = await self.client.get(proxy_url)
+            params = {
+                "api_key": self.key,
+                "url": amazon_url,
+                "country_code": self._country_code_from_url(amazon_url),
+            }
+            resp = await self.client.get(settings.scraperapi_base_url, params=params)
             resp.raise_for_status()
             html = resp.text
+            if self._is_blocked_or_empty_html(html):
+                return CaptureResult(
+                    raw_html=html,
+                    capture_status="failed",
+                    capture_provider="scraperapi",
+                    error_message="抓取失败",
+                )
 
             if is_search:
                 return self._parse_search_html(html, identifier)
@@ -67,8 +79,10 @@ class ScraperAPIProvider:
                     await self._ocr_images(result)
                     self._finalize_product_result(result)
                 return result
-        except Exception as e:
-            return CaptureResult(capture_status="failed", capture_provider="scraperapi", error_message=str(e))
+        except httpx.HTTPStatusError:
+            return CaptureResult(capture_status="failed", capture_provider="scraperapi", error_message="抓取失败")
+        except Exception:
+            return CaptureResult(capture_status="failed", capture_provider="scraperapi", error_message="抓取失败")
 
     # ── HTML parsers ──────────────────────────────────
 
@@ -165,6 +179,9 @@ class ScraperAPIProvider:
             capture_provider="scraperapi",
         )
         self._finalize_product_result(result)
+        if not fields.get("title"):
+            result.capture_status = "failed"
+            result.error_message = "抓取失败"
         return result
 
     def _parse_search_html(self, html: str, keyword: str) -> CaptureResult:
@@ -359,3 +376,27 @@ class ScraperAPIProvider:
     def _extract_asin(self, url: str) -> str | None:
         match = re.search(r"/dp/([A-Z0-9]{10})", url)
         return match.group(1) if match else None
+
+    def _country_code_from_url(self, url: str) -> str:
+        host = urlparse(url).netloc.lower()
+        if "amazon.co.uk" in host:
+            return "gb"
+        if "amazon.co.jp" in host:
+            return "jp"
+        for suffix in ("ca", "de", "fr", "it", "es", "au", "mx", "nl", "se", "pl", "in", "sg"):
+            if f"amazon.{suffix}" in host or f"amazon.com.{suffix}" in host:
+                return suffix
+        return "us"
+
+    def _is_blocked_or_empty_html(self, html: str) -> bool:
+        text = (html or "").lower()
+        if not text.strip():
+            return True
+        blocked_markers = (
+            "opfcaptcha.amazon.com",
+            "/errors/validatecaptcha",
+            "to discuss automated access to amazon data",
+            "enter the characters you see below",
+            "captcha",
+        )
+        return any(marker in text for marker in blocked_markers)

@@ -10,6 +10,21 @@ from app.services.access import require_user_id, user_scoped
 from app.services.listing_ai_pipeline import extract_asin, run_competitor_listing_ai_pipeline
 
 
+def _safe_capture_status(value: str | None) -> str:
+    text = (value or "").strip()
+    if not text:
+        return "抓取失败"
+    if "抓取失败" in text:
+        return "抓取失败"
+    if "404" in text or "not found" in text.lower():
+        return "抓取失败"
+    if "captcha" in text.lower() or "validateCaptcha" in text:
+        return "抓取失败"
+    if "api_key=" in text or "scraperapi.com" in text.lower():
+        return "抓取失败"
+    return text[:120]
+
+
 async def analyze_competitor(req: CompetitorAnalysisRequest, db: AsyncSession, user_id: str | None = None) -> CompetitorAnalysisResponse:
     uid = require_user_id(user_id)
     asin = extract_asin(req.asin)
@@ -49,17 +64,23 @@ async def analyze_competitor(req: CompetitorAnalysisRequest, db: AsyncSession, u
             twelve_dimension_result_json=ai_result.get("twelve_dimension", {}),
         )
     else:
+        status_text = _safe_capture_status(pipeline_result.capture_error)
         report = CompetitorAnalysisReport(
             user_id=uid, asin=asin, product_url=req.product_url,
-            marketplace=req.marketplace, product_title=title, brand=brand,
+            marketplace=req.marketplace, product_title=title or "待录入", brand=brand,
             price=listing_data.get("price"),
             rating=listing_data.get("rating"),
             review_count=listing_data.get("review_count"),
             overall_judgment=(
                 "数据已抓取，AI 分析待完成"
                 if listing_data
-                else f"抓取失败: {pipeline_result.capture_error}"
+                else status_text
             ),
+            main_strengths=[],
+            main_weaknesses=[],
+            attack_points=[],
+            worth_benchmarking=None,
+            twelve_dimension_result_json={"状态": status_text},
         )
 
     db.add(report)

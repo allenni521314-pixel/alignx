@@ -23,6 +23,21 @@ const DIM_LABELS: Record<string, { icon: React.ComponentType<{ size?: number; cl
   conversion_risk_and_attack_points: { icon: Shield, label: "可攻击点" },
 };
 
+function safePageError(error: unknown) {
+  const message = error instanceof Error ? error.message : "请求失败";
+  const lower = message.toLowerCase();
+  if (
+    lower.includes("scraperapi.com") ||
+    lower.includes("api_key=") ||
+    lower.includes("client error") ||
+    lower.includes("404 not found") ||
+    lower.includes("captcha")
+  ) {
+    return "抓取失败";
+  }
+  return message;
+}
+
 export default function CompetitorAnalysis() {
   const [asin, setAsin] = useState("");
   const [analyzing, setAnalyzing] = useState(false);
@@ -49,7 +64,7 @@ export default function CompetitorAnalysis() {
       setResult(res);
       setDone(true);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "请求失败");
+      setError(safePageError(e));
     } finally {
       setAnalyzing(false);
     }

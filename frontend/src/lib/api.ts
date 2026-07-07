@@ -4,6 +4,22 @@ const BASE = (import.meta.env.VITE_API_BASE || "") + "/api/v1";
 
 export const API_BASE = BASE;
 
+function safeErrorMessage(value: unknown) {
+  const message = typeof value === "string" ? value : "";
+  if (!message) return "";
+  const lower = message.toLowerCase();
+  if (
+    lower.includes("scraperapi.com") ||
+    lower.includes("api_key=") ||
+    lower.includes("client error") ||
+    lower.includes("404 not found") ||
+    lower.includes("captcha")
+  ) {
+    return "抓取失败";
+  }
+  return message;
+}
+
 function clearAuthState() {
   localStorage.removeItem("alignx_token");
   localStorage.removeItem("alignx_user");
@@ -33,7 +49,7 @@ export async function request<T>(url: string, options?: RequestInit): Promise<T>
       : err.detail
       ? JSON.stringify(err.detail)
       : "";
-    throw new Error(detail || `Request failed: ${res.status}`);
+    throw new Error(safeErrorMessage(detail) || `Request failed: ${res.status}`);
   }
   return res.json();
 }
